@@ -18,8 +18,8 @@ from .project import BuildType, _CMAKE_BUILD_TYPE
 
 def _editor_build_dir(root):
     """Editor gets its own build tree so its always-Release-by-default configure
-    never clobbers a debug `build/` tree produced by `se build --type debug`."""
-    return root / "build-editor"
+    never clobbers a debug `build/default` tree produced by `se build --type debug`."""
+    return root / "build" / "editor"
 
 
 def build_and_run(run: bool = True, build_type: BuildType = BuildType.release) -> int:

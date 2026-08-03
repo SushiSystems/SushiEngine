@@ -1,9 +1,16 @@
+# One tree per configure lane: build/{default,editor,player,native}. The two
+# flat names are the shape the CLI used before those lanes existed, kept ignored
+# so an existing checkout's trees do not surface as untracked.
 build/
 build-editor/
 build-player/
 *.log
 
-# Editor runtime layout, written next to the working dir on exit.
+# Cooked physics assets, written relative to the editor's working directory.
+/cooked/
+
+# Dear ImGui's own default layout file. The editor pins io.IniFilename to the
+# per-user config directory instead, so this only appears if something forgets to.
 imgui.ini
 
 # Disk-backed pipeline cache blob, written next to the working dir at runtime.

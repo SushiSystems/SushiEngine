@@ -87,10 +87,11 @@ def config_show() -> int:
 def env_dump(show_all: bool = False) -> int:
     console.header("Build Environment")
     from ..env import load_build_env  # local import: avoids a cycle at module load
+    from .project import _build_dir
 
     root = find_project_root()
     cfg = load_config()
-    env = load_build_env(cfg, root / "build")
+    env = load_build_env(cfg, _build_dir(root))
 
     def keep(key: str) -> bool:
         return show_all or any(tok in key.upper() for tok in _ENV_OF_INTEREST)

@@ -56,9 +56,14 @@ def build(
     no_test: bool = typer.Option(
         False, "--no-test",
         help="Skip compiling the test suite (SE_BUILD_TESTS=OFF). Tests build by default."),
+    examples: bool = typer.Option(
+        False, "--examples",
+        help="Also build the worked examples under samples/ (SE_BUILD_EXAMPLES=ON), "
+             "which `se run <demo>` needs. Off by default: each demo is its own "
+             "SYCL device compile."),
 ):
     """Configure and build the project against the SushiRuntime sibling."""
-    raise typer.Exit(project_svc.build(type, clean, tests=not no_test))
+    raise typer.Exit(project_svc.build(type, clean, tests=not no_test, examples=examples))
 
 
 @app.command("test")
@@ -102,7 +107,7 @@ def run(
 
 @app.command("clean")
 def clean():
-    """Remove the build/ tree."""
+    """Remove the build/default tree."""
     raise typer.Exit(project_svc.clean())
 
 
@@ -125,8 +130,8 @@ def editor(
 ):
     """Build and launch the ImGui editor (configures with SE_BUILD_EDITOR=ON).
 
-    Uses its own build-editor/ tree, separate from `se build`'s build/, so the
-    two never clobber each other's CMAKE_BUILD_TYPE.
+    Uses its own build/editor tree, separate from `se build`'s build/default, so
+    the two never clobber each other's CMAKE_BUILD_TYPE.
     """
     raise typer.Exit(editor_svc.build_and_run(run=not no_run, build_type=type))
 
@@ -146,8 +151,8 @@ def player(
 ):
     """Build and launch the ImGui-free player (configures with SE_BUILD_PLAYER=ON).
 
-    Uses its own build-player/ tree, separate from `se build`'s build/, so the
-    two never clobber each other's CMAKE_BUILD_TYPE. Arguments after `--` are
+    Uses its own build/player tree, separate from `se build`'s build/default, so
+    the two never clobber each other's CMAKE_BUILD_TYPE. Arguments after `--` are
     forwarded to se_player, so `se player -- --scene path/to/scene.sushiscene`
     works. `se player -- --headless --frames 30` runs a fixed number of frames
     with no window and exits (PLATFORM0 S6, for CI without a display) instead

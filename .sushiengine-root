@@ -1,0 +1,1 @@
+Marker for the SushiEngine repository root; the `se` CLI resolves the project root by finding this file.

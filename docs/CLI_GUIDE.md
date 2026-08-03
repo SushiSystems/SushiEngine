@@ -72,11 +72,22 @@ se build                  # Release build (the default)
 se build --type debug     # Debug build
 se build --clean          # delete the build tree first, then build from scratch
 se build --no-test        # skip compiling the test suite (SE_BUILD_TESTS=OFF)
+se build --examples       # also build the worked examples under samples/
 ```
 
 The `--type` (`-t`) option accepts `release`, `debug`, or `relwithdebinfo`. The
 test suite is compiled by default; pass `--no-test` to skip it for a faster,
 engine-only build.
+
+`--examples` turns on `SE_BUILD_EXAMPLES`, which declares the demos under
+`samples/`. It is off by default because each demo is its own SYCL translation
+unit and so its own device compile; a plain `se build` only produces `sandbox`
+and `pgs_demo`. Run `se build --examples` first if `se run <demo>` cannot find
+the binary you asked for.
+
+Each lane configures into its own subdirectory of `build/` — `build/default` for
+`se build`, `build/editor` for `se editor`, `build/player` for `se player` — so
+no two lanes ever clobber each other's cache.
 
 ### `se test`
 
@@ -113,7 +124,7 @@ The target name is matched exactly first, then by substring. Anything after
 ### `se clean` and `se doxygen`
 
 ```bash
-se clean       # remove the build/ tree
+se clean       # remove the build/default tree
 se doxygen     # generate Doxygen documentation
 ```
 
@@ -125,8 +136,8 @@ se editor --type debug    # Debug build
 se editor --no-run        # build the editor but do not launch it
 ```
 
-Configures with `SE_BUILD_EDITOR=ON` and builds into its own `build-editor/`
-tree, separate from `se build`'s `build/`, so the two never clobber each
+Configures with `SE_BUILD_EDITOR=ON` and builds into its own `build/editor`
+tree, separate from `se build`'s `build/default`, so the two never clobber each
 other's `CMAKE_BUILD_TYPE`.
 
 ## `se render` — the headless Vulkan probes

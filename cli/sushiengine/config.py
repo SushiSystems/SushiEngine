@@ -30,17 +30,24 @@ from sushicli.config_base import ToolConfig, load_tool_config
 from sushicli.workspace import has_marker, resolve_env_path, walk_up
 
 
+# A root-only sentinel rather than CMakeLists.txt: every engine module carries one
+# of those, so keying on it resolves to whichever module directory the command was
+# run from, and every path derived from the root — cli/, the build trees, assets —
+# silently points somewhere wrong.
+ROOT_MARKER = ".sushiengine-root"
+
+
 def find_project_root(start: Path | None = None) -> Path:
-    """Locate the repo root by walking up from CWD until CMakeLists.txt is found.
+    """Locate the repo root by walking up from CWD until the root marker is found.
 
     The CLI is installed (pip/pipx) outside the repo, so the package location
     tells us nothing about where the project lives — the invocation directory
     does. Run any `se` command from anywhere inside the checkout.
     """
-    root = walk_up(start or Path.cwd(), has_marker("CMakeLists.txt"))
+    root = walk_up(start or Path.cwd(), has_marker(ROOT_MARKER))
     if root is None:
         raise SystemExit(
-            "Not inside a SushiEngine project: no CMakeLists.txt found in the "
+            f"Not inside a SushiEngine project: no {ROOT_MARKER} found in the "
             "current directory or any parent. cd into the repo and try again."
         )
     return root
@@ -92,7 +99,7 @@ class Config(ToolConfig):
     def runtime_dir(self, root: Path) -> Path:
         """Resolve the SushiRuntime checkout this engine builds against.
 
-        @param root The engine project root (the directory holding CMakeLists.txt).
+        @param root The engine project root (the directory holding the root marker).
         @return The runtime directory, defaulting to ``<root>/../sushiruntime``
                 (which, inside a SushiStack workspace, is the sibling module).
         """

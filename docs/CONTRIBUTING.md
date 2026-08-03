@@ -39,6 +39,13 @@ ss add sushiruntime sushiengine    # clone both engine repos into the workspace
 ss install-cli sushiengine         # install `se` / `sushiengine`
 ```
 
+Then, once per clone, tell `git blame` to look through the commits that only moved
+files, so it reports the change that wrote a line rather than the move:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
 Every build and program action goes through the `se` CLI (per this repo's
 `CLAUDE.md`) — never invoke `cmake`/`ninja` directly:
 

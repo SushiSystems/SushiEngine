@@ -55,7 +55,9 @@ _CMAKE_BUILD_TYPE = {
 
 
 def _build_dir(root: Path) -> Path:
-    return root / "build"
+    """The default lane's tree. Each lane gets its own subdirectory of build/ so a
+    lane's CMAKE_BUILD_TYPE and -D flags never clobber another's cache."""
+    return root / "build" / "default"
 
 
 def _cmake(cfg: Config) -> str:
@@ -165,7 +167,7 @@ def _check_runtime(cfg: Config, root: Path) -> int:
 
 
 def _configure_args(cfg: Config, root: Path, build_dir: Path,
-                    build_type: str, tests: bool) -> list[str]:
+                    build_type: str, tests: bool, examples: bool = False) -> list[str]:
     runtime = cfg.runtime_dir(root)
     cxx = cfg.resolved_compiler(root)
     vcpkg = cfg.resolved_vcpkg(root)
@@ -176,6 +178,7 @@ def _configure_args(cfg: Config, root: Path, build_dir: Path,
         f"-DCMAKE_CXX_COMPILER={cxx}",
         f"-DSUSHIRUNTIME_DIR={runtime}",
         f"-DSE_BUILD_TESTS={'ON' if tests else 'OFF'}",
+        f"-DSE_BUILD_EXAMPLES={'ON' if examples else 'OFF'}",
     ]
     # On Windows clang++ also drives the C probe; point both slots at it.
     if cfg.is_windows:
@@ -199,7 +202,8 @@ def _configure_args(cfg: Config, root: Path, build_dir: Path,
     return args
 
 
-def build(build_type: BuildType, clean: bool = False, tests: bool = True) -> int:
+def build(build_type: BuildType, clean: bool = False, tests: bool = True,
+          examples: bool = False) -> int:
     console.header("Project Build")
     root = find_project_root()
     cfg = load_config()
@@ -213,12 +217,13 @@ def build(build_type: BuildType, clean: bool = False, tests: bool = True) -> int
         clean_tree(root)
 
     console.info(f"Tests: {'ON' if tests else 'OFF'}")
+    console.info(f"Examples: {'ON' if examples else 'OFF'}")
     console.info(f"Runtime: {cfg.runtime_dir(root)}")
 
     env = load_build_env(cfg, build_dir)
 
     # Configure on every build, not only when the tree has to be thrown away. `se render`
-    # and `se editor` reach the same tree with their own -D flags, so a cache left by one of
+    # and `se audio` reach the same tree with their own -D flags, so a cache left by one of
     # them can disagree with what this call was asked for — and the disagreement is silent:
     # the header above would report "Tests: ON" while the cache said OFF and nothing built
     # the suite, so `se test` would then pass against a stale binary. Re-running configure in
@@ -230,7 +235,8 @@ def build(build_type: BuildType, clean: bool = False, tests: bool = True) -> int
             shutil.rmtree(build_dir, ignore_errors=True)
     else:
         console.info(f"Reconfiguring in place (tests={'ON' if tests else 'OFF'})...")
-    rc = _run(_configure_args(cfg, root, build_dir, cmake_build_type, tests), env, cwd=root)
+    rc = _run(_configure_args(cfg, root, build_dir, cmake_build_type, tests, examples),
+              env, cwd=root)
     if rc != 0:
         console.error("CMake configure failed.")
         return rc
@@ -252,7 +258,7 @@ def test(suite: Suite, filter: str | None = None, repeat: int = 0) -> int:
     cfg = load_config()
     build_dir = _build_dir(root)
     if not build_dir.is_dir():
-        console.error("build/ not found. Run `se build` first.")
+        console.error("build/default not found. Run `se build` first.")
         return 1
 
     env = load_build_env(cfg, build_dir)
@@ -276,7 +282,7 @@ def run(target: str | None = None, sort: bool = False,
     cfg = load_config()
     build_dir = _build_dir(root)
     if not build_dir.is_dir():
-        console.error("build/ not found. Run `se build` first.")
+        console.error("build/default not found. Run `se build` first.")
         return 1
 
     env = load_build_env(cfg, build_dir)
@@ -309,7 +315,7 @@ def clean_tree(root: Path) -> None:
         shutil.rmtree(build_dir, ignore_errors=True)
         console.success("Build directory cleaned.")
     else:
-        console.info("build/ does not exist, nothing to clean.")
+        console.info("build/default does not exist, nothing to clean.")
 
 
 def clean() -> int:

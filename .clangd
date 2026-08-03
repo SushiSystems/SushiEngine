@@ -1,0 +1,5 @@
+CompileFlags:
+  # Every lane exports its own compile_commands.json, so name the one an editor
+  # should read. Without this clangd probes <root>/build/, which is now only the
+  # container of the three lane trees and holds no database of its own.
+  CompilationDatabase: build/default

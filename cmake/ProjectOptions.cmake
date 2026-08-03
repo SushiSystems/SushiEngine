@@ -7,6 +7,8 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+# Every lane writes its own database into its own tree; `.clangd` at the root names
+# build/default as the one an editor reads, since the three cannot be merged.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # The editor is a plain C++ SDL2/ImGui shell — no runtime link, no SYCL — so it

@@ -1,0 +1,22 @@
+# Editor-level half of docs/CONTRIBUTING.md §4, kept in step with .clang-format.
+# LF and a final newline are what the repository actually stores: every blob in the
+# index is LF, and one file out of 1029 lacks a trailing newline.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{hpp,cpp,h,c,glsl,vert,frag,comp}]
+max_line_length = 100
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+# Two trailing spaces are a hard line break in Markdown.
+trim_trailing_whitespace = false

@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "description": "Repo-owned knobs only. The compiler, the vcpkg toolchain file and SUSHIRUNTIME_DIR are machine-specific and stay out of a committed file: the se CLI reads them from cli/config.local.toml, and CMake's own defaults (clang++ on PATH, ../sushiruntime) cover a plain checkout. Pass -DCMAKE_CXX_COMPILER=... / -DCMAKE_TOOLCHAIN_FILE=... alongside the preset when they are not on PATH.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "default",
+      "inherits": "base",
+      "displayName": "Default (runtime backend, tests on)",
+      "description": "What `se build` configures: the SushiRuntime execution backend with the test suite compiled and the samples gated off.",
+      "binaryDir": "${sourceDir}/build/default",
+      "cacheVariables": {
+        "SE_BUILD_TESTS": "ON",
+        "SE_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "native",
+      "inherits": "base",
+      "displayName": "Native execution backend (no SYCL toolchain)",
+      "description": "The SYCL-free lane: no SushiRuntime subproject, and samples/ declares only sandbox and pgs_demo. Its own tree because a native cache cannot be reused by the runtime lane.",
+      "binaryDir": "${sourceDir}/build/native",
+      "cacheVariables": {
+        "SE_EXECUTION_BACKEND": "native",
+        "SE_BUILD_TESTS": "ON",
+        "SE_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "editor",
+      "inherits": "base",
+      "displayName": "Editor shell",
+      "description": "What `se editor` configures. Turning the editor on turns render, input and audio on inside CMakeLists.txt, so they are not repeated here.",
+      "binaryDir": "${sourceDir}/build/editor",
+      "cacheVariables": {
+        "SE_BUILD_EDITOR": "ON",
+        "SE_BUILD_TESTS": "OFF",
+        "SE_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "player",
+      "inherits": "base",
+      "displayName": "Player shell",
+      "description": "What `se player` configures. Turning the player on turns render and input on inside CMakeLists.txt, so they are not repeated here.",
+      "binaryDir": "${sourceDir}/build/player",
+      "cacheVariables": {
+        "SE_BUILD_PLAYER": "ON",
+        "SE_BUILD_TESTS": "OFF",
+        "SE_BUILD_EXAMPLES": "OFF"
+      }
+    }
+  ]
+}

@@ -21,10 +21,10 @@ from .project import BuildType, _CMAKE_BUILD_TYPE
 
 
 def _player_build_dir(root):
-    """The player gets its own build tree, the same reason build-editor/ does:
-    its always-Release-by-default configure must never clobber a debug `build/`
-    tree produced by `se build --type debug`."""
-    return root / "build-player"
+    """The player gets its own build tree, the same reason build/editor does:
+    its always-Release-by-default configure must never clobber a debug
+    `build/default` tree produced by `se build --type debug`."""
+    return root / "build" / "player"
 
 
 def build_and_run(run: bool = True, build_type: BuildType = BuildType.release,

@@ -1,0 +1,22 @@
+# Commits that only move files. Each one is a pure rename with byte-identical
+# content, so `git blame` should look through it to the change that wrote the line.
+# Activate it once per clone:
+#
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# refactor: move the foundation tier into engine/foundation
+f95a6f079f37154f7b77b836358ace239691bfa3
+# refactor: move geometry and physics into engine/domain
+57887887e46a987db5a817ca1ba901c5ff6f1c08
+# refactor: move seven more domain modules into engine/domain
+0295d80a9311ab15aba3e69202e2a634c224f7d2
+# refactor: descend the environment vocabulary into engine/domain
+0306bf6fa362881b7da536067002b4143c3d1774
+# refactor: create the glTF module in the asset tier
+1096dfb3fe44e2ca4b19cff7df92cbe37a7767f6
+# refactor: move the renderer into engine/presentation and split out tools
+10910eca0e84c78bed56a07ffc575f2e3b869b6d
+# refactor: move the world tier into engine/world
+adff5b4ef6023ef35188cfba3d87a1e5d27e12fb
+# refactor: move the applications, samples and tests into their tiers
+ff616f804c145737a28a96c08fb802af8bc57440

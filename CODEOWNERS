@@ -1,0 +1,3 @@
+# Review ownership for the whole repository. One author, so one rule; split it by
+# path only when a second maintainer actually owns a tier.
+* @sushimg

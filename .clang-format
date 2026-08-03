@@ -1,0 +1,62 @@
+---
+# The mechanical half of docs/CONTRIBUTING.md §4. Every value here was measured
+# against the tree rather than chosen: 99.1% of lines already fit in 100 columns,
+# pointer and reference declarators bind left about seven times in eight, every
+# namespace body is indented, and 671 of 673 access specifiers indent their members
+# one further level. Needs clang-format 14 or newer.
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++17
+
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+ConstructorInitializerIndentWidth: 4
+
+BreakBeforeBraces: Allman
+NamespaceIndentation: All
+# The tree indents a class's `public:` one level and its members two, but a struct
+# with no access specifier only one. clang-format has one knob for both, and this is
+# the cheaper side: with it on, 92.6% of lines are already byte-identical to what
+# clang-format produces; with it off, 75.7%. The cost is that a struct body gains
+# four columns the first time the file is formatted.
+IndentAccessModifiers: true
+FixNamespaceComments: true
+IndentCaseLabels: true
+IndentPPDirectives: None
+
+PointerAlignment: Left
+ReferenceAlignment: Left
+DerivePointerAlignment: false
+
+# Trivial one-line accessors stay compact; nothing else collapses onto one line.
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortBlocksOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortLambdasOnASingleLine: Empty
+
+AlignAfterOpenBracket: Align
+AlignOperands: Align
+AlignTrailingComments: true
+BinPackArguments: true
+BinPackParameters: true
+BreakConstructorInitializers: BeforeColon
+PackConstructorInitializers: NextLine
+AlwaysBreakTemplateDeclarations: Yes
+
+# Include blocks are grouped by hand (standard library, then third-party C headers,
+# then engine headers) and separated by blank lines; re-sorting them across those
+# groups changes compile order for the Vulkan and SDL headers that care about it.
+SortIncludes: false
+IncludeBlocks: Preserve
+
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+SpaceAfterCStyleCast: false
+SpacesBeforeTrailingComments: 1
+ReflowComments: false
+...
