@@ -9,7 +9,9 @@ sushiengine_add_module(NAME simulation LAYER world
     # ECS and the core value types, physics_services.hpp the bodies and joints, weather_types.hpp
     # the atmospheric column, audio_extract.hpp the acoustic scene, and simulation.hpp the
     # animation, astronomy, environment and particle vocabulary a frame is described in.
-    PUBLIC_DEPENDS animation astro atmosphere audio core ecs environment execution physics vfx
+    # ui is here for the same reason: simulation.hpp hands out a Render::SceneView, whose header
+    # carries a UI draw list, so a consumer of this target resolves that header through it.
+    PUBLIC_DEPENDS animation astro atmosphere audio core ecs environment execution physics ui vfx
     # The crowd skeletons and clips runtime_simulation.cpp imports from glTF, and the clock it
     # steps on; no header here names either.
     PRIVATE_DEPENDS gltf loop
