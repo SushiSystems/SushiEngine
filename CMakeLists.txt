@@ -66,7 +66,9 @@ target_include_directories(SushiEngine INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/in
 target_link_libraries(SushiEngine INTERFACE
     sushiengine_core
     sushiengine_ecs
-    sushiengine_execution)
+    sushiengine_execution
+    sushiengine_geometry
+    sushiengine_physics)
 
 # Publish the execution-backend choice (see cmake/ProjectOptions.cmake) to every
 # consumer, so which implementation Execution::Context/Graph/Buffer denote is settled
@@ -439,21 +441,6 @@ if(SE_BUILD_AUDIO)
         message(STATUS "HDF5 package not found — audio_sofa_demo disabled (declare hdf5 via ss)")
     endif()
 endif()
-
-# The engine-neutral geometry module (geometry/): a triangle mesh and the shared
-# signed-distance baker, linking nothing at all. Added unconditionally and before
-# the renderer, because both the renderer and the physics read it and neither is
-# allowed to own it — the physics sits below the renderer, so pointing it at a
-# Vulkan-owning class would invert the layering and make an offline cooker require
-# a device (docs/slop/physics_system.md §3.4).
-add_subdirectory(geometry)
-
-# The offline cooking pipeline (cooking/, headers under physics/cooking): mesh in,
-# simulation asset out. Immediately after geometry because it is that module's first
-# real consumer, and host-only by design — it links sushi_geometry and nothing else,
-# so a build machine with no GPU can still turn a mesh into a collision asset
-# (docs/slop/physics_system.md §3.1, §8).
-add_subdirectory(cooking)
 
 # The engine-neutral atmosphere module (atmosphere/): T1, the global dynamical
 # core, and the Fourier transform its elliptic inversion is built on. Linking
