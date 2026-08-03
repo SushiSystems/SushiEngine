@@ -442,4 +442,4 @@ docs/                    This guide, ARCHITECTURE.md, INTRODUCTION.md, CLI_GUIDE
 ## License
 
 This project is licensed under the Apache License, Version 2.0 — see the
-[LICENSE](LICENSE) file for details.
+[LICENSE](../LICENSE) file for details.

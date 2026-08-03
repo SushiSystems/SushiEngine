@@ -100,20 +100,8 @@ target_link_libraries(SushiEngine INTERFACE
     sushiengine_gltf
     sushiengine_loop)
 
-# Publish the execution-backend choice (see cmake/ProjectOptions.cmake) to every
-# consumer, so which implementation Execution::Context/Graph/Buffer denote is settled
-# once by the build instead of per translation unit — and link the matching backend
-# library so SushiEngine::Execution has an implementation to compile against.
-if(SE_EXECUTION_BACKEND STREQUAL "runtime")
-    target_link_libraries(SushiEngine INTERFACE sushiruntime)
-    target_compile_definitions(SushiEngine INTERFACE SUSHIENGINE_EXECUTION_BACKEND_RUNTIME=1)
-elseif(SE_EXECUTION_BACKEND STREQUAL "native")
-    target_link_libraries(SushiEngine INTERFACE sushi_exec_native)
-    target_compile_definitions(SushiEngine INTERFACE SUSHIENGINE_EXECUTION_BACKEND_NATIVE=1)
-else()
-    message(FATAL_ERROR
-        "SE_EXECUTION_BACKEND must be 'runtime' or 'native', got '${SE_EXECUTION_BACKEND}'")
-endif()
+# The execution backend and the macro naming it come from the execution module, which
+# owns that seam (see engine/foundation/execution/CMakeLists.txt).
 
 # Determinism guard rail (see cmake/ProjectOptions.cmake): forbid the compiler from
 # reordering floating-point operations or fusing multiply-adds, either of which can

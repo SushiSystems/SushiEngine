@@ -5,7 +5,7 @@ get a working build, the conventions we expect in a change, and how to get a pul
 request merged.
 
 By contributing you agree that your contributions are licensed under the
-project's **Apache License, Version 2.0** (see [`LICENSE`](LICENSE)).
+project's **Apache License, Version 2.0** (see [`LICENSE`](../LICENSE)).
 
 > New to the codebase? Read [`ARCHITECTURE.md`](ARCHITECTURE.md)
 > first — it explains the head/battery split, the layers, and how the engine hands

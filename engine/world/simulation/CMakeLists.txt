@@ -13,10 +13,12 @@ sushiengine_add_module(NAME simulation LAYER world
     # The crowd skeletons and clips runtime_simulation.cpp imports from glTF, and the clock it
     # steps on; no header here names either.
     PRIVATE_DEPENDS gltf loop
-    # SushiEngine carries the umbrella header and the execution backend behind it. sushi_cooking
-    # is public because physics_simulation.hpp builds a soft body or a vehicle straight from a
-    # `.sushisoft`/`.sushinodebeam` blob and the loaders for both are compiled there.
-    EXTERNAL_PUBLIC SushiEngine sushi_cooking)
+    # sushi_cooking is public because physics_simulation.hpp builds a soft body or a vehicle
+    # straight from a `.sushisoft`/`.sushinodebeam` blob and the loaders for both are compiled
+    # there. SushiEngine is private: runtime_simulation.cpp includes the umbrella header to
+    # assemble a whole world, but nothing this target publishes names it.
+    EXTERNAL_PUBLIC sushi_cooking
+    EXTERNAL_PRIVATE SushiEngine)
 
 # simulation.hpp hands the renderer a Render::SceneView, so every consumer resolves the renderer's
 # published headers through this target. The include root rather than the module: nothing here
