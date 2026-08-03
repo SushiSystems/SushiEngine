@@ -21,7 +21,8 @@ find_package(nlohmann_json CONFIG REQUIRED)
 add_executable(sushiengine_player
     source/main.cpp
     source/player_app.cpp
-    source/boot_manifest.cpp)
+    source/boot_manifest.cpp
+    source/launch_configuration.cpp)
 target_link_libraries(sushiengine_player PRIVATE
     sushiengine_platform
     sushiengine_render

@@ -4,7 +4,9 @@
 // Post Processing in Call of Duty: Advanced Warfare" (Jimenez 2014). Thirteen bilinear
 // taps grouped into five 2x2 boxes weight the result so the chain is stable under motion
 // rather than shimmering as a naive box would. The first downsample (from the HDR scene)
-// takes a Karis luma-weighted average so a single firefly texel cannot dominate the halo.
+// takes a Karis luma-weighted average so a single firefly texel cannot dominate the halo,
+// then applies the soft-knee threshold. Every coarser level reads that already-thresholded
+// result, which is why the knee belongs to the first level alone.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -15,7 +17,7 @@ layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D dst;
 layout(push_constant) uniform Push
 {
     vec4 a; // x = dst width, y = dst height, z = source lod, w = first-downsample flag
-    vec4 b; // unused by the downsample
+    vec4 b; // x = threshold (0 disables it), y = knee width as a fraction of the threshold
 } pc;
 
 vec3 fetch(vec2 uv, vec2 offset, float lod)
@@ -29,6 +31,20 @@ float karis_weight(vec3 c)
     // fireflies; only used on the first downsample where the input is raw HDR.
     float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
     return 1.0 / (1.0 + luma);
+}
+
+vec3 soft_knee(vec3 c, float threshold, float knee_width)
+{
+    // Quadratic soft knee: the response is zero below the band, rises as a parabola across a
+    // band of half-width `knee` centred on the threshold, and meets the hard
+    // `brightness - threshold` line exactly at the top of it. Scaling the colour by that
+    // response rather than subtracting it keeps hue intact, and the parabola is what stops a
+    // pixel from switching into the halo at a visible edge as it brightens.
+    float brightness = max(c.r, max(c.g, c.b));
+    float knee = max(threshold * knee_width, 1e-4);
+    float ramp = clamp(brightness - threshold + knee, 0.0, 2.0 * knee);
+    ramp = ramp * ramp * (0.25 / knee);
+    return c * (max(ramp, brightness - threshold) / max(brightness, 1e-4));
 }
 
 void main()
@@ -79,6 +95,12 @@ void main()
         result = (box_centre * w0 * 0.5 +
                   (box_tl * w1 + box_tr * w2 + box_bl * w3 + box_br * w4) * 0.125) /
                  max(total, 1e-4);
+        // Thresholded once the taps are averaged: one evaluation instead of thirteen, and
+        // the Karis weighting still sees the raw HDR it is defined against. A threshold of
+        // zero leaves the energy-conserving path untouched rather than scaling it by a
+        // near-unity response.
+        if (pc.b.x > 0.0)
+            result = soft_knee(result, pc.b.x, pc.b.y);
     }
     else
     {

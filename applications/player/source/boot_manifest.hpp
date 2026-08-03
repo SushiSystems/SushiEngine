@@ -62,8 +62,9 @@ namespace SushiEngine
          * @brief Reads a `boot.json`-shaped file, leaving unset/unreadable fields at default.
          *
          * @param path Filesystem path to the manifest.
-         * @param out  Receives the parsed fields; untouched fields keep their prior value,
-         *     so a caller may pre-seed it with non-default values before calling.
+         * @param out  Receives the parsed fields; a field the document omits, or spells with
+         *     a value of another type, keeps its prior value — so a caller may pre-seed it
+         *     with non-default values before calling, and one bad field costs only itself.
          * @return Whether the file was opened and parsed as a JSON object. False (file
          *     missing, unreadable, not valid JSON, or not an object) leaves @p out exactly
          *     as it was passed in — never partially applied.

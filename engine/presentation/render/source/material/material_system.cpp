@@ -154,21 +154,25 @@ namespace SushiEngine
                 gpu.subsurface[1] = static_cast<float>(material.subsurface_color.y);
                 gpu.subsurface[2] = static_cast<float>(material.subsurface_color.z);
 
-                gpu.maps_a[0] = textures_.heap_index(material.albedo_map, DefaultTexture::White);
-                gpu.maps_a[1] = textures_.heap_index(material.metallic_roughness_map,
-                                                     DefaultTexture::NeutralMaterial);
-                gpu.maps_a[2] =
-                    textures_.heap_index(material.normal_map, DefaultTexture::FlatNormal);
-                gpu.maps_a[3] = textures_.heap_index(material.height_map, DefaultTexture::Black);
-                gpu.maps_b[0] = textures_.heap_index(material.occlusion_map,
-                                                     DefaultTexture::NeutralMaterial);
-                gpu.maps_b[1] = textures_.heap_index(material.emissive_map, DefaultTexture::White);
-                gpu.maps_b[2] =
-                    textures_.heap_index(material.detail_albedo_map, DefaultTexture::White);
-                gpu.maps_b[3] =
-                    textures_.heap_index(material.detail_normal_map, DefaultTexture::FlatNormal);
-                gpu.maps_c[0] =
-                    textures_.heap_index(material.detail_mask_map, DefaultTexture::White);
+                // The heap binds combined image samplers, so a map's wrap mode and anisotropy
+                // are chosen here, by resolving to the heap slot registered under them, rather
+                // than by binding a sampler per draw. Every map of a material samples alike.
+                const auto map = [&](TextureId texture, DefaultTexture fallback)
+                {
+                    return textures_.heap_index_for_sampler(texture, fallback, material.wrap_mode,
+                                                            material.anisotropic_filtering);
+                };
+
+                gpu.maps_a[0] = map(material.albedo_map, DefaultTexture::White);
+                gpu.maps_a[1] =
+                    map(material.metallic_roughness_map, DefaultTexture::NeutralMaterial);
+                gpu.maps_a[2] = map(material.normal_map, DefaultTexture::FlatNormal);
+                gpu.maps_a[3] = map(material.height_map, DefaultTexture::Black);
+                gpu.maps_b[0] = map(material.occlusion_map, DefaultTexture::NeutralMaterial);
+                gpu.maps_b[1] = map(material.emissive_map, DefaultTexture::White);
+                gpu.maps_b[2] = map(material.detail_albedo_map, DefaultTexture::White);
+                gpu.maps_b[3] = map(material.detail_normal_map, DefaultTexture::FlatNormal);
+                gpu.maps_c[0] = map(material.detail_mask_map, DefaultTexture::White);
 
                 std::uint32_t flags = 0;
                 if (material.height_map != INVALID_TEXTURE && material.parallax_steps > 0 &&

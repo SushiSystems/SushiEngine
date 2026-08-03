@@ -14,10 +14,10 @@ cmake_minimum_required(VERSION 3.22) # gtest_discover_tests(TEST_FILTER ...)
 
 include(GoogleTest)
 
-# Header-only JSON: the input-bindings serialization test round-trips through
-# SushiEngine::Input::bindings_to_json/from_json, which is the one input header that
-# includes nlohmann/json (the core action layer stays dependency-free). Same package the
-# editor already resolves from vcpkg.
+# Header-only JSON: the input module's two serialization tests round-trip through
+# SushiEngine::Input::bindings_to_json/from_json and events_to_json/from_json, the only
+# input headers that include nlohmann/json (the core action layer and the recorder stay
+# dependency-free). Same package the editor already resolves from vcpkg.
 find_package(nlohmann_json CONFIG REQUIRED)
 
 set(SE_TEST_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/common")
@@ -286,6 +286,10 @@ add_executable(sushiengine_functional_tests
     unit/test_input_gamepad.cpp
     unit/test_input_rebind.cpp
     unit/test_input_bindings_json.cpp
+    # The other opt-in JSON format in the input module: a recorded event stream as a file.
+    # It has no engine consumer by design — persisting a replay is the game's decision, not
+    # the engine's — so these cases are the only thing holding the format still.
+    unit/test_input_replay_json.cpp
     unit/test_input_virtual_controls.cpp
     unit/test_input_players.cpp
     unit/test_input_advanced.cpp
@@ -585,6 +589,11 @@ add_executable(sushiengine_functional_tests
     # not decode at all.
     unit/test_byte_encoding.cpp
     unit/test_preferences_roundtrip.cpp
+    # The player shell's launch path: the `boot.json` a shipped build is configured by and
+    # the command line a developer overrides it with. Both are read before a window or a
+    # device exists, which is what makes the one part of applications/player/ that is
+    # checkable with no display also the part worth checking.
+    unit/test_player_launch_configuration.cpp
 
     regression/test_regression.cpp
     # §15.4's golden-metric penetration-contract scenes: resting penetration
@@ -598,7 +607,7 @@ sushiengine_configure_test_target(sushiengine_functional_tests)
 # is what `se run se_functional_tests` looks for.
 set_target_properties(sushiengine_functional_tests PROPERTIES
     OUTPUT_NAME se_functional_tests)
-# The input-bindings serialization test includes nlohmann/json directly.
+# The input serialization tests and the player's boot manifest include nlohmann/json directly.
 target_link_libraries(sushiengine_functional_tests PRIVATE nlohmann_json::nlohmann_json)
 # The signed-distance baker is the one compiled unit in the neutral geometry module;
 # everything else the tests reach there is header-only.
@@ -629,6 +638,17 @@ target_include_directories(sushiengine_functional_tests
 # three of the renderer's translation units compiled in by hand. It carries cgltf's
 # include directory and its one implementation unit with it, so neither is named here.
 target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_gltf)
+# The player's launch path, as two translation units rather than as a linked library: the
+# player is an executable, and applications/player/ is only added to the build graph when
+# SUSHIENGINE_BUILD_PLAYER is on — which a tests configure is not. Splitting a library out of
+# a shell to reach two files would put the shell's build behind an option the shell already
+# is. Neither unit links anything the suite does not already have: nlohmann_json and
+# <filesystem>, no SDL2, no Vulkan, no simulation.
+target_sources(sushiengine_functional_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/applications/player/source/boot_manifest.cpp"
+    "${CMAKE_SOURCE_DIR}/applications/player/source/launch_configuration.cpp")
+target_include_directories(sushiengine_functional_tests
+    PRIVATE "${CMAKE_SOURCE_DIR}/applications/player/source")
 # A test that imports a real glTF needs its path, and CTest's working directory is not the
 # source tree. An absolute source-dir path keeps the test independent of where it runs from.
 target_compile_definitions(sushiengine_functional_tests

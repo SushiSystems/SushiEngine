@@ -498,7 +498,7 @@ namespace SushiEngine
                 ImGui::SliderFloat("Intensity", &post.bloom.intensity, 0.0f, 0.5f, "%.3f");
                 hint("How much of the blurred bright pass is added back.");
                 ImGui::SliderFloat("Threshold", &post.bloom.threshold, 0.0f, 4.0f, "%.2f");
-                hint("Luminance above which a pixel contributes to bloom.");
+                hint("Brightness a pixel blooms fully above; 0 lets the whole image scatter.");
                 ImGui::SliderFloat("Knee", &post.bloom.threshold_knee, 0.0f, 1.0f, "%.2f");
                 hint("Softness of that threshold, so a pixel does not start blooming the "
                      "instant it crosses the line.");

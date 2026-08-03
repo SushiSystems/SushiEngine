@@ -59,6 +59,13 @@ jobs:
           apt-get install -y --no-install-recommends \
             cmake ninja-build pkg-config git libhwloc-dev libgtest-dev nlohmann-json3-dev
 
+      - name: Fetch the cgltf header
+        # `engine/asset/gltf` locates it with find_path(... REQUIRED) and the root
+        # CMakeLists adds `engine/` on every lane, so every configure needs it. Header-only
+        # and packaged for no apt archive (cli/sushistack.deps.toml lists an empty
+        # linux_apt), so it is cloned; CMAKE_INCLUDE_PATH below is what find_path searches.
+        run: git clone --depth 1 https://github.com/jkuhlmann/cgltf /tmp/cgltf
+
       - name: Configure, build, and run the functional suite
         shell: bash
         working-directory: sushiengine
@@ -79,6 +86,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=/tmp/sycl-cxx/clang++ \
             -DCMAKE_CXX_FLAGS=-fsycl \
+            -DCMAKE_INCLUDE_PATH=/tmp/cgltf \
             -DSUSHIRUNTIME_DIR="${GITHUB_WORKSPACE}/sushiruntime" \
             -DSUSHIENGINE_BUILD_TESTS=ON \
             -DSR_BUILD_BENCHMARKS=OFF        # the engine pulls the runtime in; skip its heavy benchmarks
@@ -163,6 +171,53 @@ jobs:
             -DSUSHIENGINE_BUILD_TESTS=OFF \
             -DSR_BUILD_BENCHMARKS=OFF
           cmake --build build --target sushiengine_editor
+
+  native-execution:
+    name: Native execution backend
+    runs-on: ubuntu-latest
+    # The SYCL-free lane. With SUSHIENGINE_EXECUTION_BACKEND=native the root CMakeLists
+    # never add_subdirectory()s SushiRuntime and never includes Toolchain/SyclTarget, so
+    # everything the two jobs above set up for SYCL is dead weight here and is left out
+    # deliberately rather than copied: no intel/oneapi-basekit container and no icpx
+    # symlink (nothing compiles -fsycl), no intel/llvm nightly bundle, no OpenCL ICD
+    # (no kernel is dispatched to a device), no SushiRuntime checkout and no
+    # SUSHIRUNTIME_DIR (the subproject is not part of this build graph), and no
+    # SR_BUILD_BENCHMARKS (a runtime option nothing reads here). A stock runner with a
+    # stock clang++ is the whole point of the lane, and a job that provisioned a SYCL
+    # toolchain would stop proving it.
+    #
+    # What is left is what the lane genuinely needs: GoogleTest for the conformance
+    # target, and cgltf's header, which engine/asset/gltf locates with
+    # find_path(... REQUIRED) on every lane whether or not an importer is built.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build clang libgtest-dev
+
+      - name: Fetch the cgltf header
+        # Header-only and packaged for no apt archive (cli/sushistack.deps.toml lists an
+        # empty linux_apt for it), so it is cloned rather than installed; CMAKE_INCLUDE_PATH
+        # below is what find_path searches.
+        run: git clone --depth 1 https://github.com/jkuhlmann/cgltf /tmp/cgltf
+
+      - name: Configure, build, and run the native lane
+        shell: bash
+        run: |
+          set -e
+          cmake -B build/native -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_INCLUDE_PATH=/tmp/cgltf \
+            -DSUSHIENGINE_EXECUTION_BACKEND=native \
+            -DSUSHIENGINE_BUILD_TESTS=ON
+          # The default target, so the two samples the lane exists to keep building —
+          # sandbox and pgs_demo — are compiled alongside the test binary.
+          cmake --build build/native
+          ctest --test-dir build/native -L "unit|integration|regression" --output-on-failure
 
   docs:
     name: API docs site

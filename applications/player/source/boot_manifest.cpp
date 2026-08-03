@@ -27,6 +27,35 @@
 
 #include <nlohmann/json.hpp>
 
+namespace
+{
+    /**
+     * @brief Reads one manifest field, leaving @p out alone when it is absent or mistyped.
+     *
+     * `nlohmann::json::value` covers the absent case but throws on a type mismatch, which
+     * would abort the read half way through and hand back a partly-overwritten manifest —
+     * the one outcome this file's tolerance rule forbids.
+     *
+     * @param json The manifest object being read.
+     * @param name The field's key.
+     * @param out Receives the value; untouched when the key is missing or holds another type.
+     */
+    template <typename Value>
+    void read_field(const nlohmann::json& json, const char* name, Value& out)
+    {
+        const nlohmann::json::const_iterator found = json.find(name);
+        if (found == json.end())
+            return;
+        try
+        {
+            out = found->get<Value>();
+        }
+        catch (const nlohmann::json::exception&)
+        {
+        }
+    }
+} // namespace
+
 namespace SushiEngine
 {
     namespace Player
@@ -50,13 +79,13 @@ namespace SushiEngine
             if (json.is_discarded() || !json.is_object())
                 return false;
 
-            out.scene_path = json.value("scene_path", out.scene_path);
-            out.window_title = json.value("window_title", out.window_title);
-            out.width = json.value("width", out.width);
-            out.height = json.value("height", out.height);
-            out.organization = json.value("organization", out.organization);
-            out.application = json.value("application", out.application);
-            out.enable_validation = json.value("enable_validation", out.enable_validation);
+            read_field(json, "scene_path", out.scene_path);
+            read_field(json, "window_title", out.window_title);
+            read_field(json, "width", out.width);
+            read_field(json, "height", out.height);
+            read_field(json, "organization", out.organization);
+            read_field(json, "application", out.application);
+            read_field(json, "enable_validation", out.enable_validation);
             return true;
         }
     } // namespace Player

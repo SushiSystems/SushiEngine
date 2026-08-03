@@ -37,7 +37,6 @@ namespace SushiEngine
     {
         namespace
         {
-            using SushiEngine::Render::BlendMode;
             using SushiEngine::Render::IAssetLibrary;
             using SushiEngine::Render::INVALID_TEXTURE;
             using SushiEngine::Render::MaterialCullMode;
@@ -285,26 +284,7 @@ namespace SushiEngine
                     changed = true;
                 }
 
-                const char* blend_names[] = {"Alpha", "Premultiplied", "Additive", "Multiply"};
-                int blend = static_cast<int>(material.blend_mode);
-                if (ImGui::Combo("Blend Mode", &blend, blend_names, 4))
-                {
-                    material.blend_mode = static_cast<BlendMode>(blend);
-                    changed = true;
-                }
-
-                int queue = material.render_queue;
-                if (ImGui::DragInt("Render Queue", &queue, 1.0f, 0, 5000))
-                {
-                    material.render_queue = queue;
-                    changed = true;
-                }
-
                 changed |= ImGui::Checkbox("Cast Shadows", &material.cast_shadows);
-                // No "Receive Shadows" / "GPU Instancing" checkboxes: the passes do not
-                // read those Material fields yet, and a checkbox that changes nothing is
-                // a false promise, not a placeholder (docs/slop/editor_ux_overhaul.md
-                // §2.4). They return together with their consumers.
 
                 const char* wrap_names[] = {"Repeat", "Clamp", "Mirror"};
                 int wrap = static_cast<int>(material.wrap_mode);

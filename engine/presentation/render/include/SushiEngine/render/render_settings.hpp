@@ -203,8 +203,10 @@ namespace SushiEngine
         {
             bool enabled = true;          /**< Whether the pyramid is built and composited. */
             float intensity = 0.05f;      /**< Blend of the bloom pyramid into the scene, [0,1]. */
-            float threshold = 0.0f;       /**< Soft-knee luminance floor; 0 = threshold-free. */
-            float threshold_knee = 0.5f;  /**< Width of the soft knee above the threshold. */
+            /** @brief Brightest-channel floor a pixel blooms fully above; 0 = threshold-free. */
+            float threshold = 0.0f;
+            /** @brief Half-width of the knee around the threshold, as a fraction of it, [0,1]. */
+            float threshold_knee = 0.5f;
         };
 
         /**
@@ -213,8 +215,7 @@ namespace SushiEngine
          * One fullscreen pass carries the whole grade → tone map → encode chain, so grading
          * costs no extra pass. White balance shifts the neutral point; lift/gamma/gain are the
          * classic three-way shadows/mids/highlights control; contrast and saturation are the
-         * final global shape. A 3D-LUT slot is reserved (@c lut_enabled) for a look-up-table
-         * grade; the texture binding lands with the LUT asset path.
+         * final global shape.
          */
         struct ColorGradeSettings
         {
@@ -225,7 +226,6 @@ namespace SushiEngine
             float lift[3] = {0.0f, 0.0f, 0.0f};  /**< Additive shadow offset per channel. */
             float gamma[3] = {1.0f, 1.0f, 1.0f}; /**< Midtone power per channel. */
             float gain[3] = {1.0f, 1.0f, 1.0f};  /**< Highlight multiplier per channel. */
-            bool lut_enabled = false;            /**< Reserved 3D-LUT grade slot; off today. */
         };
 
         /**

@@ -20,7 +20,7 @@ from .services import planet as planet_svc
 from .services import player as player_svc
 from .services import project as project_svc
 from .services import render as render_svc
-from .services.project import BuildType, Suite
+from .services.project import BuildType, ExecutionBackend, Suite
 
 app = typer.Typer(
     name="se",
@@ -61,9 +61,16 @@ def build(
         help="Also build the worked examples under samples/ (SUSHIENGINE_BUILD_EXAMPLES=ON), "
              "which `se run <demo>` needs. Off by default: each demo is its own "
              "SYCL device compile."),
+    backend: ExecutionBackend = typer.Option(
+        ExecutionBackend.runtime, "--backend", case_sensitive=False,
+        help="Execution backend: runtime (SushiRuntime's SYCL task graph) | native "
+             "(the thread-pool backend — no SushiRuntime checkout, no SYCL toolchain, "
+             "and only sandbox, pgs_demo and the Execution conformance tests). Each "
+             "lane owns its own tree, build/default and build/native."),
 ):
-    """Configure and build the project against the SushiRuntime sibling."""
-    raise typer.Exit(project_svc.build(type, clean, tests=not no_test, examples=examples))
+    """Configure and build the project (the SushiRuntime lane unless --backend says otherwise)."""
+    raise typer.Exit(project_svc.build(type, clean, tests=not no_test, examples=examples,
+                                       backend=backend))
 
 
 @app.command("test")
@@ -78,13 +85,17 @@ def test(
         0, "--repeat", "-r", min=0,
         help="Re-run each test up to N times, stopping on the first failure "
              "(ctest --repeat until-fail). Handy for hunting flaky tests."),
+    backend: ExecutionBackend = typer.Option(
+        ExecutionBackend.runtime, "--backend", case_sensitive=False,
+        help="Which lane's tree to run: runtime (build/default, the whole functional "
+             "suite) | native (build/native, the Execution conformance cases)."),
 ):
     """Run the test suite via CTest labels.
 
     For GTest-level knobs (shuffle, break-on-failure) run the binary directly:
     se run se_functional_tests -- --gtest_shuffle --gtest_break_on_failure
     """
-    raise typer.Exit(project_svc.test(suite, filter, repeat))
+    raise typer.Exit(project_svc.test(suite, filter, repeat, backend=backend))
 
 
 @app.command(
@@ -97,18 +108,26 @@ def run(
         None, help="Executable name to run (exact, then substring match)."),
     sort: bool = typer.Option(
         False, "--sort", help="Interactively pick an executable."),
+    backend: ExecutionBackend = typer.Option(
+        ExecutionBackend.runtime, "--backend", case_sensitive=False,
+        help="Which lane's tree to search: runtime (build/default) | native (build/native)."),
 ):
     """Run a built executable. Args after `--` are forwarded to it.
 
     Example: se run sandbox
     """
-    raise typer.Exit(project_svc.run(target=target, sort=sort, app_args=list(ctx.args)))
+    raise typer.Exit(project_svc.run(target=target, sort=sort, app_args=list(ctx.args),
+                                     backend=backend))
 
 
 @app.command("clean")
-def clean():
-    """Remove the build/default tree."""
-    raise typer.Exit(project_svc.clean())
+def clean(
+    backend: ExecutionBackend = typer.Option(
+        ExecutionBackend.runtime, "--backend", case_sensitive=False,
+        help="Which lane's tree to remove: runtime (build/default) | native (build/native)."),
+):
+    """Remove a lane's build tree (build/default by default)."""
+    raise typer.Exit(project_svc.clean(backend))
 
 
 @app.command("doxygen")

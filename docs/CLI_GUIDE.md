@@ -73,6 +73,7 @@ se build --type debug     # Debug build
 se build --clean          # delete the build tree first, then build from scratch
 se build --no-test        # skip compiling the test suite (SUSHIENGINE_BUILD_TESTS=OFF)
 se build --examples       # also build the worked examples under samples/
+se build --backend native # the SYCL-free execution lane, into build/native
 ```
 
 The `--type` (`-t`) option accepts `release`, `debug`, or `relwithdebinfo`. The
@@ -85,9 +86,26 @@ unit and so its own device compile; a plain `se build` only produces `sandbox`
 and `pgs_demo`. Run `se build --examples` first if `se run <demo>` cannot find
 the binary you asked for.
 
+`--backend` selects which implementation `SushiEngine::Execution` denotes, which
+CMake settles before `project()` and therefore also decides whether SushiRuntime is
+part of the build at all:
+
+- `runtime` (the default) — the runtime's SYCL task graph. Needs the sibling
+  checkout and a SYCL toolchain, and is the only lane the shells, the samples and
+  the full test suite are declared on.
+- `native` — the thread-pool backend for platforms the runtime cannot reach. No
+  SushiRuntime subproject and no SYCL compiler; it carries `sandbox`, `pgs_demo`
+  and the `Execution` conformance binary (`se_native_execution_tests`).
+
+`se test`, `se run` and `se clean` take the same `--backend`, so
+`se build --backend native && se test --backend native` builds and runs that lane
+end to end.
+
 Each lane configures into its own subdirectory of `build/` — `build/default` for
-`se build`, `build/editor` for `se editor`, `build/player` for `se player` — so
-no two lanes ever clobber each other's cache.
+`se build`, `build/native` for `se build --backend native`, `build/editor` for
+`se editor`, `build/player` for `se player` — so no two lanes ever clobber each
+other's cache. Switching backend also re-configures from scratch if a tree ever
+does end up carrying the other lane's cache.
 
 ### `se test`
 
@@ -124,8 +142,9 @@ The target name is matched exactly first, then by substring. Anything after
 ### `se clean` and `se doxygen`
 
 ```bash
-se clean       # remove the build/default tree
-se doxygen     # generate Doxygen documentation
+se clean                  # remove the build/default tree
+se clean --backend native # remove the build/native tree
+se doxygen                # generate Doxygen documentation
 ```
 
 ## `se editor` — the ImGui editor

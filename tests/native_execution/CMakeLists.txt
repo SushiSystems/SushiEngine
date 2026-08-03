@@ -27,4 +27,14 @@ set_target_properties(sushiengine_native_execution_tests PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON)
 
-gtest_discover_tests(sushiengine_native_execution_tests DISCOVERY_MODE PRE_TEST)
+# The same label partition tests/CMakeLists.txt applies, derived the same way from the
+# GTest suite-name prefix, so `ctest -L` selects a sub-suite on this lane too and
+# `se test --backend native` needs no lane-specific selection rule.
+gtest_discover_tests(sushiengine_native_execution_tests
+    DISCOVERY_MODE PRE_TEST
+    TEST_FILTER "Unit_*"
+    PROPERTIES LABELS "unit")
+gtest_discover_tests(sushiengine_native_execution_tests
+    DISCOVERY_MODE PRE_TEST
+    TEST_FILTER "Integration_*"
+    PROPERTIES LABELS "integration")

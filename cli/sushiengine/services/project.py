@@ -4,6 +4,10 @@ The cmake / ctest invocations are issued directly via subprocess with the
 snapshotted build env. The engine configures against the SushiRuntime sibling's
 bundled clang++ and vcpkg, so the configure args resolve those from the runtime
 checkout (or the config overrides) rather than provisioning anything.
+
+Every command here takes the execution backend the tree is configured for
+(:class:`ExecutionBackend`), because it decides both what CMake is asked for and which
+subdirectory of ``build/`` the answer lands in.
 """
 
 from __future__ import annotations
@@ -36,6 +40,24 @@ class Suite(str, enum.Enum):
     all = "all"
 
 
+class ExecutionBackend(str, enum.Enum):
+    """Which implementation SushiEngine::Execution denotes for a configure.
+
+    The two lanes are mutually exclusive and are chosen before `project()` runs, so a
+    configure commits to one for the whole tree (see the root CMakeLists.txt and
+    cmake/ProjectOptions.cmake):
+
+    * runtime — SushiRuntime's SYCL task graph. Needs the sibling checkout and a SYCL
+      toolchain, and is the lane every shell, sample and test target is declared on.
+    * native  — the thread-pool backend, for platforms SushiRuntime cannot reach. Adds
+      no SushiRuntime subproject and needs no SYCL compiler; declares only the sandbox,
+      pgs_demo and the Execution conformance tests.
+    """
+
+    runtime = "runtime"
+    native = "native"
+
+
 # Each suite maps to a CTest label-selection regex (`ctest -L`). The umbrella
 # (functional) is an alternation over its sub-labels rather than a label of its
 # own, because a baked-in umbrella label does not survive gtest_discover_tests on
@@ -54,10 +76,29 @@ _CMAKE_BUILD_TYPE = {
 }
 
 
-def _build_dir(root: Path) -> Path:
-    """The default lane's tree. Each lane gets its own subdirectory of build/ so a
-    lane's CMAKE_BUILD_TYPE and -D flags never clobber another's cache."""
-    return root / "build" / "default"
+# Which subdirectory of build/ each execution backend configures into. They are
+# separate trees because the two lanes disagree about the contents of the cache down
+# to the compiler: the runtime lane bakes in the SYCL clang++ and the SushiRuntime
+# subproject, the native lane neither. Reusing one tree for both would need a wipe on
+# every switch, which is the same cost with a worse failure mode when it is forgotten.
+_BACKEND_BUILD_DIRECTORY = {
+    ExecutionBackend.runtime: "default",
+    ExecutionBackend.native: "native",
+}
+
+
+def _build_dir(root: Path, backend: ExecutionBackend = ExecutionBackend.runtime) -> Path:
+    """The tree *backend*'s lane configures into. Each lane gets its own subdirectory of
+    build/ so a lane's CMAKE_BUILD_TYPE, backend and -D flags never clobber another's
+    cache; the paths match the binaryDir of the CMakePresets.json preset of the same name."""
+    return root / "build" / _BACKEND_BUILD_DIRECTORY[backend]
+
+
+def _build_hint(backend: ExecutionBackend) -> str:
+    """The `se build` invocation that produces *backend*'s tree, for error messages."""
+    if backend == ExecutionBackend.runtime:
+        return "se build"
+    return f"se build --backend {backend.value}"
 
 
 def _cmake(cfg: Config) -> str:
@@ -124,19 +165,28 @@ def _run_drained(cmd: list[str], env: dict[str, str], cwd: Path) -> int:
     return proc.wait()
 
 
-def _configured_build_type(build_dir: Path) -> Optional[str]:
-    """The CMAKE_BUILD_TYPE baked into build_dir's cache, or None if unconfigured."""
+def _cached_value(build_dir: Path, entry: str) -> Optional[str]:
+    """The value CMake baked into build_dir's cache for *entry*, or None if absent.
+
+    Reads CMakeCache.txt rather than shelling out to `cmake -L`, so it costs nothing and
+    works on a tree whose configure failed part way through.
+
+    :param build_dir: The build tree to inspect.
+    :param entry: The cache entry's name, without its `:TYPE` suffix.
+    :return: The entry's value, or None when the tree is unconfigured or lacks the entry.
+    """
     cache = build_dir / "CMakeCache.txt"
     if not cache.is_file():
         return None
-    prefix = "CMAKE_BUILD_TYPE:"
+    prefix = entry + ":"
     for line in cache.read_text(encoding="utf-8", errors="ignore").splitlines():
         if line.startswith(prefix):
             return line.split("=", 1)[1].strip()
     return None
 
 
-def _needs_configure(build_dir: Path, generator: str, build_type: str = None) -> bool:
+def _needs_configure(build_dir: Path, generator: str, build_type: str = None,
+                     backend: ExecutionBackend = None) -> bool:
     if not build_dir.is_dir():
         return True
     sentinel = "build.ninja" if generator == "Ninja" else "Makefile"
@@ -145,7 +195,15 @@ def _needs_configure(build_dir: Path, generator: str, build_type: str = None) ->
     # Single-config generators (Ninja, Make) bake CMAKE_BUILD_TYPE into the
     # existing cache; `cmake --build --config X` is silently ignored for them,
     # so a stale tree must be reconfigured rather than reused as-is.
-    if build_type is not None and _configured_build_type(build_dir) != build_type:
+    if build_type is not None and _cached_value(build_dir, "CMAKE_BUILD_TYPE") != build_type:
+        return True
+    # Neither can a tree configured for the other execution backend: whether the
+    # SushiRuntime subproject and the SYCL toolchain are part of the build is settled
+    # before project() and recorded in the cache, so re-running configure over it would
+    # only produce a half-converted tree. The two lanes already have separate
+    # directories, so this catches a tree configured by hand or from a CMake preset.
+    if backend is not None and \
+            _cached_value(build_dir, "SUSHIENGINE_EXECUTION_BACKEND") != backend.value:
         return True
     return False
 
@@ -153,8 +211,9 @@ def _needs_configure(build_dir: Path, generator: str, build_type: str = None) ->
 def _check_runtime(cfg: Config, root: Path) -> int:
     """Fail early (with guidance) when the SushiRuntime sibling is missing.
 
-    The engine cannot configure without it — the runtime provides the SYCL target
-    and the add_sycl_to_target command the engine's CMakeLists pulls in.
+    The runtime lane cannot configure without it — the runtime provides the SYCL target
+    and the add_sycl_to_target command the engine's CMakeLists pulls in. Callers on the
+    native lane do not call this: that lane adds no such subproject.
     """
     runtime = cfg.runtime_dir(root)
     if (runtime / "CMakeLists.txt").is_file():
@@ -167,8 +226,8 @@ def _check_runtime(cfg: Config, root: Path) -> int:
 
 
 def _configure_args(cfg: Config, root: Path, build_dir: Path,
-                    build_type: str, tests: bool, examples: bool = False) -> list[str]:
-    runtime = cfg.runtime_dir(root)
+                    build_type: str, tests: bool, examples: bool = False,
+                    backend: ExecutionBackend = ExecutionBackend.runtime) -> list[str]:
     cxx = cfg.resolved_compiler(root)
     vcpkg = cfg.resolved_vcpkg(root)
 
@@ -176,10 +235,14 @@ def _configure_args(cfg: Config, root: Path, build_dir: Path,
         _cmake(cfg), "-S", str(root), "-B", str(build_dir), "-G", cfg.generator,
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_CXX_COMPILER={cxx}",
-        f"-DSUSHIRUNTIME_DIR={runtime}",
+        f"-DSUSHIENGINE_EXECUTION_BACKEND={backend.value}",
         f"-DSUSHIENGINE_BUILD_TESTS={'ON' if tests else 'OFF'}",
         f"-DSUSHIENGINE_BUILD_EXAMPLES={'ON' if examples else 'OFF'}",
     ]
+    # Only the runtime lane add_subdirectory()s the sibling checkout. Naming its location
+    # on the native lane would bake a path into the cache that nothing there reads.
+    if backend == ExecutionBackend.runtime:
+        args.append(f"-DSUSHIRUNTIME_DIR={cfg.runtime_dir(root)}")
     # On Windows clang++ also drives the C probe; point both slots at it.
     if cfg.is_windows:
         args.append(f"-DCMAKE_C_COMPILER={cxx}")
@@ -203,22 +266,27 @@ def _configure_args(cfg: Config, root: Path, build_dir: Path,
 
 
 def build(build_type: BuildType, clean: bool = False, tests: bool = True,
-          examples: bool = False) -> int:
+          examples: bool = False,
+          backend: ExecutionBackend = ExecutionBackend.runtime) -> int:
     console.header("Project Build")
     root = find_project_root()
     cfg = load_config()
     cmake_build_type = _CMAKE_BUILD_TYPE[build_type]
-    build_dir = _build_dir(root)
+    build_dir = _build_dir(root, backend)
 
-    if (rc := _check_runtime(cfg, root)) != 0:
+    # The native lane configures and builds with no SushiRuntime checkout at all, so
+    # demanding one there would refuse a build that works.
+    if backend == ExecutionBackend.runtime and (rc := _check_runtime(cfg, root)) != 0:
         return rc
 
     if clean:
-        clean_tree(root)
+        clean_tree(root, backend)
 
+    console.info(f"Backend: {backend.value}")
     console.info(f"Tests: {'ON' if tests else 'OFF'}")
     console.info(f"Examples: {'ON' if examples else 'OFF'}")
-    console.info(f"Runtime: {cfg.runtime_dir(root)}")
+    if backend == ExecutionBackend.runtime:
+        console.info(f"Runtime: {cfg.runtime_dir(root)}")
 
     env = load_build_env(cfg, build_dir)
 
@@ -228,14 +296,15 @@ def build(build_type: BuildType, clean: bool = False, tests: bool = True,
     # the header above would report "Tests: ON" while the cache said OFF and nothing built
     # the suite, so `se test` would then pass against a stale binary. Re-running configure in
     # place is cheap; CMake picks the changed -D up without rebuilding what did not change.
-    fresh = _needs_configure(build_dir, cfg.generator, cmake_build_type)
+    fresh = _needs_configure(build_dir, cfg.generator, cmake_build_type, backend)
     if fresh:
-        console.info(f"Configuring CMake... (type={build_type.value}, tests={'ON' if tests else 'OFF'})")
+        console.info(f"Configuring CMake... (backend={backend.value}, type={build_type.value}, "
+                     f"tests={'ON' if tests else 'OFF'})")
         if build_dir.is_dir():
             shutil.rmtree(build_dir, ignore_errors=True)
     else:
         console.info(f"Reconfiguring in place (tests={'ON' if tests else 'OFF'})...")
-    rc = _run(_configure_args(cfg, root, build_dir, cmake_build_type, tests, examples),
+    rc = _run(_configure_args(cfg, root, build_dir, cmake_build_type, tests, examples, backend),
               env, cwd=root)
     if rc != 0:
         console.error("CMake configure failed.")
@@ -252,13 +321,14 @@ def build(build_type: BuildType, clean: bool = False, tests: bool = True,
     return rc
 
 
-def test(suite: Suite, filter: str | None = None, repeat: int = 0) -> int:
+def test(suite: Suite, filter: str | None = None, repeat: int = 0,
+         backend: ExecutionBackend = ExecutionBackend.runtime) -> int:
     console.header("Project Test")
     root = find_project_root()
     cfg = load_config()
-    build_dir = _build_dir(root)
+    build_dir = _build_dir(root, backend)
     if not build_dir.is_dir():
-        console.error("build/default not found. Run `se build` first.")
+        console.error(f"{build_dir} not found. Run `{_build_hint(backend)}` first.")
         return 1
 
     env = load_build_env(cfg, build_dir)
@@ -276,13 +346,14 @@ def test(suite: Suite, filter: str | None = None, repeat: int = 0) -> int:
 
 
 def run(target: str | None = None, sort: bool = False,
-        app_args: list[str] | None = None) -> int:
+        app_args: list[str] | None = None,
+        backend: ExecutionBackend = ExecutionBackend.runtime) -> int:
     console.header("Project Run")
     root = find_project_root()
     cfg = load_config()
-    build_dir = _build_dir(root)
+    build_dir = _build_dir(root, backend)
     if not build_dir.is_dir():
-        console.error("build/default not found. Run `se build` first.")
+        console.error(f"{build_dir} not found. Run `{_build_hint(backend)}` first.")
         return 1
 
     env = load_build_env(cfg, build_dir)
@@ -308,19 +379,19 @@ def run(target: str | None = None, sort: bool = False,
     return _run([str(exe), *(app_args or [])], env, cwd=root)
 
 
-def clean_tree(root: Path) -> None:
-    build_dir = _build_dir(root)
+def clean_tree(root: Path, backend: ExecutionBackend = ExecutionBackend.runtime) -> None:
+    build_dir = _build_dir(root, backend)
     if build_dir.is_dir():
         console.info(f"Removing {build_dir}...")
         shutil.rmtree(build_dir, ignore_errors=True)
         console.success("Build directory cleaned.")
     else:
-        console.info("build/default does not exist, nothing to clean.")
+        console.info(f"{build_dir} does not exist, nothing to clean.")
 
 
-def clean() -> int:
+def clean(backend: ExecutionBackend = ExecutionBackend.runtime) -> int:
     console.header("Project Clean")
-    clean_tree(find_project_root())
+    clean_tree(find_project_root(), backend)
     return 0
 
 

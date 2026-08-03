@@ -9,6 +9,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- 2026-08-04 — Added `--backend runtime|native` to `se build`, `se test`, `se run` and `se clean`: the native execution lane was a real CMake lane with a preset and a test target, and nothing in the CLI could select it. Each lane configures into its own tree, and a tree whose cache disagrees with the lane asked for is reconfigured rather than reused.
+  - Added a CI job that configures, builds and runs the native lane on a stock runner, with no SYCL toolchain and no SushiRuntime checkout.
+  - Added CTest labels to `se_native_execution_tests`, which registered its tests with none, so `ctest -L` matched nothing on that lane.
+- 2026-08-04 — Added `Unit_PlayerLaunchConfiguration` and `Unit_PlayerBootManifest`, covering the player's `boot.json` reader and the command line layered over it — the part of `applications/player/` reachable before a window or a device exists.
+- 2026-08-04 — Added `Unit_InputReplayJSON`, pinning the round trip, the frame stamps and the tolerant reads of `input/replay_json.hpp`, which shipped with no consumer and no test. Having no engine consumer is deliberate: a consumer would put `nlohmann/json` on the dependency-free input core.
 - 2026-08-04 — Added the Terrain window (Window ▸ World ▸ Terrain): the near-field body's layer stack, editable in place, plus every field of the last frame's node selection.
   - Added `Terrain::ITerrainAuthoring` and `ISceneView::terrain_authoring()`, the seam a host reaches a body's ground through; `PlanetTerrain` implements it.
   - Changed a layer edit to queue the resident tiles it invalidated for recompilation, bounded by the frame's upload budget, so an edit reshapes ground that is already on screen instead of only ground that streams in later.
@@ -17,15 +22,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   - Added `skeleton_path`/`clip_path`/`mesh_path` to `CrowdParameters`, so the component carries the files its handles came from; `set_crowd_parameters` re-registers the skeleton and clip from those paths on every write, and `Scene::resolve_scene_assets` re-imports the skinned mesh and its maps after a load from disk.
   - Added a Crowd round-trip to `test_scene_serializer_roundtrip.cpp` covering the snapshot path, the scene file, an unloadable rig, and undo.
 - 2026-08-04 — Added a measured peak-stress readout to the Inspector's Soft Body section, driven off `IWorldEditor::soft_body_maximum_stress` each frame, with a warning row once the body is past the yield stress its material declares.
+- 2026-08-04 — Added a soft-knee bloom threshold, applied at the first downsample only because every coarser level is built from its output, so `BloomSettings::threshold` and `threshold_knee` shape the pyramid instead of only persisting. A threshold of zero is bit-identical to no threshold at all.
 
 ### Fixed
+- 2026-08-04 — Fixed the `functional` CI job installing no cgltf while the root CMakeLists adds `engine/` on every lane and `engine/asset/gltf` locates the header with `find_path(... REQUIRED)`, so the job could not configure.
+- 2026-08-04 — Fixed `load_boot_manifest` throwing out of the launch when a `boot.json` field is spelled with the wrong type, which also left the manifest half-overwritten against its own documented contract; a mistyped field now costs only itself.
+- 2026-08-04 — Fixed `docs/README.md`'s test-tree paths, file counts, `ctest --test-dir` invocation and editor build-tree name.
 - 2026-08-04 — Fixed `ClothParameters` carrying no documentation: its Doxygen block sat above `CrowdParameters`, which had one of its own, so Doxygen attached neither block to the cloth struct.
 - 2026-08-04 — Fixed `capture_scene` never capturing a `SoftBodyParameters` component, which made Save→Load, Undo/Redo and Play→Stop each destroy every soft body in the scene.
   - Added `Scene::ISceneBlobTable`/`Scene::SceneBlobTable`, plus optional `blobs` parameters on `capture_scene`/`apply_scene`: a scene file inlines the cooked `.sushisoft` blob as base64 so it stays self-contained, while an in-memory snapshot names it by content hash so fifty undo steps hold one copy rather than fifty.
   - Changed `CommandHistory` and the editor's play-mode snapshot to each own a blob table beside their snapshots.
   - Changed a soft body whose asset resolves neither inline nor from the table to restore as an entity with no soft body, rather than one holding an empty blob the physics can never build.
 
+### Removed
+- 2026-08-04 — Removed `Material::blend_mode` and the `Render::BlendMode` enum, `Material::render_queue`, `Material::receive_shadows`, `Material::gpu_instancing` and `ColorGradeSettings::lut_enabled`, with their Inspector widgets and their scene serialization: no renderer source and no shader read any of them, so each was a control that quietly did nothing. Each is a renderer feature to be written, not a setting to keep offering.
+
 ### Changed
+- 2026-08-04 — Changed the player's launch parsing into `resolve_launch_configuration`, so the manifest-then-command-line precedence is a function with a return value rather than straight-line code in `main` that no test could reach.
+  - Documented both execution backends and the new flag in `docs/README.md` and `docs/CLI_GUIDE.md`.
+- 2026-08-04 — Changed material texture sampling to honour `Material::wrap_mode` and `Material::anisotropic_filtering`, by registering a texture into the bindless heap once per sampling configuration asked of it. The heap's binding is a combined image sampler, so the sampler is baked into the descriptor and there is nothing in the draw path to swap; a material that edits neither field costs no extra slot, and anisotropy is rounded to a power of two so dragging the slider cannot mint one per pixel of travel.
+  - Changed the texture library's baseline registration from repeat/16× anisotropy to the sampling an unedited material asks for, repeat/8×. Light cookies, decals, particle atlases and the UI atlas share that baseline and so sample at 8× too.
 - 2026-08-03 — Moved the world-tier authoring types out of `SushiEngine::Editor`, which the editor application also used for its panels, into `SushiEngine::Authoring`.
 - 2026-08-03 — Restored the truncated Apache licence banner in 246 files, removed all 216 separator comments, and rewrote the comments that narrated what the code used to be into statements of what it does.
 - 2026-08-03 — Renamed every abbreviated variable, parameter, member and function name this repository owns to its full spelling (`desc` → `description`, `params` → `parameters`, `cmd` → `command`, `src`/`dst` → `source`/`destination`, and ten others); Vulkan, VMA, SDL, ImGui and standard-library names, the `.sushiscene` serializer's format keys, and the three `*_params.hpp` file names are untouched.

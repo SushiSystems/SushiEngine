@@ -31,6 +31,11 @@
  * nlohmann/json, so the in-memory recorder in @ref replay.hpp stays dependency-free. A record
  * is a flat array of events; reads are tolerant field-by-field so a truncated or older file loads
  * what it can rather than throwing.
+ *
+ * @warning `type` and `control` are written as the enum ordinals of @ref EventType and the
+ * control enums, which @ref events.hpp states may be reordered freely because events are not
+ * otherwise serialized. A file is therefore only meaningful to the build that wrote it: a
+ * game shipping replays across versions needs a version stamp and a mapping of its own.
  */
 
 #include <vector>

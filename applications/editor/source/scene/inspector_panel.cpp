@@ -1363,9 +1363,6 @@ namespace SushiEngine
                             changed = true;
                         if (ImGui::Checkbox("Cast Shadows", &values.material.cast_shadows))
                             changed = true;
-                        if (ImGui::Checkbox("Receive Shadows",
-                                            &values.material.receive_shadows))
-                            changed = true;
 
                         if (changed)
                         {

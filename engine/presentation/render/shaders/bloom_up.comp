@@ -3,8 +3,9 @@
 // Progressive bloom upsample: a 3x3 tent filter expands the coarser level, added to this
 // level's downsample so the halo widens smoothly from the top of the pyramid down. The tent
 // (Jimenez 2014) is what keeps the bloom soft and free of the boxy artefacts a bilinear
-// upsample leaves. Energy is conserved: nothing is thresholded, so the whole HDR image
-// scatters and a bright pixel bleeds in proportion to its own intensity.
+// upsample leaves. This step conserves energy on its own — it only spreads and sums what the
+// downsample chain produced — so whatever the first downsample let through, the whole HDR
+// image unless a threshold was authored, bleeds in proportion to its own intensity.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 

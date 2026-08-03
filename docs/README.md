@@ -115,13 +115,13 @@ the configure line by hand.
 
 | Command | What it does |
 |---|---|
-| `se build [--type release\|debug\|relwithdebinfo] [--clean] [--no-test]` | Configure and build against the SushiRuntime sibling. The test suite builds by default; `--no-test` sets `SUSHIENGINE_BUILD_TESTS=OFF`. `--clean` deletes the build tree first. |
+| `se build [--type release\|debug\|relwithdebinfo] [--clean] [--no-test] [--backend runtime\|native]` | Configure and build against the SushiRuntime sibling. The test suite builds by default; `--no-test` sets `SUSHIENGINE_BUILD_TESTS=OFF`. `--clean` deletes the build tree first. `--backend` picks the execution lane (below). |
 | `se test [--suite unit\|regression\|integration\|functional\|all] [--filter <regex>] [--repeat N]` | Run the suite via CTest labels (`functional` is the default, matching `unit\|integration\|regression`). `--filter` is a `ctest -R` regex over `Suite.Case` names. `--repeat N` re-runs until the first failure. |
 | `se run [target] [--sort] [-- args…]` | Run a built executable (default target: `sandbox`). Matches exactly, then by substring. `--sort` picks one interactively. Arguments after `--` are forwarded. |
-| `se editor [--type release\|debug\|relwithdebinfo] [--no-run]` | Build the ImGui editor (`SUSHIENGINE_BUILD_EDITOR=ON`, its own `build-editor/` tree so it never clobbers `se build`'s `CMAKE_BUILD_TYPE`) and launch it. `--no-run` builds only. |
+| `se editor [--type release\|debug\|relwithdebinfo] [--no-run]` | Build the ImGui editor (`SUSHIENGINE_BUILD_EDITOR=ON`, its own `build/editor` tree so it never clobbers `se build`'s `CMAKE_BUILD_TYPE`) and launch it. `--no-run` builds only. |
 | `se render [--no-run]` | Build and run the headless Vulkan `render_probe` smoke test (`SUSHIENGINE_BUILD_RENDER=ON`). |
 | `se audio [--no-run]` | Build and run the audio demo (`SUSHIENGINE_BUILD_AUDIO=ON`). |
-| `se clean` | Remove the `build/` tree. |
+| `se clean` | Remove a lane's build tree (`build/default` by default). |
 | `se doxygen` | Generate Doxygen documentation. |
 | `se config` | Print the resolved config and each value's source. |
 | `se env [--all]` | Print the environment build/run subprocesses execute under. |
@@ -130,6 +130,18 @@ the configure line by hand.
 
 After changing toolchain paths in `config.local.toml`, run `se clean` before
 reconfiguring — CMake bakes the old paths into its cache.
+
+### Execution backends
+
+`SUSHIENGINE_EXECUTION_BACKEND` decides what `SushiEngine::Execution` denotes, and
+is settled before `project()` so it also decides whether SushiRuntime is part of
+the build at all. `runtime` (the default) is the runtime's SYCL task graph, and is
+the only lane the shells, the samples and the full test suite are declared on;
+`native` is the thread-pool backend for platforms the runtime cannot reach, needs
+neither a SushiRuntime checkout nor a SYCL toolchain, and carries `sandbox`,
+`pgs_demo` and the `Execution` conformance tests. `se build`, `test`, `run` and
+`clean` all take `--backend native`; each lane owns its own tree (`build/default`
+and `build/native`), so switching never reuses the other's cache.
 
 ## Building without the CLI
 
@@ -143,6 +155,9 @@ cmake -S . -B build -G Ninja \
 cmake --build build --target sandbox     # ECS worked example
 cmake --build build --target pgs_demo    # physics demo
 ```
+
+`CMakePresets.json` carries the same lanes: `cmake --preset native` configures the
+SYCL-free one into `build/native` with nothing machine-specific to supply.
 
 ```bash
 ./build/sandbox     # exits 0 on success
@@ -171,17 +186,21 @@ precision parameter per call site — a distinct, lower-level knob from the
 ```bash
 se test --suite functional
 # or directly:
-ctest --test-dir build -L "unit|integration|regression" --output-on-failure
+ctest --test-dir build/default -L "unit|integration|regression" --output-on-failure
 ```
 
 Tests live under `tests/common/` (shared GoogleTest entry point) and
-`tests/functional/{unit,integration,regression}/` — one binary,
-`se_functional_tests`, with CTest labels derived from each test's GTest suite
-prefix (`Unit_*`, `Integration_*`, `Regression_*`), not from directory
-location. The suite instantiates real kernels against the real runtime —
-there are no mocks. CI (`.github/workflows/ci.yml`) builds and runs this suite
-on every push/PR inside the `intel/oneapi-basekit` image, builds the editor
-target separately (no tests), and publishes a Doxygen API site.
+`tests/{unit,integration,regression}/` — one binary, `se_functional_tests`,
+with CTest labels derived from each test's GTest suite prefix (`Unit_*`,
+`Integration_*`, `Regression_*`), not from directory location. The suite
+instantiates real kernels against the real runtime — there are no mocks.
+`tests/native_execution/` is the second binary, `se_native_execution_tests`:
+the same `Execution` conformance cases compiled out of those directories
+against the native backend, on the native lane only. CI
+(`.github/workflows/ci.yml`) builds and runs the functional suite on every
+push/PR inside the `intel/oneapi-basekit` image, builds and runs the native
+lane on a stock runner with no SYCL toolchain, builds the editor target
+separately (no tests), and publishes a Doxygen API site.
 
 ## How it works
 
@@ -416,9 +435,10 @@ input/                   Compiled SDL-backed input device
 editor/                  The SDL2 + Dear ImGui editor shell (se_editor)
 tests/
   common/                 Shared GoogleTest entry point and helpers
-  functional/unit/         53 files
-  functional/integration/  20 files
-  functional/regression/   1 file
+  unit/                    129 files
+  integration/             37 files
+  regression/              2 files
+  native_execution/        The native lane's Execution conformance binary
 cli/                     The `se` / `sushiengine` developer CLI (Python/Typer)
 third_party/             Vendored imgui (submodule) and miniaudio (header)
 cmake/                   ProjectOptions, Runtime, SyclTarget, Toolchain, Vcpkg modules

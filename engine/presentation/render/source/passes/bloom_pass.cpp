@@ -284,6 +284,11 @@ namespace SushiEngine
                 const Graph::TextureHandle source = frame.targets.post_color;
                 const Graph::TextureHandle bloom = frame.targets.bloom;
                 const float radius = 1.0f;
+                // Held to the ranges the knee curve is defined over, so a setting off the end
+                // of a slider cannot turn it inside out. Zero keeps the pyramid threshold-free.
+                const float threshold = std::max(frame.settings.post.bloom.threshold, 0.0f);
+                const float threshold_knee =
+                    std::clamp(frame.settings.post.bloom.threshold_knee, 0.0f, 1.0f);
 
                 graph.add_pass(
                     "bloom",
@@ -292,8 +297,8 @@ namespace SushiEngine
                         builder.read(source, Graph::TextureAccess::SampledCompute);
                         builder.write(bloom, Graph::TextureAccess::StorageComputeWrite);
                     },
-                    [this, &frame, source, bloom, radius](VkCommandBuffer command,
-                                                          const Graph::PassContext& context)
+                    [this, &frame, source, bloom, radius, threshold,
+                     threshold_knee](VkCommandBuffer command, const Graph::PassContext& context)
                     {
                         const VkSampler sampler = frame.samplers->get(linear_sampler());
                         const VkImageView source_view = context.sampled_view(source);
@@ -341,6 +346,10 @@ namespace SushiEngine
                             push.a[1] = static_cast<float>(dh);
                             push.a[2] = source_lod;
                             push.a[3] = level == 0 ? 1.0f : 0.0f;
+                            // Only level 0 reads the scene; every coarser level reads the
+                            // level above it, which already carries the knee.
+                            push.b[0] = level == 0 ? threshold : 0.0f;
+                            push.b[1] = threshold_knee;
                             vkCmdPushConstants(command, pipeline_layout_,
                                                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push), &push);
                             vkCmdDispatch(command, groups(dw), groups(dh), 1);

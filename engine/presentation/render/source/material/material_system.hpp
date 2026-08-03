@@ -152,6 +152,11 @@ namespace SushiEngine
 
                     /**
                      * @brief Packs a material and returns the index a draw refers to it by.
+                     *
+                     * Resolving the material's maps may register a texture into the heap under
+                     * this material's wrap mode and anisotropy, so the first draw using a
+                     * sampling configuration new to a texture costs one descriptor write.
+                     *
                      * @param material The authored surface.
                      * @return The index into this frame's material array.
                      */

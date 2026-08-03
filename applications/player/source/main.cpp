@@ -30,12 +30,9 @@
 
 #include <chrono>
 #include <cstdio>
-#include <cstdlib>
 #include <exception>
-#include <filesystem>
-#include <string>
 
-#include "boot_manifest.hpp"
+#include "launch_configuration.hpp"
 #include "player_app.hpp"
 
 namespace
@@ -50,65 +47,32 @@ namespace
     // the world's fixed-step accumulator (ISimulation::tick's own FixedTimestepClock)
     // advance by a different number of steps depending on how fast that machine is.
     constexpr double HEADLESS_FIXED_DELTA_SECONDS = 1.0 / 60.0;
-    constexpr int DEFAULT_HEADLESS_FRAME_COUNT = 60;
 } // namespace
 
 int main(int argc, char** argv)
 {
     try
     {
-        SushiEngine::Player::BootManifest manifest;
-
-        // First pass: an explicit --manifest has to be found before anything else is
-        // applied, since everything that follows is allowed to override what it loads.
-        std::string manifest_path;
-        for (int i = 1; i < argc; ++i)
-            if (std::string(argv[i]) == "--manifest" && i + 1 < argc)
-                manifest_path = argv[++i];
-        if (manifest_path.empty() && std::filesystem::exists(DEFAULT_MANIFEST_NAME))
-            manifest_path = DEFAULT_MANIFEST_NAME;
-        if (!manifest_path.empty())
-            SushiEngine::Player::load_boot_manifest(manifest_path, manifest);
-
-        // Second pass: CLI arguments layered on top of the manifest (or its defaults,
-        // if none was found) — the developer's terminal always wins over the shipped
-        // config, which is what makes local testing possible without editing the file.
-        bool headless = false;
-        int frame_count = DEFAULT_HEADLESS_FRAME_COUNT;
-        for (int i = 1; i < argc; ++i)
-        {
-            const std::string arg = argv[i];
-            if (arg == "--manifest")
-                ++i; // path already consumed above
-            else if (arg == "--validation")
-                manifest.enable_validation = true;
-            else if (arg == "--scene" && i + 1 < argc)
-                manifest.scene_path = argv[++i];
-            else if (arg == "--headless")
-                headless = true;
-            else if (arg == "--frames" && i + 1 < argc)
-                frame_count = std::atoi(argv[++i]);
-            else if (arg.rfind("--", 0) != 0)
-                manifest.scene_path = arg; // a bare positional path
-        }
+        const SushiEngine::Player::LaunchConfiguration launch =
+            SushiEngine::Player::resolve_launch_configuration(argc, argv, DEFAULT_MANIFEST_NAME);
 
         SushiEngine::Player::PlayerApp::Description description;
-        description.scene_path = manifest.scene_path;
-        description.window_title = manifest.window_title;
-        description.width = manifest.width;
-        description.height = manifest.height;
-        description.enable_validation = manifest.enable_validation;
-        description.organization = manifest.organization;
-        description.application = manifest.application;
-        description.headless = headless;
+        description.scene_path = launch.manifest.scene_path;
+        description.window_title = launch.manifest.window_title;
+        description.width = launch.manifest.width;
+        description.height = launch.manifest.height;
+        description.enable_validation = launch.manifest.enable_validation;
+        description.organization = launch.manifest.organization;
+        description.application = launch.manifest.application;
+        description.headless = launch.headless;
 
         SushiEngine::Player::PlayerApp app;
         app.start(description);
 
-        if (headless)
+        if (launch.headless)
         {
             int frames_run = 0;
-            for (; frames_run < frame_count && !app.should_quit(); ++frames_run)
+            for (; frames_run < launch.frame_count && !app.should_quit(); ++frames_run)
                 app.frame(HEADLESS_FIXED_DELTA_SECONDS);
             std::fprintf(stdout, "SushiEngine player: %d headless frame(s) completed.\n",
                         frames_run);

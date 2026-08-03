@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <cstring>
 #include <stdexcept>
+#include <utility>
 
 #include <stb_image.h>
 
@@ -59,6 +60,49 @@ namespace SushiEngine
                  * is not latency-sensitive by even one frame, let alone sixteen.
                  */
                 constexpr std::uint64_t RETIRE_FRAME_DELAY = 16;
+
+                /** @brief Highest mip a material sampler may reach; past any real mip chain. */
+                constexpr float MAX_SAMPLER_LOD = 16.0f;
+
+                /** @brief Ceiling on requested anisotropy, above the highest hardware step. */
+                constexpr float MAX_ANISOTROPY = 16.0f;
+
+                /**
+                 * @brief The Vulkan address mode a material's wrap mode asks for.
+                 * @param wrap The authored wrap mode.
+                 * @return The address mode applied to U, V, and W alike.
+                 */
+                VkSamplerAddressMode address_mode(TextureWrap wrap) noexcept
+                {
+                    switch (wrap)
+                    {
+                        case TextureWrap::Clamp:
+                            return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                        case TextureWrap::Mirror:
+                            return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+                        case TextureWrap::Repeat:
+                            break;
+                    }
+                    return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                }
+
+                /**
+                 * @brief Rounds a requested anisotropy down to a power of two in [1, 16].
+                 *
+                 * Each distinct value costs a heap slot on every texture that asks for it, so
+                 * the authored slider is snapped to the steps hardware actually implements
+                 * instead of letting 8.0 and 7.99 register as two configurations.
+                 *
+                 * @param requested The authored anisotropy; anything below 2 disables it.
+                 * @return One of 1, 2, 4, 8, 16.
+                 */
+                float rounded_anisotropy(float requested) noexcept
+                {
+                    float level = 1.0f;
+                    while (level < MAX_ANISOTROPY && level * 2.0f <= requested)
+                        level *= 2.0f;
+                    return level;
+                }
 
                 /**
                  * @brief Bytes a full RGBA8 mip chain of the given size occupies.
@@ -141,14 +185,8 @@ namespace SushiEngine
                                            Resources::DescriptorHeap& heap,
                                            Resources::SamplerCache& samplers,
                                            std::size_t budget_bytes)
-                : device_(device), heap_(heap), budget_bytes_(budget_bytes)
+                : device_(device), heap_(heap), samplers_(samplers), budget_bytes_(budget_bytes)
             {
-                Resources::SamplerDescription description;
-                description.address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-                description.max_anisotropy = 16.0f;
-                description.max_lod = 16.0f;
-                sampler_ = samplers.get(description);
-
                 VkCommandPoolCreateInfo pool_info{};
                 pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
                 pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -175,7 +213,7 @@ namespace SushiEngine
                 defaults_[static_cast<std::uint32_t>(DefaultTexture::NeutralMaterial)] =
                     create_default("sushi:neutral-material", 255, 255, 255, 255);
 
-                // heap_index() indexes entries_ by defaults_[fallback] with no bounds
+                // resolve() indexes entries_ by defaults_[fallback] with no bounds
                 // check (hot path, called per material map). A failed default upload
                 // would otherwise leave defaults_[x] == INVALID_TEXTURE and turn every
                 // unset material slot into an out-of-bounds read the first time it's
@@ -398,7 +436,10 @@ namespace SushiEngine
                 const VkImage retired_image = entry.image;
                 const VmaAllocation retired_allocation = entry.allocation;
                 const VkImageView retired_view = entry.view;
-                const std::uint32_t retired_heap_index = entry.heap_index;
+                std::vector<std::uint32_t> retired_heap_indices;
+                retired_heap_indices.reserve(entry.variants.size());
+                for (const SamplerVariant& variant : entry.variants)
+                    retired_heap_indices.push_back(variant.heap_index);
                 const bool had_previous = retired_view != VK_NULL_HANDLE;
                 if (entry.bytes > 0)
                     resident_bytes_ -= entry.bytes;
@@ -412,10 +453,13 @@ namespace SushiEngine
                 entry.bytes = chain_bytes(width, height);
                 resident_bytes_ += entry.bytes;
 
-                // A fresh heap slot rather than an in-place rewrite: the slot an in-flight
+                // Fresh heap slots rather than an in-place rewrite: the slot an in-flight
                 // frame's material buffer points at must stay valid until that frame ends.
-                entry.heap_index = heap_.allocate_texture(
-                    view, sampler_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                // Every sampling configuration the entry already served is re-registered, so
+                // a material that asked for one keeps a valid index across the upgrade.
+                const std::vector<SamplerVariant> previous = std::move(entry.variants);
+                entry.variants.clear();
+                register_variants(entry, previous);
 
                 if (host_upload_ok_)
                 {
@@ -423,7 +467,7 @@ namespace SushiEngine
                     // already in flight, so its release waits out a frames-in-flight delay.
                     if (had_previous)
                         retired_.push_back({retired_image, retired_allocation, retired_view,
-                                            retired_heap_index,
+                                            std::move(retired_heap_indices),
                                             frame_counter_ + RETIRE_FRAME_DELAY});
                 }
                 else
@@ -435,10 +479,48 @@ namespace SushiEngine
                     pending.retired_allocation = retired_allocation;
                     pending.retired_view = retired_view;
                     if (had_previous)
-                        pending.retired_heap_index = retired_heap_index;
-                    pending_.push_back(pending);
+                        pending.retired_heap_indices = std::move(retired_heap_indices);
+                    pending_.push_back(std::move(pending));
                 }
                 return true;
+            }
+
+            VkSampler TextureLibrary::sampler_for(TextureWrap wrap, float anisotropy)
+            {
+                Resources::SamplerDescription description;
+                description.address_mode = address_mode(wrap);
+                description.max_anisotropy = anisotropy;
+                description.max_lod = MAX_SAMPLER_LOD;
+                return samplers_.get(description);
+            }
+
+            void TextureLibrary::register_variants(Entry& entry,
+                                                   const std::vector<SamplerVariant>& previous)
+            {
+                // A first upload has nothing to carry over, so it registers the sampling an
+                // unedited material asks for. Keeping the two in step is what makes the
+                // common material cost one heap slot per texture instead of two.
+                if (previous.empty())
+                {
+                    const Render::Material unedited;
+                    SamplerVariant baseline;
+                    baseline.wrap = unedited.wrap_mode;
+                    baseline.max_anisotropy = rounded_anisotropy(unedited.anisotropic_filtering);
+                    baseline.heap_index = heap_.allocate_texture(
+                        entry.view, sampler_for(baseline.wrap, baseline.max_anisotropy),
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    entry.variants.push_back(baseline);
+                    return;
+                }
+
+                entry.variants.reserve(previous.size());
+                for (SamplerVariant variant : previous)
+                {
+                    variant.heap_index = heap_.allocate_texture(
+                        entry.view, sampler_for(variant.wrap, variant.max_anisotropy),
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    entry.variants.push_back(variant);
+                }
             }
 
             void TextureLibrary::record_host_upload(VkImage image, const std::uint8_t* pixels,
@@ -635,8 +717,8 @@ namespace SushiEngine
                         ++i;
                         continue;
                     }
-                    if (pending.retired_heap_index != 0xFFFFFFFFu)
-                        heap_.free_texture(pending.retired_heap_index);
+                    for (std::uint32_t index : pending.retired_heap_indices)
+                        heap_.free_texture(index);
                     vkDestroyFence(device_.device(), pending.fence, nullptr);
                     vkFreeCommandBuffers(device_.device(), pool_, 1, &pending.command);
                     vmaDestroyBuffer(device_.allocator(), pending.staging,
@@ -659,8 +741,8 @@ namespace SushiEngine
                         ++i;
                         continue;
                     }
-                    if (retired.heap_index != 0xFFFFFFFFu)
-                        heap_.free_texture(retired.heap_index);
+                    for (std::uint32_t index : retired.heap_indices)
+                        heap_.free_texture(index);
                     if (retired.view != VK_NULL_HANDLE)
                         vkDestroyImageView(device_.device(), retired.view, nullptr);
                     if (retired.image != VK_NULL_HANDLE)
@@ -748,7 +830,9 @@ namespace SushiEngine
             {
                 if (!entry.live)
                     return;
-                heap_.free_texture(entry.heap_index);
+                for (const SamplerVariant& variant : entry.variants)
+                    heap_.free_texture(variant.heap_index);
+                entry.variants.clear();
                 if (entry.view != VK_NULL_HANDLE)
                     vkDestroyImageView(device_.device(), entry.view, nullptr);
                 if (entry.image != VK_NULL_HANDLE)
@@ -764,13 +848,50 @@ namespace SushiEngine
                 entry.pixels.shrink_to_fit();
             }
 
-            std::uint32_t TextureLibrary::heap_index(TextureId texture,
-                                                     DefaultTexture fallback) const noexcept
+            std::size_t TextureLibrary::resolve(TextureId texture,
+                                                DefaultTexture fallback) const noexcept
             {
                 if (texture != INVALID_TEXTURE && texture < entries_.size() &&
                     entries_[texture].live)
-                    return entries_[texture].heap_index;
-                return entries_[defaults_[static_cast<std::uint32_t>(fallback)]].heap_index;
+                    return texture;
+                return defaults_[static_cast<std::uint32_t>(fallback)];
+            }
+
+            std::uint32_t TextureLibrary::heap_index(TextureId texture,
+                                                     DefaultTexture fallback) const noexcept
+            {
+                return entries_[resolve(texture, fallback)].variants.front().heap_index;
+            }
+
+            std::uint32_t TextureLibrary::heap_index_for_sampler(TextureId texture,
+                                                                 DefaultTexture fallback,
+                                                                 TextureWrap wrap,
+                                                                 float anisotropy)
+            {
+                Entry& entry = entries_[resolve(texture, fallback)];
+                // Every address mode and every anisotropy return the one texel a 1x1 image
+                // has, so the neutral defaults an unset map falls back to — and anything
+                // streamed down that far — need no registration beyond their first.
+                if (entry.resident_width == 1 && entry.resident_height == 1)
+                    return entry.variants.front().heap_index;
+
+                const float wanted = rounded_anisotropy(anisotropy);
+                for (const SamplerVariant& variant : entry.variants)
+                    if (variant.wrap == wrap && variant.max_anisotropy == wanted)
+                        return variant.heap_index;
+
+                SamplerVariant variant;
+                variant.wrap = wrap;
+                variant.max_anisotropy = wanted;
+                variant.heap_index =
+                    heap_.allocate_texture(entry.view, sampler_for(wrap, wanted),
+                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                // A full heap has no slot to give: sample the texture the way it is already
+                // registered rather than hand back an index no descriptor was written at.
+                if (variant.heap_index == Resources::INVALID_HEAP_INDEX)
+                    return entry.variants.front().heap_index;
+                entry.variants.push_back(variant);
+                return variant.heap_index;
             }
 
             bool TextureLibrary::has_transparency(TextureId texture) const noexcept

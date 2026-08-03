@@ -423,11 +423,7 @@ namespace SushiEngine
                     {"surface_type", static_cast<std::uint32_t>(m.surface_type)},
                     {"alpha_cutoff", m.alpha_cutoff},
                     {"cull_mode", static_cast<std::uint32_t>(m.cull_mode)},
-                    {"blend_mode", static_cast<std::uint32_t>(m.blend_mode)},
-                    {"render_queue", m.render_queue},
                     {"cast_shadows", m.cast_shadows},
-                    {"receive_shadows", m.receive_shadows},
-                    {"gpu_instancing", m.gpu_instancing},
                     {"anisotropic_filtering", m.anisotropic_filtering},
                     {"wrap_mode", static_cast<std::uint32_t>(m.wrap_mode)},
                     {"weather_wettable", m.weather_wettable}};
@@ -485,12 +481,7 @@ namespace SushiEngine
                 m.alpha_cutoff = j.value("alpha_cutoff", m.alpha_cutoff);
                 m.cull_mode = static_cast<SushiEngine::Render::MaterialCullMode>(
                     j.value("cull_mode", static_cast<std::uint32_t>(m.cull_mode)));
-                m.blend_mode = static_cast<SushiEngine::Render::BlendMode>(
-                    j.value("blend_mode", static_cast<std::uint32_t>(m.blend_mode)));
-                m.render_queue = j.value("render_queue", m.render_queue);
                 m.cast_shadows = j.value("cast_shadows", m.cast_shadows);
-                m.receive_shadows = j.value("receive_shadows", m.receive_shadows);
-                m.gpu_instancing = j.value("gpu_instancing", m.gpu_instancing);
                 m.anisotropic_filtering =
                     j.value("anisotropic_filtering", m.anisotropic_filtering);
                 m.wrap_mode = static_cast<SushiEngine::Render::TextureWrap>(

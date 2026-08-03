@@ -102,15 +102,6 @@ namespace SushiEngine
             Back,  /**< Cull back faces. */
         };
 
-        /** @brief How a transparent material combines with what is behind it. */
-        enum class BlendMode : std::uint32_t
-        {
-            Alpha,         /**< source.a * source + (1 - source.a) * destination. */
-            Premultiplied, /**< source + (1 - source.a) * destination. */
-            Additive,      /**< source + destination. */
-            Multiply,      /**< source * destination. */
-        };
-
         /** @brief How a sampler behaves outside [0, 1]. */
         enum class TextureWrap : std::uint32_t
         {
@@ -191,11 +182,7 @@ namespace SushiEngine
             SurfaceType surface_type = SurfaceType::Opaque;
             float alpha_cutoff = 0.5f;
             MaterialCullMode cull_mode = MaterialCullMode::Off;
-            BlendMode blend_mode = BlendMode::Alpha;
-            std::int32_t render_queue = 2000; /**< Sort key; lower draws first. */
             bool cast_shadows = true;
-            bool receive_shadows = true;
-            bool gpu_instancing = true;
 
             float anisotropic_filtering = 8.0f;          /**< Sampler anisotropy, 1 = off. */
             TextureWrap wrap_mode = TextureWrap::Repeat; /**< Sampler address mode for every map. */

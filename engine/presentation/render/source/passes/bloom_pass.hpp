@@ -32,7 +32,9 @@
  * downsampled with a 13-tap Karis-averaged filter, upsampled back with a 3x3 tent, and the
  * final level is written into a graph-transient bloom target the display transform composites
  * in. Threshold-free by default: the whole HDR image scatters, so a bright pixel bleeds in
- * proportion to its own intensity and no energy is invented at a hard cut.
+ * proportion to its own intensity and no energy is invented at a hard cut. A non-zero
+ * @c BloomSettings::threshold puts a quadratic soft knee on the first downsample, and only
+ * there, since every coarser level is built from that level's output.
  */
 
 #include <cstdint>

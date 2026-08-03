@@ -125,10 +125,10 @@ namespace
         m.main_transform.offset_y = 0.5f;
         m.clearcoat = 0.5f;
         m.surface_type = Render::SurfaceType::Transparent;
-        m.blend_mode = Render::BlendMode::Additive;
         m.cull_mode = Render::MaterialCullMode::Back;
-        m.render_queue = 3000;
         m.cast_shadows = false;
+        m.anisotropic_filtering = 4.0f;
+        m.wrap_mode = Render::TextureWrap::Mirror;
         m.weather_wettable = true;
         return m;
     }
@@ -187,10 +187,10 @@ namespace
         EXPECT_FLOAT_EQ(actual.main_transform.offset_y, expected.main_transform.offset_y);
         EXPECT_FLOAT_EQ(actual.clearcoat, expected.clearcoat);
         EXPECT_EQ(actual.surface_type, expected.surface_type);
-        EXPECT_EQ(actual.blend_mode, expected.blend_mode);
         EXPECT_EQ(actual.cull_mode, expected.cull_mode);
-        EXPECT_EQ(actual.render_queue, expected.render_queue);
         EXPECT_EQ(actual.cast_shadows, expected.cast_shadows);
+        EXPECT_FLOAT_EQ(actual.anisotropic_filtering, expected.anisotropic_filtering);
+        EXPECT_EQ(actual.wrap_mode, expected.wrap_mode);
         EXPECT_EQ(actual.weather_wettable, expected.weather_wettable);
     }
 
