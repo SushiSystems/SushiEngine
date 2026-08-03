@@ -33,7 +33,7 @@
  * which scene to open — there is no terminal to pass one to. This is the same problem
  * `engine/world/authoring`'s `JsonPreferencesStore` solves for editor session
  * state, read the same tolerant way: a missing or corrupt file degrades field-by-field
- * to defaults rather than refusing to start (`se_player/main.cpp` applies CLI
+ * to defaults rather than refusing to start (`applications/player/source/main.cpp` applies CLI
  * arguments on top of whatever this loads, so a developer can always override it
  * locally without editing the file).
  */

@@ -21,7 +21,7 @@
 // A morph-weight track can only reach the SkinningPass if three things agree — the
 // importer reads the channel, the cooked clip carries the track under the target's name,
 // and sample_morph_state resolves a mesh's target order onto it by name. This pins all
-// three against examples/assets/morph_face.gltf: a skinned triangle with two named
+// three against assets/models/morph_face.gltf: a skinned triangle with two named
 // targets, one animation driving them and one driving only a joint rotation.
 
 #include <cstddef>

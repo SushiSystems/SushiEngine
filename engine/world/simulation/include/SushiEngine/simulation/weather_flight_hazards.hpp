@@ -31,7 +31,7 @@
  * `docs/slop/weather_and_clouds.md` §7's W6 phase asks for "icing/turbulence exposure to
  * gameplay" and §5.3 names "the flight-sim payoff" as `weather_wind()`'s intended destination.
  * No flight/aircraft/vehicle system exists anywhere in this engine today (confirmed by
- * inspection of `include/SushiEngine/` and `examples/`, the same audit W4 and W5 already ran
+ * inspection of `engine/` and `samples/`, the same audit W4 and W5 already ran
  * before making the identical call) -- W4 and W5 both scoped their own flight-model-shaped asks
  * down to "the extension point a future flight model would call" rather than inventing one, and
  * this file follows the same discipline: two small, stateless, pure functions a future

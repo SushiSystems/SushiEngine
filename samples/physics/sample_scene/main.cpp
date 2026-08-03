@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* physics_sample_scene.cpp                                               */
+/* main.cpp                                                               */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 /**
- * @file physics_sample_scene.cpp
+ * @file main.cpp
  * @brief Writes the physics demonstration scene to a `.sushiscene` file.
  *
  * A scene is a *file*. Shipping the demonstration as a builder behind a menu item made it
@@ -47,7 +47,7 @@
 
 #include <SushiEngine/simulation/simulation.hpp>
 
-#include "scene/physics_sample_scene.hpp"
+#include "physics_sample_scene.hpp"
 #include "scene_serializer.hpp"
 
 int main(int argc, char** argv)

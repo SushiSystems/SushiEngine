@@ -53,7 +53,7 @@
  *
  * **This is the measurement path, not a verdict.** §6.5 states plainly that
  * whether this is worth the narrowing is measured and kept or dropped in P8;
- * `examples/soft_body_half_storage_budget.cpp` is that measurement. Until it
+ * `samples/physics/soft_body_half_storage_budget.cpp` is that measurement. Until it
  * is read, this type is additive — nothing in `SoftBodyInstance` or
  * `SoftBodyPrecision` constructs one, so a body's precision selection is
  * unchanged by this file's existence.

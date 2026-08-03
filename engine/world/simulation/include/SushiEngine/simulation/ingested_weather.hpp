@@ -52,7 +52,7 @@
  * is a genuine, LSP-substitutable `IWeatherProvider`. `WeatherCloudscapeCompiler`,
  * `WeatherWorldCoupling`, and anything else built against the seam accept it exactly as they
  * accept `ProceduralWeather` or `StaticWeather` today, with zero changes -- see
- * `tests/functional/unit/test_ingested_weather.cpp`'s `SubstitutesForAnyOtherProvider` case,
+ * `tests/unit/test_ingested_weather.cpp`'s `SubstitutesForAnyOtherProvider` case,
  * which runs the identical assertions W4/W5's own provider tests already ran, through this
  * provider instead.
  */

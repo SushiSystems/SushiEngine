@@ -167,7 +167,7 @@ namespace SushiEngine
             RebindState rebind;
 
             /** The rigged asset the Animator panel's Load Character field holds. */
-            std::string character_path = "examples/assets/rigged_arm_anim.gltf";
+            std::string character_path = "assets/models/rigged_arm_anim.gltf";
         };
     } // namespace Editor
 } // namespace SushiEngine

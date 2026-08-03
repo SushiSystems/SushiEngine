@@ -95,7 +95,7 @@ jobs:
     #
     # SE_BUILD_EDITOR forces SE_BUILD_RENDER on, which needs Vulkan-Headers,
     # Vulkan-Loader, VMA, vk-bootstrap, glslang, stb, cgltf, and nlohmann-json
-    # (engine/presentation/render/CMakeLists.txt, editor/CMakeLists.txt). vk-bootstrap and
+    # (engine/presentation/render/CMakeLists.txt, applications/editor/CMakeLists.txt). vk-bootstrap and
     # cgltf have
     # no Linux apt package (cli/sushistack.deps.toml lists empty linux_apt for
     # both), so this job provisions all of them from a throwaway vcpkg checkout

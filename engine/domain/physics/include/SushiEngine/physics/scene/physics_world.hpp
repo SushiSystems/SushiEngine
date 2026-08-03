@@ -31,7 +31,7 @@
  * solve into a physics loop: it owns the body buffer, runs predict / solve / derive-
  * velocity for each sub-step, and hands out `RigidBody` state by index. It knows
  * nothing about the ECS on purpose — `physics/` sits below `ecs/` in the engine's
- * layering, so this stays usable standalone (as `examples/xpbd_demo.cpp` does today)
+ * layering, so this stays usable standalone (as `samples/physics/xpbd_demo.cpp` does today)
  * and is the seam a later `sim/` component (mapping ECS entities to body indices,
  * syncing Transform/Orientation each frame) will be built on top of, not folded into.
  */

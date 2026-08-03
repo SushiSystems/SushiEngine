@@ -390,7 +390,7 @@ int main(int argc, char** argv)
         // fails silently (no rig at that path just leaves the preview empty) rather than
         // blocking editor startup; a proper Animator-driven scene entity is future work.
         SushiEngine::Editor::AnimatedMeshPreview animated_mesh_preview;
-        animated_mesh_preview.load_gltf("examples/assets/rigged_arm_anim.gltf", *context.assets);
+        animated_mesh_preview.load_gltf("assets/models/rigged_arm_anim.gltf", *context.assets);
         context.animated_mesh_preview = &animated_mesh_preview;
 
         // The two animation-authoring documents, owned here for the same reason the previews

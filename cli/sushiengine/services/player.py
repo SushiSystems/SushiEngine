@@ -4,8 +4,8 @@ The ImGui-free runtime shell (PLATFORM0 S5) is a separate, ImGui-independent
 target gated behind SE_BUILD_PLAYER. `se player` reconfigures in place with
 that flag on (cheap and incremental — it does not wipe the build tree),
 builds only the `se_player` target, and launches it. Arguments after `--`
-are forwarded to it, so `se player -- --scene examples/assets/demo.sushiscene
---validation` works — see `se_player/main.cpp` for what it accepts.
+are forwarded to it, so `se player -- --scene physics_sample.sushiscene
+--validation` works — see `applications/player/source/main.cpp` for what it accepts.
 """
 
 from __future__ import annotations

@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Integration_NetClientServer: the client/server harness in examples/net_demo.cpp,
+// Integration_NetClientServer: the client/server harness in samples/networking/net_demo.cpp,
 // as an assertable test, driven by a real per-tick gameplay Command
 // (PlayerCommand, a two-axis movement input mapped onto Position) instead of the
 // toy Scalar command test_net_reconciliation.cpp uses. That older test still adds

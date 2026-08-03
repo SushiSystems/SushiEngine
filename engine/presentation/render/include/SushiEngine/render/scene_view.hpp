@@ -75,7 +75,7 @@ namespace SushiEngine
          *
          * A render-side enum rather than a reuse of `Simulation::PrimitiveKind`, so
          * this header stays free of any dependency on the sim seam — the editor's
-         * per-frame copy from `RenderInstance` to `MeshInstance` (see editor/main.cpp)
+         * per-frame copy from `RenderInstance` to `MeshInstance` (see applications/editor/source/main.cpp)
          * maps one to the other, the same place colour and transform are copied.
          */
         enum class MeshKind : std::uint32_t

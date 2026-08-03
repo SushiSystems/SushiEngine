@@ -40,7 +40,7 @@ namespace SushiEngine
         {
             /**
              * @brief Builds a view/projection from a world camera, exactly as
-             *        `editor/camera/scene_camera.hpp`'s `WorldCameraSource::view()` does.
+             *        `applications/editor/source/camera/scene_camera.hpp`'s `WorldCameraSource::view()` does.
              *
              * Not shared with that class: it lives in `editor/`, which this target does not
              * (and must not) link, and the computation itself is four lines — small enough
@@ -188,7 +188,7 @@ namespace SushiEngine
 
             // RenderInstance -> MeshInstance: the one channel that always needs a shape
             // change (Simulation:: and Render:: intentionally do not share this type, the
-            // same separation editor/main.cpp's identical loop is built against). Lights,
+            // same separation the editor's identical loop is built against). Lights,
             // decals, skinned instances, and cosmetic emitters are already Render::-typed
             // inside RenderScene and pass straight through below with no conversion.
             instances_.clear();
@@ -206,7 +206,7 @@ namespace SushiEngine
             }
 
             // Deformable surfaces: pointers into this frame's concatenated vertex/index
-            // arrays, offset per surface exactly as editor/main.cpp's identical loop does.
+            // arrays, offset per surface exactly as the editor's identical loop does.
             deformable_.clear();
             deformable_.reserve(scene.deformable_instances.size());
             for (const Simulation::DeformableInstance& surface : scene.deformable_instances)

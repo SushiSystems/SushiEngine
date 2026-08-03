@@ -328,7 +328,7 @@ TEST(Integration_RuntimeGraphBuilder, TheSubstepCountFollowsTheFastestBody)
 /**
  * @brief The soft-body budget scene's *shape*, which the suite can own.
  *
- * `examples/soft_body_budget.cpp` measures section 13.1's number -- one body,
+ * `samples/physics/soft_body_budget.cpp` measures section 13.1's number -- one body,
  * 20 000 tetrahedra, 32 substeps, 3 ms/tick -- and reports it rather than asserting
  * it, because a target stated against one desktop-class GPU is not a claim any
  * machine running this suite can be held to. What *is* machine-independent, and what

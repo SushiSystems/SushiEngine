@@ -14,7 +14,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # `se editor` (or -DSE_BUILD_EDITOR=ON) turns it on.
 option(SE_BUILD_EDITOR "Build the SushiEngine editor" OFF)
 
-# The ImGui-free runtime shell (se_player/, PLATFORM0 S5): sushi_platform's window,
+# The ImGui-free runtime shell (applications/player/, PLATFORM0 S5): sushi_platform's window,
 # sushi_render's renderer, and PlayerApp's own start/frame/suspend/resume/shutdown
 # loop, with no sushi_imgui link at all — the point of the whole player/editor split.
 # OFF so a plain configure needs nothing beyond what SE_BUILD_RENDER already needs;
@@ -25,6 +25,13 @@ option(SE_BUILD_PLAYER "Build the SushiEngine player" OFF)
 # GoogleTest comes from vcpkg, the same toolchain the runtime already requires on
 # Windows.
 option(SE_BUILD_TESTS "Build the SushiEngine test suite" OFF)
+
+# The worked examples under samples/. OFF because a plain configure has no reason to declare
+# 52 more executables, each of which is its own SYCL translation unit and so its own device
+# compile; `se run <demo>` needs -DSE_BUILD_EXAMPLES=ON. The sandbox and pgs_demo sit outside
+# this option deliberately — they are the only two targets that prove the native execution
+# lane builds at all, so they are declared whatever it says.
+option(SE_BUILD_EXAMPLES "Build the SushiEngine examples" OFF)
 
 # The Vulkan renderer (engine/presentation/render/). A plain compiled target — no runtime link, no SYCL —
 # so it builds on a stock toolchain, but it needs the Vulkan/VMA/vk-bootstrap vcpkg

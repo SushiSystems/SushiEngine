@@ -299,7 +299,7 @@ namespace SushiEngine
              * optionally holding each ack for `latency_ticks` polls so the reconcile
              * path exercises a genuine multi-tick rollback rather than an immediate
              * one-tick correction. It is the concrete transport the tests and
-             * `examples/first_game.cpp` use to prove the multiplayer seam end to end.
+             * `samples/authoring/first_game.cpp` use to prove the multiplayer seam end to end.
              *
              * @tparam Command The per-tick command type; must support `operator==`.
              */

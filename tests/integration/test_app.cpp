@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Integration_App: the SushiLoop authoring surface (Loop::App) as a checked test —
-// the same claims examples/first_game.cpp prints, asserted here so `se test` guards
+// the same claims samples/authoring/first_game.cpp prints, asserted here so `se test` guards
 // them. Two properties: a fixed-step run driven by pure-ECS systems matches an
 // independent closed-form reference (determinism through the runtime), and the same
 // game, made networked by one connect(), converges a mispredicting client to an

@@ -1,18 +1,14 @@
-# ============================================================================
-# SushiEngine editor
+# editor — a Unity-style authoring shell: a Vulkan-backed SDL2 window hosting Dear ImGui
+# (docking branch, vendored at third_party/imgui). It presents through the engine's Vulkan
+# renderer (sushi_render) rather than OpenGL, so the same device that draws the viewport also
+# draws the UI.
 #
-# A Unity-style editor shell: a Vulkan-backed SDL2 window hosting Dear ImGui
-# (docking branch, vendored at third_party/imgui). It presents through the engine's
-# Vulkan renderer (sushi_render) rather than OpenGL, so the same device that draws
-# the viewport also draws the UI. Later steps wire in a live World and viewport.
-#
-# OS-agnostic and CMake-clean: SDL2 comes from the platform's package manager
-# (vcpkg on Windows, the system on Linux/macOS) via find_package; ImGui is vendored
-# as a submodule and compiled here, the idiomatic way to ship it. The editor is NOT
-# a SYCL translation unit, so it does not link the runtime directly — the live world
-# arrives behind the plain-C++ simulation seam. It requires SE_BUILD_RENDER for the
-# Vulkan backend (the top-level CMake turns render on whenever the editor is on).
-# ============================================================================
+# OS-agnostic and CMake-clean: SDL2 comes from the platform's package manager (vcpkg on
+# Windows, the system on Linux/macOS) via find_package; ImGui is vendored as a submodule and
+# compiled here, the idiomatic way to ship it. The editor is NOT a SYCL translation unit, so it
+# does not link the runtime directly — the live world arrives behind the plain-C++ simulation
+# seam. It requires SE_BUILD_RENDER for the Vulkan backend (the top-level CMake turns render on
+# whenever the editor is on).
 
 if(NOT TARGET sushi_render)
     message(FATAL_ERROR
@@ -54,46 +50,45 @@ target_link_libraries(sushi_imgui PUBLIC SDL2::SDL2 Vulkan::Headers Vulkan::Load
 target_compile_features(sushi_imgui PUBLIC cxx_std_17)
 
 add_executable(se_editor
-    main.cpp
-    ui/editor_panels.cpp
-    ui/panel_widgets.cpp
-    atmosphere/meteorology_panel.cpp
-    environment/weather_panel.cpp
-    vfx/particle_panel.cpp
-    render/lighting_panel.cpp
-    render/render_settings_panels.cpp
-    project/project_panel.cpp
-    scene/scene_commands.cpp
-    scene/hierarchy_panel.cpp
-    scene/inspector_panel.cpp
-    scripting/script_panel.cpp
-    ui/modals.cpp
-    core/preferences_window.cpp
-    input/input_manager_window.cpp
-    ui/material_inspector.cpp
-    ui/imgui_backend.cpp
-    ui/viewport_panel.cpp
-    animation/skeleton_debug_draw.cpp
-    animation/animation_panel.cpp
-    animation/animator_graph_panel.cpp
-    animation/animated_mesh_preview.cpp
-    animation/animator_preview_panel.cpp
-    vfx/effect_preview.cpp
-    audio/audio_editor_system.cpp
-    audio/audio_panels.cpp
-    audio/audio_authoring_panel.cpp
-    physics/physics_statistics_panel.cpp
-    physics/assembly_panel.cpp
-    physics/physics_overlay.cpp
-    scene/physics_sample_scene.cpp
-    physics/joint_widgets.cpp
-    physics/vehicle_drive.cpp
-    physics/vehicle_panel.cpp
+    source/main.cpp
+    source/ui/editor_panels.cpp
+    source/ui/panel_widgets.cpp
+    source/atmosphere/meteorology_panel.cpp
+    source/environment/weather_panel.cpp
+    source/vfx/particle_panel.cpp
+    source/render/lighting_panel.cpp
+    source/render/render_settings_panels.cpp
+    source/project/project_panel.cpp
+    source/scene/scene_commands.cpp
+    source/scene/hierarchy_panel.cpp
+    source/scene/inspector_panel.cpp
+    source/scripting/script_panel.cpp
+    source/ui/modals.cpp
+    source/core/preferences_window.cpp
+    source/input/input_manager_window.cpp
+    source/ui/material_inspector.cpp
+    source/ui/imgui_backend.cpp
+    source/ui/viewport_panel.cpp
+    source/animation/skeleton_debug_draw.cpp
+    source/animation/animation_panel.cpp
+    source/animation/animator_graph_panel.cpp
+    source/animation/animated_mesh_preview.cpp
+    source/animation/animator_preview_panel.cpp
+    source/vfx/effect_preview.cpp
+    source/audio/audio_editor_system.cpp
+    source/audio/audio_panels.cpp
+    source/audio/audio_authoring_panel.cpp
+    source/physics/physics_statistics_panel.cpp
+    source/physics/assembly_panel.cpp
+    source/physics/physics_overlay.cpp
+    source/physics/joint_widgets.cpp
+    source/physics/vehicle_drive.cpp
+    source/physics/vehicle_panel.cpp
     # The bake surface (§14): the widgets over the cook/bake model, and the collider overlay.
-    physics/cook_bake_panel.cpp
-    physics/collision_overlay.cpp
-    physics/soft_body_overlay.cpp
-    gizmo/gizmo_controller.cpp)
+    source/physics/cook_bake_panel.cpp
+    source/physics/collision_overlay.cpp
+    source/physics/soft_body_overlay.cpp
+    source/gizmo/gizmo_controller.cpp)
 target_link_libraries(se_editor PRIVATE
     sushi_imgui sushi_render sushi_sim sushi_scene sushiengine_authoring sushi_platform
     sushi_input sushi_audio nlohmann_json::nlohmann_json)

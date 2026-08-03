@@ -33,11 +33,11 @@
  * `RenderScene` into panel-drawn viewports wrapped in a dockspace, `PlayerApp` copies
  * the same snapshot straight onto the window: no picking, no gizmos, no undo, no
  * authoring panels — those are editor concerns and stay in `editor/`, which this
- * deliberately does not link (`se_player/CMakeLists.txt` links no `sushi_imgui`).
+ * deliberately does not link (`applications/player/CMakeLists.txt` links no `sushi_imgui`).
  *
  * `start()`/`frame()`/`suspend()`/`resume()`/`shutdown()` are separate calls rather
  * than a constructor-owns-everything object because the shape assumes no particular
- * loop: `se_player/main.cpp`'s desktop `while(!app.should_quit())` is one driver, and a
+ * loop: `applications/player/source/main.cpp`'s desktop `while(!app.should_quit())` is one driver, and a
  * future mobile host calling `frame()` from its own OS-owned callback is another.
  * `suspend()`/`resume()` are real behavior, not stubs — they release and rebuild the
  * swapchain-owning renderer and scene view, which is what a host must do around a

@@ -44,7 +44,7 @@
 #include <SushiEngine/simulation/simulation.hpp>
 
 #include <SushiEngine/authoring/command_history.hpp>
-#include "scene/physics_sample_scene.hpp"
+#include "physics_sample_scene.hpp"
 #include "scene_serializer.hpp"
 
 using namespace SushiEngine;

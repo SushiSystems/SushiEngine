@@ -153,7 +153,7 @@ def player(
     with no window and exits (PLATFORM0 S6, for CI without a display) instead
     of the normal `while(!app.should_quit())` loop; `-- --manifest boot.json`
     picks a boot manifest explicitly (a bare `boot.json` next to the built exe
-    is read automatically otherwise). See `se_player/main.cpp` for the full set.
+    is read automatically otherwise). See `applications/player/source/main.cpp` for the full set.
     """
     raise typer.Exit(
         player_svc.build_and_run(run=not no_run, build_type=type, args=ctx.args))
