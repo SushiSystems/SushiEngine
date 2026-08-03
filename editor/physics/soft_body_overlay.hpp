@@ -46,12 +46,11 @@
 
 #include <imgui.h>
 
+#include <SushiEngine/authoring/soft_body_heat.hpp>
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/soft/soft_body_material.hpp>
 #include <SushiEngine/render/scene_view.hpp>
-#include <SushiEngine/sim/simulation.hpp>
-
-#include "soft_body_heat.hpp"
+#include <SushiEngine/simulation/simulation.hpp>
 
 namespace SushiEngine
 {

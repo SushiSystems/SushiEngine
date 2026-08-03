@@ -46,9 +46,9 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/physics/cooking/node_beam_asset.hpp>
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
-#include "core/command_history.hpp"
+#include <SushiEngine/authoring/command_history.hpp>
 #include "scene_serializer.hpp"
 
 using namespace SushiEngine;

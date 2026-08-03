@@ -38,8 +38,8 @@
 
 #include <SushiEngine/SushiEngine.hpp>
 #include <SushiEngine/atmosphere/synoptic_field.hpp>
-#include <SushiEngine/sim/seeded_weather.hpp>
-#include <SushiEngine/sim/weather_field_buffer.hpp>
+#include <SushiEngine/simulation/seeded_weather.hpp>
+#include <SushiEngine/simulation/weather_field_buffer.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Simulation;

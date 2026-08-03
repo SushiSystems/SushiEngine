@@ -48,7 +48,7 @@
 
 #include <SushiEngine/audio/audio.hpp>
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 #include <sdl/sdl_audio_device.hpp>
 
 namespace SushiEngine

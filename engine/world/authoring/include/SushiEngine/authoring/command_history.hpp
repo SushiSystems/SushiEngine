@@ -30,7 +30,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 namespace SushiEngine
 {

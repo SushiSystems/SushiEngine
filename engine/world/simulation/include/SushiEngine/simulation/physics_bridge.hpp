@@ -49,7 +49,7 @@
 #include <SushiEngine/ecs/world.hpp>
 #include <SushiEngine/physics/scene/physics_world.hpp>
 #include <SushiEngine/physics/core/rigid_body.hpp>
-#include <SushiEngine/sim/components.hpp>
+#include <SushiEngine/simulation/components.hpp>
 
 namespace SushiEngine
 {

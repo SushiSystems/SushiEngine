@@ -29,7 +29,7 @@
 
 #include <gtest/gtest.h>
 
-#include <SushiEngine/sim/physics_extract.hpp>
+#include <SushiEngine/simulation/physics_extract.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Simulation;

@@ -78,9 +78,9 @@
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/sim/collider.hpp>
-#include <SushiEngine/sim/physics_services.hpp>
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/collider.hpp>
+#include <SushiEngine/simulation/physics_services.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 namespace SushiEngine
 {

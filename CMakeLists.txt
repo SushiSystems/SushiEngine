@@ -77,7 +77,7 @@ add_subdirectory(engine)
 # The engine is header-only so its SYCL kernels instantiate inside the consuming
 # translation unit (each example below), which is the safe way to ship device code.
 add_library(SushiEngine INTERFACE)
-target_include_directories(SushiEngine INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(SushiEngine INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/engine/include")
 
 # The modules that have their own include root ride along here, so a consumer that
 # links only SushiEngine still resolves every engine header.
@@ -97,7 +97,8 @@ target_link_libraries(SushiEngine INTERFACE
     sushiengine_terrain
     sushiengine_ui
     sushiengine_vfx
-    sushiengine_gltf)
+    sushiengine_gltf
+    sushiengine_loop)
 
 # Publish the execution-backend choice (see cmake/ProjectOptions.cmake) to every
 # consumer, so which implementation Execution::Context/Graph/Buffer denote is settled
@@ -446,25 +447,17 @@ endif()
 # built and the native lane carries no target it has not proved out.
 add_subdirectory(tools)
 
-# The live world behind the ISimulation seam: a SYCL static library owning the
-# runtime, world, and schedule. The editor links it to tick and draw a real world,
-# and so does the test suite — the scene-serializer round-trip drives the real
-# simulation through IWorldEditor, which is the whole point of that test. So the
-# condition is either consumer, not just the editor: with tests on and the editor
-# off the target went missing and the test binary failed to link against a library
-# nothing had been asked to build. It needs no renderer (it links SushiEngine and
-# sushi_atmosphere only), so building it in the tests lane costs one static library.
-# The player is a fourth consumer for the same reason: PlayerApp ticks a real
-# ISimulation and loads a `.sushiscene` through sushi_scene, same as the editor.
+# The world tier's compiled modules: the live world behind the ISimulation seam, the
+# `.sushiscene`/`.sushieffect`/environment file shapes, and the authoring services that
+# edit them. Added from here rather than with the rest of engine/world because the four
+# targets below this condition are their only consumers — the test suite among them, since
+# the scene round-trip drives a real simulation through IWorldEditor rather than a mock, and
+# a tests-on/editor-off configure would otherwise have nothing to link. None of the three
+# links the renderer, so the tests lane pays three static libraries for them and no more.
 if(SE_BUILD_EDITOR OR SE_BUILD_TESTS OR SE_BUILD_PLAYER)
-    add_subdirectory(sim)
-
-    # sushi_scene: the one JSON shape for a `.sushiscene`/`.sushieffect`/environment,
-    # UI-free by construction (see scene/CMakeLists.txt). Needs sushi_sim's
-    # IWorldEditor, so it is added here rather than unconditionally at top level —
-    # the editor, physics_sample_scene, the player, and the test suite are its only
-    # consumers, and all four already sit behind this same condition.
-    add_subdirectory(scene)
+    add_subdirectory(engine/world/simulation)
+    add_subdirectory(engine/world/serialization)
+    add_subdirectory(engine/world/authoring)
 
     # physics_sample_scene writes the physics demonstration to a `.sushiscene`. Generated
     # rather than hand-authored, and deliberately: the file comes out of the same builder
@@ -521,7 +514,7 @@ else() # SE_EXECUTION_BACKEND STREQUAL "native"
 # milestone as the native backend gains real coverage (RUNTIME-PORT1.x/PORT2),
 # not speculatively; each addition is its own reviewable diff against a real
 # build/run oracle, not a guess about what "should" work. Everything else in the
-# runtime-backend lane above — every other example, sim/, editor/, tests/ — stays
+# runtime-backend lane above — every other example, engine/world/, editor/, tests/ — stays
 # out of the native lane's build graph entirely rather than being added as broken
 # targets nobody asked `cmake --build .` to actually build.
 add_sushiengine_native_executable(sandbox sandbox/main.cpp)

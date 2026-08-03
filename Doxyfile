@@ -1,6 +1,6 @@
 # Doxygen configuration for the SushiEngine public API reference.
 #
-# Scope is the public engine surface (include/SushiEngine), the product's
+# Scope is the public engine surface (every module's include/), the product's
 # documented face. The layered design is described in docs/guides/ARCHITECTURE.md.
 # Build it with `se doxygen` (or `doxygen Doxyfile`); output lands in
 # docs/api-site/html.
@@ -21,13 +21,14 @@ FULL_SIDEBAR           = NO
 # guide. The reference and the manual build together, Unity-manual style.
 INPUT                  = docs/api/mainpage.md \
                          docs/guides/ARCHITECTURE.md \
-                         include/SushiEngine
+                         engine
 FILE_PATTERNS          = *.hpp *.h *.md
 RECURSIVE              = YES
 USE_MDFILE_AS_MAINPAGE = docs/api/mainpage.md
 
-# Keep internal plumbing out of the reference.
-EXCLUDE_PATTERNS       = */detail/*
+# Keep internal plumbing out of the reference. A module's source/ is its
+# implementation, so only the include/ trees under engine/ reach the site.
+EXCLUDE_PATTERNS       = */detail/* */source/*
 EXCLUDE_SYMBOLS        = *::detail *::detail::*
 
 # Document the API as written; do not invent docs for undocumented symbols, and

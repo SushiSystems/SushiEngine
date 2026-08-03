@@ -31,7 +31,7 @@
  * A CLI flag is fine for a developer running `se player -- --scene x.sushiscene` from
  * a terminal; it is not how a shipped double-click-to-play build tells the player
  * which scene to open — there is no terminal to pass one to. This is the same problem
- * `editor/core/preferences.cpp`'s `JsonPreferencesStore` solves for editor session
+ * `engine/world/authoring`'s `JsonPreferencesStore` solves for editor session
  * state, read the same tolerant way: a missing or corrupt file degrades field-by-field
  * to defaults rather than refusing to start (`se_player/main.cpp` applies CLI
  * arguments on top of whatever this loads, so a developer can always override it

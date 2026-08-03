@@ -43,7 +43,7 @@
  *
  * This tier is a *render* tier. Simulation budgets resolve through their own tier —
  * the atmosphere nest's grid through `resolve_atmosphere_quality` in
- * `SushiEngine/sim/simulation_settings.hpp` — so a rendering knob can never decide a
+ * `SushiEngine/simulation/simulation_settings.hpp` — so a rendering knob can never decide a
  * simulation outcome (changing the render tier used to rebuild the nest and destroy
  * the running weather). Every field here must have a consumer: a resolved value
  * nothing reads is a lie about what the tier does, and gets deleted rather than kept

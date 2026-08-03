@@ -23,8 +23,9 @@
 
 #include "inspector_panel.hpp"
 
+#include <SushiEngine/authoring/cook_bake_state.hpp>
+
 #include "../audio/audio_panels.hpp"
-#include "../physics/cook_bake_state.hpp"
 #include "../physics/joint_widgets.hpp"
 #include "../render/lighting_panel.hpp"
 #include "../scripting/script_panel.hpp"

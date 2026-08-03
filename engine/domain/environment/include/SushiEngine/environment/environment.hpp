@@ -916,7 +916,7 @@ namespace SushiEngine
              *
              * A per-user machine budget, not scene content: the host resolves it once
              * per frame via `resolve_atmosphere_quality`
-             * (`SushiEngine/sim/simulation_settings.hpp`) and writes it here — the
+             * (`SushiEngine/simulation/simulation_settings.hpp`) and writes it here — the
              * environment being the channel that already carries the nest's physics and
              * forcing to `stage_atmosphere`. Never serialized with the scene. Carrying
              * it as device-global data (rather than per-view resolved quality) is also

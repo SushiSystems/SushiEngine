@@ -46,7 +46,7 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/atmosphere/climatology.hpp>
-#include <SushiEngine/sim/climatology_asset.hpp>
+#include <SushiEngine/simulation/climatology_asset.hpp>
 
 #include "test_helpers.hpp"
 

@@ -27,7 +27,7 @@
 
 #include <gtest/gtest.h>
 
-#include "core/autosave.hpp"
+#include <SushiEngine/authoring/autosave.hpp>
 
 using SushiEngine::Editor::AutosaveTimer;
 

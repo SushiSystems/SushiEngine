@@ -53,7 +53,7 @@
 #include <vector>
 
 #include <SushiEngine/environment/atmosphere_nest.hpp>
-#include <SushiEngine/sim/simulation_settings.hpp>
+#include <SushiEngine/simulation/simulation_settings.hpp>
 #include <SushiEngine/render/quality_params.hpp>
 
 #include "atmosphere/atmosphere_nest.hpp"

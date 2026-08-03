@@ -47,7 +47,7 @@
 #include <SushiEngine/SushiEngine.hpp>
 #include <SushiEngine/geometry/triangle_mesh.hpp>
 #include <SushiEngine/physics/cooking/collision_cooker.hpp>
-#include <SushiEngine/sim/physics_simulation.hpp>
+#include <SushiEngine/simulation/physics_simulation.hpp>
 
 #include "test_helpers.hpp"
 

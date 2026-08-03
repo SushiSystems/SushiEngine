@@ -44,8 +44,8 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/animation/skeleton_blob.hpp>
-#include <SushiEngine/sim/physics_assembly.hpp>
-#include <SushiEngine/sim/ragdoll.hpp>
+#include <SushiEngine/simulation/physics_assembly.hpp>
+#include <SushiEngine/simulation/ragdoll.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Simulation;

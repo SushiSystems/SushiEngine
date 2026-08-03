@@ -46,9 +46,9 @@
 
 #include <SushiEngine/animation/skeleton_blob.hpp>
 #include <SushiEngine/SushiEngine.hpp>
-#include <SushiEngine/sim/physics_assembly.hpp>
-#include <SushiEngine/sim/physics_simulation.hpp>
-#include <SushiEngine/sim/ragdoll.hpp>
+#include <SushiEngine/simulation/physics_assembly.hpp>
+#include <SushiEngine/simulation/physics_simulation.hpp>
+#include <SushiEngine/simulation/ragdoll.hpp>
 
 #include "test_helpers.hpp"
 

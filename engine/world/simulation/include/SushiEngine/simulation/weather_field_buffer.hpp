@@ -50,7 +50,7 @@
 
 #include <SushiEngine/environment/environment.hpp>
 #include <SushiEngine/environment/weather_field.hpp>
-#include <SushiEngine/sim/weather_types.hpp>
+#include <SushiEngine/simulation/weather_types.hpp>
 
 namespace SushiEngine
 {

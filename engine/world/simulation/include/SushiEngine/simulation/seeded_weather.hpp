@@ -62,9 +62,9 @@
 #include <cstdint>
 
 #include <SushiEngine/atmosphere/synoptic_field.hpp>
-#include <SushiEngine/sim/season.hpp>
-#include <SushiEngine/sim/weather_field_buffer.hpp>
-#include <SushiEngine/sim/weather_provider.hpp>
+#include <SushiEngine/simulation/season.hpp>
+#include <SushiEngine/simulation/weather_field_buffer.hpp>
+#include <SushiEngine/simulation/weather_provider.hpp>
 
 namespace SushiEngine
 {

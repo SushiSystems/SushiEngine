@@ -29,7 +29,7 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/SushiEngine.hpp>
-#include <SushiEngine/sim/audio_extract.hpp>
+#include <SushiEngine/simulation/audio_extract.hpp>
 
 #include "test_helpers.hpp"
 

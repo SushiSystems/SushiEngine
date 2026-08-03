@@ -50,9 +50,9 @@
 #include <SushiEngine/physics/core/material.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
 #include <SushiEngine/physics/soft/soft_body_material.hpp>
-#include <SushiEngine/sim/collider.hpp>
-#include <SushiEngine/sim/joint_params.hpp>
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/collider.hpp>
+#include <SushiEngine/simulation/joint_params.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 namespace SushiEngine
 {

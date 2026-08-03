@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#include "command_history.hpp"
+#include <SushiEngine/authoring/command_history.hpp>
 
 #include "scene_serializer.hpp"
 

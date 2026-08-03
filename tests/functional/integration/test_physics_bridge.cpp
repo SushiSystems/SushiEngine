@@ -33,8 +33,8 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/SushiEngine.hpp>
-#include <SushiEngine/sim/components.hpp>
-#include <SushiEngine/sim/physics_bridge.hpp>
+#include <SushiEngine/simulation/components.hpp>
+#include <SushiEngine/simulation/physics_bridge.hpp>
 
 #include "test_helpers.hpp"
 

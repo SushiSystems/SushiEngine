@@ -28,13 +28,12 @@
 #include <string>
 #include <vector>
 
+#include <SushiEngine/authoring/game_view_settings.hpp>
+#include <SushiEngine/authoring/gizmo_state.hpp>
+#include <SushiEngine/authoring/panel_visibility.hpp>
 #include <SushiEngine/environment/environment.hpp>
 #include <SushiEngine/render/render_settings.hpp>
-#include <SushiEngine/sim/simulation_settings.hpp>
-
-#include "../gizmo/gizmo_state.hpp"
-#include "game_view_settings.hpp"
-#include "panel_visibility.hpp"
+#include <SushiEngine/simulation/simulation_settings.hpp>
 
 namespace SushiEngine
 {
@@ -114,7 +113,7 @@ namespace SushiEngine
              * only the starting point File ▸ New Scene applies, so an author who
              * always works at the same latitude with the same sky does not re-author
              * it per scene. Serialized in the same full shape the scene file uses
-             * (see `scene/environment_serializer.hpp`).
+             * (see `SushiEngine/serialization/environment_serializer.hpp`).
              */
             SushiEngine::Render::Environment default_environment;
 

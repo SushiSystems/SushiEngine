@@ -27,7 +27,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
-#include "preferences.hpp"
+#include <SushiEngine/authoring/preferences.hpp>
 
 #include <cstdlib>
 #include <filesystem>

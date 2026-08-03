@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#include "cook_bake_state.hpp"
+#include <SushiEngine/authoring/cook_bake_state.hpp>
 
 #include <algorithm>
 #include <fstream>

@@ -29,9 +29,9 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/SushiEngine.hpp>
-#include <SushiEngine/sim/ingested_weather.hpp>
-#include <SushiEngine/sim/weather_cloudscape_compiler.hpp>
-#include <SushiEngine/sim/weather_world_coupling.hpp>
+#include <SushiEngine/simulation/ingested_weather.hpp>
+#include <SushiEngine/simulation/weather_cloudscape_compiler.hpp>
+#include <SushiEngine/simulation/weather_world_coupling.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Simulation;

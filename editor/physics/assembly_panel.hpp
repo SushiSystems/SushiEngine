@@ -55,7 +55,7 @@
  * every other, which is the correct set for the question "what is about to tear off".
  */
 
-#include <SushiEngine/sim/physics_assembly.hpp>
+#include <SushiEngine/simulation/physics_assembly.hpp>
 
 #include "../core/editor_context.hpp"
 

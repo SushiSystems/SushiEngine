@@ -34,7 +34,7 @@
 #include <imgui.h>
 
 #include <SushiEngine/environment/environment.hpp>
-#include <SushiEngine/sim/simulation_settings.hpp>
+#include <SushiEngine/simulation/simulation_settings.hpp>
 
 namespace SushiEngine
 {

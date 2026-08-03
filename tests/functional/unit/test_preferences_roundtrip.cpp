@@ -33,7 +33,7 @@
 
 #include <gtest/gtest.h>
 
-#include "core/preferences.hpp"
+#include <SushiEngine/authoring/preferences.hpp>
 
 namespace
 {

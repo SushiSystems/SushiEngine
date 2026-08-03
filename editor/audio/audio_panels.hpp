@@ -31,7 +31,7 @@
  * the `IWorldEditor` seam and hear their edits live through the @ref AudioEditorSystem.
  */
 
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 #include "../core/editor_context.hpp"
 #include "audio_editor_system.hpp"

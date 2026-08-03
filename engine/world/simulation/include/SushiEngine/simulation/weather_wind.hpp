@@ -58,8 +58,8 @@
 
 #include <cmath>
 
-#include <SushiEngine/sim/weather_provider.hpp>
-#include <SushiEngine/sim/weather_types.hpp>
+#include <SushiEngine/simulation/weather_provider.hpp>
+#include <SushiEngine/simulation/weather_types.hpp>
 
 namespace SushiEngine
 {

@@ -143,9 +143,7 @@ add_executable(se_functional_tests
     # them fails, and that cooking happens off the calling thread and is cached end to end.
     functional/unit/test_import_chain.cpp
     # The bake surface's decisions (§14) — whether Re-cook gets past the cache, whether the
-    # overlay follows the selection — compiled from the editor tree, since `CookBakeState` is
-    # a UI-free translation unit for exactly this reason.
-    ../editor/physics/cook_bake_state.cpp
+    # overlay follows the selection.
     functional/unit/test_cook_bake_state.cpp
     # T1, the global dynamical core, reachable without a device for the same reason:
     # it is a neutral module, so its transform, its elliptic inversion and its
@@ -551,15 +549,7 @@ add_executable(se_functional_tests
 
     # The editor's scene capture/apply round-trip against the real simulation:
     # Save/Load, Undo/Redo, and the Play→Stop restore all ride this one seam, so a
-    # component it forgets is destroyed by all four. The serializers themselves are
-    # sushi_scene (linked below); command history/preferences are compiled from the
-    # editor tree since they are UI-free translation units in their own right.
-    # (`sushi_sim` imports a glTF skeleton and its animations to build a live world;
-    # the importers it needs are `sushi_import`, linked below, and no longer three of
-    # render/'s translation units compiled in by hand.)
-
-    ../editor/core/command_history.cpp
-    ../editor/core/preferences.cpp
+    # component it forgets is destroyed by all four.
     functional/integration/test_scene_serializer_roundtrip.cpp
 
     # §5.5's PhysicsJoint, from the Inspector's component down to the solver: a joint
@@ -608,11 +598,13 @@ target_link_libraries(se_functional_tests PRIVATE sushi_cooking)
 # The global dynamical core and its Fourier transform are the two compiled units in
 # the neutral atmosphere module.
 target_link_libraries(se_functional_tests PRIVATE sushi_atmosphere)
-# The scene-serializer round-trip drives the real simulation behind IWorldEditor.
-# sushi_scene is the serializers themselves; command_history.cpp/preferences.cpp
-# (compiled above from the editor tree) are UI-free but still include their own
-# headers by editor-relative paths, hence the include directory below.
-target_link_libraries(se_functional_tests PRIVATE sushi_sim sushi_scene)
+# The scene-serializer round-trip drives the real simulation behind IWorldEditor; the undo
+# stack, the preferences store, the autosave clock and the bake model are covered through the
+# same library the editor links rather than through translation units compiled in by hand.
+target_link_libraries(se_functional_tests
+    PRIVATE sushi_sim sushi_scene sushiengine_authoring)
+# The physics sample scene's builder is still an editor translation unit (compiled above) and
+# spells its header by an editor-relative path, so the editor tree stays on the include path.
 target_include_directories(se_functional_tests PRIVATE "${CMAKE_SOURCE_DIR}/editor")
 # The terrain frame maths, by include path only -- it is header-only and Vulkan-free on
 # purpose, so this buys the coverage without linking the renderer into the test binary.

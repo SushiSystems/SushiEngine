@@ -41,9 +41,9 @@
 
 #include <gtest/gtest.h>
 
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
-#include "core/command_history.hpp"
+#include <SushiEngine/authoring/command_history.hpp>
 #include "scene/physics_sample_scene.hpp"
 #include "scene_serializer.hpp"
 

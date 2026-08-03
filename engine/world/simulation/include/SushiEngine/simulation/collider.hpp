@@ -62,7 +62,7 @@
 #include <SushiEngine/physics/core/body_flags.hpp>
 #include <SushiEngine/physics/core/material.hpp>
 #include <SushiEngine/physics/geometry/mass_properties.hpp>
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 namespace SushiEngine
 {

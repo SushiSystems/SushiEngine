@@ -47,7 +47,7 @@
  */
 
 #include <SushiEngine/input/action_map.hpp>
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 #include "../core/editor_context.hpp"
 

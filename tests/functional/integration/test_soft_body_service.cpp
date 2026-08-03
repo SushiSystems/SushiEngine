@@ -45,7 +45,7 @@
 
 #include <SushiEngine/geometry/triangle_mesh.hpp>
 #include <SushiEngine/physics/cooking/soft_body_cooker.hpp>
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Simulation;

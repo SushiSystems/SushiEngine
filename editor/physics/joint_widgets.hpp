@@ -40,8 +40,8 @@
  * rather than papered over with a callback.
  */
 
-#include <SushiEngine/sim/joint_params.hpp>
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/joint_params.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 #include "../core/editor_context.hpp"
 

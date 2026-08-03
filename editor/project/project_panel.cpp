@@ -23,8 +23,9 @@
 
 #include "project_panel.hpp"
 
+#include <SushiEngine/authoring/cook_bake_state.hpp>
+
 #include "../animation/animated_mesh_preview.hpp"
-#include "../physics/cook_bake_state.hpp"
 #include "../scene/scene_commands.hpp"
 #include "../ui/panel_widgets.hpp"
 

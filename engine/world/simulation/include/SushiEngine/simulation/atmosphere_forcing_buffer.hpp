@@ -51,7 +51,7 @@
 
 #include <SushiEngine/atmosphere/quasigeostrophic_core.hpp>
 #include <SushiEngine/environment/atmosphere_nest.hpp>
-#include <SushiEngine/sim/weather_types.hpp>
+#include <SushiEngine/simulation/weather_types.hpp>
 
 namespace SushiEngine
 {

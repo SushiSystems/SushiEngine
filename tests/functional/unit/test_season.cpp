@@ -41,7 +41,7 @@
 
 #include <SushiEngine/astro/julian_date.hpp>
 #include <SushiEngine/atmosphere/quasigeostrophic_core.hpp>
-#include <SushiEngine/sim/season.hpp>
+#include <SushiEngine/simulation/season.hpp>
 
 #include "test_helpers.hpp"
 

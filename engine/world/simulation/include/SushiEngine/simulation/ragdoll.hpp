@@ -86,8 +86,8 @@
 #include <SushiEngine/physics/constraints/joint.hpp>
 #include <SushiEngine/physics/constraints/joint_primitives.hpp>
 #include <SushiEngine/physics/geometry/mass_properties.hpp>
-#include <SushiEngine/sim/physics_assembly.hpp>
-#include <SushiEngine/sim/physics_services.hpp>
+#include <SushiEngine/simulation/physics_assembly.hpp>
+#include <SushiEngine/simulation/physics_services.hpp>
 
 namespace SushiEngine
 {

@@ -57,8 +57,8 @@
 #include <string>
 #include <vector>
 
-#include <SushiEngine/sim/weather_flight_hazards.hpp>
-#include <SushiEngine/sim/weather_types.hpp>
+#include <SushiEngine/simulation/weather_flight_hazards.hpp>
+#include <SushiEngine/simulation/weather_types.hpp>
 
 namespace SushiEngine
 {

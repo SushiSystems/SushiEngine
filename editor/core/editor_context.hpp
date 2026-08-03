@@ -37,22 +37,22 @@
 #include <nlohmann/json.hpp>
 
 #include <SushiEngine/astro/julian_date.hpp>
+#include <SushiEngine/authoring/command_history.hpp>
+#include <SushiEngine/authoring/game_view_settings.hpp>
+#include <SushiEngine/authoring/panel_visibility.hpp>
+#include <SushiEngine/authoring/preferences.hpp>
+#include <SushiEngine/authoring/soft_body_heat.hpp>
 #include <SushiEngine/material/material.hpp>
 #include <SushiEngine/render/asset_library_interface.hpp>
 #include <SushiEngine/render/render_settings.hpp>
-#include <SushiEngine/sim/simulation.hpp>
-#include <SushiEngine/sim/simulation_settings.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
+#include <SushiEngine/simulation/simulation_settings.hpp>
 
-#include "command_history.hpp"
 #include "console.hpp"
 #include "../gizmo/gizmo_controller.hpp"
-#include "game_view_settings.hpp"
 #include "meteorology_log.hpp"
 #include "physics_overlay_settings.hpp"
-#include "../physics/soft_body_heat.hpp"
 #include "panel_state.hpp"
-#include "panel_visibility.hpp"
-#include "preferences.hpp"
 
 namespace SushiEngine
 {

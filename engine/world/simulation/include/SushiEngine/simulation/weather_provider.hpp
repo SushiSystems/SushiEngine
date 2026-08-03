@@ -52,10 +52,10 @@
 #include <SushiEngine/atmosphere/quasigeostrophic_core.hpp>
 #include <SushiEngine/atmosphere/synoptic_field.hpp>
 #include <SushiEngine/environment/environment.hpp>
-#include <SushiEngine/sim/atmosphere_forcing_buffer.hpp>
-#include <SushiEngine/sim/season.hpp>
-#include <SushiEngine/sim/weather_field_buffer.hpp>
-#include <SushiEngine/sim/weather_types.hpp>
+#include <SushiEngine/simulation/atmosphere_forcing_buffer.hpp>
+#include <SushiEngine/simulation/season.hpp>
+#include <SushiEngine/simulation/weather_field_buffer.hpp>
+#include <SushiEngine/simulation/weather_types.hpp>
 
 namespace SushiEngine
 {

@@ -26,7 +26,7 @@
 
 #include <imgui.h>
 
-#include "../core/game_view_settings.hpp"
+#include <SushiEngine/authoring/game_view_settings.hpp>
 
 namespace SushiEngine
 {

@@ -47,7 +47,7 @@
 // Header-only, and it depends on nothing but the atmosphere library it is reading an asset for.
 // Reused rather than reimplemented here so there is exactly one statement in the tree of what a
 // missing climatology means.
-#include <SushiEngine/sim/climatology_asset.hpp>
+#include <SushiEngine/simulation/climatology_asset.hpp>
 
 namespace
 {

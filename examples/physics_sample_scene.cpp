@@ -45,7 +45,7 @@
 #include <cstdio>
 #include <string>
 
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 #include "scene/physics_sample_scene.hpp"
 #include "scene_serializer.hpp"

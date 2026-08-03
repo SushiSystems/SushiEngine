@@ -53,7 +53,7 @@
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/ecs/component.hpp>
 #include <SushiEngine/ecs/world.hpp>
-#include <SushiEngine/sim/components.hpp>
+#include <SushiEngine/simulation/components.hpp>
 
 namespace SushiEngine
 {

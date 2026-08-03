@@ -60,7 +60,7 @@
 #include <SushiEngine/render/deformable_mesh.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 #include <SushiEngine/render/window_renderer.hpp>
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 #include "sdl/sdl_input_translator.hpp"
 #include "sdl_window.hpp"

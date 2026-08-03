@@ -688,7 +688,7 @@ namespace SushiEngine
         /**
          * @brief The nest's discretization at one *atmosphere* quality tier.
          *
-         * Resolved by `resolve_atmosphere_quality` (`SushiEngine/sim/simulation_settings.hpp`)
+         * Resolved by `resolve_atmosphere_quality` (`SushiEngine/simulation/simulation_settings.hpp`)
          * from the simulation's own tier — never by the render tier, which once carried
          * this as a stowaway and made "Ultra rendering" silently rebuild the weather.
          * The horizontal *domain* is the same at every tier and only its resolution changes,

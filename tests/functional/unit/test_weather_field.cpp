@@ -36,9 +36,9 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/SushiEngine.hpp>
-#include <SushiEngine/sim/ingested_weather.hpp>
-#include <SushiEngine/sim/weather_field_buffer.hpp>
-#include <SushiEngine/sim/weather_provider.hpp>
+#include <SushiEngine/simulation/ingested_weather.hpp>
+#include <SushiEngine/simulation/weather_field_buffer.hpp>
+#include <SushiEngine/simulation/weather_provider.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Simulation;

@@ -31,7 +31,7 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/SushiEngine.hpp>
-#include <SushiEngine/sim/metar_parser.hpp>
+#include <SushiEngine/simulation/metar_parser.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Simulation;

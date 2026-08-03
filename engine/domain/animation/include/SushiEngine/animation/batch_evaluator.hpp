@@ -52,7 +52,7 @@ namespace SushiEngine
          * once resolved animation budgets nobody consumed, and those fields were deleted
          * rather than kept aspirationally (see `quality_params.hpp`). When a tier ladder
          * for animation lands, it belongs in the simulation-side settings
-         * (`SushiEngine/sim/simulation_settings.hpp`) with this struct as its resolved
+         * (`SushiEngine/simulation/simulation_settings.hpp`) with this struct as its resolved
          * output — added together with the code that reads it.
          */
         struct AnimationBudget

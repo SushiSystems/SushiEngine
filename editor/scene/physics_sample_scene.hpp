@@ -49,7 +49,7 @@
  * runs is a builder that rots.
  */
 
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 namespace SushiEngine
 {

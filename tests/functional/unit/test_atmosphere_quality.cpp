@@ -29,7 +29,7 @@
 
 #include <gtest/gtest.h>
 
-#include <SushiEngine/sim/simulation_settings.hpp>
+#include <SushiEngine/simulation/simulation_settings.hpp>
 
 namespace
 {

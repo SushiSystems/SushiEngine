@@ -43,18 +43,19 @@
 #include <vector>
 
 #include <SushiEngine/astro/ephemeris.hpp>
+#include <SushiEngine/authoring/autosave.hpp>
+#include <SushiEngine/authoring/preferences.hpp>
 #include <SushiEngine/input/bindings_json.hpp>
 #include <SushiEngine/input/input_manager.hpp>
 #include <SushiEngine/render/window_renderer.hpp>
-#include <SushiEngine/sim/simulation.hpp>
-#include <SushiEngine/sim/simulation_settings.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
+#include <SushiEngine/simulation/simulation_settings.hpp>
 
 #include "input/editor_contexts.hpp"
 #include "sdl/sdl_input_translator.hpp"
 
 #include <memory>
 
-#include "core/autosave.hpp"
 #include "core/editor_context.hpp"
 #include "core/game_view_render_policy.hpp"
 #include "atmosphere/meteorology_panel.hpp"
@@ -70,7 +71,6 @@
 #include "ui/editor_panels.hpp"
 #include "ui/modals.hpp"
 #include "ui/imgui_backend.hpp"
-#include "core/preferences.hpp"
 #include "effect_serializer.hpp"
 #include "scene_serializer.hpp"
 #include "sdl_window.hpp"

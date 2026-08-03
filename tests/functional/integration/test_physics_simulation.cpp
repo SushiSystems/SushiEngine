@@ -33,7 +33,7 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/SushiEngine.hpp>
-#include <SushiEngine/sim/physics_simulation.hpp>
+#include <SushiEngine/simulation/physics_simulation.hpp>
 
 #include "test_helpers.hpp"
 

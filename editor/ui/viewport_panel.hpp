@@ -30,19 +30,19 @@
 
 #include <imgui.h>
 
+#include <SushiEngine/authoring/game_view_settings.hpp>
+#include <SushiEngine/authoring/soft_body_heat.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 #include <SushiEngine/render/window_renderer.hpp>
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 #include "../animation/animated_mesh_preview.hpp"
 #include "../animation/skeleton_debug_draw.hpp"
 #include "../physics/physics_overlay.hpp"
-#include "../physics/soft_body_heat.hpp"
 #include "../vfx/effect_preview.hpp"
 #include "../gizmo/gizmo_controller.hpp"
 #include "imgui_backend.hpp"
 #include "../camera/scene_camera.hpp"
-#include "../core/game_view_settings.hpp"
 
 namespace SushiEngine
 {

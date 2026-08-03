@@ -47,7 +47,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/render/scene_view.hpp>
-#include <SushiEngine/sim/simulation.hpp>
+#include <SushiEngine/simulation/simulation.hpp>
 
 #include "../core/physics_overlay_settings.hpp"
 

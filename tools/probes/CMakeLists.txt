@@ -7,9 +7,11 @@
 # instability either grows out of the mean state at the textbook rate or it does not, and that is
 # settled headlessly over simulated weeks.
 add_executable(atmosphere_global_probe atmosphere_global/main.cpp)
-# It reads a baked climatology through the simulation's asset header, which has no module of its
-# own yet and is still reached through the central include tree.
-target_include_directories(atmosphere_global_probe PRIVATE "${CMAKE_SOURCE_DIR}/include")
+# It reads a baked climatology through the simulation's asset header. The include root rather
+# than the module: that header is neutral C++ and the module itself is a SYCL library the probe
+# has no reason to link, and no reason to require a configure to have built.
+target_include_directories(atmosphere_global_probe
+    PRIVATE "${CMAKE_SOURCE_DIR}/engine/world/simulation/include")
 target_link_libraries(atmosphere_global_probe PRIVATE sushi_atmosphere)
 set_target_properties(atmosphere_global_probe PROPERTIES
     CXX_STANDARD 17
@@ -47,11 +49,11 @@ if(SE_BUILD_RENDER)
     # prints the observer column's vertical profile, taking the editor out of the loop for the
     # questions docs/slop/atmosphere_system.md §11's Phase B2c leaves open.
     add_executable(atmosphere_probe atmosphere/main.cpp)
-    # The nest is configured from the simulation's settings header, which has no module of its own
-    # yet and is still reached through the central include tree.
+    # The nest is configured from the simulation's settings header, taken by include root for the
+    # same reason the global probe takes the climatology one.
     target_include_directories(atmosphere_probe PRIVATE
         "${SUSHIENGINE_RENDER_SOURCE_DIR}"
-        "${CMAKE_SOURCE_DIR}/include")
+        "${CMAKE_SOURCE_DIR}/engine/world/simulation/include")
     target_link_libraries(atmosphere_probe PRIVATE sushi_render)
     set_target_properties(atmosphere_probe PROPERTIES
         CXX_STANDARD 17

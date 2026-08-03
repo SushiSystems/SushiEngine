@@ -37,7 +37,7 @@
 #include <SushiEngine/geometry/triangle_mesh.hpp>
 #include <SushiEngine/physics/cooking/collision_asset.hpp>
 
-#include "physics/cook_bake_state.hpp"
+#include <SushiEngine/authoring/cook_bake_state.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Editor;

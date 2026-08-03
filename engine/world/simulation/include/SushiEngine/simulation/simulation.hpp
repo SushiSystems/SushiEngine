@@ -55,12 +55,12 @@
 // not the solver - the same trade the soft-body material above already makes.
 #include <SushiEngine/physics/vehicle/vehicle_asset.hpp>
 #include <SushiEngine/render/scene_view.hpp>
-#include <SushiEngine/sim/components.hpp>
+#include <SushiEngine/simulation/components.hpp>
 // The joint vocabulary only, for the same reason and by the same route as the
 // statistics above: physics_services.hpp includes this header, so the types a
 // joint is authored from live in their own header that both of them include.
-#include <SushiEngine/sim/joint_params.hpp>
-#include <SushiEngine/sim/weather_provider.hpp>
+#include <SushiEngine/simulation/joint_params.hpp>
+#include <SushiEngine/simulation/weather_provider.hpp>
 #include <SushiEngine/vfx/particle_effect.hpp>
 
 namespace SushiEngine

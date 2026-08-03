@@ -38,8 +38,9 @@
  * reason.
  */
 
+#include <SushiEngine/authoring/cook_bake_state.hpp>
+
 #include "../core/editor_context.hpp"
-#include "cook_bake_state.hpp"
 
 namespace SushiEngine
 {

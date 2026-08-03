@@ -36,7 +36,7 @@
 
 #include <gtest/gtest.h>
 
-#include "physics/soft_body_heat.hpp"
+#include <SushiEngine/authoring/soft_body_heat.hpp>
 
 using namespace SushiEngine;
 using namespace SushiEngine::Editor;
