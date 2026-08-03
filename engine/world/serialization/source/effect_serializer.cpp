@@ -146,7 +146,7 @@ namespace SushiEngine
             {
                 VFX::ForceFieldModule field;
                 field.enabled = node.value("enabled", field.enabled);
-                field.kind = enum_from_json(node, "kind", field.kind, 3);
+                field.kind = enum_from_json(node, "kind", field.kind, VFX::FORCE_FIELD_KIND_COUNT);
                 field.position = vector3_from_json(node.value("position", json::object()),
                                                    field.position);
                 field.axis = vector3_from_json(node.value("axis", json::object()), field.axis);
@@ -207,6 +207,7 @@ namespace SushiEngine
                     {"force_fields", fields},
                     {"collision",
                      json{{"enabled", e.collision.enabled},
+                          {"use_distance_field", e.collision.use_distance_field},
                           {"restitution", e.collision.restitution},
                           {"friction", e.collision.friction},
                           {"thickness", e.collision.thickness}}},
@@ -234,7 +235,15 @@ namespace SushiEngine
                           {"mesh", e.render.mesh},
                           {"flipbook_rows", e.render.flipbook_rows},
                           {"flipbook_columns", e.render.flipbook_columns},
-                          {"lit", e.render.lit}}}};
+                          {"lit", e.render.lit}}},
+                    {"beam",
+                     json{{"enabled", e.beam.enabled},
+                          {"start", vector3_to_json(e.beam.start)},
+                          {"end", vector3_to_json(e.beam.end)},
+                          {"width", e.beam.width},
+                          {"sag", e.beam.sag},
+                          {"noise_amplitude", e.beam.noise_amplitude},
+                          {"noise_frequency", e.beam.noise_frequency}}}};
             }
 
             VFX::EmitterDescriptor emitter_from_json(const json& node)
@@ -244,7 +253,7 @@ namespace SushiEngine
                     return e;
 
                 e.name = node.value("name", e.name);
-                e.domain = enum_from_json(node, "domain", e.domain, 2);
+                e.domain = enum_from_json(node, "domain", e.domain, VFX::SIMULATION_DOMAIN_COUNT);
                 e.capacity = node.value("capacity", e.capacity);
                 e.duration = node.value("duration", e.duration);
                 e.looping = node.value("looping", e.looping);
@@ -262,7 +271,8 @@ namespace SushiEngine
                 }
 
                 const json shape = node.value("shape", json::object());
-                e.shape.shape = enum_from_json(shape, "shape", e.shape.shape, 6);
+                e.shape.shape =
+                    enum_from_json(shape, "shape", e.shape.shape, VFX::EMITTER_SHAPE_COUNT);
                 e.shape.radius = shape.value("radius", e.shape.radius);
                 e.shape.cone_angle_radians =
                     shape.value("cone_angle_radians", e.shape.cone_angle_radians);
@@ -305,6 +315,8 @@ namespace SushiEngine
 
                 const json collision = node.value("collision", json::object());
                 e.collision.enabled = collision.value("enabled", e.collision.enabled);
+                e.collision.use_distance_field =
+                    collision.value("use_distance_field", e.collision.use_distance_field);
                 e.collision.restitution = collision.value("restitution", e.collision.restitution);
                 e.collision.friction = collision.value("friction", e.collision.friction);
                 e.collision.thickness = collision.value("thickness", e.collision.thickness);
@@ -321,9 +333,11 @@ namespace SushiEngine
                                    e.color_over_life.gradient);
 
                 const json render = node.value("render", json::object());
-                e.render.blend = enum_from_json(render, "blend", e.render.blend, 3);
-                e.render.sort = enum_from_json(render, "sort", e.render.sort, 2);
-                e.render.alignment = enum_from_json(render, "alignment", e.render.alignment, 4);
+                e.render.blend =
+                    enum_from_json(render, "blend", e.render.blend, VFX::BLEND_MODE_COUNT);
+                e.render.sort = enum_from_json(render, "sort", e.render.sort, VFX::SORT_MODE_COUNT);
+                e.render.alignment = enum_from_json(render, "alignment", e.render.alignment,
+                                                    VFX::RENDER_ALIGNMENT_COUNT);
                 e.render.velocity_stretch = render.value("velocity_stretch", e.render.velocity_stretch);
                 e.render.soft_particles = render.value("soft_particles", e.render.soft_particles);
                 e.render.soft_fade_distance =
@@ -335,6 +349,15 @@ namespace SushiEngine
                 e.render.flipbook_columns =
                     render.value("flipbook_columns", e.render.flipbook_columns);
                 e.render.lit = render.value("lit", e.render.lit);
+
+                const json beam = node.value("beam", json::object());
+                e.beam.enabled = beam.value("enabled", e.beam.enabled);
+                e.beam.start = vector3_from_json(beam.value("start", json::object()), e.beam.start);
+                e.beam.end = vector3_from_json(beam.value("end", json::object()), e.beam.end);
+                e.beam.width = beam.value("width", e.beam.width);
+                e.beam.sag = beam.value("sag", e.beam.sag);
+                e.beam.noise_amplitude = beam.value("noise_amplitude", e.beam.noise_amplitude);
+                e.beam.noise_frequency = beam.value("noise_frequency", e.beam.noise_frequency);
                 return e;
             }
         } // namespace

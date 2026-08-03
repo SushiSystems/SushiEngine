@@ -81,7 +81,7 @@ namespace SushiEngine
                 (void)frame_index;
                 emitters_.clear();
                 mesh_draws_.clear();
-                has_alpha_ = false;
+                needs_alpha_sort_ = false;
                 if (emitters == nullptr || count == 0)
                     return;
 
@@ -268,8 +268,16 @@ namespace SushiEngine
                                 MeshDraw{mesh_id, gpu.mesh_slot, mesh.index_count});
                         }
                     }
-                    if (compiled->blend == VFX::BlendMode::Alpha)
-                        has_alpha_ = true;
+                    // The depth sort is asked for here rather than per particle because the
+                    // bucket it orders is shared: every true-alpha emitter's survivors land in
+                    // one list, and a bitonic pass over it costs the whole padded pool whatever
+                    // fraction of the pool is actually in it. Excluding one emitter's particles
+                    // would therefore save nothing and cost their blending — the only other
+                    // bucket is the additive draw, which composites differently. So the sort is
+                    // run whenever any alpha emitter wants it, and skipped only when none does.
+                    if (compiled->blend == VFX::BlendMode::Alpha &&
+                        compiled->sort == VFX::SortMode::ViewDistance)
+                        needs_alpha_sort_ = true;
                     emitters_.push_back(gpu);
 
                     ring_cursor_ = (ring_cursor_ + view.spawn_count) % capacity_;

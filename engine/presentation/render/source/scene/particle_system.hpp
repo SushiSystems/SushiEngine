@@ -122,7 +122,14 @@ namespace SushiEngine
                 std::uint32_t flipbook_columns;
 
                 std::uint32_t blend;     /**< VFX::BlendMode: buckets the particle (additive vs alpha). */
-                std::uint32_t sort;      /**< VFX::SortMode: whether the alpha segment is depth-sorted. */
+                /**
+                 * @brief VFX::SortMode, mirrored for the shaders rather than acted on by them.
+                 *
+                 * Whether the alpha bucket is sorted is a whole-pass decision, so the host takes
+                 * it (see @ref ParticleSystem::needs_alpha_sort) — a compute thread can only see
+                 * its own particle, and the bucket is shared.
+                 */
+                std::uint32_t sort;
                 std::uint32_t alignment; /**< VFX::RenderAlignment: how the vertex stage orients the quad. */
                 std::uint32_t mesh_slot; /**< Mesh-draw slice this emitter fills, or NO_MESH_SLOT. */
 
@@ -270,8 +277,15 @@ namespace SushiEngine
                     /** @brief Whether the frame has any cosmetic emitters to simulate. */
                     bool empty() const noexcept { return emitters_.empty(); }
 
-                    /** @brief Whether any active emitter is true-alpha (so the sort is worth running). */
-                    bool has_alpha() const noexcept { return has_alpha_; }
+                    /**
+                     * @brief Whether this frame's alpha bucket has to be depth-sorted.
+                     *
+                     * True when at least one active emitter both blends true-alpha and asks for
+                     * @c VFX::SortMode::ViewDistance. The bitonic sort runs over the whole padded
+                     * pool rather than over one emitter's particles, so it is worth paying for as
+                     * soon as one emitter wants it and can be skipped only when none does.
+                     */
+                    bool needs_alpha_sort() const noexcept { return needs_alpha_sort_; }
 
                     /** @brief Whether the frame has any deterministic billboards to draw. */
                     bool billboards_empty() const noexcept { return billboard_count_ == 0; }
@@ -374,7 +388,8 @@ namespace SushiEngine
                     std::vector<MeshDraw> mesh_draws_;        /**< This frame's mesh-particle draws. */
                     std::uint32_t ring_cursor_ = 0;           /**< Shared pool ring write cursor. */
                     bool needs_clear_ = true;                 /**< Pool awaits its one-time zero clear. */
-                    bool has_alpha_ = false;                  /**< Any active emitter uses true-alpha blending. */
+                    /** @brief An alpha emitter asked for the depth sort this frame. */
+                    bool needs_alpha_sort_ = false;
                     VkDeviceSize curve_bytes_ = sizeof(float);
                     VkDeviceSize gradient_bytes_ = sizeof(float);
             };

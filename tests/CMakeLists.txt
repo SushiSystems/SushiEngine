@@ -374,6 +374,12 @@ add_executable(sushiengine_functional_tests
     # accounting — pure header-only maths, the shared foundation of both simulation domains.
     unit/test_vfx_authoring.cpp
 
+    # VFX: the `.sushieffect` shape, which is the only thing between an authored effect and the
+    # next session. Enumerated rather than exampled — every enumerator of every persisted enum
+    # round-trips, and every BeamModule field with it — because both failure modes here (a module
+    # the capture forgets, an enumerator past the reader's range check) revert data silently.
+    unit/test_vfx_effect_serializer.cpp
+
     # Weather W5 (world coupling): WeatherWorldCoupling's WeatherColumn -> WeatherCoupling
     # bridge, weather_wind()'s analytic-plus-perturbation sampling, and the cloud-base
     # darkening WeatherCloudscapeCompiler applies under precipitation -- pure host maths,
@@ -573,6 +579,11 @@ add_executable(sushiengine_functional_tests
 
     unit/test_atmosphere_quality.cpp
     unit/test_autosave.cpp
+    # The scene format's byte codec: the base64 a cooked soft-body asset rides into a
+    # `.sushiscene` file as, and the content hash an in-memory snapshot names one by.
+    # The refusals carry the file — a blob that half-decodes is worse than one that does
+    # not decode at all.
+    unit/test_byte_encoding.cpp
     unit/test_preferences_roundtrip.cpp
 
     regression/test_regression.cpp
@@ -610,6 +621,10 @@ target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_physics_s
 # purpose, so this buys the coverage without linking the renderer into the test binary.
 target_include_directories(sushiengine_functional_tests
     PRIVATE "${CMAKE_SOURCE_DIR}/engine/presentation/render/source")
+# The scene format's byte codec is module-private -- it is spelled in no published header --
+# so the test names it by its source path and links the definition out of the module itself.
+target_include_directories(sushiengine_functional_tests
+    PRIVATE "${CMAKE_SOURCE_DIR}/engine/world/serialization/source")
 # The glTF importers `sushiengine_simulation` needs, as a module that links nothing rather than as
 # three of the renderer's translation units compiled in by hand. It carries cgltf's
 # include directory and its one implementation unit with it, so neither is named here.

@@ -553,6 +553,14 @@ namespace SushiEngine
             ImGui::Checkbox("Depth collision", &emitter.collision.enabled);
             if (emitter.collision.enabled)
             {
+                ImGui::Checkbox("Against distance field", &emitter.collision.use_distance_field);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Collide against the global-illumination distance field rather than the\n"
+                        "depth buffer. The depth buffer only knows surfaces the camera can see;\n"
+                        "the clipmap is a volume around it, so particles keep colliding off\n"
+                        "screen and behind occluders — at the clipmap's resolution, and only\n"
+                        "inside its extent.");
                 ImGui::DragFloat("Restitution", &emitter.collision.restitution, 0.01f, 0.0f, 1.0f);
                 ImGui::DragFloat("Friction", &emitter.collision.friction, 0.01f, 0.0f, 1.0f);
                 ImGui::DragFloat("Thickness", &emitter.collision.thickness, 0.02f, 0.001f, 10.0f);
@@ -628,11 +636,29 @@ namespace SushiEngine
             }
 
             ImGui::SeparatorText("Render");
+            // Each combo's labels are asserted against its enum's own enumerator count, so an
+            // enumerator added without a name here is a build error rather than a mode no author
+            // can select — which is exactly how Beam stayed unreachable.
             const char* blend_names[] = {"Additive", "Alpha", "Premultiplied"};
+            static_assert(IM_ARRAYSIZE(blend_names) == static_cast<int>(VFX::BLEND_MODE_COUNT),
+                          "every BlendMode enumerator needs a label");
             int blend = static_cast<int>(emitter.render.blend);
             if (ImGui::Combo("Blend", &blend, blend_names, IM_ARRAYSIZE(blend_names)))
                 emitter.render.blend = static_cast<VFX::BlendMode>(blend);
-            const char* alignment_names[] = {"Face Camera", "Velocity Stretched", "Ribbon", "Mesh"};
+            const char* sort_names[] = {"None", "View Distance"};
+            static_assert(IM_ARRAYSIZE(sort_names) == static_cast<int>(VFX::SORT_MODE_COUNT),
+                          "every SortMode enumerator needs a label");
+            int sort = static_cast<int>(emitter.render.sort);
+            if (ImGui::Combo("Sort", &sort, sort_names, IM_ARRAYSIZE(sort_names)))
+                emitter.render.sort = static_cast<VFX::SortMode>(sort);
+            if (emitter.render.sort == VFX::SortMode::None &&
+                emitter.render.blend == VFX::BlendMode::Alpha)
+                ImGui::TextDisabled("Unsorted alpha composites in simulation order.");
+            const char* alignment_names[] = {"Face Camera", "Velocity Stretched", "Ribbon", "Mesh",
+                                             "Beam"};
+            static_assert(IM_ARRAYSIZE(alignment_names) ==
+                              static_cast<int>(VFX::RENDER_ALIGNMENT_COUNT),
+                          "every RenderAlignment enumerator needs a label");
             int alignment = static_cast<int>(emitter.render.alignment);
             if (ImGui::Combo("Alignment", &alignment, alignment_names,
                              IM_ARRAYSIZE(alignment_names)))
@@ -648,6 +674,37 @@ namespace SushiEngine
                 if (ImGui::InputInt("Mesh", &mesh))
                     emitter.render.mesh = static_cast<std::uint32_t>(mesh < 0 ? 0 : mesh);
                 ImGui::TextDisabled("Mesh particles draw solid, with the opaque geometry.");
+            }
+            if (emitter.render.alignment == VFX::RenderAlignment::Beam)
+            {
+                // The endpoints are emitter-local: the span travels with the emitter rather
+                // than staying where the world happened to be when it was authored.
+                ImGui::Checkbox("Beam Endpoints", &emitter.beam.enabled);
+                if (emitter.beam.enabled)
+                {
+                    float start[3] = {static_cast<float>(emitter.beam.start.x),
+                                      static_cast<float>(emitter.beam.start.y),
+                                      static_cast<float>(emitter.beam.start.z)};
+                    if (ImGui::DragFloat3("Start (local m)", start, 0.05f))
+                        emitter.beam.start = Vector3{start[0], start[1], start[2]};
+                    float end[3] = {static_cast<float>(emitter.beam.end.x),
+                                    static_cast<float>(emitter.beam.end.y),
+                                    static_cast<float>(emitter.beam.end.z)};
+                    if (ImGui::DragFloat3("End (local m)", end, 0.05f))
+                        emitter.beam.end = Vector3{end[0], end[1], end[2]};
+                    ImGui::DragFloat("Beam Width", &emitter.beam.width, 0.005f, 0.0f, 10.0f,
+                                     "%.3f m");
+                    ImGui::DragFloat("Sag", &emitter.beam.sag, 0.01f, -50.0f, 50.0f, "%.2f m");
+                    ImGui::DragFloat("Jitter", &emitter.beam.noise_amplitude, 0.01f, 0.0f, 10.0f,
+                                     "%.2f m");
+                    ImGui::DragFloat("Jitter Cycles", &emitter.beam.noise_frequency, 0.1f, 0.0f,
+                                     64.0f, "%.1f per span");
+                }
+                else
+                {
+                    ImGui::TextDisabled("Disabled: the beam spans the default 5 m along +Z.");
+                }
+                ImGui::TextDisabled("Cosmetic only; each live particle draws its own strip.");
             }
 
             // The particle material. Sprite-only by design: a puff has no roughness or normal

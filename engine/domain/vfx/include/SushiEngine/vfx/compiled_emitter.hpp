@@ -193,7 +193,7 @@ namespace SushiEngine
             std::int32_t color_gradient_lut = NO_LUT;         /**< Gradient-atlas row, or NO_LUT. */
 
             BlendMode blend = BlendMode::Additive;            /**< Compositing mode. */
-            SortMode sort = SortMode::None;                   /**< Draw ordering. */
+            SortMode sort = SortMode::ViewDistance;           /**< Draw ordering. */
             RenderAlignment alignment = RenderAlignment::FaceCamera; /**< Billboard orientation. */
             float velocity_stretch = 0.05f;                   /**< Streak metres per m/s. */
             std::uint32_t render_flags = RENDER_SOFT;         /**< @ref RenderFlags bits. */

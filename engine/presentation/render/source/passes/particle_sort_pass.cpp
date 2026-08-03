@@ -142,7 +142,7 @@ namespace SushiEngine
                     return;
 
                 const std::uint32_t count = particles_.capacity();
-                const bool sort_alpha = particles_.has_alpha();
+                const bool sort_alpha = particles_.needs_alpha_sort();
                 float eye[4] = {static_cast<float>(frame.eye[0]), static_cast<float>(frame.eye[1]),
                                 static_cast<float>(frame.eye[2]), 0.0f};
 
@@ -183,6 +183,9 @@ namespace SushiEngine
                                            0, sizeof(Push), &push);
                         vkCmdDispatch(command, groups(count), 1, 1);
 
+                        // No emitter asked to be ordered, so the seeded keys stay the identity
+                        // permutation: the alpha draw's indirection still resolves and its
+                        // bucket draws in the order the simulation compacted it.
                         if (!sort_alpha)
                             return;
 

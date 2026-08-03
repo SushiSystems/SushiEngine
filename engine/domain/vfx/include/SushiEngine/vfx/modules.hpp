@@ -65,6 +65,16 @@ namespace SushiEngine
             Deterministic = 1,
         };
 
+        /**
+         * @brief Enumerators in @ref SimulationDomain.
+         *
+         * Each enum below carries one of these because the values are persisted as plain
+         * integers, and whatever reads them back has to reject one it does not know rather than
+         * cast it into an enum with no such enumerator. Keeping the count beside the enumerators
+         * is what makes adding one a single edit instead of two distant ones.
+         */
+        constexpr std::uint32_t SIMULATION_DOMAIN_COUNT = 2;
+
         /** @brief The volume new particles are born in and the direction they emit along. */
         enum class EmitterShape : std::uint32_t
         {
@@ -76,6 +86,9 @@ namespace SushiEngine
             Circle = 5,     /**< Born on a ring in the XZ plane; emit radially. */
         };
 
+        /** @brief Enumerators in @ref EmitterShape; see @ref SIMULATION_DOMAIN_COUNT. */
+        constexpr std::uint32_t EMITTER_SHAPE_COUNT = 6;
+
         /** @brief How a particle's colour composites against the scene. */
         enum class BlendMode : std::uint32_t
         {
@@ -84,12 +97,18 @@ namespace SushiEngine
             Premultiplied = 2, /**< source + destination*(1-a); pre-multiplied textures. */
         };
 
+        /** @brief Enumerators in @ref BlendMode; see @ref SIMULATION_DOMAIN_COUNT. */
+        constexpr std::uint32_t BLEND_MODE_COUNT = 3;
+
         /** @brief Whether and how alive particles are ordered before drawing. */
         enum class SortMode : std::uint32_t
         {
             None = 0,         /**< No sort; correct for additive/premultiplied blending. */
             ViewDistance = 1, /**< Back-to-front by camera distance; needed for alpha. */
         };
+
+        /** @brief Enumerators in @ref SortMode; see @ref SIMULATION_DOMAIN_COUNT. */
+        constexpr std::uint32_t SORT_MODE_COUNT = 2;
 
         /** @brief How a billboard is oriented in view space. */
         enum class RenderAlignment : std::uint32_t
@@ -100,6 +119,9 @@ namespace SushiEngine
             Mesh = 3,              /**< A solid mesh instance per particle (debris, shells). */
             Beam = 4,              /**< A strip between two authored endpoints (see @ref BeamModule). */
         };
+
+        /** @brief Enumerators in @ref RenderAlignment; see @ref SIMULATION_DOMAIN_COUNT. */
+        constexpr std::uint32_t RENDER_ALIGNMENT_COUNT = 5;
 
         /** @brief One scheduled burst of particles at a point in the emitter's life. */
         struct ParticleBurst
@@ -184,6 +206,9 @@ namespace SushiEngine
             Vortex = 1, /**< Swirls around an axis through a point. */
             Drag = 2,   /**< Damps velocity inside the radius, a still-air pocket. */
         };
+
+        /** @brief Enumerators in @ref ForceFieldKind; see @ref SIMULATION_DOMAIN_COUNT. */
+        constexpr std::uint32_t FORCE_FIELD_KIND_COUNT = 3;
 
         /**
          * @brief Update stage: one placed field that bends particles as they pass through it.
@@ -305,7 +330,19 @@ namespace SushiEngine
         struct RenderModule
         {
             BlendMode blend = BlendMode::Additive;          /**< Compositing mode. */
-            SortMode sort = SortMode::None;                 /**< Draw ordering. */
+            /**
+             * @brief Draw ordering, defaulting to the depth sort rather than to no sort.
+             *
+             * @ref SortMode::None is the first enumerator but the wrong default: an
+             * alpha-blended effect drawn in whatever order the simulation compacted it
+             * composites visibly wrongly, and that is what an unset field would select.
+             * Sorting by default makes @ref SortMode::None a deliberate opt-out for the
+             * effects that do not need it — additive and premultiplied compositing is
+             * order-independent, as is any effect whose particles never overlap — and the
+             * opt-out is worth having, because the sort is a bitonic pass over the whole
+             * shared particle pool rather than over one emitter's particles.
+             */
+            SortMode sort = SortMode::ViewDistance;
             RenderAlignment alignment = RenderAlignment::FaceCamera; /**< Billboard orientation. */
             float velocity_stretch = 0.05f;                 /**< Streak metres per m/s, VelocityStretched only. */
             bool soft_particles = true;                     /**< Fade where the billboard meets geometry. */
