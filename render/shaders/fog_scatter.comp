@@ -195,7 +195,7 @@ void main()
                 uint punctual_count =
                     min(cluster_grid.cluster_light_count[punctual_cluster], MAX_LIGHTS_PER_CLUSTER);
                 uint punctual_base = punctual_cluster * MAX_LIGHTS_PER_CLUSTER;
-                for (uint li = 0u; li < punctual_count && false; ++li)
+                for (uint li = 0u; li < punctual_count; ++li)
                 {
                     PunctualLight light =
                         light_buffer.lights[light_index_list.light_indices[punctual_base + li]];

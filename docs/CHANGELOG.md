@@ -74,6 +74,39 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   - `cloud_height_gradient` moved to `cloud_field_window.glsl` so the bake and the march build the same deck profile; two answers about where a deck's top is would have shown as a step at the rim.
   - Out there neither the light volume nor the far window's baked sun-depth channel exists, so the field carries an analytic self-shadow (the slant path to its own deck top). Without it a planet from orbit reads as a uniformly lit sheet.
   - Empty-space skipping past the windows is now a stated *bound* rather than a proof — the planet-scale field is a point evaluation, not a max-pool — with the hop tied to the pattern's own 300 km scale. The near-field cone light march is also gated to the near window, where the volume it refines actually exists; each call is twelve probes and past the window it was refining nothing.
+- 2026-08-03 — **Shadows for secondary directional lights, and two point/spot lighting gaps closed.**
+  Previously only `Environment::lights[0]` (the brightest celestial body — the Sun by
+  day, the Moon or another reflector after dark) cast a shadow; every other directional
+  light shaded flat. A secondary body with the new `CelestialLight::casts_shadows` flag
+  set can now claim a single non-cascaded shadow map, up to the new
+  `ShadowSettings::max_directional_shadow_casters` (default 1), placed as extra tiles in
+  the existing shared punctual shadow atlas (`LightSystem::assign_directional_shadows`)
+  and sampled by `pbr.frag`/`sky.frag` through the same `sample_punctual_shadow()` the
+  spot/point casters already use — split out, along with the atlas binding and the
+  cube-face helper, into `render/shaders/punctual_shadow_common.glsl` so a shader that
+  only needs shadow visibility (not the full cluster grid/decal machinery) can include
+  just that. Two related point/spot lighting gaps found while scoping this are fixed in
+  the same change: the analytic planet ground (`sky.frag`'s `ground_hit` branch) now
+  reads the clustered punctual-light buffer, so a light placed near the ground actually
+  lights it (previously only meshes standing on the ground did); and
+  `render/shaders/fog_scatter.comp`'s volumetric fog march now accumulates unshadowed
+  in-scatter from the same buffer, so a bright point/spot light visibly lights up the
+  fog around it. The fog pass moved later in the frame's pass registration order (after
+  `LightCullPass`) so its cluster-grid read sees this frame's data.
+- 2026-08-03 — **Game view: "No cameras rendering" placeholder, and an aspect/orientation/fullscreen toolbar.**
+  Previously the Game window simply disappeared (its `ImGui::Begin` was skipped entirely) whenever
+  the scene had no camera or no display to target. It now stays open and shows a centered
+  "No cameras rendering" message, matching the always-present-but-empty Game view of other editors
+  instead of a panel that vanishes. The Game view also gained a toolbar (`GameViewSettings`,
+  `editor/core/game_view_settings.hpp`) with an aspect/resolution preset combo (Free Aspect,
+  Standard 4:3, Widescreen 16:9, Ultrawide 21:9, Square 1:1), a Landscape/Portrait orientation combo
+  that flips non-square presets, and a Fullscreen checkbox that undocks the panel and expands it to
+  cover the whole editor viewport (Unity's "Maximize on Play"), restoring it to its original dock
+  slot when unchecked. A non-Free preset letterboxes/pillarboxes the rendered image, centered, with
+  black bars, independently of fullscreen — `ViewportPanel::draw` takes an optional
+  `GameViewSettings*` and the shared toolbar/placeholder drawing lives in
+  `editor/ui/game_view_toolbar.hpp` so both the camera-present and no-camera code paths render the
+  identical row.
 
 ### Fixed
 - 2026-08-02 — **The march's budget coarsening was quantised by a loop counter, which drew concentric rings around the sub-camera point.** Introduced earlier the same day by the fix for the truncated ray: the step scaled by `exp2(0.5 * (real_samples - STEPS))`, geometric in the number of samples already spent. `real_samples` is an **integer**, so the step size took discrete values and two adjacent pixels landing on different overdraft counts marched a factor of √2 apart — a difference the accumulated density shows. The set of pixels sharing an overdraft count is a curve of constant chord length through the shell, which from orbit is a circle centred on the sub-camera point.
