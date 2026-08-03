@@ -52,7 +52,7 @@
 #include <string>
 #include <vector>
 
-#include <SushiEngine/render/atmosphere_nest.hpp>
+#include <SushiEngine/environment/atmosphere_nest.hpp>
 #include <SushiEngine/sim/simulation_settings.hpp>
 #include <SushiEngine/render/quality_params.hpp>
 

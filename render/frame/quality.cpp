@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 #include <SushiEngine/render/quality_params.hpp>
 
 #include <algorithm>

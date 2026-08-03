@@ -25,7 +25,7 @@
 #include <cmath>
 #include <cstring>
 
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 
 #include "frame/frame_context.hpp"

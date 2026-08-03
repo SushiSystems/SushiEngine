@@ -37,7 +37,7 @@
 
 #include <cstddef>
 
-#include <SushiEngine/render/material.hpp>
+#include <SushiEngine/material/material.hpp>
 
 namespace SushiEngine
 {

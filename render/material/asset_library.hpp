@@ -42,7 +42,8 @@
 #include <string>
 #include <vector>
 
-#include <SushiEngine/render/material.hpp>
+#include <SushiEngine/material/material.hpp>
+#include <SushiEngine/render/asset_library_interface.hpp>
 
 #include "geometry/mesh_registry.hpp"
 #include "material/texture_library.hpp"

@@ -39,9 +39,9 @@
 #include <cstdint>
 #include <memory>
 
+#include <SushiEngine/render/asset_library_interface.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/render/rhi/device.hpp>
-#include <SushiEngine/render/material.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 
 namespace SushiEngine

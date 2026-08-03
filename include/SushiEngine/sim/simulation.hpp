@@ -44,6 +44,8 @@
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/environment/environment.hpp>
+#include <SushiEngine/environment/light.hpp>
 // The statistics value type only, not the physics boundary: physics_services.hpp
 // includes this header, so naming it here would close a cycle.
 #include <SushiEngine/physics/core/statistics.hpp>
@@ -52,8 +54,6 @@
 // and the drivetrain and nothing that solves them, so this costs the vocabulary and
 // not the solver - the same trade the soft-body material above already makes.
 #include <SushiEngine/physics/vehicle/vehicle_asset.hpp>
-#include <SushiEngine/render/environment.hpp>
-#include <SushiEngine/render/light.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 #include <SushiEngine/sim/components.hpp>
 // The joint vocabulary only, for the same reason and by the same route as the

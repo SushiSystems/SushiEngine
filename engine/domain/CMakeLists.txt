@@ -5,7 +5,10 @@
 
 add_subdirectory(geometry)
 add_subdirectory(physics)
+add_subdirectory(material)
+add_subdirectory(environment)
 add_subdirectory(animation)
+add_subdirectory(astro)
 add_subdirectory(atmosphere)
 add_subdirectory(terrain)
 add_subdirectory(vfx)

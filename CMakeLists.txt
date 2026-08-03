@@ -86,10 +86,13 @@ target_link_libraries(SushiEngine INTERFACE
     sushiengine_ecs
     sushiengine_execution
     sushiengine_animation
+    sushiengine_astro
     sushiengine_atmosphere
     sushiengine_audio
+    sushiengine_environment
     sushiengine_geometry
     sushiengine_input
+    sushiengine_material
     sushiengine_physics
     sushiengine_terrain
     sushiengine_ui

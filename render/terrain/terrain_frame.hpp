@@ -46,7 +46,7 @@
 #include <cstdint>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 #include <SushiEngine/terrain/quadtree.hpp>
 

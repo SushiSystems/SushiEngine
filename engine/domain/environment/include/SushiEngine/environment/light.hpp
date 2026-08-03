@@ -42,7 +42,7 @@
 #include <cstdint>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/render/material.hpp> // TextureId, INVALID_TEXTURE
+#include <SushiEngine/material/material.hpp> // TextureId, INVALID_TEXTURE
 
 namespace SushiEngine
 {

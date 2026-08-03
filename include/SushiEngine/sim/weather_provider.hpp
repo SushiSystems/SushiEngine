@@ -51,7 +51,7 @@
 #include <SushiEngine/atmosphere/climatology.hpp>
 #include <SushiEngine/atmosphere/quasigeostrophic_core.hpp>
 #include <SushiEngine/atmosphere/synoptic_field.hpp>
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 #include <SushiEngine/sim/atmosphere_forcing_buffer.hpp>
 #include <SushiEngine/sim/season.hpp>
 #include <SushiEngine/sim/weather_field_buffer.hpp>

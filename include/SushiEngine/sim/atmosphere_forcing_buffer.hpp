@@ -50,7 +50,7 @@
 #include <vector>
 
 #include <SushiEngine/atmosphere/quasigeostrophic_core.hpp>
-#include <SushiEngine/render/atmosphere_nest.hpp>
+#include <SushiEngine/environment/atmosphere_nest.hpp>
 #include <SushiEngine/sim/weather_types.hpp>
 
 namespace SushiEngine

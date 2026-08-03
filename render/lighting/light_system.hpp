@@ -43,8 +43,8 @@
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
-#include <SushiEngine/render/environment.hpp>
-#include <SushiEngine/render/light.hpp>
+#include <SushiEngine/environment/environment.hpp>
+#include <SushiEngine/environment/light.hpp>
 
 namespace SushiEngine
 {

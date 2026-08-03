@@ -57,7 +57,7 @@
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
-#include <SushiEngine/render/material.hpp>
+#include <SushiEngine/material/material.hpp>
 
 namespace SushiEngine
 {

@@ -28,7 +28,7 @@
 // shipped tier it is 37 000 invocations against the 1.8 million every other stage runs.
 //
 // The balance itself mirrors `Render::atmosphere_surface_balance` and the insolation mirrors
-// `Render::atmosphere_clear_sky_shortwave`, both in include/SushiEngine/render/atmosphere_nest.hpp
+// `Render::atmosphere_clear_sky_shortwave`, both in engine/domain/environment's atmosphere_nest.hpp
 // — GLSL cannot include a C++ header, so the formulas are stated twice and the numbers once.
 // Neither copy is edited alone, and `test_atmosphere_nest.cpp` pins what they must agree on.
 

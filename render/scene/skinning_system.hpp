@@ -47,7 +47,7 @@
 #include <vk_mem_alloc.h>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/render/material.hpp>
+#include <SushiEngine/material/material.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 
 namespace SushiEngine

@@ -26,7 +26,7 @@
 #include <cstring>
 #include <vector>
 
-#include <SushiEngine/render/material.hpp>
+#include <SushiEngine/material/material.hpp>
 
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"

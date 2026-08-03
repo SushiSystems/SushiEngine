@@ -30,7 +30,7 @@
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 #include <SushiEngine/render/quality_params.hpp>
 
 namespace SushiEngine

@@ -2,7 +2,7 @@
 // the thermodynamic relations every stage of the step is written in terms of.
 //
 // docs/slop/atmosphere_system.md §6. Included by every atmosphere_*.comp. The C++ side of the
-// same relations lives in include/SushiEngine/render/atmosphere_nest.hpp, which explains why
+// same relations lives in engine/domain/environment's atmosphere_nest.hpp, which explains why
 // the *formulas* are mirrored and the *numbers* are not: every constant below is read out of
 // the uploaded block, so there is exactly one set of values and the mirror is only ever a
 // restatement of the maths. The two files name each other; neither is edited alone.

@@ -28,7 +28,7 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/astro/ephemeris.hpp>
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 
 #include "test_helpers.hpp"
 

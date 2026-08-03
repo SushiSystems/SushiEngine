@@ -28,7 +28,7 @@
 #include <string>
 #include <vector>
 
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/sim/simulation_settings.hpp>
 

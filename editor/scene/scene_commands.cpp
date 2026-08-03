@@ -33,7 +33,7 @@
 
 #include <imgui.h>
 
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 
 namespace SushiEngine
 {

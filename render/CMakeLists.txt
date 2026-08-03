@@ -461,9 +461,13 @@ target_compile_definitions(sushi_render PRIVATE
 target_link_libraries(sushi_render PUBLIC
     sushiengine_core
     sushiengine_ecs
-    # Public because each is spelled in a header this target publishes: scene_view.hpp carries
-    # a UI draw list, planet_terrain.hpp a terrain quadtree and layer stack, and
-    # particle_system.hpp the compiled emitter table.
+    # Public because each is spelled in a header this target publishes: asset_library_interface.hpp
+    # hands back the material a loaded primitive comes as and answers with the atmosphere mirror,
+    # scene_view.hpp carries the environment, the punctual lights and a UI draw list,
+    # planet_terrain.hpp a terrain quadtree and layer stack, and particle_system.hpp the compiled
+    # emitter table.
+    sushiengine_material
+    sushiengine_environment
     sushiengine_ui
     sushiengine_terrain
     sushiengine_vfx

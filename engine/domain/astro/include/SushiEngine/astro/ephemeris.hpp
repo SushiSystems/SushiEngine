@@ -50,7 +50,7 @@
 #include <SushiEngine/astro/star_catalog.hpp>
 #include <SushiEngine/astro/topocentric.hpp>
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 
 namespace SushiEngine
 {

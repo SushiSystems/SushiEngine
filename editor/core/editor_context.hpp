@@ -37,7 +37,8 @@
 #include <nlohmann/json.hpp>
 
 #include <SushiEngine/astro/julian_date.hpp>
-#include <SushiEngine/render/material.hpp>
+#include <SushiEngine/material/material.hpp>
+#include <SushiEngine/render/asset_library_interface.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 #include <SushiEngine/sim/simulation_settings.hpp>

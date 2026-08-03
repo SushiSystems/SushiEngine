@@ -34,7 +34,8 @@
  * then the advanced lobes and the rendering state.
  */
 
-#include <SushiEngine/render/material.hpp>
+#include <SushiEngine/material/material.hpp>
+#include <SushiEngine/render/asset_library_interface.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 
 namespace SushiEngine

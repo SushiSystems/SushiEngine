@@ -46,7 +46,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 #include <SushiEngine/sim/weather_types.hpp>
 
 namespace SushiEngine

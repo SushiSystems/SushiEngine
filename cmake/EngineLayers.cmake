@@ -22,6 +22,7 @@ set(SUSHIENGINE_MODULE_LAYERS
     platform        foundation
     geometry        domain
     physics         domain
+    material        domain
     environment     domain
     animation       domain
     astro           domain

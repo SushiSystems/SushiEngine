@@ -43,10 +43,10 @@
 #include <cstdint>
 
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/render/atmosphere_nest.hpp>
-#include <SushiEngine/render/material.hpp>
-#include <SushiEngine/render/synoptic_field.hpp>
-#include <SushiEngine/render/weather_field.hpp>
+#include <SushiEngine/environment/atmosphere_nest.hpp>
+#include <SushiEngine/environment/synoptic_field.hpp>
+#include <SushiEngine/environment/weather_field.hpp>
+#include <SushiEngine/material/material.hpp>
 
 namespace SushiEngine
 {

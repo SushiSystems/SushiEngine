@@ -63,7 +63,7 @@
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
-#include <SushiEngine/render/atmosphere_nest.hpp>
+#include <SushiEngine/environment/atmosphere_nest.hpp>
 
 #include "graph/gpu_profiler.hpp"
 

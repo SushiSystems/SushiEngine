@@ -35,7 +35,7 @@
 #include <imgui.h>
 
 #include <SushiEngine/astro/celestial_bodies.hpp>
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 
 namespace SushiEngine
 {

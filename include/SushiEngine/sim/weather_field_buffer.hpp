@@ -48,8 +48,8 @@
 #include <cstdint>
 #include <vector>
 
-#include <SushiEngine/render/environment.hpp>
-#include <SushiEngine/render/weather_field.hpp>
+#include <SushiEngine/environment/environment.hpp>
+#include <SushiEngine/environment/weather_field.hpp>
 #include <SushiEngine/sim/weather_types.hpp>
 
 namespace SushiEngine

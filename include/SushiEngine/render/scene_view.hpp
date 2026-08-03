@@ -42,9 +42,9 @@
 #include <vector>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/environment/environment.hpp>
+#include <SushiEngine/environment/light.hpp>
 #include <SushiEngine/render/deformable_mesh.hpp>
-#include <SushiEngine/render/environment.hpp>
-#include <SushiEngine/render/light.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/ui/draw_list.hpp>
 

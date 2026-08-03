@@ -35,7 +35,8 @@
 #include <SushiEngine/animation/gltf_skeleton_import.hpp>
 #include <SushiEngine/animation/ik_two_bone.hpp>
 #include <SushiEngine/core/types.hpp>
-#include <SushiEngine/render/material.hpp>
+#include <SushiEngine/material/material.hpp>
+#include <SushiEngine/render/asset_library_interface.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 
 namespace SushiEngine

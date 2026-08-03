@@ -40,7 +40,7 @@
 #include <string>
 #include <type_traits>
 
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 
 #include "../core/editor_context.hpp"
 

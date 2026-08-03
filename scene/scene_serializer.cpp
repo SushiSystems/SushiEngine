@@ -34,6 +34,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <SushiEngine/render/asset_library_interface.hpp>
+
 #include "effect_serializer.hpp"
 #include "environment_serializer.hpp"
 

@@ -23,7 +23,7 @@
 
 #include <cstring>
 
-#include <SushiEngine/render/environment.hpp>
+#include <SushiEngine/environment/environment.hpp>
 
 #include "frame/frame_context.hpp"
 #include "gi/sdf_probe_tracer.hpp"

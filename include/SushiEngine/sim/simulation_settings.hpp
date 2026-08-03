@@ -39,7 +39,7 @@
  * tests pin the table — none of them should need `sushi_sim` linked to do so.
  */
 
-#include <SushiEngine/render/atmosphere_nest.hpp>
+#include <SushiEngine/environment/atmosphere_nest.hpp>
 
 namespace SushiEngine
 {

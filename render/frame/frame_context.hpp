@@ -38,8 +38,8 @@
 
 #include <vulkan/vulkan.h>
 
-#include <SushiEngine/render/environment.hpp>
-#include <SushiEngine/render/light.hpp>
+#include <SushiEngine/environment/environment.hpp>
+#include <SushiEngine/environment/light.hpp>
 #include <SushiEngine/render/quality_params.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/render/scene_view.hpp>
