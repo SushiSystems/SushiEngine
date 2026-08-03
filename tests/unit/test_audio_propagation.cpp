@@ -43,7 +43,7 @@ namespace
     // linearly from `d0` to `d1` over `blocks` blocks of `n` samples, returning the
     // concatenated output.
     std::vector<float> run_propagation(SourcePropagation& prop, const VoiceDescriptor& desc,
-                                       const Dsp::Atmosphere& atmo, double freq, double sr,
+                                       const DSP::Atmosphere& atmo, double freq, double sr,
                                        int n, int blocks, float d0, float d1)
     {
         std::vector<float> out;
@@ -94,7 +94,7 @@ namespace
 
 TEST(Unit_Audio, FractionalDelayLineIsAccurate)
 {
-    Dsp::FractionalDelayLine line;
+    DSP::FractionalDelayLine line;
     line.prepare(64);
     for (int i = 0; i <= 20; ++i)
         line.push(static_cast<float>(i));
@@ -103,7 +103,7 @@ TEST(Unit_Audio, FractionalDelayLineIsAccurate)
     EXPECT_NEAR(line.read(5.5f), 14.5f, 1e-3f); // fractional interpolation
 
     // A delayed sine matches the analytic shift to high accuracy.
-    Dsp::FractionalDelayLine s;
+    DSP::FractionalDelayLine s;
     s.prepare(256);
     const double sr = 48000.0, f = 200.0, delay = 17.3;
     double max_error = 0.0;
@@ -122,20 +122,20 @@ TEST(Unit_Audio, FractionalDelayLineIsAccurate)
 
 TEST(Unit_Audio, AirAbsorptionAndSpeedOfSound)
 {
-    Dsp::Atmosphere atmo; // 20 C, 50%, 101.325 kPa
-    EXPECT_NEAR(Dsp::speed_of_sound(atmo), 343.42f, 0.1f);
+    DSP::Atmosphere atmo; // 20 C, 50%, 101.325 kPa
+    EXPECT_NEAR(DSP::speed_of_sound(atmo), 343.42f, 0.1f);
 
     // Absorption grows with frequency.
-    const double a1k = Dsp::air_absorption_db_per_meter(1000.0, atmo);
-    const double a4k = Dsp::air_absorption_db_per_meter(4000.0, atmo);
-    const double a10k = Dsp::air_absorption_db_per_meter(10000.0, atmo);
+    const double a1k = DSP::air_absorption_db_per_meter(1000.0, atmo);
+    const double a4k = DSP::air_absorption_db_per_meter(4000.0, atmo);
+    const double a10k = DSP::air_absorption_db_per_meter(10000.0, atmo);
     EXPECT_GT(a4k, a1k);
     EXPECT_GT(a10k, a4k);
 
     // The modelled cutoff falls with distance (nearer = brighter).
-    const float near = Dsp::air_absorption_cutoff(1.0f, atmo);
-    const float mid = Dsp::air_absorption_cutoff(50.0f, atmo);
-    const float far = Dsp::air_absorption_cutoff(500.0f, atmo);
+    const float near = DSP::air_absorption_cutoff(1.0f, atmo);
+    const float mid = DSP::air_absorption_cutoff(50.0f, atmo);
+    const float far = DSP::air_absorption_cutoff(500.0f, atmo);
     EXPECT_GE(near, mid);
     EXPECT_GE(mid, far);
     EXPECT_LE(far, 5000.0f);
@@ -165,14 +165,14 @@ TEST(Unit_Audio, PropagationDelayMatchesDistanceOverSpeedOfSound)
 {
     const double sr = 48000.0;
     const int n = 256;
-    Dsp::Atmosphere atmo;
+    DSP::Atmosphere atmo;
     VoiceDescriptor desc = spatial_descriptor();
 
     SourcePropagation prop;
     prop.prepare(sr, n, 40000);
 
     const float distance = 34.3f; // ~ delay of distance / c * sr samples
-    const float expected_delay = distance / Dsp::speed_of_sound(atmo) * static_cast<float>(sr);
+    const float expected_delay = distance / DSP::speed_of_sound(atmo) * static_cast<float>(sr);
 
     // Feed an impulse, then silence; find where it emerges.
     std::vector<float> out;
@@ -206,7 +206,7 @@ TEST(Unit_Audio, PropagationDopplerRisesApproachingFallsReceding)
 {
     const double sr = 48000.0, freq = 1000.0;
     const int n = 256, blocks = 200;
-    Dsp::Atmosphere atmo;
+    DSP::Atmosphere atmo;
     VoiceDescriptor desc = spatial_descriptor();
 
     SourcePropagation approaching;
@@ -227,7 +227,7 @@ TEST(Unit_Audio, PropagationHasNoDopplerWhenStationary)
 {
     const double sr = 48000.0, freq = 1000.0;
     const int n = 256, blocks = 120;
-    Dsp::Atmosphere atmo;
+    DSP::Atmosphere atmo;
     VoiceDescriptor desc = spatial_descriptor();
 
     SourcePropagation prop;
@@ -241,7 +241,7 @@ TEST(Unit_Audio, PropagationDelayToggleDisablesDoppler)
 {
     const double sr = 48000.0, freq = 1000.0;
     const int n = 256, blocks = 120;
-    Dsp::Atmosphere atmo;
+    DSP::Atmosphere atmo;
     VoiceDescriptor desc = spatial_descriptor();
     desc.propagation_delay = false; // delay + Doppler off
 
@@ -257,7 +257,7 @@ TEST(Unit_Audio, PropagationTeleportSnapsWithoutSweep)
 {
     const double sr = 48000.0, freq = 1000.0;
     const int n = 256;
-    Dsp::Atmosphere atmo;
+    DSP::Atmosphere atmo;
     VoiceDescriptor desc = spatial_descriptor();
 
     SourcePropagation prop;
@@ -307,7 +307,7 @@ TEST(Unit_Audio, NearFieldProximityBoost)
 {
     const double sr = 48000.0;
     const int n = 256;
-    Dsp::Atmosphere atmo;
+    DSP::Atmosphere atmo;
     VoiceDescriptor d = spatial_descriptor();
     d.propagation_delay = false; // isolate the near-field shelf from Doppler
     d.min_distance = 0.1f;       // ~unity distance gain up close

@@ -1337,7 +1337,7 @@ namespace SushiEngine
                  * @param id An emitter entity.
                  * @return Its authored effect; a default-constructed one when @p id has no emitter.
                  */
-                virtual const Vfx::ParticleEffect& particle_effect_source(EntityId id) const = 0;
+                virtual const VFX::ParticleEffect& particle_effect_source(EntityId id) const = 0;
 
                 /**
                  * @brief Replaces the effect an emitter entity owns.
@@ -1349,7 +1349,7 @@ namespace SushiEngine
                  * @param effect The effect it should play.
                  */
                 virtual void set_particle_effect_source(EntityId id,
-                                                        const Vfx::ParticleEffect& effect) = 0;
+                                                        const VFX::ParticleEffect& effect) = 0;
 
                 /**
                  * @brief Whether @p id is driven by the physics world (a "Rigid Body").

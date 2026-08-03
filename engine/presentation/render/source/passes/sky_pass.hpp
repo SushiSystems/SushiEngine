@@ -65,7 +65,7 @@ namespace SushiEngine
 
         namespace Passes
         {
-            class AtmosphereLutPass;
+            class AtmosphereLUTPass;
             class CloudShadowMapPass;
             class VolumetricFogPass;
 
@@ -94,7 +94,7 @@ namespace SushiEngine
                      */
                     SkyPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                             Resources::GraphicsPipelineFactory& pipelines, Scene::SceneLayout& layout,
-                            CloudShadowMapPass& cloud_shadow, AtmosphereLutPass& atmosphere,
+                            CloudShadowMapPass& cloud_shadow, AtmosphereLUTPass& atmosphere,
                             VolumetricFogPass& fog, Lighting::LightSystem& lights);
                     ~SkyPass() override;
 
@@ -114,7 +114,7 @@ namespace SushiEngine
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::SceneLayout& layout_;
                     CloudShadowMapPass& cloud_shadow_;
-                    AtmosphereLutPass& atmosphere_;
+                    AtmosphereLUTPass& atmosphere_;
                     VolumetricFogPass& fog_;
                     Lighting::LightSystem& lights_;
                     Resources::PipelineHandle pipeline_;

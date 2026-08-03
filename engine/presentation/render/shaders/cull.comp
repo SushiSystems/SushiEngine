@@ -32,7 +32,7 @@ layout(set = 0, binding = 1) uniform CullParams
     vec4 frozen_delta_eye; // xyz = current eye - frozen eye; w = freeze active
 } params;
 
-struct GpuInstance
+struct GPUInstance
 {
     mat4 model;
     vec4 bounding_sphere; // xyz = camera-relative centre, w = radius
@@ -44,7 +44,7 @@ struct GpuInstance
 
 layout(std430, set = 0, binding = 2) readonly buffer InstanceBlock
 {
-    GpuInstance instances[];
+    GPUInstance instances[];
 } instance_block;
 
 struct BucketMeta
@@ -205,7 +205,7 @@ void main()
     if (id >= pc.candidate_count)
         return;
 
-    GpuInstance instance = instance_block.instances[id];
+    GPUInstance instance = instance_block.instances[id];
     vec3 centre = instance.bounding_sphere.xyz;
     float radius = instance.bounding_sphere.w;
 

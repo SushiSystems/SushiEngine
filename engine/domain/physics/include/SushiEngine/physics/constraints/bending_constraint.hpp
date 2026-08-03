@@ -89,7 +89,7 @@ namespace SushiEngine
          * @tparam T The scalar element type.
          */
         template <typename T>
-        struct XpbdBendingConstraintT
+        struct XPBDBendingConstraintT
         {
             /** @brief The scalar element type, so a solver can derive its precision. */
             using Real = T;
@@ -109,7 +109,7 @@ namespace SushiEngine
              * @brief The rest shape's coplanarity weights, summing to zero.
              *
              * Normalized so their absolute values sum to two, which makes @ref
-             * XpbdBendingProjectionT's constraint value a length — the distance the
+             * XPBDBendingProjectionT's constraint value a length — the distance the
              * stencil has moved out of its rest arrangement — rather than a number
              * whose scale depends on how the mesh was tessellated. An author's
              * compliance then means the same thing on a coarse sheet and a fine one.
@@ -129,7 +129,7 @@ namespace SushiEngine
         };
 
         /** @brief The boundary bending constraint: fixed to `Scalar`. */
-        using XpbdBendingConstraint = XpbdBendingConstraintT<Scalar>;
+        using XPBDBendingConstraint = XPBDBendingConstraintT<Scalar>;
 
         /**
          * @brief Builds a bending constraint's rest weights from four rest positions.
@@ -144,13 +144,13 @@ namespace SushiEngine
          *
          * @param x0,x1  The shared edge's rest positions.
          * @param x2,x3  The two opposite vertices' rest positions.
-         * @param out    Receives the weights and @ref XpbdBendingConstraintT::rest_deviation.
+         * @param out    Receives the weights and @ref XPBDBendingConstraintT::rest_deviation.
          * @return False for a degenerate stencil, leaving @p out untouched.
          */
         template <typename T>
         inline bool build_bending_constraint(const Vector3T<T>& x0, const Vector3T<T>& x1,
                                              const Vector3T<T>& x2, const Vector3T<T>& x3,
-                                             XpbdBendingConstraintT<T>& out) noexcept
+                                             XPBDBendingConstraintT<T>& out) noexcept
         {
             const Vector3T<T> edge1 = x1 - x0;
             const Vector3T<T> edge2 = x2 - x0;
@@ -193,12 +193,12 @@ namespace SushiEngine
          * @brief One XPBD iteration of a bending constraint.
          *
          * A captureless functor, so it is device-copyable — the same shape
-         * `XpbdDistanceProjectionT` has, for the same reason.
+         * `XPBDDistanceProjectionT` has, for the same reason.
          *
          * @tparam T The scalar element type.
          */
         template <typename T>
-        struct XpbdBendingProjectionT
+        struct XPBDBendingProjectionT
         {
             /**
              * @brief Applies one iteration of constraint @p c.
@@ -209,7 +209,7 @@ namespace SushiEngine
              *                caller resets it to zero once per step.
              * @param h       The sub-step duration, in seconds (> 0).
              */
-            void operator()(const XpbdBendingConstraintT<T>& c, RigidBodyT<T>* bodies, T& lambda,
+            void operator()(const XPBDBendingConstraintT<T>& c, RigidBodyT<T>* bodies, T& lambda,
                             T h) const
             {
                 Vector3T<T> deviation{T(0), T(0), T(0)};
@@ -251,6 +251,6 @@ namespace SushiEngine
         };
 
         /** @brief The boundary bending projection: fixed to `Scalar`. */
-        using XpbdBendingProjection = XpbdBendingProjectionT<Scalar>;
+        using XPBDBendingProjection = XPBDBendingProjectionT<Scalar>;
     } // namespace Physics
 } // namespace SushiEngine

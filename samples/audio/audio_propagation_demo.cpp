@@ -140,7 +140,7 @@ int main()
     // (2) Best-effort audible flyby: the main thread animates the source while the
     // device renders on its callback thread.
     engine.voices().set_voice_position(voice, AudioVec3{-150.0f, 20.0f, 0.0f});
-    SdlAudioDevice device;
+    SDLAudioDevice device;
     AudioStreamFormat desired;
     desired.sample_rate = 48000;
     desired.channel_count = 2;

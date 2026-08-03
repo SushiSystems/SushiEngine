@@ -25,7 +25,7 @@
 
 /**
  * @file vfx.hpp
- * @brief Umbrella header for the VFX particle system's authoring model (SushiEngine::Vfx).
+ * @brief Umbrella header for the VFX particle system's authoring model (SushiEngine::VFX).
  *
  * Pulls in, in dependency order, the artist-facing effect model (curves, gradients, modules,
  * emitter/effect descriptors), the POD compilation boundary (@ref CompiledEffect), the

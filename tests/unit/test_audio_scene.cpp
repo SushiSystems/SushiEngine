@@ -155,7 +155,7 @@ TEST(Unit_Audio, AudioSceneSteersReverbFromActiveZone)
     ToneFactory factory;
     AudioScene scene(voices, factory);
 
-    FdnReverbEffect reverb;
+    FDNReverbEffect reverb;
     reverb.prepare(48000.0, 512);
     reverb.set_params(I3DL2Reverb::generic());
     scene.set_reverb(&reverb);

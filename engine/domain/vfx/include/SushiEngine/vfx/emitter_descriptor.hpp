@@ -40,7 +40,7 @@
 
 namespace SushiEngine
 {
-    namespace Vfx
+    namespace VFX
     {
         /** @brief The largest per-emitter particle budget the compiler will honour. */
         constexpr std::uint32_t MAX_EMITTER_CAPACITY = 4u * 1024u * 1024u;
@@ -84,5 +84,5 @@ namespace SushiEngine
             RenderModule render;                              /**< Draw settings. */
             BeamModule beam;                                  /**< Endpoints, Beam alignment only. */
         };
-    } // namespace Vfx
+    } // namespace VFX
 } // namespace SushiEngine

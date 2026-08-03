@@ -70,7 +70,7 @@ namespace SushiEngine
     namespace Audio
     {
         /** @brief An axis-aligned bounding box in the acoustic world (float). */
-        struct AcousticAabb
+        struct AcousticAABB
         {
             AudioVec3 min{1e30f, 1e30f, 1e30f};
             AudioVec3 max{-1e30f, -1e30f, -1e30f};
@@ -87,7 +87,7 @@ namespace SushiEngine
             }
 
             /** @brief Grows the box to contain another box. */
-            void expand(const AcousticAabb& b) noexcept
+            void expand(const AcousticAABB& b) noexcept
             {
                 expand(b.min);
                 expand(b.max);
@@ -212,9 +212,9 @@ namespace SushiEngine
         };
 
         /** @brief One flat BVH node: a leaf (count > 0) or an internal node (count == 0). */
-        struct AcousticBvhNode
+        struct AcousticBVHNode
         {
-            AcousticAabb bounds;
+            AcousticAABB bounds;
             int left = 0;  /**< Internal: left child node index. */
             int right = 0; /**< Internal: right child node index (subtrees are not contiguous). */
             int first = 0; /**< Leaf: first primitive in the ordering array. */
@@ -241,7 +241,7 @@ namespace SushiEngine
                     const std::size_t n = mesh.triangles().size();
                     order_.resize(n);
                     centroids_.resize(n);
-                    std::vector<AcousticAabb> bounds(n);
+                    std::vector<AcousticAABB> bounds(n);
                     for (std::size_t i = 0; i < n; ++i)
                     {
                         order_[i] = static_cast<int>(i);
@@ -259,9 +259,9 @@ namespace SushiEngine
                 }
 
                 /** @brief The world AABB of the whole mesh (empty if not built). */
-                AcousticAabb bounds() const noexcept
+                AcousticAABB bounds() const noexcept
                 {
-                    return nodes_.empty() ? AcousticAabb{} : nodes_[0].bounds;
+                    return nodes_.empty() ? AcousticAABB{} : nodes_[0].bounds;
                 }
 
                 /** @brief Whether the BLAS holds any geometry. */
@@ -283,7 +283,7 @@ namespace SushiEngine
                     stack[sp++] = 0;
                     while (sp > 0)
                     {
-                        const AcousticBvhNode& node = nodes_[static_cast<std::size_t>(stack[--sp])];
+                        const AcousticBVHNode& node = nodes_[static_cast<std::size_t>(stack[--sp])];
                         if (!node.bounds.intersects_segment(origin, inv, 1.0f))
                             continue;
                         if (node.count > 0)
@@ -331,7 +331,7 @@ namespace SushiEngine
                     stack[sp++] = 0;
                     while (sp > 0)
                     {
-                        const AcousticBvhNode& node = nodes_[static_cast<std::size_t>(stack[--sp])];
+                        const AcousticBVHNode& node = nodes_[static_cast<std::size_t>(stack[--sp])];
                         if (!node.bounds.intersects_segment(origin, inv, 1.0f))
                             continue;
                         if (node.count > 0)
@@ -414,18 +414,18 @@ namespace SushiEngine
                     return true;
                 }
 
-                int build_range(int begin, int end, std::vector<AcousticAabb>& bounds)
+                int build_range(int begin, int end, std::vector<AcousticAABB>& bounds)
                 {
                     const int node_index = static_cast<int>(nodes_.size());
-                    nodes_.push_back(AcousticBvhNode{});
-                    AcousticAabb box;
+                    nodes_.push_back(AcousticBVHNode{});
+                    AcousticAABB box;
                     for (int i = begin; i < end; ++i)
                         box.expand(bounds[static_cast<std::size_t>(order_[static_cast<std::size_t>(i)])]);
 
                     const int count = end - begin;
                     if (count <= 4)
                     {
-                        AcousticBvhNode& leaf = nodes_[static_cast<std::size_t>(node_index)];
+                        AcousticBVHNode& leaf = nodes_[static_cast<std::size_t>(node_index)];
                         leaf.bounds = box;
                         leaf.first = begin;
                         leaf.count = count;
@@ -446,7 +446,7 @@ namespace SushiEngine
 
                     const int left = build_range(begin, mid, bounds);
                     const int right = build_range(mid, end, bounds);
-                    AcousticBvhNode& node = nodes_[static_cast<std::size_t>(node_index)];
+                    AcousticBVHNode& node = nodes_[static_cast<std::size_t>(node_index)];
                     node.bounds = box;
                     node.left = left;
                     node.right = right;
@@ -455,7 +455,7 @@ namespace SushiEngine
                 }
 
                 const AcousticMesh* mesh_ = nullptr;
-                std::vector<AcousticBvhNode> nodes_;
+                std::vector<AcousticBVHNode> nodes_;
                 std::vector<int> order_;
                 std::vector<AudioVec3> centroids_;
                 mutable std::vector<Hit> hits_;
@@ -503,12 +503,12 @@ namespace SushiEngine
             }
 
             /** @brief The instance's world-space AABB (transform of the BLAS bounds). */
-            AcousticAabb world_bounds() const noexcept
+            AcousticAABB world_bounds() const noexcept
             {
-                AcousticAabb out;
+                AcousticAABB out;
                 if (blas == nullptr || blas->empty())
                     return out;
-                const AcousticAabb lb = blas->bounds();
+                const AcousticAABB lb = blas->bounds();
                 const AudioVec3 corners[8] = {
                     {lb.min.x, lb.min.y, lb.min.z}, {lb.max.x, lb.min.y, lb.min.z},
                     {lb.min.x, lb.max.y, lb.min.z}, {lb.max.x, lb.max.y, lb.min.z},
@@ -570,7 +570,7 @@ namespace SushiEngine
                     const std::size_t n = instances_.size();
                     order_.resize(n);
                     centroids_.resize(n);
-                    std::vector<AcousticAabb> bounds(n);
+                    std::vector<AcousticAABB> bounds(n);
                     for (std::size_t i = 0; i < n; ++i)
                     {
                         order_[i] = static_cast<int>(i);
@@ -692,7 +692,7 @@ namespace SushiEngine
                     stack[sp++] = 0;
                     while (sp > 0)
                     {
-                        const AcousticBvhNode& node = nodes_[static_cast<std::size_t>(stack[--sp])];
+                        const AcousticBVHNode& node = nodes_[static_cast<std::size_t>(stack[--sp])];
                         if (!node.bounds.intersects_segment(origin, inv, 1.0f))
                             continue;
                         if (node.count > 0)
@@ -729,18 +729,18 @@ namespace SushiEngine
                                      center.z + radius * z};
                 }
 
-                int build_range(int begin, int end, std::vector<AcousticAabb>& bounds)
+                int build_range(int begin, int end, std::vector<AcousticAABB>& bounds)
                 {
                     const int node_index = static_cast<int>(nodes_.size());
-                    nodes_.push_back(AcousticBvhNode{});
-                    AcousticAabb box;
+                    nodes_.push_back(AcousticBVHNode{});
+                    AcousticAABB box;
                     for (int i = begin; i < end; ++i)
                         box.expand(bounds[static_cast<std::size_t>(order_[static_cast<std::size_t>(i)])]);
 
                     const int count = end - begin;
                     if (count <= 2)
                     {
-                        AcousticBvhNode& leaf = nodes_[static_cast<std::size_t>(node_index)];
+                        AcousticBVHNode& leaf = nodes_[static_cast<std::size_t>(node_index)];
                         leaf.bounds = box;
                         leaf.first = begin;
                         leaf.count = count;
@@ -759,7 +759,7 @@ namespace SushiEngine
                                      });
                     const int left = build_range(begin, mid, bounds);
                     const int right = build_range(mid, end, bounds);
-                    AcousticBvhNode& node = nodes_[static_cast<std::size_t>(node_index)];
+                    AcousticBVHNode& node = nodes_[static_cast<std::size_t>(node_index)];
                     node.bounds = box;
                     node.left = left;
                     node.right = right;
@@ -768,7 +768,7 @@ namespace SushiEngine
                 }
 
                 std::vector<AcousticInstance> instances_;
-                std::vector<AcousticBvhNode> nodes_;
+                std::vector<AcousticBVHNode> nodes_;
                 std::vector<int> order_;
                 std::vector<AudioVec3> centroids_;
         };

@@ -51,7 +51,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /**
              * @brief A bounded, wait-free SPSC ring of trivially-copyable @p T.
@@ -149,7 +149,7 @@ namespace SushiEngine
                     alignas(64) std::atomic<std::size_t> write_{0};
                     alignas(64) std::atomic<std::size_t> read_{0};
             };
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

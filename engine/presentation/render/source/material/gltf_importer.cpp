@@ -129,7 +129,7 @@ namespace SushiEngine
                         material.metallic = pbr.metallic_factor;
                         material.roughness = pbr.roughness_factor;
                         material.albedo_map = load_texture(&pbr.base_color_texture, textures,
-                                                           directory, TextureColorSpace::Srgb);
+                                                           directory, TextureColorSpace::SRGB);
                         material.metallic_roughness_map =
                             load_texture(&pbr.metallic_roughness_texture, textures, directory,
                                          TextureColorSpace::Linear);
@@ -150,7 +150,7 @@ namespace SushiEngine
                                                 sg.specular_factor[2]) / 3.0f;
                         material.metallic = specular > 0.5f ? 1.0f : 0.0f;
                         material.albedo_map = load_texture(&sg.diffuse_texture, textures,
-                                                           directory, TextureColorSpace::Srgb);
+                                                           directory, TextureColorSpace::SRGB);
                     }
 
                     material.normal_map = load_texture(&source->normal_texture, textures,
@@ -164,7 +164,7 @@ namespace SushiEngine
                         material.occlusion_strength = source->occlusion_texture.scale;
 
                     material.emissive_map = load_texture(&source->emissive_texture, textures,
-                                                         directory, TextureColorSpace::Srgb);
+                                                         directory, TextureColorSpace::SRGB);
                     material.emissive = Vector3{source->emissive_factor[0],
                                                 source->emissive_factor[1],
                                                 source->emissive_factor[2]};

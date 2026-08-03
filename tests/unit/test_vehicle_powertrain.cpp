@@ -486,7 +486,7 @@ TEST(Unit_VehiclePowertrain, ReplayIsIdentical)
 /** @brief The torque reaches the driven wheels and only those. */
 TEST(Unit_VehiclePowertrain, TheDrivetrainTurnsOnlyTheDrivenWheels)
 {
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     Blob blob(chassis_asset());
     VehicleInstance vehicle;
     NodeBeamStructureSettings<Scalar> settings;
@@ -522,7 +522,7 @@ TEST(Unit_VehiclePowertrain, TheDrivetrainTurnsOnlyTheDrivenWheels)
  */
 TEST(Unit_VehiclePowertrain, TheChassisTakesTheReactionOfTheDrive)
 {
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     Blob blob(chassis_asset());
     VehicleInstance vehicle;
     NodeBeamStructureSettings<Scalar> settings;
@@ -549,7 +549,7 @@ TEST(Unit_VehiclePowertrain, TheChassisTakesTheReactionOfTheDrive)
 /** @brief A vehicle with no drivetrain instances, and stays still however hard it is asked. */
 TEST(Unit_VehiclePowertrain, AnUndrivenVehicleIsUntouched)
 {
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     Blob blob(chassis_asset());
 
     VehicleAsset trailer = rear_wheel_drive();

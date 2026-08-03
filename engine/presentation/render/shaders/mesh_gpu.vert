@@ -40,9 +40,9 @@ layout(std430, set = 0, binding = 8) readonly buffer MotionBlock
     mat4 previous_model[];
 } motion;
 
-// One record per drawable, the std430 mirror of Scene::GpuInstance. The cull shader and
+// One record per drawable, the std430 mirror of Scene::GPUInstance. The cull shader and
 // this shader must read it identically, so the field order is fixed.
-struct GpuInstance
+struct GPUInstance
 {
     mat4 model;
     vec4 bounding_sphere;
@@ -54,7 +54,7 @@ struct GpuInstance
 
 layout(std430, set = 2, binding = 0) readonly buffer InstanceBlock
 {
-    GpuInstance instances[];
+    GPUInstance instances[];
 } instance_block;
 
 // The cull pass's compacted survivor list: for each bucket, the instance indices that
@@ -91,7 +91,7 @@ layout(location = 9) flat out uint v_entity_id;
 void main()
 {
     uint instance_index = compacted.indices[pc.candidate_base + uint(gl_InstanceIndex)];
-    GpuInstance instance = instance_block.instances[instance_index];
+    GPUInstance instance = instance_block.instances[instance_index];
 
     vec4 world = instance.model * vec4(in_position, 1.0);
     mat3 normal_matrix = mat3(instance.model);

@@ -39,11 +39,11 @@
  * high frequency (Schörkhuber/Zaunschirm/Zotter). The per-channel FIRs are then applied to the
  * bus each block, so cost is `channels × 2` convolutions regardless of the measurement count.
  *
- * @ref AnthropometricHrtfDatabase personalizes any @ref IHrtfDatabase by a listener's head
+ * @ref AnthropometricHRTFDatabase personalizes any @ref IHRTFDatabase by a listener's head
  * size: warping the impulse-response time axis scales the interaural delay and the spectral
  * pinna notches together, the classic head-size HRTF individualization.
  *
- * Dependency-free (FFT + the `IHrtfDatabase` seam + real SH), so it rides the `audio.hpp`
+ * Dependency-free (FFT + the `IHRTFDatabase` seam + real SH), so it rides the `audio.hpp`
  * umbrella; the measured data still arrives through the seam (e.g. the SOFA loader).
  */
 
@@ -61,14 +61,14 @@ namespace SushiEngine
     namespace Audio
     {
         /**
-         * @brief An @ref IHrtfDatabase decorator that scales HRIRs to a listener's head size.
+         * @brief An @ref IHRTFDatabase decorator that scales HRIRs to a listener's head size.
          *
          * Wraps a base database and resamples each impulse response's time axis by the ratio of
          * a reference head radius to the listener's — a larger head stretches the response
          * (longer ITD, lower pinna notches), a smaller one compresses it. A cheap, well-known
          * personalization that needs no per-user measurement, only a head radius.
          */
-        class AnthropometricHrtfDatabase final : public IHrtfDatabase
+        class AnthropometricHRTFDatabase final : public IHRTFDatabase
         {
             public:
                 /**
@@ -77,7 +77,7 @@ namespace SushiEngine
                  * @param listener_head_radius The listener's head radius in metres.
                  * @param reference_head_radius The radius the base set was measured at (default KEMAR).
                  */
-                AnthropometricHrtfDatabase(const IHrtfDatabase& base, float listener_head_radius,
+                AnthropometricHRTFDatabase(const IHRTFDatabase& base, float listener_head_radius,
                                            float reference_head_radius = 0.0875f) noexcept
                     : base_(base),
                       warp_(reference_head_radius > 1e-6f ? listener_head_radius / reference_head_radius
@@ -117,7 +117,7 @@ namespace SushiEngine
                     }
                 }
 
-                const IHrtfDatabase& base_;
+                const IHRTFDatabase& base_;
                 float warp_;
                 mutable std::vector<float> scratch_left_;
                 mutable std::vector<float> scratch_right_;
@@ -143,12 +143,12 @@ namespace SushiEngine
                  * @param magls_cutoff_hz Frequency above which magnitude LS is used (default 1500).
                  * @return True on success.
                  */
-                bool configure(int order, const IHrtfDatabase& database, double sample_rate,
+                bool configure(int order, const IHRTFDatabase& database, double sample_rate,
                                int fft_size = 1024, int grid_points = 400,
                                double magls_cutoff_hz = 1500.0)
                 {
                     order_ = order;
-                    channels_ = Dsp::ambisonic_channel_count(order_);
+                    channels_ = DSP::ambisonic_channel_count(order_);
                     sample_rate_ = sample_rate;
                     fft_size_ = fft_size;
                     const int ir_len = database.ir_length();
@@ -165,8 +165,8 @@ namespace SushiEngine
                     fibonacci_sphere(m, dirs.data());
                     for (int i = 0; i < m; ++i)
                     {
-                        float gains[Dsp::MAX_AMBISONIC_CHANNELS];
-                        Dsp::ambisonic_encode_gains(order_, dirs[i * 3 + 0], dirs[i * 3 + 1],
+                        float gains[DSP::MAX_AMBISONIC_CHANNELS];
+                        DSP::ambisonic_encode_gains(order_, dirs[i * 3 + 0], dirs[i * 3 + 1],
                                                     dirs[i * 3 + 2], gains);
                         for (int c = 0; c < channels_; ++c)
                             y[static_cast<std::size_t>(i * channels_ + c)] = gains[c];
@@ -427,7 +427,7 @@ namespace SushiEngine
                     }
                 }
 
-                Dsp::RadixFft fft_;
+                DSP::RadixFFT fft_;
                 std::vector<std::vector<float>> filters_left_;
                 std::vector<std::vector<float>> filters_right_;
                 std::vector<HrirConvolver> conv_left_;

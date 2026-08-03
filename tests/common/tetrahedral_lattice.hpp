@@ -324,7 +324,7 @@ namespace SushiEngine
                                           column0, column1, column2, volume))
                     continue;
 
-                Physics::FemTetrahedron element;
+                Physics::FEMTetrahedron element;
                 for (int i = 0; i < 4; ++i)
                     element.vertex[i] = corner[i];
                 element.rest_inverse_column_0 = column0;

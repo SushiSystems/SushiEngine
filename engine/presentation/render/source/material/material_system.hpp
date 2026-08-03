@@ -89,7 +89,7 @@ namespace SushiEngine
              *
              * Flat vec4 rows so the C++ side cannot disagree with the GLSL packing.
              */
-            struct GpuMaterial
+            struct GPUMaterial
             {
                 float base_color[4];          /**< rgb tint, a = base alpha. */
                 float emissive[4];            /**< rgb premultiplied by intensity, a = normal scale. */
@@ -186,7 +186,7 @@ namespace SushiEngine
                     Vulkan::VulkanDevice& device_;
                     TextureLibrary& textures_;
                     std::vector<Slot> slots_;
-                    std::vector<GpuMaterial> packed_;
+                    std::vector<GPUMaterial> packed_;
                     std::uint32_t current_slot_ = 0;
 
                     /** @brief Advanced lobe bits the tier permits; all set means no gating. */

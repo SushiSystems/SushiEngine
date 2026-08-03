@@ -29,9 +29,9 @@ namespace SushiEngine
 {
     namespace Render
     {
-        namespace Gi
+        namespace GI
         {
-            MeshSdfBrick bake_mesh_sdf(const Geometry::MeshVertex* vertices,
+            MeshSDFBrick bake_mesh_sdf(const Geometry::MeshVertex* vertices,
                                        std::size_t vertex_count,
                                        const std::uint32_t* indices,
                                        std::size_t index_count, std::int32_t resolution)
@@ -49,6 +49,6 @@ namespace SushiEngine
 
                 return SushiEngine::Geometry::bake_signed_distance_field(mesh, resolution);
             }
-        } // namespace Gi
+        } // namespace GI
     } // namespace Render
 } // namespace SushiEngine

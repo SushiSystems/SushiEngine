@@ -35,7 +35,7 @@
  *
  *   - @ref I3DL2Reverb — the de-facto **I3DL2 / EAX** parameter set (Room, RoomHF,
  *     DecayTime, DecayHFRatio, Reflections, Reverb, Diffusion, Density, …). Presets and
- *     a room-geometry factory build one; @ref FdnReverbEffect maps it onto the FDN.
+ *     a room-geometry factory build one; @ref FDNReverbEffect maps it onto the FDN.
  *   - @ref IReverb — the interchangeable-reverb seam. An FDN today; a convolution
  *     reverb (Gardner NUPC, for signature static spaces) later — same seam, no change
  *     at the call sites. @ref ReverbBusEffect adapts any @ref IReverb into the mixer's
@@ -97,13 +97,13 @@ namespace SushiEngine
         /**
          * @brief An @ref IReverb backed by the Jot FDN, with the I3DL2 → FDN mapping.
          *
-         * Maps the I3DL2 set onto @ref Dsp::FdnReverb tuning, renders the wet tail, and
+         * Maps the I3DL2 set onto @ref DSP::FDNReverb tuning, renders the wet tail, and
          * shapes it with a high-shelf that carries both RoomHF (the authored HF level)
          * and a gentle **Jot-style tonal correction** — a touch of HF lift that offsets
          * the extra high-frequency loss the damping filters add to a fast-decaying tail,
          * so the reverb keeps its air. WetDryMix blends the result back over the dry.
          */
-        class FdnReverbEffect final : public IReverb
+        class FDNReverbEffect final : public IReverb
         {
             public:
                 void prepare(double sample_rate, int max_block_frames) override
@@ -134,7 +134,7 @@ namespace SushiEngine
                 const I3DL2Reverb& params() const noexcept { return params_; }
 
                 /** @brief The underlying FDN (for diagnostics/tests). */
-                Dsp::FdnReverb& fdn() noexcept { return fdn_; }
+                DSP::FDNReverb& fdn() noexcept { return fdn_; }
 
                 void process(float* left, float* right, int frame_count) noexcept override
                 {
@@ -158,7 +158,7 @@ namespace SushiEngine
             private:
                 void apply_params()
                 {
-                    Dsp::FdnTuning t;
+                    DSP::FDNTuning t;
                     t.decay_time_s = clampf(params_.decay_time, 0.1f, 20.0f);
                     t.decay_hf_ratio = clampf(params_.decay_hf_ratio, 0.1f, 2.0f);
                     t.predelay_s = clampf(params_.reverb_delay, 0.0f, 0.24f);
@@ -198,9 +198,9 @@ namespace SushiEngine
                     return static_cast<float>(std::pow(10.0, static_cast<double>(db) / 20.0));
                 }
 
-                Dsp::FdnReverb fdn_;
-                Dsp::Biquad shelf_left_;
-                Dsp::Biquad shelf_right_;
+                DSP::FDNReverb fdn_;
+                DSP::Biquad shelf_left_;
+                DSP::Biquad shelf_right_;
                 std::vector<float> wet_left_;
                 std::vector<float> wet_right_;
                 I3DL2Reverb params_;

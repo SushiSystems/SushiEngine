@@ -295,7 +295,7 @@ namespace SushiEngine
                                                    T contact_offset, T face_tolerance,
                                                    Emit&& emit) noexcept
         {
-            const Aabb<T> bounds = aabb_expand(world_bounds(shape), contact_offset);
+            const AABB<T> bounds = aabb_expand(world_bounds(shape), contact_offset);
             query_mesh_bvh(mesh, bounds,
                            [&](std::uint32_t triangle_index) noexcept
                            {

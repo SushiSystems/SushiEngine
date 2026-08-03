@@ -64,7 +64,7 @@ namespace SushiEngine
              *
              * Non-copyable: it owns a Vulkan pipeline.
              */
-            class FxaaPass final : public IRenderPass
+            class FXAAPass final : public IRenderPass
             {
                 public:
                     /**
@@ -74,13 +74,13 @@ namespace SushiEngine
                      * @param pipelines Factory the pipeline is built through.
                      * @param layout    The shared scene descriptor and pipeline layout.
                      */
-                    FxaaPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+                    FXAAPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                              Resources::GraphicsPipelineFactory& pipelines,
                              Scene::SceneLayout& layout);
-                    ~FxaaPass() override;
+                    ~FXAAPass() override;
 
-                    FxaaPass(const FxaaPass&) = delete;
-                    FxaaPass& operator=(const FxaaPass&) = delete;
+                    FXAAPass(const FXAAPass&) = delete;
+                    FXAAPass& operator=(const FXAAPass&) = delete;
 
                     void register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame) override;

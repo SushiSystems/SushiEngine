@@ -34,7 +34,7 @@ namespace SushiEngine
 {
     namespace Render
     {
-        namespace Gi
+        namespace GI
         {
             namespace
             {
@@ -130,6 +130,6 @@ namespace SushiEngine
                                    sizeof(Push), &push);
                 vkCmdDispatch(cmd, (inputs.probe_count + GROUP_SIZE - 1) / GROUP_SIZE, 1, 1);
             }
-        } // namespace Gi
+        } // namespace GI
     } // namespace Render
 } // namespace SushiEngine

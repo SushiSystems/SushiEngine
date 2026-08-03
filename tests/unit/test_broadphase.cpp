@@ -43,9 +43,9 @@ namespace
     using Pair = std::pair<std::uint32_t, std::uint32_t>;
 
     /** @brief A cube AABB of half-size @p half centred on (@p x, @p y, @p z). */
-    Aabb<Scalar> cube(Scalar x, Scalar y, Scalar z, Scalar half)
+    AABB<Scalar> cube(Scalar x, Scalar y, Scalar z, Scalar half)
     {
-        return Aabb<Scalar>{Vector3{x - half, y - half, z - half},
+        return AABB<Scalar>{Vector3{x - half, y - half, z - half},
                             Vector3{x + half, y + half, z + half}};
     }
 
@@ -55,9 +55,9 @@ namespace
     }
 }
 
-TEST(Unit_Broadphase, AabbOverlapNeedsAllThreeAxes)
+TEST(Unit_Broadphase, AABBOverlapNeedsAllThreeAxes)
 {
-    const Aabb<Scalar> origin = cube(0, 0, 0, Scalar(1));
+    const AABB<Scalar> origin = cube(0, 0, 0, Scalar(1));
     EXPECT_TRUE(aabb_overlap(origin, cube(Scalar(1.5), 0, 0, Scalar(1))));
     EXPECT_FALSE(aabb_overlap(origin, cube(Scalar(2.5), 0, 0, Scalar(1))));
     // Overlapping in x and y but not z is still a miss.
@@ -69,7 +69,7 @@ TEST(Unit_Broadphase, AabbOverlapNeedsAllThreeAxes)
 TEST(Unit_Broadphase, SweepEmitsNothingBelowTwoBoxes)
 {
     std::vector<Pair> pairs{{7, 9}}; // must be cleared on entry
-    std::vector<Aabb<Scalar>> boxes;
+    std::vector<AABB<Scalar>> boxes;
     sweep_and_prune(boxes, pairs);
     EXPECT_TRUE(pairs.empty());
 
@@ -80,7 +80,7 @@ TEST(Unit_Broadphase, SweepEmitsNothingBelowTwoBoxes)
 
 TEST(Unit_Broadphase, SweepDropsSpatiallySeparatedBodies)
 {
-    std::vector<Aabb<Scalar>> boxes;
+    std::vector<AABB<Scalar>> boxes;
     for (int i = 0; i < 16; ++i)
         boxes.push_back(cube(Scalar(i) * Scalar(10), 0, 0, Scalar(1)));
 
@@ -92,7 +92,7 @@ TEST(Unit_Broadphase, SweepDropsSpatiallySeparatedBodies)
 TEST(Unit_Broadphase, SweepFindsEveryPairInAFullyOverlappingCluster)
 {
     constexpr std::size_t COUNT = 8;
-    std::vector<Aabb<Scalar>> boxes;
+    std::vector<AABB<Scalar>> boxes;
     for (std::size_t i = 0; i < COUNT; ++i)
         boxes.push_back(cube(0, 0, 0, Scalar(1)));
 
@@ -108,7 +108,7 @@ TEST(Unit_Broadphase, SweepRejectsPairsOverlappingOnlyInX)
 {
     // The sweep axis is X, so these two survive the sweep front and must then be
     // rejected by the full three-axis test rather than emitted.
-    std::vector<Aabb<Scalar>> boxes{cube(0, 0, 0, Scalar(1)), cube(0, Scalar(5), 0, Scalar(1))};
+    std::vector<AABB<Scalar>> boxes{cube(0, 0, 0, Scalar(1)), cube(0, Scalar(5), 0, Scalar(1))};
     std::vector<Pair> pairs;
     sweep_and_prune(boxes, pairs);
     EXPECT_TRUE(pairs.empty());
@@ -118,7 +118,7 @@ TEST(Unit_Broadphase, SweepEmitsAscendingIndexPairsRegardlessOfPosition)
 {
     // Index 0 sorts *after* index 1 on the sweep axis; the emitted pair must still be
     // ordered by index, because the contact pass indexes its body array with it.
-    std::vector<Aabb<Scalar>> boxes{cube(Scalar(1), 0, 0, Scalar(1)), cube(0, 0, 0, Scalar(1))};
+    std::vector<AABB<Scalar>> boxes{cube(Scalar(1), 0, 0, Scalar(1)), cube(0, 0, 0, Scalar(1))};
     std::vector<Pair> pairs;
     sweep_and_prune(boxes, pairs);
     ASSERT_EQ(pairs.size(), 1u);
@@ -131,7 +131,7 @@ TEST(Unit_Broadphase, SweepMatchesBruteForceOnAMixedScene)
     // The property that actually matters: whatever the sweep emits must equal the
     // exhaustive answer. A lattice with deliberate partial overlaps exercises the
     // active-set eviction rather than the trivial all-in or all-out cases.
-    std::vector<Aabb<Scalar>> boxes;
+    std::vector<AABB<Scalar>> boxes;
     for (int x = 0; x < 5; ++x)
         for (int y = 0; y < 3; ++y)
             boxes.push_back(cube(Scalar(x) * Scalar(1.5), Scalar(y) * Scalar(1.5), 0, Scalar(1)));

@@ -25,7 +25,7 @@
  * device with k-block lookahead. This is a SYCL translation unit (it includes
  * `accelerator_sycl.hpp`). It:
  *
- *   1. Creates a runtime, builds a @ref SyclDspAccelerator, uploads an FIR, and runs a
+ *   1. Creates a runtime, builds a @ref SYCLDSPAccelerator, uploads an FIR, and runs a
  *      pipelined convolution over a test signal — submitting block *t* while collecting
  *      block *t−K* — then checks every collected block against a CPU reference convolution.
  *   2. Reports whether the device path was available; if no device is present it says so
@@ -74,7 +74,7 @@ int main()
     }
 
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
-    SyclDspAccelerator accel(runtime, block, ir_len, lookahead);
+    SYCLDSPAccelerator accel(runtime, block, ir_len, lookahead);
 
     if (!accel.available())
     {

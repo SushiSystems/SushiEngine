@@ -43,7 +43,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /**
              * @brief A single biquad section with RBJ-cookbook designers and TDF-II state.
@@ -260,7 +260,7 @@ namespace SushiEngine
                     float a1_ = 0.0f, a2_ = 0.0f;
                     float z1_ = 0.0f, z2_ = 0.0f;
             };
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

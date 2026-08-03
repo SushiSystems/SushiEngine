@@ -23,9 +23,9 @@
 
 // SushiLoop M5 worked example: xpbd_demo.cpp's hanging chain, generalized to a
 // pinned-top cloth grid (physics/cloth.hpp) — structural and shear
-// XpbdDistanceConstraints over a PhysicsWorld<XpbdDistanceConstraint>, no new
+// XPBDDistanceConstraints over a PhysicsWorld<XPBDDistanceConstraint>, no new
 // solver or constraint type. The device result is checked against a
-// byte-for-byte host mirror of XpbdDistanceProjection, exactly as xpbd_demo does.
+// byte-for-byte host mirror of XPBDDistanceProjection, exactly as xpbd_demo does.
 
 #include <algorithm>
 #include <cmath>
@@ -49,9 +49,9 @@ namespace
     constexpr Scalar      GY         = Scalar(-9.8);
     constexpr Scalar      DT         = Scalar(0.016);
 
-    // Host mirror of XpbdDistanceProjection, byte-for-byte the same arithmetic as
+    // Host mirror of XPBDDistanceProjection, byte-for-byte the same arithmetic as
     // xpbd_demo.cpp's, since PhysicsWorld does not expose the raw solve internals.
-    void project_host(const XpbdDistanceConstraint& c, std::vector<RigidBody>& bodies,
+    void project_host(const XPBDDistanceConstraint& c, std::vector<RigidBody>& bodies,
                       Scalar& lambda, Scalar h)
     {
         RigidBody& body_a = bodies[c.a];
@@ -102,12 +102,12 @@ int main()
 {
     auto runtime = SushiRuntime::API::Runtime::create();
     Execution::Context execution(runtime);
-    PhysicsWorld<XpbdDistanceConstraint> world(execution);
+    PhysicsWorld<XPBDDistanceConstraint> world(execution);
 
     const ClothGrid grid =
         build_cloth_grid(world, ROWS, COLS, SPACING, Vector3{0, 0, 0}, Scalar(0));
 
-    world.finalize(ITERATIONS, DT, XpbdDistanceProjection{});
+    world.finalize(ITERATIONS, DT, XPBDDistanceProjection{});
 
     // A separate host reference mirroring the grid's own bodies/constraints,
     // solved with the identical colours in the identical order.
@@ -117,25 +117,25 @@ int main()
 
     // PhysicsWorld does not expose its constraint list, so the reference solve
     // rebuilds the identical topology by walking the same grid helper produced.
-    std::vector<XpbdDistanceConstraint> constraints;
+    std::vector<XPBDDistanceConstraint> constraints;
     const Scalar diagonal = SPACING * Scalar(std::sqrt(2.0));
     for (std::size_t row = 0; row < ROWS; ++row)
         for (std::size_t col = 0; col < COLS; ++col)
         {
             if (col + 1 < COLS)
-                constraints.push_back(XpbdDistanceConstraint{
+                constraints.push_back(XPBDDistanceConstraint{
                     grid.at(row, col), grid.at(row, col + 1), Vector3{0, 0, 0}, Vector3{0, 0, 0},
                     SPACING, Scalar(0)});
             if (row + 1 < ROWS)
-                constraints.push_back(XpbdDistanceConstraint{
+                constraints.push_back(XPBDDistanceConstraint{
                     grid.at(row, col), grid.at(row + 1, col), Vector3{0, 0, 0}, Vector3{0, 0, 0},
                     SPACING, Scalar(0)});
             if (row + 1 < ROWS && col + 1 < COLS)
             {
-                constraints.push_back(XpbdDistanceConstraint{
+                constraints.push_back(XPBDDistanceConstraint{
                     grid.at(row, col), grid.at(row + 1, col + 1), Vector3{0, 0, 0}, Vector3{0, 0, 0},
                     diagonal, Scalar(0)});
-                constraints.push_back(XpbdDistanceConstraint{
+                constraints.push_back(XPBDDistanceConstraint{
                     grid.at(row, col + 1), grid.at(row + 1, col), Vector3{0, 0, 0}, Vector3{0, 0, 0},
                     diagonal, Scalar(0)});
             }
@@ -169,7 +169,7 @@ int main()
     }
 
     Scalar max_residual = Scalar(0);
-    for (const XpbdDistanceConstraint& c : constraints)
+    for (const XPBDDistanceConstraint& c : constraints)
     {
         const Vector3 d = world.body(c.a).position - world.body(c.b).position;
         const Scalar dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);

@@ -37,7 +37,7 @@
  * shared vertices are duplicated along the crack surface, splitting the
  * topology" — needed to know which of a vertex's surviving incident elements
  * belong on *which side* of the crack. That looked like it needed cooked
- * face-adjacency data `FemTetrahedronT`'s flat vertex list does not carry, and
+ * face-adjacency data `FEMTetrahedronT`'s flat vertex list does not carry, and
  * was left open for exactly that reason. It does not: a vertex's *star* — the
  * elements touching it — is small (a handful, not a mesh), and two elements in
  * it are on the same side precisely when they share a **face through that
@@ -73,7 +73,7 @@ namespace SushiEngine
     namespace Physics
     {
         /** @brief The deterministic limits a fracture pass is held to. */
-        struct FemFractureBudget
+        struct FEMFractureBudget
         {
             /** @brief Elements allowed to fracture in a single tick. */
             std::uint32_t max_fractures_per_tick = 4;
@@ -100,7 +100,7 @@ namespace SushiEngine
         };
 
         /** @brief What one fracture pass over a model did. */
-        struct FemFractureReport
+        struct FEMFractureReport
         {
             /** @brief Elements actually removed this call. */
             std::uint32_t elements_removed = 0;
@@ -152,7 +152,7 @@ namespace SushiEngine
          * being told is cheaper and far safer than rediscovering it by comparing
          * before and after.
          */
-        struct FemFractureRemap
+        struct FEMFractureRemap
         {
             /** @brief What @ref element holds for an element that was removed. */
             static constexpr std::uint32_t REMOVED = 0xFFFFFFFFu;
@@ -180,10 +180,10 @@ namespace SushiEngine
         namespace detail
         {
             /** @brief Trivial union-find over particle indices, path-compressed. */
-            class FemUnionFind
+            class FEMUnionFind
             {
                 public:
-                    explicit FemUnionFind(std::size_t count) : parent_(count)
+                    explicit FEMUnionFind(std::size_t count) : parent_(count)
                     {
                         for (std::size_t i = 0; i < count; ++i)
                             parent_[i] = std::uint32_t(i);
@@ -229,11 +229,11 @@ namespace SushiEngine
              */
             template <typename T>
             inline std::uint32_t connect_elements_by_shared_vertex(
-                const std::vector<FemTetrahedronT<T>>& elements, std::size_t particle_count,
+                const std::vector<FEMTetrahedronT<T>>& elements, std::size_t particle_count,
                 std::vector<std::uint32_t>& out_element_component)
             {
-                FemUnionFind union_find(particle_count);
-                for (const FemTetrahedronT<T>& element : elements)
+                FEMUnionFind union_find(particle_count);
+                for (const FEMTetrahedronT<T>& element : elements)
                     for (int i = 1; i < 4; ++i)
                         union_find.merge(element.vertex[0], element.vertex[i]);
 
@@ -258,8 +258,8 @@ namespace SushiEngine
              * handful of elements and this runs inside a pairwise sweep over it.
              */
             template <typename T>
-            inline int shared_vertex_count(const FemTetrahedronT<T>& a,
-                                           const FemTetrahedronT<T>& b) noexcept
+            inline int shared_vertex_count(const FEMTetrahedronT<T>& a,
+                                           const FEMTetrahedronT<T>& b) noexcept
             {
                 int shared = 0;
                 for (int i = 0; i < 4; ++i)
@@ -284,8 +284,8 @@ namespace SushiEngine
              * the star excludes by construction.
              */
             template <typename T>
-            inline bool joined_through_vertex(const FemTetrahedronT<T>& a,
-                                              const FemTetrahedronT<T>& b) noexcept
+            inline bool joined_through_vertex(const FEMTetrahedronT<T>& a,
+                                              const FEMTetrahedronT<T>& b) noexcept
             {
                 return shared_vertex_count(a, b) >= 3;
             }
@@ -335,7 +335,7 @@ namespace SushiEngine
 
             std::vector<Face> faces;
             faces.reserve(model.elements.size() * 4);
-            for (const FemTetrahedronT<T>& element : model.elements)
+            for (const FEMTetrahedronT<T>& element : model.elements)
                 for (int f = 0; f < 4; ++f)
                 {
                     Face face;
@@ -408,12 +408,12 @@ namespace SushiEngine
          */
         template <typename T>
         inline std::uint32_t split_fractured_vertices(
-            FiniteElementModel<T>& model, const std::vector<FemTetrahedronT<T>>& removed,
-            FemFractureRemap& remap)
+            FiniteElementModel<T>& model, const std::vector<FEMTetrahedronT<T>>& removed,
+            FEMFractureRemap& remap)
         {
             std::vector<std::uint32_t> crack_vertices;
             crack_vertices.reserve(removed.size() * 4);
-            for (const FemTetrahedronT<T>& element : removed)
+            for (const FEMTetrahedronT<T>& element : removed)
                 for (int i = 0; i < 4; ++i)
                     crack_vertices.push_back(element.vertex[i]);
             std::sort(crack_vertices.begin(), crack_vertices.end());
@@ -531,12 +531,12 @@ namespace SushiEngine
          * splitting below was added, not because of it.)
          */
         template <typename T>
-        inline FemFractureReport apply_fem_fracture(FiniteElementModel<T>& model,
-                                                    const FemFractureBudget& budget,
+        inline FEMFractureReport apply_fem_fracture(FiniteElementModel<T>& model,
+                                                    const FEMFractureBudget& budget,
                                                     std::uint32_t& total_fractured_so_far,
-                                                    FemFractureRemap* remap = nullptr)
+                                                    FEMFractureRemap* remap = nullptr)
         {
-            FemFractureReport report;
+            FEMFractureReport report;
             if (remap != nullptr)
             {
                 remap->element.assign(model.elements.size(), 0);
@@ -573,7 +573,7 @@ namespace SushiEngine
                 // committing — the minimum-fragment guard has to see the
                 // *after* state to say whether this particular removal is the
                 // one that goes too far.
-                std::vector<FemTetrahedronT<T>> trial;
+                std::vector<FEMTetrahedronT<T>> trial;
                 trial.reserve(model.elements.size());
                 for (std::size_t i = 0; i < model.elements.size(); ++i)
                     if (!marked_for_removal[i] && i != candidate)
@@ -605,9 +605,9 @@ namespace SushiEngine
 
             if (report.elements_removed > 0)
             {
-                std::vector<FemTetrahedronT<T>> surviving;
+                std::vector<FEMTetrahedronT<T>> surviving;
                 surviving.reserve(model.elements.size() - report.elements_removed);
-                std::vector<FemTetrahedronT<T>> removed;
+                std::vector<FEMTetrahedronT<T>> removed;
                 removed.reserve(report.elements_removed);
                 for (std::size_t i = 0; i < model.elements.size(); ++i)
                 {
@@ -615,7 +615,7 @@ namespace SushiEngine
                     {
                         removed.push_back(model.elements[i]);
                         if (remap != nullptr)
-                            remap->element[i] = FemFractureRemap::REMOVED;
+                            remap->element[i] = FEMFractureRemap::REMOVED;
                         continue;
                     }
                     if (remap != nullptr)
@@ -630,7 +630,7 @@ namespace SushiEngine
                 // it — a boundary computed first would name particles that the
                 // split then moved elements away from, and the body would collide
                 // against the shape it had before it broke.
-                FemFractureRemap discard;
+                FEMFractureRemap discard;
                 report.vertices_duplicated =
                     split_fractured_vertices(model, removed, remap != nullptr ? *remap : discard);
                 rebuild_soft_body_surface(model);

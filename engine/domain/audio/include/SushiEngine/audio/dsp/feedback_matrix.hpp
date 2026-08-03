@@ -57,7 +57,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /** @brief Which lossless mixing matrix an FDN scatters its lines through. */
             enum class FeedbackMatrix
@@ -133,7 +133,7 @@ namespace SushiEngine
                 else
                     apply_householder(v, n);
             }
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

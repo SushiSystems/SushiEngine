@@ -49,7 +49,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /** @brief One resonant mode: a frequency, a decay time, and a gain. */
             struct ModalMode
@@ -237,7 +237,7 @@ namespace SushiEngine
                     double sample_rate_ = 0.0;
                     float pending_impulse_ = 0.0f;
             };
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

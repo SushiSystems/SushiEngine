@@ -58,7 +58,7 @@
  * all frequencies for any finite RT60), the network's poles stay inside the unit circle
  * for **any** delay lengths — the FDN cannot ring forever or blow up.
  *
- * This unit knows nothing about games or I3DL2: it takes low-level @ref FdnTuning
+ * This unit knows nothing about games or I3DL2: it takes low-level @ref FDNTuning
  * (decay times, diffusion, room spread) and produces a wet stereo signal. The I3DL2
  * public parameter set, the room-geometry RT60, and the mixer wiring live one layer up
  * in `audio/reverb.hpp`.
@@ -74,15 +74,15 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /**
-             * @brief Low-level tuning for @ref FdnReverb — the physical decay controls.
+             * @brief Low-level tuning for @ref FDNReverb — the physical decay controls.
              *
              * These are the DSP-core knobs; the game-facing I3DL2 set (`audio/reverb.hpp`)
              * maps onto them. Times are seconds, ratios and 0..1 amounts are unitless.
              */
-            struct FdnTuning
+            struct FDNTuning
             {
                 double decay_time_s = 1.6;   ///< Broadband RT60 (decay to −60 dB) at DC.
                 double decay_hf_ratio = 0.5; ///< `RT60_hf / RT60_dc`; < 1 → highs decay faster.
@@ -102,7 +102,7 @@ namespace SushiEngine
              * largest room; @ref set_tuning any time (off-thread) to recompute delay
              * lengths and filter coefficients; @ref process on the audio thread.
              */
-            class FdnReverb
+            class FDNReverb
             {
                 public:
                     /** @brief The number of delay lines in the network. */
@@ -158,7 +158,7 @@ namespace SushiEngine
                      * thread only ever reads the resulting coefficients. Safe to call
                      * before @ref prepare (the values are stored and applied then).
                      */
-                    void set_tuning(const FdnTuning& tuning)
+                    void set_tuning(const FDNTuning& tuning)
                     {
                         tuning_ = tuning;
                         if (sample_rate_ > 0.0)
@@ -166,7 +166,7 @@ namespace SushiEngine
                     }
 
                     /** @brief The current tuning. */
-                    const FdnTuning& tuning() const noexcept { return tuning_; }
+                    const FDNTuning& tuning() const noexcept { return tuning_; }
 
                     /**
                      * @brief Sets an overall linear gain on the wet output.
@@ -415,7 +415,7 @@ namespace SushiEngine
                     static double clamp01(double v) noexcept { return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v); }
 
                     double sample_rate_ = 0.0;
-                    FdnTuning tuning_;
+                    FDNTuning tuning_;
 
                     FractionalDelayLine lines_[kLines];
                     DampingFilter damping_[kLines];
@@ -435,7 +435,7 @@ namespace SushiEngine
 
                     float output_gain_ = 1.0f;
             };
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Integration_PgsSolver: the graph-coloured Projected Gauss-Seidel solver against
+// Integration_PGSSolver: the graph-coloured Projected Gauss-Seidel solver against
 // the real runtime. A hanging chain is solved on the device and compared to a
 // scalar reference running the same colours in the same order; the parallel-within-
 // colour / sequential-across-colour scheme must equal Gauss-Seidel, the chain must
@@ -72,7 +72,7 @@ namespace
     }
 }
 
-TEST(Integration_PgsSolver, HangingChainMatchesReference)
+TEST(Integration_PGSSolver, HangingChainMatchesReference)
 {
     auto& execution = Harness::shared_context();
     auto positions = execution.allocate<Vector3>(N);

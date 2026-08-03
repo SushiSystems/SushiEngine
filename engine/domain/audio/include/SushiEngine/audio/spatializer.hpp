@@ -111,7 +111,7 @@ namespace SushiEngine
                     order_ = order;
                     sample_rate_ = sample_rate;
                     max_block_ = max_block_frames;
-                    channels_ = Dsp::ambisonic_channel_count(order_);
+                    channels_ = DSP::ambisonic_channel_count(order_);
 
                     bus_.assign(static_cast<std::size_t>(channels_), {});
                     for (std::vector<float>& channel : bus_)
@@ -138,7 +138,7 @@ namespace SushiEngine
                  *
                  * @param database The HRIR provider, or `nullptr` for the analytic path.
                  */
-                void set_hrtf_database(const IHrtfDatabase* database)
+                void set_hrtf_database(const IHRTFDatabase* database)
                 {
                     hrtf_ = database;
                     load_hrir_into_speakers();
@@ -168,7 +168,7 @@ namespace SushiEngine
                     if (frame_count > max_block_)
                         frame_count = max_block_;
                     for (std::vector<float>& channel : bus_)
-                        Dsp::Simd::fill(channel.data(), frame_count, 0.0f);
+                        DSP::SIMD::fill(channel.data(), frame_count, 0.0f);
                     encoded_ = false;
                 }
 
@@ -185,10 +185,10 @@ namespace SushiEngine
                 void encode(const float* mono, int frame_count, float dir_x, float dir_y, float dir_z,
                             float gain) noexcept
                 {
-                    float gains[Dsp::MAX_AMBISONIC_CHANNELS];
-                    Dsp::ambisonic_encode_gains(order_, dir_x, dir_y, dir_z, gains);
+                    float gains[DSP::MAX_AMBISONIC_CHANNELS];
+                    DSP::ambisonic_encode_gains(order_, dir_x, dir_y, dir_z, gains);
                     for (int ch = 0; ch < channels_; ++ch)
-                        Dsp::Simd::mix_accumulate(bus_[static_cast<std::size_t>(ch)].data(), mono,
+                        DSP::SIMD::mix_accumulate(bus_[static_cast<std::size_t>(ch)].data(), mono,
                                                   frame_count, gain * gains[ch]);
                     encoded_ = true;
                 }
@@ -227,9 +227,9 @@ namespace SushiEngine
                     for (Speaker& speaker : speakers_)
                     {
                         // Speaker signal = projection of the bus onto the speaker direction.
-                        Dsp::Simd::fill(speaker_scratch_.data(), frame_count, 0.0f);
+                        DSP::SIMD::fill(speaker_scratch_.data(), frame_count, 0.0f);
                         for (int ch = 0; ch < channels_; ++ch)
-                            Dsp::Simd::mix_accumulate(speaker_scratch_.data(),
+                            DSP::SIMD::mix_accumulate(speaker_scratch_.data(),
                                                       bus_[static_cast<std::size_t>(ch)].data(),
                                                       frame_count, decode_scale_ * speaker.gains[static_cast<std::size_t>(ch)]);
 
@@ -278,10 +278,10 @@ namespace SushiEngine
                         frame_count = max_block_;
                     if (!encoded_)
                         return;
-                    float gains[Dsp::MAX_AMBISONIC_CHANNELS];
-                    Dsp::ambisonic_encode_gains(order_, ux, uy, uz, gains);
+                    float gains[DSP::MAX_AMBISONIC_CHANNELS];
+                    DSP::ambisonic_encode_gains(order_, ux, uy, uz, gains);
                     for (int ch = 0; ch < channels_; ++ch)
-                        Dsp::Simd::mix_accumulate(out, bus_[static_cast<std::size_t>(ch)].data(),
+                        DSP::SIMD::mix_accumulate(out, bus_[static_cast<std::size_t>(ch)].data(),
                                                   frame_count, decode_scale_ * gains[ch]);
                 }
 
@@ -294,11 +294,11 @@ namespace SushiEngine
                     float dir_z = 0.0f;       // unit direction (up)
                     HrirConvolver left_hrir;  // measured-HRTF path (when a database is set)
                     HrirConvolver right_hrir;
-                    Dsp::Biquad timbre;       // direction spectral cue: front/back + elevation
-                    Dsp::FractionalDelayLine left_delay;
-                    Dsp::FractionalDelayLine right_delay;
-                    Dsp::OnePole left_shadow;
-                    Dsp::OnePole right_shadow;
+                    DSP::Biquad timbre;       // direction spectral cue: front/back + elevation
+                    DSP::FractionalDelayLine left_delay;
+                    DSP::FractionalDelayLine right_delay;
+                    DSP::OnePole left_shadow;
+                    DSP::OnePole right_shadow;
                     float left_itd = 1.0f;
                     float right_itd = 1.0f;
                     float left_gain = 1.0f;
@@ -309,7 +309,7 @@ namespace SushiEngine
                     bool right_is_far = false;
                 };
 
-                void accumulate_ear(Dsp::FractionalDelayLine& delay, Dsp::OnePole& shadow, bool is_far,
+                void accumulate_ear(DSP::FractionalDelayLine& delay, DSP::OnePole& shadow, bool is_far,
                                     float itd, float gain, float cutoff, float* out,
                                     int frame_count) noexcept
                 {
@@ -321,7 +321,7 @@ namespace SushiEngine
                             ear_scratch_[static_cast<std::size_t>(i)] =
                                 shadow.process_low_pass(ear_scratch_[static_cast<std::size_t>(i)]);
                     }
-                    Dsp::Simd::mix_accumulate(out, ear_scratch_.data(), frame_count, gain);
+                    DSP::SIMD::mix_accumulate(out, ear_scratch_.data(), frame_count, gain);
                 }
 
                 void build_speakers(float head_radius_m)
@@ -354,7 +354,7 @@ namespace SushiEngine
                         speaker.dir_y = uy;
                         speaker.dir_z = uz;
                         speaker.gains.assign(static_cast<std::size_t>(channels_), 0.0f);
-                        Dsp::ambisonic_encode_gains(order_, ux, uy, uz, speaker.gains.data());
+                        DSP::ambisonic_encode_gains(order_, ux, uy, uz, speaker.gains.data());
 
                         // Direction spectral cue (breaks the front/back and up/down cone of
                         // confusion the ITD alone cannot): the pinna dulls rear sources and
@@ -428,8 +428,8 @@ namespace SushiEngine
                 // Normalise so a unit source straight ahead reaches ~unit level at each ear.
                 void calibrate()
                 {
-                    float front[Dsp::MAX_AMBISONIC_CHANNELS];
-                    Dsp::ambisonic_encode_gains(order_, 1.0f, 0.0f, 0.0f, front);
+                    float front[DSP::MAX_AMBISONIC_CHANNELS];
+                    DSP::ambisonic_encode_gains(order_, 1.0f, 0.0f, 0.0f, front);
                     double left_sum = 0.0;
                     for (const Speaker& speaker : speakers_)
                     {
@@ -447,7 +447,7 @@ namespace SushiEngine
                 int max_block_ = 0;
                 float decode_scale_ = 1.0f;
                 bool encoded_ = false;
-                const IHrtfDatabase* hrtf_ = nullptr;
+                const IHRTFDatabase* hrtf_ = nullptr;
                 MaglsBinauralDecoder* magls_ = nullptr;
                 std::vector<const float*> bus_ptrs_;
                 std::vector<std::vector<float>> bus_;

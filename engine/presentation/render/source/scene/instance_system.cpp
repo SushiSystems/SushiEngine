@@ -97,7 +97,7 @@ namespace SushiEngine
                     {
                         bucket = static_cast<std::uint32_t>(buckets_.size());
                         bucket_lookup_.emplace(mesh.vertices, bucket);
-                        GpuDrawBucket entry;
+                        GPUDrawBucket entry;
                         entry.vertices = mesh.vertices;
                         entry.indices = mesh.indices;
                         entry.index_count = mesh.index_count;
@@ -119,7 +119,7 @@ namespace SushiEngine
                                  : mul(instance.model, Geometry::shape_scale(
                                                            instance.kind, instance.shape_params));
 
-                    GpuInstance packed{};
+                    GPUInstance packed{};
                     for (int m = 0; m < 16; ++m)
                         packed.model[m] = static_cast<float>(model.m[m]);
                     packed.model[12] = static_cast<float>(model.m[12] - eye[0]);
@@ -146,10 +146,10 @@ namespace SushiEngine
                 // compacted arrays; the cull shader compacts a bucket's survivors into it.
                 std::uint32_t base = 0;
                 bucket_meta_.reserve(buckets_.size());
-                for (GpuDrawBucket& entry : buckets_)
+                for (GPUDrawBucket& entry : buckets_)
                 {
                     entry.candidate_base = base;
-                    GpuBucketMeta meta;
+                    GPUBucketMeta meta;
                     meta.index_count = entry.index_count;
                     meta.candidate_base = base;
                     meta.reserved0 = 0;
@@ -167,7 +167,7 @@ namespace SushiEngine
 
                 if (!instances_.empty())
                 {
-                    const VkDeviceSize bytes = instances_.size() * sizeof(GpuInstance);
+                    const VkDeviceSize bytes = instances_.size() * sizeof(GPUInstance);
                     grow(slot.instances, slot.instances_allocation, slot.instances_mapped,
                          slot.instances_capacity, bytes);
                     if (slot.instances_mapped != nullptr)
@@ -176,7 +176,7 @@ namespace SushiEngine
                 }
                 if (!bucket_meta_.empty())
                 {
-                    const VkDeviceSize bytes = bucket_meta_.size() * sizeof(GpuBucketMeta);
+                    const VkDeviceSize bytes = bucket_meta_.size() * sizeof(GPUBucketMeta);
                     grow(slot.buckets, slot.buckets_allocation, slot.buckets_mapped,
                          slot.buckets_capacity, bytes);
                     if (slot.buckets_mapped != nullptr)
@@ -194,7 +194,7 @@ namespace SushiEngine
             {
                 if (instances_.empty())
                     return 0;
-                return instances_.size() * sizeof(GpuInstance);
+                return instances_.size() * sizeof(GPUInstance);
             }
 
             VkBuffer InstanceSystem::bucket_buffer() const noexcept
@@ -206,7 +206,7 @@ namespace SushiEngine
             {
                 if (bucket_meta_.empty())
                     return 0;
-                return bucket_meta_.size() * sizeof(GpuBucketMeta);
+                return bucket_meta_.size() * sizeof(GPUBucketMeta);
             }
 
             void InstanceSystem::grow(VkBuffer& buffer, VmaAllocation& allocation, void*& mapped,

@@ -6,7 +6,7 @@
 // addressing, and a sphere-trace with a gradient normal — written once so the builder and
 // the tracer can never disagree on where a voxel sits. No bindings and no version here.
 
-struct SdfPrimitive
+struct SDFPrimitive
 {
     vec4 center_kind; // xyz camera-relative centre, w = kind (0 box, 1 sphere, 2 cylinder)
     vec4 extent;      // xyz half-extents (box) or radius.x + half-height.y
@@ -14,14 +14,14 @@ struct SdfPrimitive
     vec4 emissive;    // rgb emitted radiance (HDR), w spare
 };
 
-struct SdfClipmapConfig
+struct SDFClipmapConfig
 {
     vec4 origin_voxel;  // xyz camera-relative min corner, w = voxel size in metres
     ivec4 resolution;   // xyz voxel counts, w = live primitive count
     ivec4 extra;        // x = mesh-instance count, yzw spare
 };
 
-struct SdfMeshInstance
+struct SDFMeshInstance
 {
     mat4 inv_model;  // camera-relative world -> mesh local
     vec4 aabb_min;   // xyz local AABB min, w = brick slot
@@ -49,7 +49,7 @@ float sdf_cylinder(vec3 p, float r, float h)
 }
 
 // Signed distance from a camera-relative world point to one primitive.
-float sdf_primitive(SdfPrimitive prim, vec3 world)
+float sdf_primitive(SDFPrimitive prim, vec3 world)
 {
     vec3 local = world - prim.center_kind.xyz;
     int kind = int(prim.center_kind.w + 0.5);
@@ -63,7 +63,7 @@ float sdf_primitive(SdfPrimitive prim, vec3 world)
 // Transforms a camera-relative world point into a mesh instance's brick and returns its
 // [0,1] texcoord, or false when the point is outside the mesh's local AABB. Pure math: the
 // brick fetch that follows references the atlas buffer the caller declares.
-bool sdf_mesh_texcoord(SdfMeshInstance instance, vec3 world, out vec3 texcoord)
+bool sdf_mesh_texcoord(SDFMeshInstance instance, vec3 world, out vec3 texcoord)
 {
     vec3 local = (instance.inv_model * vec4(world, 1.0)).xyz;
     vec3 span = instance.aabb_max.xyz - instance.aabb_min.xyz;
@@ -72,25 +72,25 @@ bool sdf_mesh_texcoord(SdfMeshInstance instance, vec3 world, out vec3 texcoord)
 }
 
 // The camera-relative world centre of a voxel.
-vec3 sdf_voxel_center(SdfClipmapConfig cfg, ivec3 voxel)
+vec3 sdf_voxel_center(SDFClipmapConfig cfg, ivec3 voxel)
 {
     return cfg.origin_voxel.xyz + (vec3(voxel) + 0.5) * cfg.origin_voxel.w;
 }
 
 // The [0,1] texture coordinate of a camera-relative world point in the clipmap.
-vec3 sdf_texcoord(SdfClipmapConfig cfg, vec3 world)
+vec3 sdf_texcoord(SDFClipmapConfig cfg, vec3 world)
 {
     return (world - cfg.origin_voxel.xyz) / (cfg.origin_voxel.w * vec3(cfg.resolution.xyz));
 }
 
 // The interpolated signed distance at a point (the clipmap stores it in .a).
-float sdf_sample_distance(sampler3D clipmap, SdfClipmapConfig cfg, vec3 world)
+float sdf_sample_distance(sampler3D clipmap, SDFClipmapConfig cfg, vec3 world)
 {
     return texture(clipmap, sdf_texcoord(cfg, world)).a;
 }
 
 // Central-difference gradient of the distance field: the surface normal at a hit.
-vec3 sdf_gradient(sampler3D clipmap, SdfClipmapConfig cfg, vec3 world)
+vec3 sdf_gradient(sampler3D clipmap, SDFClipmapConfig cfg, vec3 world)
 {
     float e = cfg.origin_voxel.w;
     vec3 g = vec3(
@@ -108,7 +108,7 @@ vec3 sdf_gradient(sampler3D clipmap, SdfClipmapConfig cfg, vec3 world)
 // true on a surface hit within max_distance, with the hit's albedo, emitted radiance
 // (sampled from the emissive clipmap), and gradient normal. Steps that leave the clipmap
 // cube miss (the sky/ground fallback handles them).
-bool sdf_trace(sampler3D clipmap, sampler3D emissive_map, SdfClipmapConfig cfg, vec3 origin,
+bool sdf_trace(sampler3D clipmap, sampler3D emissive_map, SDFClipmapConfig cfg, vec3 origin,
                vec3 dir, float max_distance, out vec3 hit_albedo, out vec3 hit_emissive,
                out vec3 hit_normal)
 {
@@ -146,7 +146,7 @@ bool sdf_trace(sampler3D clipmap, sampler3D emissive_map, SdfClipmapConfig cfg, 
 // This is what lets a light be shadowed without owning a shadow-map tile: the field is
 // already built for GI, and marching it is a few texture fetches rather than a whole
 // render of the scene from the light.
-float sdf_visibility(sampler3D clipmap, SdfClipmapConfig cfg, vec3 origin, vec3 dir,
+float sdf_visibility(sampler3D clipmap, SDFClipmapConfig cfg, vec3 origin, vec3 dir,
                      float max_distance, float softness)
 {
     float voxel = cfg.origin_voxel.w;

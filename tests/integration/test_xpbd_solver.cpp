@@ -21,11 +21,11 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Integration_XpbdSolver: SushiLoop M2's unified XPBD solver against the real
-// runtime (docs/slop/SUSHILOOP.md). Mirrors Integration_PgsSolver's structure and
+// Integration_XPBDSolver: SushiLoop M2's unified XPBD solver against the real
+// runtime (docs/slop/SUSHILOOP.md). Mirrors Integration_PGSSolver's structure and
 // scenario (a hanging chain) but over RigidBody state instead of bare positions, to
 // prove the rigid-body generalization: with anchors at each body's own centre
-// (zero offset) and zero inverse inertia, XpbdDistanceProjection's linear term is
+// (zero offset) and zero inverse inertia, XPBDDistanceProjection's linear term is
 // mathematically identical to the plain PGS DistanceProjection (no angular
 // coupling can occur), so the chain must settle into the same shape. The device
 // result is also checked against a byte-for-byte host mirror of the projection
@@ -70,11 +70,11 @@ namespace
         return rotate(body.orientation, scaled);
     }
 
-    // Byte-for-byte host mirror of XpbdDistanceProjection::operator(). The order of
+    // Byte-for-byte host mirror of XPBDDistanceProjection::operator(). The order of
     // operations matters as much as the formula: it has to be the *same* sequence of
     // roundings, or the comparison is a tolerance test wearing a byte-equality
     // costume.
-    void project_host(const XpbdDistanceConstraint& c, std::vector<RigidBody>& bodies,
+    void project_host(const XPBDDistanceConstraint& c, std::vector<RigidBody>& bodies,
                       Scalar& lambda, Scalar h)
     {
         RigidBody& body_a = bodies[c.a];
@@ -127,13 +127,13 @@ namespace
     }
 }
 
-TEST(Integration_XpbdSolver, HangingChainMatchesReferenceAndPgsShape)
+TEST(Integration_XPBDSolver, HangingChainMatchesReferenceAndPGSShape)
 {
     auto& execution = Harness::shared_context();
     auto bodies = execution.allocate<RigidBody>(N);
 
     std::vector<RigidBody> ref_bodies(N);
-    std::vector<XpbdDistanceConstraint> constraints;
+    std::vector<XPBDDistanceConstraint> constraints;
 
     for (std::uint32_t i = 0; i < N; ++i)
     {
@@ -146,12 +146,12 @@ TEST(Integration_XpbdSolver, HangingChainMatchesReferenceAndPgsShape)
     }
     for (std::uint32_t i = 0; i + 1 < N; ++i)
         constraints.push_back(
-            XpbdDistanceConstraint{i, i + 1, Vector3{0, 0, 0}, Vector3{0, 0, 0}, SPACING, Scalar(0)});
+            XPBDDistanceConstraint{i, i + 1, Vector3{0, 0, 0}, Vector3{0, 0, 0}, SPACING, Scalar(0)});
 
     std::vector<Scalar> ref_lambda(constraints.size(), Scalar(0));
 
-    XpbdSolver<XpbdDistanceConstraint> solver(
-        execution, bodies, constraints, N, ITERATIONS, DT, XpbdDistanceProjection{});
+    XPBDSolver<XPBDDistanceConstraint> solver(
+        execution, bodies, constraints, N, ITERATIONS, DT, XPBDDistanceProjection{});
 
     EXPECT_EQ(solver.color_count(), 2u);
 
@@ -185,7 +185,7 @@ TEST(Integration_XpbdSolver, HangingChainMatchesReferenceAndPgsShape)
 
     // The chain must also actually satisfy its constraints (rest length held).
     Scalar max_residual = Scalar(0);
-    for (const XpbdDistanceConstraint& c : constraints)
+    for (const XPBDDistanceConstraint& c : constraints)
     {
         const Vector3 pa = bodies[c.a].position;
         const Vector3 pb = bodies[c.b].position;

@@ -19,7 +19,7 @@
 /* permissions and limitations under the License.                        */
 /**************************************************************************/
 
-// Unit_FemFracture: §9.5's removal mechanics (physics/soft/fem_fracture.hpp)
+// Unit_FEMFracture: §9.5's removal mechanics (physics/soft/fem_fracture.hpp)
 // and the three guard rails it names explicitly — a per-tick budget, a
 // minimum fragment size, and a scene-level cap — checked against
 // hand-constructed element sets whose connectivity is known by inspection,
@@ -37,10 +37,10 @@ using namespace SushiEngine::Physics;
 
 namespace
 {
-    FemTetrahedron element_with_vertices(std::uint32_t a, std::uint32_t b, std::uint32_t c,
+    FEMTetrahedron element_with_vertices(std::uint32_t a, std::uint32_t b, std::uint32_t c,
                                          std::uint32_t d, Scalar stress)
     {
-        FemTetrahedron element;
+        FEMTetrahedron element;
         element.vertex[0] = a;
         element.vertex[1] = b;
         element.vertex[2] = c;
@@ -53,16 +53,16 @@ namespace
 // A material with no fracture_stress set (<= 0, the field's own "never
 // fractures" convention elsewhere in this phase) must remove nothing, however
 // high the stress reads.
-TEST(Unit_FemFracture, MaterialThatNeverFracturesRemovesNothing)
+TEST(Unit_FEMFracture, MaterialThatNeverFracturesRemovesNothing)
 {
     FiniteElementModel<Scalar> model;
     model.material.fracture_stress = 0.0;
     model.particles.resize(4);
     model.elements.push_back(element_with_vertices(0, 1, 2, 3, 1.0e9));
 
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     std::uint32_t total = 0;
-    const FemFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
+    const FEMFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
 
     EXPECT_EQ(report.elements_removed, 0u);
     EXPECT_EQ(model.elements.size(), 1u);
@@ -70,16 +70,16 @@ TEST(Unit_FemFracture, MaterialThatNeverFracturesRemovesNothing)
 }
 
 // Stress below the threshold must not fracture.
-TEST(Unit_FemFracture, StressBelowThresholdRemovesNothing)
+TEST(Unit_FEMFracture, StressBelowThresholdRemovesNothing)
 {
     FiniteElementModel<Scalar> model;
     model.material.fracture_stress = 1000.0;
     model.particles.resize(4);
     model.elements.push_back(element_with_vertices(0, 1, 2, 3, 500.0));
 
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     std::uint32_t total = 0;
-    const FemFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
+    const FEMFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
 
     EXPECT_EQ(report.elements_removed, 0u);
     EXPECT_EQ(model.elements.size(), 1u);
@@ -87,17 +87,17 @@ TEST(Unit_FemFracture, StressBelowThresholdRemovesNothing)
 
 // The one and only element, over threshold, with a permissive minimum
 // fragment size (nothing has to remain): it must be removed cleanly.
-TEST(Unit_FemFracture, TheLastElementCanFractureAwayEntirely)
+TEST(Unit_FEMFracture, TheLastElementCanFractureAwayEntirely)
 {
     FiniteElementModel<Scalar> model;
     model.material.fracture_stress = 100.0;
     model.particles.resize(4);
     model.elements.push_back(element_with_vertices(0, 1, 2, 3, 1.0e6));
 
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     budget.minimum_fragment_element_count = 1;
     std::uint32_t total = 0;
-    const FemFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
+    const FEMFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
 
     EXPECT_EQ(report.elements_removed, 1u);
     EXPECT_EQ(model.elements.size(), 0u);
@@ -107,7 +107,7 @@ TEST(Unit_FemFracture, TheLastElementCanFractureAwayEntirely)
 // Three elements over threshold, a per-tick budget of one: only the first in
 // ascending index order is removed this call, and the other two are counted
 // as skipped rather than silently dropped.
-TEST(Unit_FemFracture, PerTickBudgetLimitsHowManyFractureAtOnce)
+TEST(Unit_FEMFracture, PerTickBudgetLimitsHowManyFractureAtOnce)
 {
     FiniteElementModel<Scalar> model;
     model.material.fracture_stress = 100.0;
@@ -118,11 +118,11 @@ TEST(Unit_FemFracture, PerTickBudgetLimitsHowManyFractureAtOnce)
     model.elements.push_back(element_with_vertices(4, 5, 6, 7, 1.0e6));
     model.elements.push_back(element_with_vertices(8, 9, 10, 11, 1.0e6));
 
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     budget.max_fractures_per_tick = 1;
     budget.minimum_fragment_element_count = 1;
     std::uint32_t total = 0;
-    const FemFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
+    const FEMFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
 
     EXPECT_EQ(report.elements_removed, 1u);
     EXPECT_EQ(report.elements_skipped, 2u);
@@ -139,7 +139,7 @@ TEST(Unit_FemFracture, PerTickBudgetLimitsHowManyFractureAtOnce)
 // size of two elements, that removal must be refused — it would leave two
 // slivers of one element apiece — while the two end elements (whose removal
 // leaves the other two still connected to each other) are allowed.
-TEST(Unit_FemFracture, MinimumFragmentSizeRefusesASeveringRemoval)
+TEST(Unit_FEMFracture, MinimumFragmentSizeRefusesASeveringRemoval)
 {
     FiniteElementModel<Scalar> model;
     model.material.fracture_stress = 100.0;
@@ -148,10 +148,10 @@ TEST(Unit_FemFracture, MinimumFragmentSizeRefusesASeveringRemoval)
     model.elements.push_back(element_with_vertices(3, 4, 5, 6, 1.0e6)); // the middle link, over
     model.elements.push_back(element_with_vertices(6, 7, 8, 9, 50.0)); // below threshold
 
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     budget.minimum_fragment_element_count = 2;
     std::uint32_t total = 0;
-    const FemFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
+    const FEMFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
 
     // The only candidate (the middle element) would leave two one-element
     // pieces, each under the size-2 minimum, so it must be refused.
@@ -162,7 +162,7 @@ TEST(Unit_FemFracture, MinimumFragmentSizeRefusesASeveringRemoval)
 
 // The scene-level cap holds across separate calls, not just within one: once
 // it is reached, a later call with fresh candidates removes nothing more.
-TEST(Unit_FemFracture, SceneLevelCapHoldsAcrossCalls)
+TEST(Unit_FEMFracture, SceneLevelCapHoldsAcrossCalls)
 {
     FiniteElementModel<Scalar> model;
     model.material.fracture_stress = 100.0;
@@ -170,20 +170,20 @@ TEST(Unit_FemFracture, SceneLevelCapHoldsAcrossCalls)
     model.elements.push_back(element_with_vertices(0, 1, 2, 3, 1.0e6));
     model.elements.push_back(element_with_vertices(4, 5, 6, 7, 1.0e6));
 
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     budget.max_fractures_per_tick = 10; // not the limiting factor in this test
     budget.minimum_fragment_element_count = 1;
     budget.maximum_total_fractures = 1;
     std::uint32_t total = 0;
 
-    const FemFractureReport first = apply_fem_fracture<Scalar>(model, budget, total);
+    const FEMFractureReport first = apply_fem_fracture<Scalar>(model, budget, total);
     EXPECT_EQ(first.elements_removed, 1u);
     EXPECT_EQ(total, 1u);
     ASSERT_EQ(model.elements.size(), 1u);
 
     // The one surviving element is still over threshold, but the scene cap
     // was already spent by the first call.
-    const FemFractureReport second = apply_fem_fracture<Scalar>(model, budget, total);
+    const FEMFractureReport second = apply_fem_fracture<Scalar>(model, budget, total);
     EXPECT_EQ(second.elements_removed, 0u);
     EXPECT_EQ(model.elements.size(), 1u);
 }
@@ -217,15 +217,15 @@ namespace
     }
 } // namespace
 
-TEST(Unit_FemFracture, DuplicatesTheVertexTwoPiecesWereHangingFrom)
+TEST(Unit_FEMFracture, DuplicatesTheVertexTwoPiecesWereHangingFrom)
 {
     FiniteElementModel<Scalar> model = hinge_at_particle_zero();
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     budget.minimum_fragment_element_count = 1;
     std::uint32_t total = 0;
-    FemFractureRemap remap;
+    FEMFractureRemap remap;
 
-    const FemFractureReport report = apply_fem_fracture<Scalar>(model, budget, total, &remap);
+    const FEMFractureReport report = apply_fem_fracture<Scalar>(model, budget, total, &remap);
 
     ASSERT_EQ(report.elements_removed, 1u);
     EXPECT_EQ(report.vertices_duplicated, 1u);
@@ -242,12 +242,12 @@ TEST(Unit_FemFracture, DuplicatesTheVertexTwoPiecesWereHangingFrom)
     EXPECT_TRUE(model.elements[0].vertex[0] == 8u || model.elements[1].vertex[0] == 8u);
 }
 
-TEST(Unit_FemFracture, TheSplitDividesTheVertexMassRatherThanCopyingIt)
+TEST(Unit_FEMFracture, TheSplitDividesTheVertexMassRatherThanCopyingIt)
 {
     // A copy would make the body heavier every time it broke, which is the sort
     // of error that only shows up as a car that falls faster after a crash.
     FiniteElementModel<Scalar> model = hinge_at_particle_zero();
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     budget.minimum_fragment_element_count = 1;
     std::uint32_t total = 0;
 
@@ -260,7 +260,7 @@ TEST(Unit_FemFracture, TheSplitDividesTheVertexMassRatherThanCopyingIt)
     EXPECT_NEAR(double(model.particles[8].inv_mass), 8.0, 1e-12);
 }
 
-TEST(Unit_FemFracture, SplitsNothingWhenTheRemovalOnlyChippedACorner)
+TEST(Unit_FEMFracture, SplitsNothingWhenTheRemovalOnlyChippedACorner)
 {
     // Three disjoint tetrahedra: removing one leaves no vertex holding two
     // pieces together, so the pass must add no particles at all. A splitter that
@@ -272,23 +272,23 @@ TEST(Unit_FemFracture, SplitsNothingWhenTheRemovalOnlyChippedACorner)
     model.elements.push_back(element_with_vertices(4, 5, 6, 7, 50.0));
     model.elements.push_back(element_with_vertices(8, 9, 10, 11, 50.0));
 
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     budget.minimum_fragment_element_count = 1;
     std::uint32_t total = 0;
-    const FemFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
+    const FEMFractureReport report = apply_fem_fracture<Scalar>(model, budget, total);
 
     EXPECT_EQ(report.elements_removed, 1u);
     EXPECT_EQ(report.vertices_duplicated, 0u);
     EXPECT_EQ(model.particles.size(), 12u);
 }
 
-TEST(Unit_FemFracture, APinnedVertexStaysPinnedInEveryCopy)
+TEST(Unit_FEMFracture, APinnedVertexStaysPinnedInEveryCopy)
 {
     // Mass is divided; being held by the world is not. A copy that came back
     // with a finite mass would fall off the wall the original was nailed to.
     FiniteElementModel<Scalar> model = hinge_at_particle_zero();
     model.particles[0].inv_mass = Scalar(0);
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     budget.minimum_fragment_element_count = 1;
     std::uint32_t total = 0;
 
@@ -327,12 +327,12 @@ TEST(Unit_SoftBodySurface, ASingleElementIsAllBoundary)
     EXPECT_EQ(model.surface_indices.size(), 12u);
 }
 
-TEST(Unit_FemFracture, RebuildsTheBoundaryAroundTheHoleItLeft)
+TEST(Unit_FEMFracture, RebuildsTheBoundaryAroundTheHoleItLeft)
 {
     // Two disjoint tetrahedra after the fracture, no face shared: every one of
     // their eight faces is boundary.
     FiniteElementModel<Scalar> model = hinge_at_particle_zero();
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     budget.minimum_fragment_element_count = 1;
     std::uint32_t total = 0;
 

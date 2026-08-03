@@ -46,7 +46,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /**
              * @brief A trapezoidal-integrator (TPT) state-variable filter.
@@ -135,7 +135,7 @@ namespace SushiEngine
                     float ic1eq_ = 0.0f, ic2eq_ = 0.0f;
                     float low_pass_ = 0.0f, band_pass_ = 0.0f, high_pass_ = 0.0f;
             };
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

@@ -73,20 +73,20 @@ namespace
     }
 }
 
-TEST(Unit_ContactBody, SphereAabbIsTheRadiusBox)
+TEST(Unit_ContactBody, SphereAABBIsTheRadiusBox)
 {
     Vector3 position{Scalar(1), Scalar(2), Scalar(3)};
-    const Aabb<Scalar> box = contact_body_aabb(sphere_body(position, Scalar(0.5), Scalar(1)));
+    const AABB<Scalar> box = contact_body_aabb(sphere_body(position, Scalar(0.5), Scalar(1)));
     EXPECT_NEAR(double(box.min.x), 0.5, 1e-9);
     EXPECT_NEAR(double(box.max.z), 3.5, 1e-9);
 }
 
-TEST(Unit_ContactBody, RotatedBoxAabbGrowsToEncloseTheOrientedShape)
+TEST(Unit_ContactBody, RotatedBoxAABBGrowsToEncloseTheOrientedShape)
 {
     Vector3 position{0, 0, 0};
     const Vector3 half{Scalar(1), Scalar(0.25), Scalar(0.25)};
 
-    const Aabb<Scalar> upright = contact_body_aabb(box_body(position, half, Scalar(1)));
+    const AABB<Scalar> upright = contact_body_aabb(box_body(position, half, Scalar(1)));
     EXPECT_NEAR(double(upright.max.x), 1.0, 1e-9);
     EXPECT_NEAR(double(upright.max.y), 0.25, 1e-9);
 
@@ -94,7 +94,7 @@ TEST(Unit_ContactBody, RotatedBoxAabbGrowsToEncloseTheOrientedShape)
     // grow on both axes; an AABB that stayed at the unrotated extents would let the
     // broadphase cull a pair the narrowphase would have caught.
     Quaternion tilt = quaternion_axis_angle(Vector3{0, 0, 1}, Scalar(PI / 4.0));
-    const Aabb<Scalar> rotated = contact_body_aabb(box_body(position, half, Scalar(1), tilt));
+    const AABB<Scalar> rotated = contact_body_aabb(box_body(position, half, Scalar(1), tilt));
     const double expected = (1.0 + 0.25) * std::sqrt(0.5);
     EXPECT_NEAR(double(rotated.max.x), expected, 1e-9);
     EXPECT_NEAR(double(rotated.max.y), expected, 1e-9);

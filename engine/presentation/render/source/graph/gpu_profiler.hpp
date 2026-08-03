@@ -64,7 +64,7 @@ namespace SushiEngine
              *
              * Non-copyable: it owns Vulkan query pools.
              */
-            class GpuProfiler
+            class GPUProfiler
             {
                 public:
                     /**
@@ -73,12 +73,12 @@ namespace SushiEngine
                      * @param frame_slots Number of frames the caller cycles through.
                      * @param max_passes  Upper bound on timed passes in a single frame.
                      */
-                    GpuProfiler(Vulkan::VulkanDevice& device, std::uint32_t frame_slots,
+                    GPUProfiler(Vulkan::VulkanDevice& device, std::uint32_t frame_slots,
                                 std::uint32_t max_passes);
-                    ~GpuProfiler();
+                    ~GPUProfiler();
 
-                    GpuProfiler(const GpuProfiler&) = delete;
-                    GpuProfiler& operator=(const GpuProfiler&) = delete;
+                    GPUProfiler(const GPUProfiler&) = delete;
+                    GPUProfiler& operator=(const GPUProfiler&) = delete;
 
                     /**
                      * @brief Reads back a completed slot's timestamps into timings().

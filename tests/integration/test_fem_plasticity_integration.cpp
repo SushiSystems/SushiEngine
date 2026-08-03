@@ -19,7 +19,7 @@
 /* permissions and limitations under the License.                        */
 /**************************************************************************/
 
-// Integration_FemPlasticity: §9.4's own acceptance phrase — "a body past
+// Integration_FEMPlasticity: §9.4's own acceptance phrase — "a body past
 // yield keeps a permanent dent" — run through FiniteElementModel::step()'s
 // real substep loop rather than by calling apply_fem_plasticity directly the
 // way the unit tests do. A single tetrahedron, pinned at one vertex, is
@@ -40,7 +40,7 @@
 using namespace SushiEngine;
 using namespace SushiEngine::Physics;
 
-TEST(Integration_FemPlasticity, APulledElementKeepsAPermanentDentAfterTheLoadIsRemoved)
+TEST(Integration_FEMPlasticity, APulledElementKeepsAPermanentDentAfterTheLoadIsRemoved)
 {
     FiniteElementModel<Scalar> model;
     model.material.young_modulus = 1.0e5; // soft enough to move visibly this test's tick budget
@@ -65,7 +65,7 @@ TEST(Integration_FemPlasticity, APulledElementKeepsAPermanentDentAfterTheLoadIsR
     }
     model.particles[0].inv_mass = Scalar(0.0); // the anchor the load pulls against
 
-    FemTetrahedron element;
+    FEMTetrahedron element;
     element.vertex[0] = 0;
     element.vertex[1] = 1;
     element.vertex[2] = 2;

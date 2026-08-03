@@ -218,7 +218,7 @@ namespace SushiEngine
             std::vector<std::complex<double>> column;
 
             FourierTransform transform;
-            Loop::RngState rng{};
+            Loop::RNGState rng{};
             double simulated_seconds = 0.0;
             double pending_seconds = 0.0;
             std::uint64_t steps = 0;
@@ -1475,7 +1475,7 @@ namespace SushiEngine
             std::uint64_t steps = 0;
             double simulated = 0.0;
             double pending = 0.0;
-            Loop::RngState rng{};
+            Loop::RNGState rng{};
             if (!take(blob, cursor, version) || version != CAPTURE_VERSION)
                 return false;
             if (!take(blob, cursor, longitudes) || !take(blob, cursor, latitudes))

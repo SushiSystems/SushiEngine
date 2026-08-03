@@ -260,12 +260,12 @@ namespace SushiEngine
         };
 
         template <typename T>
-        struct ShapeTraits<T, SdfCollider<T>>
+        struct ShapeTraits<T, SDFCollider<T>>
         {
             static constexpr ShapeType type = ShapeType::signed_distance_field;
-            static SdfCollider<T> from(const CollisionShape<T>& shape) noexcept
+            static SDFCollider<T> from(const CollisionShape<T>& shape) noexcept
             {
-                SdfCollider<T> field;
+                SDFCollider<T> field;
                 field.distances = shape.sdf_distances;
                 field.resolution = shape.sdf_resolution;
                 field.field_min = shape.sdf_field_min;
@@ -302,7 +302,7 @@ namespace SushiEngine
          * subtraction into a not-a-number.
          */
         template <typename T>
-        inline Aabb<T> shape_world_bounds(const CollisionShape<T>& shape) noexcept
+        inline AABB<T> shape_world_bounds(const CollisionShape<T>& shape) noexcept
         {
             switch (shape.type)
             {
@@ -316,12 +316,12 @@ namespace SushiEngine
                 case ShapeType::convex_hull:
                     return world_bounds(ShapeTraits<T, ConvexHullView<T>>::from(shape));
                 case ShapeType::signed_distance_field:
-                    return world_bounds(ShapeTraits<T, SdfCollider<T>>::from(shape));
+                    return world_bounds(ShapeTraits<T, SDFCollider<T>>::from(shape));
                 default:
                     break;
             }
             constexpr T huge = T(1e18);
-            return Aabb<T>{Vector3T<T>{-huge, -huge, -huge}, Vector3T<T>{huge, huge, huge}};
+            return AABB<T>{Vector3T<T>{-huge, -huge, -huge}, Vector3T<T>{huge, huge, huge}};
         }
 
         /** @brief A list of types, for folding over. */
@@ -402,7 +402,7 @@ namespace SushiEngine
                                                    T /*face_tolerance*/) noexcept
         {
             return generate_convex_sdf_manifold<T>(ShapeTraits<T, ShapeA>::from(a),
-                                                    ShapeTraits<T, SdfCollider<T>>::from(b),
+                                                    ShapeTraits<T, SDFCollider<T>>::from(b),
                                                     a.center, a.orientation, contact_offset);
         }
 
@@ -419,7 +419,7 @@ namespace SushiEngine
                                                    T /*face_tolerance*/) noexcept
         {
             ContactManifold<T> manifold = generate_convex_sdf_manifold<T>(
-                ShapeTraits<T, ShapeB>::from(b), ShapeTraits<T, SdfCollider<T>>::from(a), b.center,
+                ShapeTraits<T, ShapeB>::from(b), ShapeTraits<T, SDFCollider<T>>::from(a), b.center,
                 b.orientation, contact_offset);
             manifold.normal = manifold.normal * T(-1);
             for (std::size_t i = 0; i < manifold.point_count; ++i)

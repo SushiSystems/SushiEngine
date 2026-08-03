@@ -47,7 +47,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /** @brief The number of ambisonic channels for an order: `(order + 1)²`. */
             constexpr int ambisonic_channel_count(int order) noexcept
@@ -144,7 +144,7 @@ namespace SushiEngine
                     }
                 }
             }
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

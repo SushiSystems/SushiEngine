@@ -50,7 +50,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /**
              * @brief A circular delay line with cubic-Lagrange fractional read.
@@ -182,7 +182,7 @@ namespace SushiEngine
                     std::size_t mask_ = 0;
                     std::size_t write_ = 0;
             };
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

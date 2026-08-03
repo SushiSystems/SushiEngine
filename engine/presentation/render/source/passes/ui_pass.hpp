@@ -65,13 +65,13 @@ namespace SushiEngine
 
         namespace Geometry
         {
-            class UiBuffers;
+            class UIBuffers;
         }
 
         namespace Passes
         {
             /** @brief Draws the frame's 2D UI overlay over the tone-mapped image. */
-            class UiPass : public IRenderPass
+            class UIPass : public IRenderPass
             {
                 public:
                     /**
@@ -84,14 +84,14 @@ namespace SushiEngine
                      * @param textures  The store resolving that atlas to a heap slot.
                      * @param heap      The bindless heap the atlas is reached through.
                      */
-                    UiPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+                    UIPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                            Resources::GraphicsPipelineFactory& pipelines,
-                           Geometry::UiBuffers& geometry, const Assets::FontAtlas& font,
+                           Geometry::UIBuffers& geometry, const Assets::FontAtlas& font,
                            const Assets::TextureLibrary& textures, Resources::DescriptorHeap& heap);
-                    ~UiPass() override;
+                    ~UIPass() override;
 
-                    UiPass(const UiPass&) = delete;
-                    UiPass& operator=(const UiPass&) = delete;
+                    UIPass(const UIPass&) = delete;
+                    UIPass& operator=(const UIPass&) = delete;
 
                     void register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame) override;
@@ -114,7 +114,7 @@ namespace SushiEngine
                     Vulkan::VulkanDevice& device_;
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
-                    Geometry::UiBuffers& geometry_;
+                    Geometry::UIBuffers& geometry_;
                     const Assets::FontAtlas& font_;
                     const Assets::TextureLibrary& textures_;
                     Resources::DescriptorHeap& heap_;

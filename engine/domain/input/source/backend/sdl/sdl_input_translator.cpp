@@ -79,12 +79,12 @@ namespace SushiEngine
             }
         } // namespace
 
-        SdlInputTranslator::SdlInputTranslator(InputManager& manager)
+        SDLInputTranslator::SDLInputTranslator(InputManager& manager)
         {
             manager.add_source(*this);
         }
 
-        SdlInputTranslator::~SdlInputTranslator()
+        SDLInputTranslator::~SDLInputTranslator()
         {
             for (void*& handle : controllers_)
             {
@@ -96,7 +96,7 @@ namespace SushiEngine
             }
         }
 
-        void SdlInputTranslator::open_controller(int device_index)
+        void SDLInputTranslator::open_controller(int device_index)
         {
             SDL_GameController* controller = SDL_GameControllerOpen(device_index);
             if (controller == nullptr)
@@ -120,7 +120,7 @@ namespace SushiEngine
             push(connected);
         }
 
-        void SdlInputTranslator::close_controller(GamepadInstanceId instance)
+        void SDLInputTranslator::close_controller(GamepadInstanceId instance)
         {
             const DeviceId device = slots_.device_for(instance);
             if (device == INVALID_DEVICE)
@@ -140,7 +140,7 @@ namespace SushiEngine
             push(disconnected);
         }
 
-        int SdlInputTranslator::finger_slot(std::int64_t finger) const noexcept
+        int SDLInputTranslator::finger_slot(std::int64_t finger) const noexcept
         {
             for (int slot = 0; slot < MAX_TOUCH_POINTS; ++slot)
                 if (fingers_[static_cast<std::size_t>(slot)] == finger)
@@ -148,7 +148,7 @@ namespace SushiEngine
             return -1;
         }
 
-        int SdlInputTranslator::claim_finger(std::int64_t finger) noexcept
+        int SDLInputTranslator::claim_finger(std::int64_t finger) noexcept
         {
             const int existing = finger_slot(finger);
             if (existing >= 0)
@@ -164,7 +164,7 @@ namespace SushiEngine
             return -1;
         }
 
-        int SdlInputTranslator::release_finger(std::int64_t finger) noexcept
+        int SDLInputTranslator::release_finger(std::int64_t finger) noexcept
         {
             const int slot = finger_slot(finger);
             if (slot >= 0)
@@ -172,7 +172,7 @@ namespace SushiEngine
             return slot;
         }
 
-        void SdlInputTranslator::handle_native_event(const void* sdl_event)
+        void SDLInputTranslator::handle_native_event(const void* sdl_event)
         {
             const SDL_Event& event = *static_cast<const SDL_Event*>(sdl_event);
 
@@ -340,17 +340,17 @@ namespace SushiEngine
             }
         }
 
-        void SdlInputTranslator::start_text_input()
+        void SDLInputTranslator::start_text_input()
         {
             SDL_StartTextInput();
         }
 
-        void SdlInputTranslator::stop_text_input()
+        void SDLInputTranslator::stop_text_input()
         {
             SDL_StopTextInput();
         }
 
-        void SdlInputTranslator::poll(std::vector<InputEvent>& out)
+        void SDLInputTranslator::poll(std::vector<InputEvent>& out)
         {
             for (InputEvent& event : pending_)
             {
@@ -361,7 +361,7 @@ namespace SushiEngine
             ++frame_;
         }
 
-        void SdlInputTranslator::rumble(DeviceId device, float low_frequency, float high_frequency,
+        void SDLInputTranslator::rumble(DeviceId device, float low_frequency, float high_frequency,
                                         float duration_seconds)
         {
             const int slot = device - FIRST_GAMEPAD_DEVICE;

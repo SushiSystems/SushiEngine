@@ -62,7 +62,7 @@ namespace SushiEngine
         namespace Passes
         {
             /** @brief Builds the frame's hierarchical-Z (nearest-depth) pyramid. */
-            class HizPass : public IRenderPass
+            class HiZPass : public IRenderPass
             {
                 public:
                     /**
@@ -71,12 +71,12 @@ namespace SushiEngine
                      * @param shaders   The shader catalogue the reduction module comes from.
                      * @param pipelines The factory owning the compute pipeline.
                      */
-                    HizPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+                    HiZPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                             Resources::GraphicsPipelineFactory& pipelines);
-                    ~HizPass() override;
+                    ~HiZPass() override;
 
-                    HizPass(const HizPass&) = delete;
-                    HizPass& operator=(const HizPass&) = delete;
+                    HiZPass(const HiZPass&) = delete;
+                    HiZPass& operator=(const HiZPass&) = delete;
 
                     void register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame) override;

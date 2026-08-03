@@ -124,7 +124,7 @@ namespace SushiEngine
                         const Entity e = chunk->entity_at(row);
                         const Room& r = world.get<Room>(e);
                         const Audio::AudioVec3 c = Detail::to_local(world.get<Transform>(e).position, eye);
-                        Audio::AcousticAabb box;
+                        Audio::AcousticAABB box;
                         box.min = Audio::AudioVec3{c.x - static_cast<float>(r.half_extents.x),
                                                    c.y - static_cast<float>(r.half_extents.y),
                                                    c.z - static_cast<float>(r.half_extents.z)};

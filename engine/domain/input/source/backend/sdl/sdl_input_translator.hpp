@@ -31,7 +31,7 @@
  * The translator does not pump SDL — it receives already-pumped native events through
  * @ref handle_native_event, registered on the window's existing event-handler seam
  * alongside ImGui (there must be exactly one `SDL_PollEvent` loop, and it stays in
- * `SdlWindow`). Translated events are buffered and drained by @ref poll, so the
+ * `SDLWindow`). Translated events are buffered and drained by @ref poll, so the
  * translator is an ordinary @ref IInputSource — behaviourally identical to a
  * @ref ScriptedInputSource from the registry's point of view, which is what keeps the
  * whole action layer free of SDL.
@@ -68,20 +68,20 @@ namespace SushiEngine
          * @ref IHapticsSink, so the same object gameplay never sees as SDL is the one that
          * drives rumble.
          */
-        class SdlInputTranslator final : public IInputSource, public IHapticsSink
+        class SDLInputTranslator final : public IInputSource, public IHapticsSink
         {
             public:
                 /**
                  * @brief Registers this translator as a source of @p manager.
                  * @param manager The manager whose registry will fold the translated events.
                  */
-                explicit SdlInputTranslator(InputManager& manager);
+                explicit SDLInputTranslator(InputManager& manager);
 
                 /** @brief Closes any game controllers this translator opened. */
-                ~SdlInputTranslator() override;
+                ~SDLInputTranslator() override;
 
-                SdlInputTranslator(const SdlInputTranslator&) = delete;
-                SdlInputTranslator& operator=(const SdlInputTranslator&) = delete;
+                SDLInputTranslator(const SDLInputTranslator&) = delete;
+                SDLInputTranslator& operator=(const SDLInputTranslator&) = delete;
 
                 /**
                  * @brief Translates one pumped native event, buffering any engine events it yields.

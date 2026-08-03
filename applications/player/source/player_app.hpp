@@ -47,7 +47,7 @@
  *
  * Deliberately out of scope for this skeleton (tracked, not silently missing):
  * headless operation (PLATFORM0 S6 — `IWindowRenderer`'s current construction path
- * still requires a real surface), the UI overlay channel (`Render::UiView`; a scene's
+ * still requires a real surface), the UI overlay channel (`Render::UIView`; a scene's
  * Canvas/Button entities do not draw yet), and any audio playback.
  */
 
@@ -174,9 +174,9 @@ namespace SushiEngine
                 void handle_window_event(const void* native_event);
 
                 Desc desc_;
-                std::unique_ptr<Platform::SdlWindow> window_;
+                std::unique_ptr<Platform::SDLWindow> window_;
                 std::unique_ptr<Input::InputManager> input_;
-                std::unique_ptr<Input::SdlInputTranslator> input_translator_;
+                std::unique_ptr<Input::SDLInputTranslator> input_translator_;
                 std::unique_ptr<Simulation::ISimulation> simulation_;
                 std::unique_ptr<Render::IWindowRenderer> renderer_;
                 std::unique_ptr<Render::ISceneView> scene_view_;

@@ -82,7 +82,7 @@ TEST(Integration_FiniteElementModel, CantileverTipDeflectionMatchesEulerBernoull
     ASSERT_EQ(model.elements.size(), lattice.tetrahedra.size() / 4);
 
     Scalar total_volume = 0;
-    for (const FemTetrahedron& element : model.elements)
+    for (const FEMTetrahedron& element : model.elements)
         total_volume += element.rest_volume;
 
     // Pin the wall end: every vertex at x = 0.

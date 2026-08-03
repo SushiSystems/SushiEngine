@@ -30,7 +30,7 @@
  * Writes two MRT attachments at `QualityParams::cloud_buffer_scale` of the render
  * extent: (scattered.rgb, transmittance) and, since W3, the transmittance-weighted
  * mean march depth (`frame.targets.cloud_depth`) `CloudCompositePass` samples the
- * aerial-perspective volume at. `CloudTaaPass` resolves this target's own dedicated
+ * aerial-perspective volume at. `CloudTAAPass` resolves this target's own dedicated
  * temporal history before `CloudCompositePass` composites it over the sky; the graph
  * derives the reduced viewport from the target's own extent, so this pass declares
  * nothing about resolution beyond the size it asked for.
@@ -68,7 +68,7 @@ namespace SushiEngine
 
         namespace Passes
         {
-            class AtmosphereLutPass;
+            class AtmosphereLUTPass;
             class CloudscapeCompilePass;
             class CloudLightVolumePass;
 
@@ -102,7 +102,7 @@ namespace SushiEngine
                               Resources::GraphicsPipelineFactory& pipelines,
                               Scene::SceneLayout& layout, CloudscapeCompilePass& cloudscape,
                               CloudLightVolumePass& light_volume, Textures::CloudNoise& noise,
-                              AtmosphereLutPass& atmosphere);
+                              AtmosphereLUTPass& atmosphere);
                     ~CloudPass() override;
 
                     CloudPass(const CloudPass&) = delete;
@@ -123,7 +123,7 @@ namespace SushiEngine
                     CloudscapeCompilePass& cloudscape_;
                     CloudLightVolumePass& light_volume_;
                     Textures::CloudNoise& noise_;
-                    AtmosphereLutPass& atmosphere_;
+                    AtmosphereLUTPass& atmosphere_;
                     Resources::PipelineHandle pipeline_;
             };
         } // namespace Passes

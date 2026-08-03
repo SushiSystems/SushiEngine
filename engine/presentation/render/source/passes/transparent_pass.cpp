@@ -185,7 +185,7 @@ namespace SushiEngine
                                              Assets::MaterialSystem& materials,
                                              Scene::MotionSystem& motion,
                                              Scene::SkinningSystem& skinning,
-                                             CloudShadowMapPass& cloud_shadow, IblPass& ibl,
+                                             CloudShadowMapPass& cloud_shadow, IBLPass& ibl,
                                              IrradianceVolumePass& gi, Lighting::LightSystem& lights)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   meshes_(meshes), materials_(materials), motion_(motion), skinning_(skinning),

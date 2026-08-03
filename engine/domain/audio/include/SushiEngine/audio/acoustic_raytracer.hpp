@@ -145,7 +145,7 @@ namespace SushiEngine
                     if (!scene.occluded(source, listener))
                         return; // path is clear: no diffraction loss
 
-                    AcousticAabb box = mesh_bounds(mesh);
+                    AcousticAABB box = mesh_bounds(mesh);
                     const float direct = distance(source, listener);
                     float best_detour = -1.0f;
                     // Candidate bend points: the midpoints of the 12 box edges expanded to the
@@ -192,9 +192,9 @@ namespace SushiEngine
                                      a.z + (b.z - a.z) * t};
                 }
 
-                static AcousticAabb mesh_bounds(const AcousticMesh& mesh) noexcept
+                static AcousticAABB mesh_bounds(const AcousticMesh& mesh) noexcept
                 {
-                    AcousticAabb box;
+                    AcousticAABB box;
                     for (const AcousticTriangle& t : mesh.triangles())
                     {
                         box.expand(t.a);
@@ -204,7 +204,7 @@ namespace SushiEngine
                     return box;
                 }
 
-                static void box_corners(const AcousticAabb& box, AudioVec3* c) noexcept
+                static void box_corners(const AcousticAABB& box, AudioVec3* c) noexcept
                 {
                     for (int i = 0; i < 8; ++i)
                         c[i] = AudioVec3{(i & 1) ? box.max.x : box.min.x,

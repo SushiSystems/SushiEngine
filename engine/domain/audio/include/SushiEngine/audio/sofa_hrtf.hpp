@@ -25,15 +25,15 @@
 
 /**
  * @file sofa_hrtf.hpp
- * @brief The SOFA/HDF5 measured-HRTF loader — an `IHrtfDatabase` from a real dataset file.
+ * @brief The SOFA/HDF5 measured-HRTF loader — an `IHRTFDatabase` from a real dataset file.
  *
  * SOFA (Spatially Oriented Format for Acoustics, AES69) is the standard container for
  * measured HRIR sets; it is an HDF5 file whose `SimpleFreeFieldHRIR` convention stores three
  * datasets this loader reads: `Data.IR` `[M measurements][R receivers][N taps]` (the two-ear
  * impulse responses), `SourcePosition` `[M][3]` (azimuth°, elevation°, radius, spherical), and
- * `Data.SamplingRate`. @ref SofaHrtfDatabase reads them through the HDF5 C API, converts each
+ * `Data.SamplingRate`. @ref SofaHRTFDatabase reads them through the HDF5 C API, converts each
  * source position to a head-relative unit vector, optionally resamples the taps to the stream
- * rate, and serves the nearest pair to the spatializer through the @ref IHrtfDatabase seam.
+ * rate, and serves the nearest pair to the spatializer through the @ref IHRTFDatabase seam.
  *
  * @ref write_sofa bakes the same three datasets, so a set can be authored/round-tripped
  * without an external artifact. This header pulls in HDF5, so — like `opus_codec.hpp` — it is
@@ -54,7 +54,7 @@ namespace SushiEngine
     namespace Audio
     {
         /** @brief A measured-HRTF database loaded from a SOFA (HDF5) file. */
-        class SofaHrtfDatabase final : public IHrtfDatabase
+        class SofaHRTFDatabase final : public IHRTFDatabase
         {
             public:
                 int ir_length() const noexcept override { return ir_length_; }
@@ -280,7 +280,7 @@ namespace SushiEngine
         /**
          * @brief Bakes an HRIR set to a minimal SOFA (HDF5) file the loader round-trips.
          *
-         * Writes the three datasets @ref SofaHrtfDatabase reads — `Data.IR` `[M][2][N]`,
+         * Writes the three datasets @ref SofaHRTFDatabase reads — `Data.IR` `[M][2][N]`,
          * `SourcePosition` `[M][3]`, and `Data.SamplingRate` — as HDF5 doubles.
          *
          * @param path        Output `.sofa` path.

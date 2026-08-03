@@ -178,7 +178,7 @@ namespace
     }
 } // namespace
 
-TEST(Unit_AnimationControllerJson,TheCompiledAssetIsByteIdenticalAcrossARoundTrip)
+TEST(Unit_AnimationControllerJSON,TheCompiledAssetIsByteIdenticalAcrossARoundTrip)
 {
     const ControllerDesc authored = maximal_controller();
     const std::vector<std::byte> before = compile(authored);
@@ -191,7 +191,7 @@ TEST(Unit_AnimationControllerJson,TheCompiledAssetIsByteIdenticalAcrossARoundTri
     EXPECT_EQ(std::memcmp(after.data(), before.data(), before.size()), 0);
 }
 
-TEST(Unit_AnimationControllerJson,TheRoundTripSurvivesSerializationToTextAndBack)
+TEST(Unit_AnimationControllerJSON,TheRoundTripSurvivesSerializationToTextAndBack)
 {
     // The editor writes a file, not a `nlohmann::json` object. Passing the object straight back
     // would skip the dump/parse pair, and that is where a float written at too few digits stops
@@ -213,7 +213,7 @@ TEST(Unit_AnimationControllerJson,TheRoundTripSurvivesSerializationToTextAndBack
     EXPECT_EQ(controller_to_json(restored).dump(), text);
 }
 
-TEST(Unit_AnimationControllerJson,EveryEnumValueSurvivesItsNameRoundTrip)
+TEST(Unit_AnimationControllerJSON,EveryEnumValueSurvivesItsNameRoundTrip)
 {
     // Enum names are written by hand in two switch statements that have to agree, which is
     // exactly the shape a copy-paste error hides in. Walking every value is cheap and is the
@@ -256,7 +256,7 @@ TEST(Unit_AnimationControllerJson,EveryEnumValueSurvivesItsNameRoundTrip)
             EXPECT_NE(names[i], names[j]);
 }
 
-TEST(Unit_AnimationControllerJson,AnUnknownEnumNameDegradesToTheDocumentedDefault)
+TEST(Unit_AnimationControllerJSON,AnUnknownEnumNameDegradesToTheDocumentedDefault)
 {
     // A document from a newer editor may name a value this build has never heard of. Falling
     // back to the documented default keeps the rest of the controller readable, where throwing
@@ -272,7 +272,7 @@ TEST(Unit_AnimationControllerJson,AnUnknownEnumNameDegradesToTheDocumentedDefaul
     EXPECT_EQ(detail::comparator_from("less"), Comparator::Greater);
 }
 
-TEST(Unit_AnimationControllerJson,AMissingFieldReadsAsItsDefaultRatherThanThrowing)
+TEST(Unit_AnimationControllerJSON,AMissingFieldReadsAsItsDefaultRatherThanThrowing)
 {
     // The tolerant read the header promises. A hand-edited or older document is the case this
     // exists for, and the assertion is that the *documented* default is what appears — not
@@ -315,7 +315,7 @@ TEST(Unit_AnimationControllerJson,AMissingFieldReadsAsItsDefaultRatherThanThrowi
     EXPECT_TRUE(transition.conditions.empty());
 }
 
-TEST(Unit_AnimationControllerJson,AnEmptyDocumentReadsAsAnEmptyControllerAndNotAsAnError)
+TEST(Unit_AnimationControllerJSON,AnEmptyDocumentReadsAsAnEmptyControllerAndNotAsAnError)
 {
     // Two shapes a real project produces: a brand-new controller with nothing authored yet, and
     // a document whose arrays are present but empty. Neither is an error.
@@ -331,7 +331,7 @@ TEST(Unit_AnimationControllerJson,AnEmptyDocumentReadsAsAnEmptyControllerAndNotA
     EXPECT_EQ(controller_from_json(controller_to_json(from_empty_object)).layers.size(), 0u);
 }
 
-TEST(Unit_AnimationControllerJson,AssetReferencesSerializeAsIdsWithMinusOneForNone)
+TEST(Unit_AnimationControllerJSON,AssetReferencesSerializeAsIdsWithMinusOneForNone)
 {
     // The header pins this contract explicitly — ids, with -1 for none — because a project layer
     // above maps ids to paths and would otherwise have to guess what an absent reference is.
@@ -365,7 +365,7 @@ TEST(Unit_AnimationControllerJson,AssetReferencesSerializeAsIdsWithMinusOneForNo
     EXPECT_EQ(detail::asset_from_json(nlohmann::json("not a number")), INVALID_ASSET);
 }
 
-TEST(Unit_AnimationControllerJson,ANestedBlendTreeKeepsItsShapeAndNotJustItsLeaves)
+TEST(Unit_AnimationControllerJSON,ANestedBlendTreeKeepsItsShapeAndNotJustItsLeaves)
 {
     // Nesting is the recursive half of the serializer, and a recursion that flattens produces a
     // tree that still blends — just not the authored one. Asserting the shape, depth included,
@@ -403,7 +403,7 @@ TEST(Unit_AnimationControllerJson,ANestedBlendTreeKeepsItsShapeAndNotJustItsLeav
     EXPECT_EQ(direct.children[0].parameter, "speed");
 }
 
-TEST(Unit_AnimationControllerJson,EventsAndAnyStateTransitionsSurviveWithTheirOrder)
+TEST(Unit_AnimationControllerJSON,EventsAndAnyStateTransitionsSurviveWithTheirOrder)
 {
     // Both are arrays whose *order* is observable — events fire in sequence and transitions are
     // evaluated first-match — so a serializer that round-trips the set but not the sequence
@@ -431,7 +431,7 @@ TEST(Unit_AnimationControllerJson,EventsAndAnyStateTransitionsSurviveWithTheirOr
               InterruptionSource::NextState);
 }
 
-TEST(Unit_AnimationControllerJson,LayerOrderAndPerLayerFieldsSurvive)
+TEST(Unit_AnimationControllerJSON,LayerOrderAndPerLayerFieldsSurvive)
 {
     // Layer order is fold order — a later layer overrides an earlier one — so it is behaviour,
     // not presentation. And the second layer is where the additive/mask/weight-parameter fields

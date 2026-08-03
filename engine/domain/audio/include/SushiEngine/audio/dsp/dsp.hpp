@@ -26,7 +26,7 @@
 
 /**
  * @file dsp.hpp
- * @brief Umbrella for the portable CPU DSP core (`SushiEngine::Audio::Dsp`).
+ * @brief Umbrella for the portable CPU DSP core (`SushiEngine::Audio::DSP`).
  *
  * One include pulls in the DSP core: the real-time primitives (the flush-to-zero
  * denormal guard and the lock-free SPSC ring), the SIMD sample kernels, the filter

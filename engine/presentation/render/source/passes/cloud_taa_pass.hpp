@@ -73,7 +73,7 @@ namespace SushiEngine
              *
              * Non-copyable: it owns images, views, and a compute pipeline.
              */
-            class CloudTaaPass final : public IRenderPass
+            class CloudTAAPass final : public IRenderPass
             {
                 public:
                     /**
@@ -85,14 +85,14 @@ namespace SushiEngine
                      * @param output_width  Initial view output width in pixels.
                      * @param output_height Initial view output height in pixels.
                      */
-                    CloudTaaPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+                    CloudTAAPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                 Resources::GraphicsPipelineFactory& pipelines,
                                 Resources::SamplerCache& samplers, std::uint32_t output_width,
                                 std::uint32_t output_height);
-                    ~CloudTaaPass() override;
+                    ~CloudTAAPass() override;
 
-                    CloudTaaPass(const CloudTaaPass&) = delete;
-                    CloudTaaPass& operator=(const CloudTaaPass&) = delete;
+                    CloudTAAPass(const CloudTAAPass&) = delete;
+                    CloudTAAPass& operator=(const CloudTAAPass&) = delete;
 
                     void register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame) override;

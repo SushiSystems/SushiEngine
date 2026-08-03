@@ -229,7 +229,7 @@ third-party backend (SDL2, Vulkan) is involved.
 
 ### SushiLoop core (`loop/`)
 `Loop::App<Command>` (`app.hpp`) is the authoring surface: it owns a `World`,
-`Schedule`, `CommandBuffer`, `FixedTimestepClock`, seeded `RngState`,
+`Schedule`, `CommandBuffer`, `FixedTimestepClock`, seeded `RNGState`,
 `InputHistory<Command>`, and an optional `RollbackBuffer`, and drives one
 fixed tick — capture snapshot → sample command → apply → run the schedule →
 apply deferred structural changes → reconcile against a network transport if
@@ -263,7 +263,7 @@ A **Projected Gauss-Seidel** (PGS) constraint solver, parallelized by
 each colour is race-free and runs fully in parallel while colours themselves
 are ordered into a sequential sweep by the shared position buffer.
 `ConstraintSolver<DistanceConstraint>` is the concrete instance. **XPBD**
-(`RigidBody`, `XpbdDistanceConstraint`, `XpbdSolver<Constraint>`) reuses the
+(`RigidBody`, `XPBDDistanceConstraint`, `XPBDSolver<Constraint>`) reuses the
 same colouring and compile-once/replay structure over one `RigidBody` buffer
 (position + orientation + inverse inertia), adding a per-constraint
 `compliance` — `compliance == 0` is mathematically the plain PGS case.
@@ -272,7 +272,7 @@ register → `finalize()` → `step()` runs predict → solve → derive-velocit
 sub-step, with an optional post-solve callback for contacts. Cloth
 (`build_cloth_grid`) and soft bodies (`build_soft_body_lattice`) introduce no
 new solver — they're topologies of `RigidBody`s wired with structural and
-shear `XpbdDistanceConstraint`s. Narrowphase (`collision.hpp`) is pure,
+shear `XPBDDistanceConstraint`s. Narrowphase (`collision.hpp`) is pure,
 runtime-free geometry — sphere/plane/AABB **and oriented-box (OBB) via full
 15-axis SAT**, returning a `Contact{normal, depth, point}`. `contact_solver.hpp`
 resolves non-penetration as a positional projection pass regenerated each

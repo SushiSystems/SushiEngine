@@ -76,7 +76,7 @@ namespace SushiEngine
          * the plane and pair contact paths.
          */
         template <typename T>
-        struct XpbdDistanceProjectionT
+        struct XPBDDistanceProjectionT
         {
             /**
              * @brief Applies one XPBD iteration of constraint @p c.
@@ -86,7 +86,7 @@ namespace SushiEngine
              *                current step; the caller resets it to zero once per step.
              * @param h       The sub-step duration used for this step, in seconds (> 0).
              */
-            void operator()(const XpbdDistanceConstraintT<T>& c, RigidBodyT<T>* bodies,
+            void operator()(const XPBDDistanceConstraintT<T>& c, RigidBodyT<T>* bodies,
                             T& lambda, T h) const
             {
                 RigidBodyT<T>& body_a = bodies[c.a];
@@ -119,8 +119,8 @@ namespace SushiEngine
         };
 
         /**
-         * @brief The boundary distance projection: `XpbdDistanceProjectionT` fixed to `Scalar`.
+         * @brief The boundary distance projection: `XPBDDistanceProjectionT` fixed to `Scalar`.
          */
-        using XpbdDistanceProjection = XpbdDistanceProjectionT<Scalar>;
+        using XPBDDistanceProjection = XPBDDistanceProjectionT<Scalar>;
     } // namespace Physics
 } // namespace SushiEngine

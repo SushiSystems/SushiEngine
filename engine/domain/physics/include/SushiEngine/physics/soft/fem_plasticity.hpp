@@ -97,7 +97,7 @@ namespace SushiEngine
          *                 `plastic_creep`, and `maximum_plastic_strain` come from.
          */
         template <typename T>
-        inline void apply_fem_plasticity(const RigidBodyT<T>* bodies, FemTetrahedronT<T>& element,
+        inline void apply_fem_plasticity(const RigidBodyT<T>* bodies, FEMTetrahedronT<T>& element,
                                          const SoftBodyMaterialT<T>& material) noexcept
         {
             if (!(material.plastic_creep > T(0)) || !(material.maximum_plastic_strain > T(0)))
@@ -112,15 +112,15 @@ namespace SushiEngine
             const Vector3T<T> edge2 = bodies[element.vertex[2]].position - x0;
             const Vector3T<T> edge3 = bodies[element.vertex[3]].position - x0;
 
-            FemMatrix3<T> current_shape;
+            FEMMatrix3<T> current_shape;
             current_shape.column0 = edge1;
             current_shape.column1 = edge2;
             current_shape.column2 = edge3;
-            FemMatrix3<T> current_shape_inverse;
+            FEMMatrix3<T> current_shape_inverse;
             if (!invert_fem_matrix3(current_shape, current_shape_inverse))
                 return; // a collapsed element: nothing safe to creep toward
 
-            const FemMatrix3<T> elastic = tetrahedron_deformation_gradient(
+            const FEMMatrix3<T> elastic = tetrahedron_deformation_gradient(
                 edge1, edge2, edge3, element.plastic_inverse_column_0,
                 element.plastic_inverse_column_1, element.plastic_inverse_column_2);
             const Vector3T<T> deviation0 = elastic.column0 - Vector3T<T>{T(1), T(0), T(0)};
@@ -155,8 +155,8 @@ namespace SushiEngine
             // plastic rest matrix rather than left at the original, or a
             // permanently dented element would keep computing its hydrostatic
             // compliance against a volume it no longer actually rests at.
-            FemMatrix3<T> new_rest_shape;
-            const FemMatrix3<T> new_plastic_inverse{element.plastic_inverse_column_0,
+            FEMMatrix3<T> new_rest_shape;
+            const FEMMatrix3<T> new_plastic_inverse{element.plastic_inverse_column_0,
                                                     element.plastic_inverse_column_1,
                                                     element.plastic_inverse_column_2};
             if (invert_fem_matrix3(new_plastic_inverse, new_rest_shape))

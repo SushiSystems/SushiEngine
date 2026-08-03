@@ -148,7 +148,7 @@ namespace SushiEngine
             SushiEngine::Simulation::VehicleInstanceParams vehicle_params;
             bool has_particle_emitter = false;
             SushiEngine::Simulation::ParticleEmitterParams particle_emitter_params;
-            SushiEngine::Vfx::ParticleEffect particle_effect;
+            SushiEngine::VFX::ParticleEffect particle_effect;
             bool has_audio_emitter = false;
             SushiEngine::Simulation::AudioEmitterParams audio_emitter_params;
             bool has_reverb_zone = false;
@@ -180,7 +180,7 @@ namespace SushiEngine
         };
 
         /** @brief One render pass's GPU time, copied out of a scene view for display. */
-        struct GpuPassStatistic
+        struct GPUPassStatistic
         {
             std::string pass;          /**< The pass name as registered in the render graph. */
             float milliseconds = 0.0f; /**< Measured GPU time of the pass. */
@@ -193,10 +193,10 @@ namespace SushiEngine
          * next render, while the Statistics panel reads this after both viewports have
          * already rendered the frame.
          */
-        struct ViewportGpuStatistics
+        struct ViewportGPUStatistics
         {
             std::string viewport;                 /**< The viewport title ("Scene", "Game"). */
-            std::vector<GpuPassStatistic> passes; /**< Per-pass times, in graph order. */
+            std::vector<GPUPassStatistic> passes; /**< Per-pass times, in graph order. */
         };
 
         /**
@@ -400,7 +400,7 @@ namespace SushiEngine
              * itself lives on the component, in the world, which is what lets the scene file
              * round-trip it.
              */
-            SushiEngine::Vfx::ParticleEffect particle_effect_scratch;
+            SushiEngine::VFX::ParticleEffect particle_effect_scratch;
 
             /** @brief The entity @ref particle_effect_scratch was read from. */
             SushiEngine::Simulation::EntityId particle_effect_entity =
@@ -557,7 +557,7 @@ namespace SushiEngine
 
             // Each visible viewport's per-pass GPU times, refilled by the main loop
             // after the viewports render and shown in the Statistics panel.
-            std::vector<ViewportGpuStatistics> gpu_statistics;
+            std::vector<ViewportGPUStatistics> gpu_statistics;
 
             bool show_imgui_demo = false;
 

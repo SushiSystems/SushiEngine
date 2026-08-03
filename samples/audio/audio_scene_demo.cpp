@@ -31,7 +31,7 @@
  * the emitter goes silent or is destroyed. This drives that reconciliation directly with
  * hand-built @ref SceneSnapshot frames (the exact structure `sim/audio_extract.hpp`
  * fills from the ECS world), so it needs no runtime — the real ECS read is covered by
- * `Integration_AudioEcs`. It:
+ * `Integration_AudioECS`. It:
  *
  *   1. Runs headless and self-checks the reconciliation: an emitter flying past the
  *      listener holds exactly one voice; adding a second emitter makes two; dropping one
@@ -202,7 +202,7 @@ int main()
         scene.apply(snap); // creates emitter 1's voice on this (control) thread
     }
 
-    SdlAudioDevice device;
+    SDLAudioDevice device;
     AudioStreamFormat desired;
     desired.sample_rate = 48000;
     desired.channel_count = 2;

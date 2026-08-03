@@ -118,7 +118,7 @@ int main()
     // --- 1b. Room/portal graph: a cross-room source becomes a doorway source ----------
     {
         PortalGraph graph;
-        AcousticAabb ra, rb;
+        AcousticAABB ra, rb;
         ra.min = AudioVec3{-10, -4, -4}; ra.max = AudioVec3{-0.1f, 4, 4};
         rb.min = AudioVec3{0.1f, -4, -4}; rb.max = AudioVec3{10, 4, 4};
         graph.add_room(1, ra);
@@ -212,7 +212,7 @@ int main()
     const int reverb_bus = engine.mixer().add_bus(master);
     engine.mixer().set_master(master);
     {
-        std::unique_ptr<FdnReverbEffect> fx(new FdnReverbEffect());
+        std::unique_ptr<FDNReverbEffect> fx(new FDNReverbEffect());
         I3DL2Reverb room = I3DL2Reverb::room_small();
         room.wet_dry_mix = 100.0f;
         fx->set_params(room);
@@ -238,7 +238,7 @@ int main()
     std::vector<float> left(block, 0.0f), right(block, 0.0f);
     float* channels[2] = {left.data(), right.data()};
 
-    SdlAudioDevice device;
+    SDLAudioDevice device;
     AudioStreamFormat desired;
     desired.sample_rate = 48000;
     desired.channel_count = 2;

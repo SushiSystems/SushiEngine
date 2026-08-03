@@ -49,7 +49,7 @@ namespace SushiEngine
             struct FrameContext;
         }
 
-        namespace Gi
+        namespace GI
         {
             struct ProbeVolumeConfig;
 
@@ -137,6 +137,6 @@ namespace SushiEngine
                     /** @brief Rebuilds the compute pipeline after a shader hot-reload. */
                     virtual void rebuild_pipelines() = 0;
             };
-        } // namespace Gi
+        } // namespace GI
     } // namespace Render
 } // namespace SushiEngine

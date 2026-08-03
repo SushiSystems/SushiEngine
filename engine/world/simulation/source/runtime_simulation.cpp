@@ -999,7 +999,7 @@ namespace SushiEngine
                         // undetected mismatch if not (no cross-check performed here; a caller
                         // mixing skeleton and clip files takes that on faith, same as
                         // Animation::retarget_clip's own documented assumptions elsewhere).
-                        Animation::GltfAnimationImport import;
+                        Animation::GLTFAnimationImport import;
                         if (!Animation::import_gltf_animated(gltf_path.c_str(), import) ||
                             import.clips.empty())
                             return 0;
@@ -1758,7 +1758,7 @@ namespace SushiEngine
                         order_.push_back(id);
                         Record record{entity, display_name, true, false, false};
                         record.has_particle_emitter = true;
-                        Vfx::CpuDeterministicBackend::reset(record.particle_pool,
+                        VFX::CPUDeterministicBackend::reset(record.particle_pool,
                                                             record.emitter_params.seed);
                         seed_emitter_effect(record);
                         records_.emplace(id, std::move(record));
@@ -1791,7 +1791,7 @@ namespace SushiEngine
                         const bool restart = record->emitter_params.seed != params.seed;
                         record->emitter_params = params;
                         if (restart)
-                            Vfx::CpuDeterministicBackend::reset(record->particle_pool, params.seed);
+                            VFX::CPUDeterministicBackend::reset(record->particle_pool, params.seed);
                         extract();
                     }
 
@@ -1803,16 +1803,16 @@ namespace SushiEngine
                         record->has_particle_emitter = value;
                         if (value)
                         {
-                            Vfx::CpuDeterministicBackend::reset(record->particle_pool,
+                            VFX::CPUDeterministicBackend::reset(record->particle_pool,
                                                                 record->emitter_params.seed);
                             seed_emitter_effect(*record);
                         }
                         extract();
                     }
 
-                    const Vfx::ParticleEffect& particle_effect_source(EntityId id) const override
+                    const VFX::ParticleEffect& particle_effect_source(EntityId id) const override
                     {
-                        static const Vfx::ParticleEffect EMPTY{};
+                        static const VFX::ParticleEffect EMPTY{};
                         const Record* record = find(id);
                         return (record != nullptr && record->has_particle_emitter)
                                    ? record->effect_source
@@ -1820,13 +1820,13 @@ namespace SushiEngine
                     }
 
                     void set_particle_effect_source(EntityId id,
-                                                    const Vfx::ParticleEffect& effect) override
+                                                    const VFX::ParticleEffect& effect) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_particle_emitter)
                             return;
                         record->effect_source = effect;
-                        if (record->effect_asset == Vfx::INVALID_EFFECT)
+                        if (record->effect_asset == VFX::INVALID_EFFECT)
                             record->effect_asset = effect_db_.add(effect);
                         else
                             effect_db_.replace(record->effect_asset, effect);
@@ -1976,7 +1976,7 @@ namespace SushiEngine
                         // RenderScene::particle_billboards each frame.
                         bool has_particle_emitter = false;
                         ParticleEmitterParams emitter_params{};
-                        Vfx::DeterministicEmitterState particle_pool{};
+                        VFX::DeterministicEmitterState particle_pool{};
                         /**
                          * @brief Runtime emitter state, kept off @ref emitter_params.
                          *
@@ -1994,8 +1994,8 @@ namespace SushiEngine
                          * asset id is allocated on the first assignment and then reused, so
                          * repeated edits replace in place instead of growing the database.
                          */
-                        Vfx::ParticleEffect effect_source{};
-                        Vfx::AssetId effect_asset = Vfx::INVALID_EFFECT;
+                        VFX::ParticleEffect effect_source{};
+                        VFX::AssetId effect_asset = VFX::INVALID_EFFECT;
                         // Neither read nor written by any Schedule system, so — like
                         // has_physics_body/has_cloth — these are plain host bookkeeping
                         // rather than ECS components; no archetype migration needed.
@@ -3711,10 +3711,10 @@ namespace SushiEngine
                             if (record == nullptr || !record->has_particle_emitter ||
                                 !record->visible)
                                 continue;
-                            const Vfx::DeterministicEmitterState& pool = record->particle_pool;
+                            const VFX::DeterministicEmitterState& pool = record->particle_pool;
                             for (std::uint32_t i = 0; i < pool.alive_count; ++i)
                             {
-                                const Vfx::GpuParticle& particle = pool.particles[i];
+                                const VFX::GPUParticle& particle = pool.particles[i];
                                 ParticleBillboard billboard;
                                 billboard.position = Vector3{particle.position[0], particle.position[1],
                                                              particle.position[2]};
@@ -3738,7 +3738,7 @@ namespace SushiEngine
                             if (record == nullptr || !record->has_particle_emitter ||
                                 !record->visible || !world_.alive(record->entity))
                                 continue;
-                            const Vfx::CompiledEffect* compiled = effect_for(*record);
+                            const VFX::CompiledEffect* compiled = effect_for(*record);
                             if (compiled == nullptr)
                                 continue;
 
@@ -3748,9 +3748,9 @@ namespace SushiEngine
                             const float* gradient_luts = compiled->gradient_luts.empty()
                                                              ? nullptr
                                                              : compiled->gradient_luts.data();
-                            for (const Vfx::CompiledEmitter& emitter : compiled->emitters)
+                            for (const VFX::CompiledEmitter& emitter : compiled->emitters)
                             {
-                                if (emitter.domain != Vfx::SimulationDomain::Cosmetic)
+                                if (emitter.domain != VFX::SimulationDomain::Cosmetic)
                                     continue;
 
                                 // The spawn count is the host's to compute — the emit shader is a
@@ -3824,14 +3824,14 @@ namespace SushiEngine
                                 weather_wind(*weather_provider_, local, /*altitude_meters=*/50.0,
                                              julian_date_ * 86400.0);
 
-                            Vfx::CompiledEmitter& rain = weather_rain_emitter_;
-                            rain = Vfx::CompiledEmitter{};
+                            VFX::CompiledEmitter& rain = weather_rain_emitter_;
+                            rain = VFX::CompiledEmitter{};
                             rain.capacity = 4096;
-                            rain.domain = Vfx::SimulationDomain::Cosmetic;
+                            rain.domain = VFX::SimulationDomain::Cosmetic;
                             rain.duration = 5.0f;
-                            rain.flags = Vfx::EMITTER_LOOPING;
+                            rain.flags = VFX::EMITTER_LOOPING;
                             rain.spawn_rate = 900.0f * precipitation;
-                            rain.shape = Vfx::EmitterShape::Box;
+                            rain.shape = VFX::EmitterShape::Box;
                             rain.shape_box_half_extents[0] = 35.0f;
                             rain.shape_box_half_extents[1] = 15.0f;
                             rain.shape_box_half_extents[2] = 35.0f;
@@ -3846,17 +3846,17 @@ namespace SushiEngine
                             rain.color[0] = 0.55f;
                             rain.color[1] = 0.62f;
                             rain.color[2] = 0.70f;
-                            rain.update_flags = Vfx::UPDATE_GRAVITY;
+                            rain.update_flags = VFX::UPDATE_GRAVITY;
                             // weather_wind()'s lateral drift, scaled well down: rain falls in ~2 s,
                             // so even a brisk wind should nudge the streak, not fling it sideways.
                             constexpr float WIND_DRIFT_SCALE = 0.2f;
                             rain.gravity[0] = static_cast<float>(wind.eastward_mps) * WIND_DRIFT_SCALE;
                             rain.gravity[1] = -3.0f;
                             rain.gravity[2] = static_cast<float>(wind.northward_mps) * WIND_DRIFT_SCALE;
-                            rain.blend = Vfx::BlendMode::Alpha;
-                            rain.alignment = Vfx::RenderAlignment::VelocityStretched;
+                            rain.blend = VFX::BlendMode::Alpha;
+                            rain.alignment = VFX::RenderAlignment::VelocityStretched;
                             rain.velocity_stretch = 0.04f;
-                            rain.render_flags = Vfx::RENDER_SOFT;
+                            rain.render_flags = VFX::RENDER_SOFT;
                             rain.soft_fade_distance = 0.3f;
 
                             weather_rain_spawn_carry_ +=
@@ -3938,14 +3938,14 @@ namespace SushiEngine
 
                         if (wisp_active)
                         {
-                            Vfx::CompiledEmitter& wisp = weather_wisp_emitter_;
-                            wisp = Vfx::CompiledEmitter{};
+                            VFX::CompiledEmitter& wisp = weather_wisp_emitter_;
+                            wisp = VFX::CompiledEmitter{};
                             wisp.capacity = 1024;
-                            wisp.domain = Vfx::SimulationDomain::Cosmetic;
+                            wisp.domain = VFX::SimulationDomain::Cosmetic;
                             wisp.duration = 6.0f;
-                            wisp.flags = Vfx::EMITTER_LOOPING;
+                            wisp.flags = VFX::EMITTER_LOOPING;
                             wisp.spawn_rate = 40.0f; // sparse and wispy, not a dense fog sheet.
-                            wisp.shape = Vfx::EmitterShape::Box;
+                            wisp.shape = VFX::EmitterShape::Box;
                             wisp.shape_box_half_extents[0] = 40.0f;
                             wisp.shape_box_half_extents[1] = 8.0f; // thin slab hugging the boundary.
                             wisp.shape_box_half_extents[2] = 40.0f;
@@ -3958,12 +3958,12 @@ namespace SushiEngine
                             wisp.color[0] = 0.92f;
                             wisp.color[1] = 0.94f;
                             wisp.color[2] = 0.97f;
-                            wisp.update_flags = Vfx::UPDATE_TURBULENCE;
+                            wisp.update_flags = VFX::UPDATE_TURBULENCE;
                             wisp.turbulence_frequency = 0.05f;
                             wisp.turbulence_amplitude = 1.2f;
-                            wisp.blend = Vfx::BlendMode::Alpha;
-                            wisp.alignment = Vfx::RenderAlignment::FaceCamera;
-                            wisp.render_flags = Vfx::RENDER_SOFT;
+                            wisp.blend = VFX::BlendMode::Alpha;
+                            wisp.alignment = VFX::RenderAlignment::FaceCamera;
+                            wisp.render_flags = VFX::RENDER_SOFT;
                             wisp.soft_fade_distance = 1.5f;
 
                             weather_wisp_spawn_carry_ +=
@@ -4072,11 +4072,11 @@ namespace SushiEngine
                      * emitter: an index can go stale when the library shrinks, and an emitter that
                      * silently stops is harder to diagnose than one playing the wrong effect.
                      */
-                    const Vfx::CompiledEffect* effect_for(const Record& record)
+                    const VFX::CompiledEffect* effect_for(const Record& record)
                     {
-                        if (record.effect_asset == Vfx::INVALID_EFFECT)
+                        if (record.effect_asset == VFX::INVALID_EFFECT)
                             return nullptr;
-                        const Vfx::CompiledEffect& compiled =
+                        const VFX::CompiledEffect& compiled =
                             effect_db_.compiled(record.effect_asset);
                         return compiled.emitters.empty() ? nullptr : &compiled;
                     }
@@ -4084,7 +4084,7 @@ namespace SushiEngine
                     /** @brief Gives a freshly added emitter the effect it starts from. */
                     void seed_emitter_effect(Record& record)
                     {
-                        if (record.effect_asset != Vfx::INVALID_EFFECT)
+                        if (record.effect_asset != VFX::INVALID_EFFECT)
                             return;
                         // A component that shows nothing reads as broken rather than as an
                         // invitation to author, so a new emitter starts somewhere visible.
@@ -4098,12 +4098,12 @@ namespace SushiEngine
                      * One host pool per entity, so a multi-emitter effect's deterministic half is
                      * represented by its first emitter; the rest is a per-emitter-pool refactor.
                      */
-                    static const Vfx::CompiledEmitter* first_deterministic(
-                        const Vfx::CompiledEffect& compiled) noexcept
+                    static const VFX::CompiledEmitter* first_deterministic(
+                        const VFX::CompiledEffect& compiled) noexcept
                     {
-                        for (const Vfx::CompiledEmitter& emitter : compiled.emitters)
+                        for (const VFX::CompiledEmitter& emitter : compiled.emitters)
                         {
-                            if (emitter.domain == Vfx::SimulationDomain::Deterministic)
+                            if (emitter.domain == VFX::SimulationDomain::Deterministic)
                                 return &emitter;
                         }
                         return nullptr;
@@ -4119,20 +4119,20 @@ namespace SushiEngine
                             if (record == nullptr || !record->has_particle_emitter ||
                                 !record->emitter_params.playing || !world_.alive(record->entity))
                                 continue;
-                            const Vfx::CompiledEffect* compiled = effect_for(*record);
+                            const VFX::CompiledEffect* compiled = effect_for(*record);
                             if (compiled == nullptr)
                                 continue;
                             record->emitter_time += dt;
 
                             // Only the deterministic emitters are stepped here; a cosmetic one is
                             // simulated by the renderer, and the extract merely places it.
-                            const Vfx::CompiledEmitter* emitter = first_deterministic(*compiled);
+                            const VFX::CompiledEmitter* emitter = first_deterministic(*compiled);
                             if (emitter == nullptr)
                                 continue;
                             const Vector3 position = world_.get<Transform>(record->entity).position;
                             const Quaternion rotation =
                                 world_.get<Orientation>(record->entity).rotation;
-                            Vfx::CpuDeterministicBackend::step(record->particle_pool, *emitter,
+                            VFX::CPUDeterministicBackend::step(record->particle_pool, *emitter,
                                                                *compiled, dt, position, rotation);
                         }
                     }
@@ -4252,14 +4252,14 @@ namespace SushiEngine
                     }
 
                     /** @brief A deterministic fire plume: buoyant cone, warm colour ramp. */
-                    static Vfx::ParticleEffect make_fire_effect()
+                    static VFX::ParticleEffect make_fire_effect()
                     {
-                        Vfx::EmitterDescriptor e;
+                        VFX::EmitterDescriptor e;
                         e.name = "Fire";
-                        e.domain = Vfx::SimulationDomain::Deterministic;
+                        e.domain = VFX::SimulationDomain::Deterministic;
                         e.capacity = 512;
                         e.spawn.rate_per_second = 140.0f;
-                        e.shape.shape = Vfx::EmitterShape::Cone;
+                        e.shape.shape = VFX::EmitterShape::Cone;
                         e.shape.radius = 0.2f;
                         e.shape.cone_angle_radians = 0.35f;
                         e.init.lifetime_min = 0.7f;
@@ -4276,17 +4276,17 @@ namespace SushiEngine
                         e.turbulence.frequency = 1.0f;
                         e.turbulence.amplitude = 1.4f;
                         e.size_over_life.enabled = true;
-                        e.size_over_life.curve.add_key(Vfx::CurveKey{0.0f, 0.3f, 0.0f, 1.5f});
-                        e.size_over_life.curve.add_key(Vfx::CurveKey{0.3f, 1.0f, 0.0f, 0.0f});
-                        e.size_over_life.curve.add_key(Vfx::CurveKey{1.0f, 0.0f, -1.0f, 0.0f});
+                        e.size_over_life.curve.add_key(VFX::CurveKey{0.0f, 0.3f, 0.0f, 1.5f});
+                        e.size_over_life.curve.add_key(VFX::CurveKey{0.3f, 1.0f, 0.0f, 0.0f});
+                        e.size_over_life.curve.add_key(VFX::CurveKey{1.0f, 0.0f, -1.0f, 0.0f});
                         e.color_over_life.enabled = true;
-                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.0f, Vector3{1.0, 0.9, 0.45}});
-                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.5f, Vector3{1.0, 0.35, 0.08}});
-                        e.color_over_life.gradient.add_color_key(Vfx::ColorKey{1.0f, Vector3{0.15, 0.03, 0.02}});
-                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.0f, 0.0f});
-                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.1f, 1.0f});
-                        e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{1.0f, 0.0f});
-                        Vfx::ParticleEffect effect;
+                        e.color_over_life.gradient.add_color_key(VFX::ColorKey{0.0f, Vector3{1.0, 0.9, 0.45}});
+                        e.color_over_life.gradient.add_color_key(VFX::ColorKey{0.5f, Vector3{1.0, 0.35, 0.08}});
+                        e.color_over_life.gradient.add_color_key(VFX::ColorKey{1.0f, Vector3{0.15, 0.03, 0.02}});
+                        e.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{0.0f, 0.0f});
+                        e.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{0.1f, 1.0f});
+                        e.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{1.0f, 0.0f});
+                        VFX::ParticleEffect effect;
                         effect.name = "Fire";
                         effect.emitters.push_back(e);
                         return effect;
@@ -4361,18 +4361,18 @@ namespace SushiEngine
                     // authored ECS entity. ParticleEmitterView::compiled is a non-owning pointer
                     // that must outlive the frame's render, so this has to be a persistent member,
                     // not a stack local built inside extract().
-                    Vfx::CompiledEmitter weather_rain_emitter_;
+                    VFX::CompiledEmitter weather_rain_emitter_;
                     float weather_rain_spawn_carry_ = 0.0f;
 
                     // W6 canopy wisp VFX (see extract()'s particle-emitter section): the same
                     // persistent-member reasoning as weather_rain_emitter_ above.
-                    Vfx::CompiledEmitter weather_wisp_emitter_;
+                    VFX::CompiledEmitter weather_wisp_emitter_;
                     float weather_wisp_spawn_carry_ = 0.0f;
 
                     // The deterministic particle path: a small library of built-in effects
                     // (Deterministic domain) an emitter entity references by index, and their
                     // display names for the inspector's picker. Compiled lazily on first step.
-                    Vfx::EffectDatabase effect_db_;
+                    VFX::EffectDatabase effect_db_;
 
                     // The master simulation epoch: the single "now" that both the orbital
                     // dynamics and the scene-frame placement of astro bodies read, so a

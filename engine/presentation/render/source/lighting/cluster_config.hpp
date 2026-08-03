@@ -76,7 +76,7 @@ namespace SushiEngine
             /** @brief Entries in the per-frame cluster→light index list. */
             constexpr std::uint32_t LIGHT_INDEX_COUNT = CLUSTER_COUNT * MAX_LIGHTS_PER_CLUSTER;
 
-            /** @brief 32-bit words one @c GpuLight occupies (four vec4 lanes). */
+            /** @brief 32-bit words one @c GPULight occupies (four vec4 lanes). */
             constexpr std::uint32_t GPU_LIGHT_FLOATS = 16;
 
             /** @brief Bytes one packed light occupies in the storage buffer (std430). */
@@ -94,7 +94,7 @@ namespace SushiEngine
             /** @brief Entries in the per-frame cluster→decal index list. */
             constexpr std::uint32_t DECAL_INDEX_COUNT = CLUSTER_COUNT * MAX_DECALS_PER_CLUSTER;
 
-            /** @brief 32-bit words one @c GpuDecal occupies (six vec4 lanes). */
+            /** @brief 32-bit words one @c GPUDecal occupies (six vec4 lanes). */
             constexpr std::uint32_t GPU_DECAL_FLOATS = 24;
 
             /** @brief Bytes one packed decal occupies in the storage buffer (std430). */

@@ -113,10 +113,10 @@ namespace SushiEngine
                     const Vector3T<T> pad{margin, margin, margin};
                     for (std::size_t i = cooked_.nodes.size(); i-- > 0;)
                     {
-                        MeshBvhNode<T>& node = cooked_.nodes[i];
+                        MeshBVHNode<T>& node = cooked_.nodes[i];
                         if (node.count > 0)
                         {
-                            Aabb<T> bounds =
+                            AABB<T> bounds =
                                 local_triangle_bounds(positions_.data(), indices_,
                                                       cooked_.order[node.first]);
                             for (std::uint32_t t = 1; t < node.count; ++t)
@@ -153,7 +153,7 @@ namespace SushiEngine
                 }
 
                 /** @brief The hierarchy's nodes; empty until @ref build has run. */
-                const std::vector<MeshBvhNode<T>>& nodes() const noexcept
+                const std::vector<MeshBVHNode<T>>& nodes() const noexcept
                 {
                     return cooked_.nodes;
                 }
@@ -165,10 +165,10 @@ namespace SushiEngine
                 }
 
                 /** @brief The whole surface's current bounds, or an empty box when there is none. */
-                Aabb<T> bounds() const noexcept
+                AABB<T> bounds() const noexcept
                 {
                     if (cooked_.nodes.empty())
-                        return Aabb<T>{Vector3T<T>{T(0), T(0), T(0)}, Vector3T<T>{T(0), T(0), T(0)}};
+                        return AABB<T>{Vector3T<T>{T(0), T(0), T(0)}, Vector3T<T>{T(0), T(0), T(0)}};
                     return cooked_.nodes[0].bounds;
                 }
 
@@ -215,7 +215,7 @@ namespace SushiEngine
             std::vector<NodePair> stack;
             stack.push_back(NodePair{0u, 0u});
 
-            const auto extent = [](const Aabb<T>& box) noexcept
+            const auto extent = [](const AABB<T>& box) noexcept
             {
                 const Vector3T<T> span = box.max - box.min;
                 return span.x + span.y + span.z;
@@ -226,8 +226,8 @@ namespace SushiEngine
                 const NodePair pair = stack.back();
                 stack.pop_back();
 
-                const MeshBvhNode<T>& node_a = a.nodes()[pair.left];
-                const MeshBvhNode<T>& node_b = b.nodes()[pair.right];
+                const MeshBVHNode<T>& node_a = a.nodes()[pair.left];
+                const MeshBVHNode<T>& node_b = b.nodes()[pair.right];
                 if (!aabb_overlap(node_a.bounds, node_b.bounds))
                     continue;
 

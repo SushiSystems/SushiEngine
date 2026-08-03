@@ -144,7 +144,7 @@ namespace SushiEngine
          * rather than four independently tuned systems that happen to agree by coincidence.
          *
          * Deliberately additive/multiplicative rather than a replacement: `VolumetricFogPass`
-         * and `AtmosphereLutPass` add @ref fog_density_bias / @ref turbidity_bias on top of the
+         * and `AtmosphereLUTPass` add @ref fog_density_bias / @ref turbidity_bias on top of the
          * author's own @ref FogParams::density / @ref AtmosphereParams::mie_coefficient at push-
          * constant build time, and `pbr.frag` blends @ref ground_wetness in only where a
          * material opts in (`MaterialFlags::MATERIAL_WEATHER_WET`). Unlike @ref Environment::clouds
@@ -174,7 +174,7 @@ namespace SushiEngine
          * indirect diffuse, and @c normal_bias pushes the sample point along the surface
          * normal to keep a probe behind the surface from leaking through it.
          */
-        struct GiParams
+        struct GIParams
         {
             bool enabled = false;    /**< Draw probe-volume GI at all. */
             float intensity = 1.0f;  /**< Multiplier on the gathered indirect diffuse. */
@@ -695,7 +695,7 @@ namespace SushiEngine
          * and finally the on-@c Surface atmosphere/ground regime. The far-field sky pass
          * handles Point/Disk/Impostor today; Mesh/Surface are the near-field hand-off.
          */
-        enum class BodyLod : std::uint32_t
+        enum class BodyLOD : std::uint32_t
         {
             Point = 0,
             Disk,
@@ -744,7 +744,7 @@ namespace SushiEngine
             float mean_radius_metres = 0.0f;                 /**< Physical mean radius, metres. */
             float ring_inner_metres = 0.0f;                  /**< Inner edge of the equatorial ring, metres; 0 = no ring. Plane normal is @ref pole. */
             float ring_outer_metres = 0.0f;                  /**< Outer edge of the equatorial ring, metres. */
-            BodyLod lod = BodyLod::Disk;                     /**< Representation regime this frame. */
+            BodyLOD lod = BodyLOD::Disk;                     /**< Representation regime this frame. */
             std::uint32_t body_id = 0;                       /**< The ephemeris body index this entry was filled from. */
             std::uint32_t is_star = 0;                       /**< 1 if the body emits (the Sun), else 0. */
             SurfaceStyle surface_style = SurfaceStyle::Rocky; /**< Procedural pattern the shader paints it with. */
@@ -875,7 +875,7 @@ namespace SushiEngine
             FogParams fog;               /**< Ground-hugging volumetric fog. */
             FogVolume fog_volumes[MAX_FOG_VOLUMES]{}; /**< Authored local fog primitives. */
             int fog_volume_count = 0;    /**< Number of populated @ref fog_volumes entries. */
-            GiParams gi;                 /**< Probe-volume global illumination. */
+            GIParams gi;                 /**< Probe-volume global illumination. */
             PlanetParams surface;        /**< How the planet's ground shades. */
             Cloudscape clouds;           /**< The ray-marched, layered cloudscape. */
             /**

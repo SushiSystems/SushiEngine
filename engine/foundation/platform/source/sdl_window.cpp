@@ -35,7 +35,7 @@ namespace SushiEngine
 {
     namespace Platform
     {
-        SdlWindow::SdlWindow(const char* title, int width, int height)
+        SDLWindow::SDLWindow(const char* title, int width, int height)
         {
             // Game-controller support (implies the joystick subsystem) so the input
             // translator can open pads and receive hot-plug/button/axis events. Core SDL2,
@@ -55,14 +55,14 @@ namespace SushiEngine
             }
         }
 
-        SdlWindow::~SdlWindow()
+        SDLWindow::~SDLWindow()
         {
             if (window_ != nullptr)
                 SDL_DestroyWindow(window_);
             SDL_Quit();
         }
 
-        bool SdlWindow::pump_events()
+        bool SDLWindow::pump_events()
         {
             bool keep_running = true;
             SDL_Event event;
@@ -80,7 +80,7 @@ namespace SushiEngine
             return keep_running;
         }
 
-        void SdlWindow::drawable_size(std::uint32_t& width, std::uint32_t& height) const
+        void SDLWindow::drawable_size(std::uint32_t& width, std::uint32_t& height) const
         {
             int w = 0;
             int h = 0;
@@ -89,7 +89,7 @@ namespace SushiEngine
             height = static_cast<std::uint32_t>(h < 0 ? 0 : h);
         }
 
-        std::vector<std::string> SdlWindow::vulkan_instance_extensions() const
+        std::vector<std::string> SDLWindow::vulkan_instance_extensions() const
         {
             unsigned int count = 0;
             if (SDL_Vulkan_GetInstanceExtensions(window_, &count, nullptr) == SDL_FALSE)
@@ -102,7 +102,7 @@ namespace SushiEngine
             return std::vector<std::string>(names.begin(), names.end());
         }
 
-        std::uint64_t SdlWindow::create_vulkan_surface(std::uint64_t instance) const
+        std::uint64_t SDLWindow::create_vulkan_surface(std::uint64_t instance) const
         {
             VkSurfaceKHR surface = VK_NULL_HANDLE;
             if (SDL_Vulkan_CreateSurface(window_, reinterpret_cast<VkInstance>(instance),

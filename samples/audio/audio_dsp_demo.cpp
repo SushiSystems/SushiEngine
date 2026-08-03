@@ -55,9 +55,9 @@
 
 using SushiEngine::Audio::AudioStreamFormat;
 using SushiEngine::Audio::IAudioRenderer;
-using SushiEngine::Audio::SdlAudioDevice;
+using SushiEngine::Audio::SDLAudioDevice;
 
-namespace Dsp = SushiEngine::Audio::Dsp;
+namespace DSP = SushiEngine::Audio::DSP;
 
 namespace
 {
@@ -72,15 +72,15 @@ namespace
      * @param sample_rate      The stream sample rate in Hz.
      * @param max_block_frames The largest block that will be processed.
      */
-    void build_graph(Dsp::BlockGraph& graph, double sample_rate, int max_block_frames)
+    void build_graph(DSP::BlockGraph& graph, double sample_rate, int max_block_frames)
     {
-        const Dsp::NodeId low = graph.add_node(std::unique_ptr<Dsp::Node>(new Dsp::SineNode(200.0f, 0.5f)));
-        const Dsp::NodeId high = graph.add_node(std::unique_ptr<Dsp::Node>(new Dsp::SineNode(5000.0f, 0.5f)));
-        const Dsp::NodeId mix = graph.add_node(std::unique_ptr<Dsp::Node>(new Dsp::MixNode(2)));
-        const Dsp::NodeId filter = graph.add_node(std::unique_ptr<Dsp::Node>(new Dsp::BiquadNode()));
-        const Dsp::NodeId gain = graph.add_node(std::unique_ptr<Dsp::Node>(new Dsp::GainNode(1.0f)));
+        const DSP::NodeId low = graph.add_node(std::unique_ptr<DSP::Node>(new DSP::SineNode(200.0f, 0.5f)));
+        const DSP::NodeId high = graph.add_node(std::unique_ptr<DSP::Node>(new DSP::SineNode(5000.0f, 0.5f)));
+        const DSP::NodeId mix = graph.add_node(std::unique_ptr<DSP::Node>(new DSP::MixNode(2)));
+        const DSP::NodeId filter = graph.add_node(std::unique_ptr<DSP::Node>(new DSP::BiquadNode()));
+        const DSP::NodeId gain = graph.add_node(std::unique_ptr<DSP::Node>(new DSP::GainNode(1.0f)));
 
-        graph.node_as<Dsp::BiquadNode>(filter)->filter().set_low_pass(700.0, 0.707, sample_rate);
+        graph.node_as<DSP::BiquadNode>(filter)->filter().set_low_pass(700.0, 0.707, sample_rate);
 
         graph.connect(low, 0, mix, 0);
         graph.connect(high, 0, mix, 1);
@@ -101,11 +101,11 @@ namespace
     class GraphRenderer final : public IAudioRenderer
     {
         public:
-            explicit GraphRenderer(Dsp::BlockGraph& graph) noexcept : graph_(graph) {}
+            explicit GraphRenderer(DSP::BlockGraph& graph) noexcept : graph_(graph) {}
 
             void render(float* const* channels, int channel_count, int frame_count) noexcept override
             {
-                Dsp::ScopedNoDenormals guard;
+                DSP::ScopedNoDenormals guard;
                 graph_.process(frame_count);
                 const float* mono = graph_.output_buffer();
                 for (int c = 0; c < channel_count; ++c)
@@ -127,7 +127,7 @@ namespace
             std::uint64_t blocks() const noexcept { return blocks_.load(std::memory_order_relaxed); }
 
         private:
-            Dsp::BlockGraph& graph_;
+            DSP::BlockGraph& graph_;
             std::atomic<std::uint64_t> blocks_{0};
     };
 } // namespace
@@ -138,7 +138,7 @@ int main()
     const int block_frames = 512;
 
     // (1) Headless: run the chain and measure the settled output.
-    Dsp::BlockGraph headless;
+    DSP::BlockGraph headless;
     build_graph(headless, sample_rate, block_frames);
 
     const int warmup_blocks = 50;
@@ -192,11 +192,11 @@ int main()
     }
 
     // (2) Best-effort playback.
-    Dsp::BlockGraph play;
+    DSP::BlockGraph play;
     build_graph(play, sample_rate, 2048);
     GraphRenderer renderer(play);
 
-    SdlAudioDevice device;
+    SDLAudioDevice device;
     AudioStreamFormat desired;
     desired.sample_rate = 48000;
     desired.channel_count = 2;

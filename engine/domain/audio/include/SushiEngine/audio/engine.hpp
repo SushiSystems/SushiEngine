@@ -153,7 +153,7 @@ namespace SushiEngine
                  */
                 void render(float* const* channels, int channel_count, int frame_count) noexcept override
                 {
-                    Dsp::ScopedNoDenormals guard;
+                    DSP::ScopedNoDenormals guard;
 
                     const int n = frame_count < max_block_ ? frame_count : max_block_;
 
@@ -169,8 +169,8 @@ namespace SushiEngine
                     {
                         // Headphone / stereo path: analytic binaural decode of the scene bus,
                         // summed with the non-spatial stereo master.
-                        Dsp::Simd::fill(binaural_left_.data(), n, 0.0f);
-                        Dsp::Simd::fill(binaural_right_.data(), n, 0.0f);
+                        DSP::SIMD::fill(binaural_left_.data(), n, 0.0f);
+                        DSP::SIMD::fill(binaural_right_.data(), n, 0.0f);
                         spatializer_.decode_binaural(binaural_left_.data(), binaural_right_.data(), n);
                         for (int c = 0; c < channel_count; ++c)
                         {
@@ -336,8 +336,8 @@ namespace SushiEngine
                 std::vector<float> binaural_right_;
                 float lfe_coeff_ = 0.0f;
                 float lfe_lp_ = 0.0f;
-                Dsp::Biquad kweight_shelf_;
-                Dsp::Biquad kweight_hp_;
+                DSP::Biquad kweight_shelf_;
+                DSP::Biquad kweight_hp_;
                 float loudness_mean_square_ = 0.0f;
             };
     } // namespace Audio

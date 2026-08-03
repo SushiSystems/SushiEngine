@@ -170,7 +170,7 @@ namespace SushiEngine
                                 std::size_t emitter_count = 0,
                                 const ParticleBillboard* billboards = nullptr,
                                 std::size_t billboard_count = 0,
-                                const UiView* ui = nullptr) override;
+                                const UIView* ui = nullptr) override;
                     std::uint32_t pick(std::uint32_t x, std::uint32_t y) override;
                     std::uint32_t slot_count() const noexcept override { return SLOTS; }
                     SceneViewTexture texture(std::uint32_t slot) const noexcept override;
@@ -251,7 +251,7 @@ namespace SushiEngine
                      *
                      * Declared before the passes so @ref ui_pass_ can hold references to them.
                      */
-                    Geometry::UiBuffers ui_geometry_;
+                    Geometry::UIBuffers ui_geometry_;
                     Assets::FontAtlas font_;
                     Scene::InstanceSystem instance_system_;
                     Scene::SkinningSystem skinning_;
@@ -277,7 +277,7 @@ namespace SushiEngine
                      * pack, so a scene with no planet in it pays for none of it.
                      */
                     Terrain::PlanetTerrain terrain_;
-                    Graph::GpuProfiler profiler_;
+                    Graph::GPUProfiler profiler_;
                     Graph::RenderGraph graph_;
                     /**
                      * @brief The per-pass capture, allocated only once someone asks for it.
@@ -287,7 +287,7 @@ namespace SushiEngine
                      * instrument is absent from an ordinary run, not merely idle in one.
                      */
                     std::unique_ptr<Graph::PassCapture> capture_;
-                    Passes::AtmosphereLutPass atmosphere_lut_pass_;
+                    Passes::AtmosphereLUTPass atmosphere_lut_pass_;
                     Passes::VolumetricFogPass volumetric_fog_pass_;
                     /**
                      * @brief The W2/W1 cloud bake trio: field, light volume, shadow map.
@@ -308,14 +308,14 @@ namespace SushiEngine
                      * own header comment).
                      */
                     Passes::CloudPanoramaPass cloud_panorama_pass_;
-                    Passes::IblPass ibl_pass_;
+                    Passes::IBLPass ibl_pass_;
                     Passes::IrradianceVolumePass irradiance_volume_pass_;
                     Passes::DepthPrepass depth_prepass_;
                     Passes::ShadowPass shadow_pass_;
                     Passes::ContactShadowPass contact_shadow_pass_;
                     Passes::RayTracedShadowPass ray_shadow_pass_;
-                    Passes::GtaoPass gtao_pass_;
-                    Passes::HizPass hiz_pass_;
+                    Passes::GTAOPass gtao_pass_;
+                    Passes::HiZPass hiz_pass_;
                     Passes::OcclusionPass occlusion_pass_;
                     Passes::CullPass cull_pass_;
                     Passes::DeformablePass deformable_pass_;
@@ -343,20 +343,20 @@ namespace SushiEngine
                      * before CloudCompositePass reads it, so it is declared (and must
                      * construct) between the two.
                      */
-                    Passes::CloudTaaPass cloud_taa_pass_;
+                    Passes::CloudTAAPass cloud_taa_pass_;
                     Passes::CloudCompositePass cloud_composite_pass_;
-                    Passes::SsrPass ssr_pass_;
+                    Passes::SSRPass ssr_pass_;
                     Passes::ParticlePass particle_pass_;
                     Passes::ParticleMeshPass particle_mesh_pass_;
-                    Passes::TaaPass taa_pass_;
+                    Passes::TAAPass taa_pass_;
                     Passes::DofPass dof_pass_;
                     Passes::MotionBlurPass motion_blur_pass_;
                     Passes::AutoExposurePass auto_exposure_pass_;
                     Passes::BloomPass bloom_pass_;
                     Passes::GridPass grid_pass_;
                     Passes::TonemapPass tonemap_pass_;
-                    Passes::FxaaPass fxaa_pass_;
-                    Passes::UiPass ui_pass_;
+                    Passes::FXAAPass fxaa_pass_;
+                    Passes::UIPass ui_pass_;
                     Passes::PickingPass picking_pass_;
                     std::vector<Passes::IRenderPass*> passes_;
                     ViewResources resources_;

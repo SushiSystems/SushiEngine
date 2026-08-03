@@ -55,7 +55,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /**
              * @brief A processor with a fixed number of mono input and output ports.
@@ -361,7 +361,7 @@ namespace SushiEngine
                     NodeId output_node_ = 0;
                     int output_port_ = 0;
             };
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

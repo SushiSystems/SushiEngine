@@ -231,7 +231,7 @@ namespace SushiEngine
                  * both happened this tick.
                  *
                  * `fracture_budget` and the running total are shared across whichever
-                 * column is active; `FemFractureBudget` carries no scalar type of its
+                 * column is active; `FEMFractureBudget` carries no scalar type of its
                  * own to disagree between them.
                  *
                  * @return Whether any element was actually removed. A caller holding
@@ -255,7 +255,7 @@ namespace SushiEngine
                 }
 
                 /** @brief The deterministic limits this body's fracture pass is held to (§9.5). */
-                FemFractureBudget fracture_budget{};
+                FEMFractureBudget fracture_budget{};
 
                 /** @brief Sets the uniform acceleration every unpinned particle feels. */
                 void set_external_acceleration(const Vector3& acceleration) noexcept
@@ -356,7 +356,7 @@ namespace SushiEngine
                 {
                     if (gameplay_ != nullptr && index < gameplay_->elements.size())
                     {
-                        const FemTetrahedronT<Scalar>& element = gameplay_->elements[index];
+                        const FEMTetrahedronT<Scalar>& element = gameplay_->elements[index];
                         for (int i = 0; i < 4; ++i)
                             vertex[i] = element.vertex[i];
                         stress = element.von_mises_stress;
@@ -365,7 +365,7 @@ namespace SushiEngine
                     }
                     if (cosmetic_ != nullptr && index < cosmetic_->elements.size())
                     {
-                        const FemTetrahedronT<float>& element = cosmetic_->elements[index];
+                        const FEMTetrahedronT<float>& element = cosmetic_->elements[index];
                         for (int i = 0; i < 4; ++i)
                             vertex[i] = element.vertex[i];
                         stress = Scalar(element.von_mises_stress);

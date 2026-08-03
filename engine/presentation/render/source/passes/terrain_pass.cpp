@@ -51,7 +51,7 @@ namespace SushiEngine
                                      Resources::ShaderLibrary& shaders,
                                      Resources::GraphicsPipelineFactory& pipelines,
                                      Terrain::TerrainLayout& layout,
-                                     Terrain::PlanetTerrain& terrain, IblPass& ibl,
+                                     Terrain::PlanetTerrain& terrain, IBLPass& ibl,
                                      CloudShadowMapPass& cloud_shadow, IrradianceVolumePass& gi,
                                      Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
                                      Lighting::LightSystem& lights)

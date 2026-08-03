@@ -108,7 +108,7 @@ namespace SushiEngine
                     cursor + asset.mesh_indices.size() * sizeof(std::uint32_t), 16);
                 const std::size_t mesh_nodes_offset = cursor;
                 cursor = detail::collision_align_up(
-                    cursor + mesh_nodes * sizeof(MeshBvhNode<Scalar>), 16);
+                    cursor + mesh_nodes * sizeof(MeshBVHNode<Scalar>), 16);
                 const std::size_t mesh_order_offset = cursor;
                 cursor = detail::collision_align_up(
                     cursor + asset.mesh_order.size() * sizeof(std::uint32_t), 16);
@@ -171,7 +171,7 @@ namespace SushiEngine
                 copy_section(mesh_indices_offset, asset.mesh_indices.data(),
                              asset.mesh_indices.size() * sizeof(std::uint32_t));
                 copy_section(mesh_nodes_offset, asset.mesh_nodes.data(),
-                             mesh_nodes * sizeof(MeshBvhNode<Scalar>));
+                             mesh_nodes * sizeof(MeshBVHNode<Scalar>));
                 copy_section(mesh_order_offset, asset.mesh_order.data(),
                              asset.mesh_order.size() * sizeof(std::uint32_t));
                 copy_section(mesh_adjacency_offset, asset.mesh_adjacency.data(),
@@ -220,7 +220,7 @@ namespace SushiEngine
                                       sizeof(std::uint32_t)))
                     return false;
                 if (!section_fits(header.mesh_nodes_offset,
-                                  std::size_t(header.mesh_node_count) * sizeof(MeshBvhNode<Scalar>)))
+                                  std::size_t(header.mesh_node_count) * sizeof(MeshBVHNode<Scalar>)))
                     return false;
                 if (!section_fits(header.mesh_order_offset,
                                   std::size_t(header.mesh_triangle_count) * sizeof(std::uint32_t)))
@@ -419,7 +419,7 @@ namespace SushiEngine
                         : reinterpret_cast<const std::uint32_t*>(data + header.mesh_indices_offset);
                 view.mesh_nodes = header.mesh_node_count == 0
                                       ? nullptr
-                                      : reinterpret_cast<const MeshBvhNode<Scalar>*>(
+                                      : reinterpret_cast<const MeshBVHNode<Scalar>*>(
                                             data + header.mesh_nodes_offset);
                 view.mesh_order =
                     header.mesh_triangle_count == 0

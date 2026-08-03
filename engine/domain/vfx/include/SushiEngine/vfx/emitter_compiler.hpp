@@ -45,7 +45,7 @@
 
 namespace SushiEngine
 {
-    namespace Vfx
+    namespace VFX
     {
         /**
          * @brief Compiles authored effects into device-uploadable @ref CompiledEffect data.
@@ -308,5 +308,5 @@ namespace SushiEngine
                     return offset;
                 }
         };
-    } // namespace Vfx
+    } // namespace VFX
 } // namespace SushiEngine

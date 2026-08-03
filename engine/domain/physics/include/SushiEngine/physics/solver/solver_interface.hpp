@@ -117,7 +117,7 @@ namespace SushiEngine
         {
             public:
                 /** @brief The persistent constraint kind this solver admits. */
-                using Constraint = XpbdDistanceConstraintT<T>;
+                using Constraint = XPBDDistanceConstraintT<T>;
 
                 /** @brief The per-tick constraint kind this solver admits (§6.3). */
                 using Contact = ContactConstraintT<T>;
@@ -135,7 +135,7 @@ namespace SushiEngine
                  * is a `RigidBodyT` with no inertia, which is why an element can push a
                  * crate and a crate can push an element with no coupling code at all.
                  */
-                using Element = FemTetrahedronT<T>;
+                using Element = FEMTetrahedronT<T>;
 
                 /**
                  * @brief The structural persistent kind this solver admits (§11.1).

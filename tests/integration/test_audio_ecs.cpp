@@ -17,7 +17,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Integration_AudioEcs: the phase-S6 audio snapshot extract against the real ECS world
+// Integration_AudioECS: the phase-S6 audio snapshot extract against the real ECS world
 // and runtime. It verifies that the wall-clock read of AudioListener/AudioEmitter/
 // ReverbZone columns produces a correct listener-local snapshot (facing from the
 // Orientation quaternion, emitter positions eye-subtracted in double, the containing
@@ -49,7 +49,7 @@ namespace
     };
 } // namespace
 
-TEST(Integration_AudioEcs, ExtractReadsListenerFacingAndListenerLocalEmitters)
+TEST(Integration_AudioECS, ExtractReadsListenerFacingAndListenerLocalEmitters)
 {
     World world(Harness::shared_context(), 256);
 
@@ -74,7 +74,7 @@ TEST(Integration_AudioEcs, ExtractReadsListenerFacingAndListenerLocalEmitters)
     EXPECT_TRUE(snap.emitters[0].playing);
 }
 
-TEST(Integration_AudioEcs, ExtractPicksTheContainingReverbZoneAndLeavesTheWorldUnchanged)
+TEST(Integration_AudioECS, ExtractPicksTheContainingReverbZoneAndLeavesTheWorldUnchanged)
 {
     World world(Harness::shared_context(), 256);
     world.spawn(Transform{Vector3{0, 0, 0}}, Orientation{}, AudioListener{});
@@ -96,7 +96,7 @@ TEST(Integration_AudioEcs, ExtractPicksTheContainingReverbZoneAndLeavesTheWorldU
     EXPECT_DOUBLE_EQ(world.get<Transform>(emitter).position.z, -4.0);
 }
 
-TEST(Integration_AudioEcs, ExtractOutsideAnyZoneReportsNoReverb)
+TEST(Integration_AudioECS, ExtractOutsideAnyZoneReportsNoReverb)
 {
     World world(Harness::shared_context(), 256);
     world.spawn(Transform{Vector3{0, 0, 0}}, Orientation{}, AudioListener{});
@@ -111,7 +111,7 @@ TEST(Integration_AudioEcs, ExtractOutsideAnyZoneReportsNoReverb)
     EXPECT_FALSE(snap.has_reverb);
 }
 
-TEST(Integration_AudioEcs, ExtractDrivesAudioSceneVoicesAsEmittersMove)
+TEST(Integration_AudioECS, ExtractDrivesAudioSceneVoicesAsEmittersMove)
 {
     World world(Harness::shared_context(), 256);
     world.spawn(Transform{Vector3{0, 0, 0}}, Orientation{}, AudioListener{});

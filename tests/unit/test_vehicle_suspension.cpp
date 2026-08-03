@@ -155,7 +155,7 @@ namespace
     };
 
     /** @brief Advances the solver and runs the vehicle's tick boundary, @p ticks times. */
-    void run(HostXpbdSolver<Scalar>& solver, VehicleInstance& vehicle, int ticks)
+    void run(HostXPBDSolver<Scalar>& solver, VehicleInstance& vehicle, int ticks)
     {
         StepParameters<Scalar> parameters;
         parameters.delta_time = Scalar(1) / Scalar(60);
@@ -175,7 +175,7 @@ namespace
      * contact model underneath it would put a second unverified thing in every
      * measurement.
      */
-    void plant(HostXpbdSolver<Scalar>& solver, const SuspensionUnit& corner)
+    void plant(HostXPBDSolver<Scalar>& solver, const SuspensionUnit& corner)
     {
         const BodyHandle handles[2] = {corner.carrier(), corner.wheel()};
         for (BodyHandle handle : handles)
@@ -190,7 +190,7 @@ namespace
     }
 
     /** @brief The world direction a corner's wheel spins about. */
-    Vector3 axle_direction(const HostXpbdSolver<Scalar>& solver, const SuspensionUnit& corner)
+    Vector3 axle_direction(const HostXPBDSolver<Scalar>& solver, const SuspensionUnit& corner)
     {
         RigidBody wheel;
         if (!solver.read_body(corner.wheel(), wheel))
@@ -214,7 +214,7 @@ TEST(Unit_VehicleSuspension, InstancesEveryCorner)
     const Blob blob(chassis_asset());
     ASSERT_TRUE(blob.view.valid);
 
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     VehicleInstance vehicle;
     ASSERT_TRUE(vehicle.create(solver, blob.view, four_corners(Scalar(6)),
                                NodeBeamStructureSettings<Scalar>{}));
@@ -229,7 +229,7 @@ TEST(Unit_VehicleSuspension, InstancesEveryCorner)
 TEST(Unit_VehicleSuspension, WheelInertiaIsACylinderAboutTheAxle)
 {
     const Blob blob(chassis_asset());
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     VehicleInstance vehicle;
     ASSERT_TRUE(vehicle.create(solver, blob.view, four_corners(Scalar(6)),
                                NodeBeamStructureSettings<Scalar>{}));
@@ -257,7 +257,7 @@ TEST(Unit_VehicleSuspension, WheelInertiaIsACylinderAboutTheAxle)
 TEST(Unit_VehicleSuspension, TheSpringCarriesTheCornerWeight)
 {
     const Blob blob(chassis_asset());
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     VehicleInstance vehicle;
     ASSERT_TRUE(vehicle.create(solver, blob.view, four_corners(Scalar(8)),
                                NodeBeamStructureSettings<Scalar>{}));
@@ -289,7 +289,7 @@ TEST(Unit_VehicleSuspension, TheDamperSettlesTheStrut)
 
     for (int damped = 0; damped < 2; ++damped)
     {
-        HostXpbdSolver<Scalar> solver(vehicle_scene());
+        HostXPBDSolver<Scalar> solver(vehicle_scene());
         VehicleInstance vehicle;
         ASSERT_TRUE(vehicle.create(solver, blob.view,
                                    four_corners(damped != 0 ? Scalar(8) : Scalar(0)),
@@ -317,7 +317,7 @@ TEST(Unit_VehicleSuspension, TheDamperSettlesTheStrut)
 TEST(Unit_VehicleSuspension, SteeringTurnsTheFrontAxlesAndLeavesTheRear)
 {
     const Blob blob(chassis_asset());
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     VehicleInstance vehicle;
     ASSERT_TRUE(vehicle.create(solver, blob.view, four_corners(Scalar(8)),
                                NodeBeamStructureSettings<Scalar>{}));
@@ -350,7 +350,7 @@ TEST(Unit_VehicleSuspension, TheBrakeStopsAWheelThatOtherwiseKeepsSpinning)
 
     for (int braked = 0; braked < 2; ++braked)
     {
-        HostXpbdSolver<Scalar> solver(vehicle_scene());
+        HostXPBDSolver<Scalar> solver(vehicle_scene());
         VehicleInstance vehicle;
         ASSERT_TRUE(vehicle.create(solver, blob.view, four_corners(Scalar(8)),
                                    NodeBeamStructureSettings<Scalar>{}));
@@ -383,7 +383,7 @@ TEST(Unit_VehicleSuspension, TheBrakeStopsAWheelThatOtherwiseKeepsSpinning)
 TEST(Unit_VehicleSuspension, TheBumpStopCatchesAStrutDrivenPastItsTravel)
 {
     const Blob blob(chassis_asset());
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     VehicleInstance vehicle;
     // Three kilonewtons per metre under two hundred kilograms a corner: the spring alone
     // would sink far past the twelve centimetres of travel it has.
@@ -409,7 +409,7 @@ TEST(Unit_VehicleSuspension, CornersRequireARigidCore)
     const Blob blob(coreless);
     ASSERT_TRUE(blob.view.valid);
 
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     VehicleInstance vehicle;
     EXPECT_FALSE(vehicle.create(solver, blob.view, four_corners(Scalar(8)),
                                 NodeBeamStructureSettings<Scalar>{}));
@@ -432,7 +432,7 @@ TEST(Unit_VehicleSuspension, CornersRequireARigidCore)
 TEST(Unit_VehicleSuspension, RefusalLeavesTheSolverEmpty)
 {
     const Blob blob(chassis_asset());
-    HostXpbdSolver<Scalar> solver(vehicle_scene(12));
+    HostXPBDSolver<Scalar> solver(vehicle_scene(12));
 
     VehicleInstance refused;
     ASSERT_FALSE(refused.create(solver, blob.view, four_corners(Scalar(8)),

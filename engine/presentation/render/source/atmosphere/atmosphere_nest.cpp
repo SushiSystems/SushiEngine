@@ -199,12 +199,12 @@ namespace SushiEngine
                 class TimedSection
                 {
                     public:
-                        TimedSection(Graph::GpuProfiler* profiler, VkCommandBuffer cmd,
+                        TimedSection(Graph::GPUProfiler* profiler, VkCommandBuffer cmd,
                                      const char* name)
                             : profiler_(profiler), cmd_(cmd),
                               timer_(profiler != nullptr
                                          ? profiler->begin_pass(cmd, name)
-                                         : Graph::GpuProfiler::INVALID_TIMER)
+                                         : Graph::GPUProfiler::INVALID_TIMER)
                         {
                         }
                         ~TimedSection()
@@ -217,7 +217,7 @@ namespace SushiEngine
                         TimedSection& operator=(const TimedSection&) = delete;
 
                     private:
-                        Graph::GpuProfiler* profiler_;
+                        Graph::GPUProfiler* profiler_;
                         VkCommandBuffer cmd_;
                         std::uint32_t timer_;
                 };
@@ -271,7 +271,7 @@ namespace SushiEngine
                 // profiler reports nothing at all on a device without timestamp support, which
                 // is the honest outcome — `step_cost().measured` stays false and the panel says
                 // so rather than displaying zeros as though they were a fast step.
-                profiler_ = std::make_unique<Graph::GpuProfiler>(
+                profiler_ = std::make_unique<Graph::GPUProfiler>(
                     device_, MIRROR_SLOTS, std::uint32_t(ATMOSPHERE_TIMED_STAGES));
             }
 
@@ -980,7 +980,7 @@ namespace SushiEngine
                 // the budget on the first step and a half and report a breakdown that silently
                 // stopped part-way. The outer bracket still measures the whole submission, so
                 // `total_ms / steps` remains the honest per-step number.
-                Graph::GpuProfiler* const profiler = timed ? profiler_.get() : nullptr;
+                Graph::GPUProfiler* const profiler = timed ? profiler_.get() : nullptr;
 
                 const auto begin = [&](std::uint32_t stage, Resources::DescriptorWriter& writer)
                 {

@@ -37,7 +37,7 @@
  * same physics owning its own arrays, so a tier swap is a pointer assignment.
  *
  * The arithmetic is **not** re-derived here. A spring is an
- * `XpbdDistanceConstraintT` and its projection is `XpbdDistanceProjectionT`, the
+ * `XPBDDistanceConstraintT` and its projection is `XPBDDistanceProjectionT`, the
  * same descriptor and the same functor the rigid-body solver, the host mirror and
  * the device graph all run — which is what stops this tier from developing its
  * own private idea of what a compliance means. All this class adds is the array
@@ -87,7 +87,7 @@ namespace SushiEngine
                  * Gauss-Seidel result depends on — so it is a property of the body's
                  * construction and never of a container's iteration (§0.5).
                  */
-                std::vector<XpbdDistanceConstraintT<T>> springs;
+                std::vector<XPBDDistanceConstraintT<T>> springs;
 
                 /**
                  * @brief The bending stencils, swept after the springs (§9.1).
@@ -100,7 +100,7 @@ namespace SushiEngine
                  * guarantee than a zero coefficient, which would still cost a pass
                  * and could still perturb a sum.
                  */
-                std::vector<XpbdBendingConstraintT<T>> bending;
+                std::vector<XPBDBendingConstraintT<T>> bending;
 
                 /** @brief How fast the body bleeds off velocity, per second. */
                 T damping = 0;
@@ -120,7 +120,7 @@ namespace SushiEngine
                 {
                     if (a >= particles.size() || b >= particles.size() || a == b)
                         return;
-                    XpbdDistanceConstraintT<T> spring;
+                    XPBDDistanceConstraintT<T> spring;
                     spring.a = a;
                     spring.b = b;
                     spring.local_anchor_a = Vector3T<T>{T(0), T(0), T(0)};
@@ -147,7 +147,7 @@ namespace SushiEngine
                 void project_constraints(T h) noexcept override
                 {
                     lambda_.assign(springs.size(), T(0));
-                    const XpbdDistanceProjectionT<T> projection;
+                    const XPBDDistanceProjectionT<T> projection;
                     for (std::size_t i = 0; i < springs.size(); ++i)
                         projection(springs[i], particles.data(), lambda_[i], h);
 
@@ -157,7 +157,7 @@ namespace SushiEngine
                     if (bending.empty())
                         return;
                     bending_lambda_.assign(bending.size(), T(0));
-                    const XpbdBendingProjectionT<T> bend;
+                    const XPBDBendingProjectionT<T> bend;
                     for (std::size_t i = 0; i < bending.size(); ++i)
                         bend(bending[i], particles.data(), bending_lambda_[i], h);
                 }
@@ -181,7 +181,7 @@ namespace SushiEngine
                         if (index[i] >= particles.size())
                             return false;
 
-                    XpbdBendingConstraintT<T> constraint;
+                    XPBDBendingConstraintT<T> constraint;
                     if (!build_bending_constraint(particles[edge_a].position,
                                                   particles[edge_b].position,
                                                   particles[opposite_a].position,

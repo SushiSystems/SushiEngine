@@ -116,7 +116,7 @@ int main()
 {
     const double sample_rate = 48000.0;
 
-    SofaHrtfDatabase db;
+    SofaHRTFDatabase db;
     const std::string real_path = "assets/hrtf/mit_kemar_normal_pinna.sofa";
     if (!(db.load(real_path, sample_rate) && db.valid()))
     {
@@ -172,7 +172,7 @@ int main()
         db.get_hrir(0.0f, 1.0f, 0.0f, base_l.data(), base_r.data());
         const int base_itd = std::abs(first_arrival(base_r.data(), n) - first_arrival(base_l.data(), n));
 
-        AnthropometricHrtfDatabase big_head(db, 0.11f, 0.0875f); // ~26% larger head
+        AnthropometricHRTFDatabase big_head(db, 0.11f, 0.0875f); // ~26% larger head
         std::vector<float> big_l(static_cast<std::size_t>(n)), big_r(static_cast<std::size_t>(n));
         big_head.get_hrir(0.0f, 1.0f, 0.0f, big_l.data(), big_r.data());
         const int big_itd = std::abs(first_arrival(big_r.data(), n) - first_arrival(big_l.data(), n));

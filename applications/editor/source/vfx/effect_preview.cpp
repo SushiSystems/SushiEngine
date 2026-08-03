@@ -28,14 +28,14 @@ namespace SushiEngine
 {
     namespace Editor
     {
-        Vfx::ParticleEffect default_emitter_effect()
+        VFX::ParticleEffect default_emitter_effect()
         {
-            Vfx::EmitterDescriptor emitter;
+            VFX::EmitterDescriptor emitter;
             emitter.name = "Fire";
-            emitter.domain = Vfx::SimulationDomain::Cosmetic;
+            emitter.domain = VFX::SimulationDomain::Cosmetic;
             emitter.capacity = 8192;
             emitter.spawn.rate_per_second = 180.0f;
-            emitter.shape.shape = Vfx::EmitterShape::Cone;
+            emitter.shape.shape = VFX::EmitterShape::Cone;
             emitter.shape.radius = 0.25f;
             emitter.shape.cone_angle_radians = 0.35f;
             emitter.init.lifetime_min = 0.9f;
@@ -52,19 +52,19 @@ namespace SushiEngine
             emitter.turbulence.frequency = 1.0f;
             emitter.turbulence.amplitude = 1.6f;
             emitter.size_over_life.enabled = true;
-            emitter.size_over_life.curve.add_key(Vfx::CurveKey{0.0f, 0.3f, 0.0f, 1.5f});
-            emitter.size_over_life.curve.add_key(Vfx::CurveKey{0.3f, 1.0f, 0.0f, 0.0f});
-            emitter.size_over_life.curve.add_key(Vfx::CurveKey{1.0f, 0.0f, -1.0f, 0.0f});
+            emitter.size_over_life.curve.add_key(VFX::CurveKey{0.0f, 0.3f, 0.0f, 1.5f});
+            emitter.size_over_life.curve.add_key(VFX::CurveKey{0.3f, 1.0f, 0.0f, 0.0f});
+            emitter.size_over_life.curve.add_key(VFX::CurveKey{1.0f, 0.0f, -1.0f, 0.0f});
             emitter.color_over_life.enabled = true;
-            emitter.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.0f, Vector3{1.0, 0.95, 0.5}});
-            emitter.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.5f, Vector3{1.0, 0.35, 0.08}});
-            emitter.color_over_life.gradient.add_color_key(Vfx::ColorKey{1.0f, Vector3{0.15, 0.03, 0.02}});
-            emitter.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.0f, 0.0f});
-            emitter.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.12f, 1.0f});
-            emitter.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{1.0f, 0.0f});
-            emitter.render.blend = Vfx::BlendMode::Additive;
+            emitter.color_over_life.gradient.add_color_key(VFX::ColorKey{0.0f, Vector3{1.0, 0.95, 0.5}});
+            emitter.color_over_life.gradient.add_color_key(VFX::ColorKey{0.5f, Vector3{1.0, 0.35, 0.08}});
+            emitter.color_over_life.gradient.add_color_key(VFX::ColorKey{1.0f, Vector3{0.15, 0.03, 0.02}});
+            emitter.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{0.0f, 0.0f});
+            emitter.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{0.12f, 1.0f});
+            emitter.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{1.0f, 0.0f});
+            emitter.render.blend = VFX::BlendMode::Additive;
 
-            Vfx::ParticleEffect effect;
+            VFX::ParticleEffect effect;
             effect.name = "Campfire";
             effect.emitters.push_back(emitter);
             return effect;
@@ -73,14 +73,14 @@ namespace SushiEngine
         namespace
         {
             /** @brief A spark burst: fast, gravity-pulled, short-lived. */
-            Vfx::ParticleEffect make_spark_template()
+            VFX::ParticleEffect make_spark_template()
             {
-                Vfx::EmitterDescriptor e;
+                VFX::EmitterDescriptor e;
                 e.name = "Sparks";
-                e.domain = Vfx::SimulationDomain::Cosmetic;
+                e.domain = VFX::SimulationDomain::Cosmetic;
                 e.capacity = 4096;
                 e.spawn.rate_per_second = 90.0f;
-                e.shape.shape = Vfx::EmitterShape::Sphere;
+                e.shape.shape = VFX::EmitterShape::Sphere;
                 e.shape.radius = 0.05f;
                 e.init.lifetime_min = 0.5f;
                 e.init.lifetime_max = 1.1f;
@@ -93,29 +93,29 @@ namespace SushiEngine
                 e.drag.enabled = true;
                 e.drag.coefficient = 0.2f;
                 e.color_over_life.enabled = true;
-                e.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.0f, Vector3{1.0, 0.95, 0.7}});
-                e.color_over_life.gradient.add_color_key(Vfx::ColorKey{1.0f, Vector3{1.0, 0.4, 0.1}});
-                e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.0f, 1.0f});
-                e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{1.0f, 0.0f});
+                e.color_over_life.gradient.add_color_key(VFX::ColorKey{0.0f, Vector3{1.0, 0.95, 0.7}});
+                e.color_over_life.gradient.add_color_key(VFX::ColorKey{1.0f, Vector3{1.0, 0.4, 0.1}});
+                e.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{0.0f, 1.0f});
+                e.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{1.0f, 0.0f});
                 // A spark is the case velocity stretching was made for.
-                e.render.alignment = Vfx::RenderAlignment::VelocityStretched;
+                e.render.alignment = VFX::RenderAlignment::VelocityStretched;
                 e.render.velocity_stretch = 0.06f;
 
-                Vfx::ParticleEffect effect;
+                VFX::ParticleEffect effect;
                 effect.name = "Sparks";
                 effect.emitters.push_back(e);
                 return effect;
             }
 
             /** @brief A smoke column: slow, swelling, alpha-fading — and therefore lit. */
-            Vfx::ParticleEffect make_smoke_template()
+            VFX::ParticleEffect make_smoke_template()
             {
-                Vfx::EmitterDescriptor e;
+                VFX::EmitterDescriptor e;
                 e.name = "Smoke";
-                e.domain = Vfx::SimulationDomain::Cosmetic;
+                e.domain = VFX::SimulationDomain::Cosmetic;
                 e.capacity = 4096;
                 e.spawn.rate_per_second = 40.0f;
-                e.shape.shape = Vfx::EmitterShape::Cone;
+                e.shape.shape = VFX::EmitterShape::Cone;
                 e.shape.radius = 0.15f;
                 e.shape.cone_angle_radians = 0.25f;
                 e.init.lifetime_min = 2.0f;
@@ -132,34 +132,34 @@ namespace SushiEngine
                 e.turbulence.frequency = 0.5f;
                 e.turbulence.amplitude = 0.8f;
                 e.size_over_life.enabled = true;
-                e.size_over_life.curve.add_key(Vfx::CurveKey{0.0f, 0.4f, 0.0f, 1.0f});
-                e.size_over_life.curve.add_key(Vfx::CurveKey{1.0f, 1.6f, 0.0f, 0.0f});
+                e.size_over_life.curve.add_key(VFX::CurveKey{0.0f, 0.4f, 0.0f, 1.0f});
+                e.size_over_life.curve.add_key(VFX::CurveKey{1.0f, 1.6f, 0.0f, 0.0f});
                 e.color_over_life.enabled = true;
-                e.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.0f, Vector3{0.35, 0.35, 0.38}});
-                e.color_over_life.gradient.add_color_key(Vfx::ColorKey{1.0f, Vector3{0.12, 0.12, 0.13}});
-                e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.0f, 0.0f});
-                e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.15f, 0.55f});
-                e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{1.0f, 0.0f});
+                e.color_over_life.gradient.add_color_key(VFX::ColorKey{0.0f, Vector3{0.35, 0.35, 0.38}});
+                e.color_over_life.gradient.add_color_key(VFX::ColorKey{1.0f, Vector3{0.12, 0.12, 0.13}});
+                e.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{0.0f, 0.0f});
+                e.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{0.15f, 0.55f});
+                e.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{1.0f, 0.0f});
                 // True alpha, so it sorts and takes the sun and the clustered lights.
-                e.render.blend = Vfx::BlendMode::Alpha;
-                e.render.sort = Vfx::SortMode::ViewDistance;
+                e.render.blend = VFX::BlendMode::Alpha;
+                e.render.sort = VFX::SortMode::ViewDistance;
                 e.render.lit = true;
 
-                Vfx::ParticleEffect effect;
+                VFX::ParticleEffect effect;
                 effect.name = "Smoke";
                 effect.emitters.push_back(e);
                 return effect;
             }
 
             /** @brief A trail, so the ribbon path has a starting point an author can reach. */
-            Vfx::ParticleEffect make_trail_template()
+            VFX::ParticleEffect make_trail_template()
             {
-                Vfx::EmitterDescriptor e;
+                VFX::EmitterDescriptor e;
                 e.name = "Trail";
-                e.domain = Vfx::SimulationDomain::Cosmetic;
+                e.domain = VFX::SimulationDomain::Cosmetic;
                 e.capacity = 2048;
                 e.spawn.rate_per_second = 25.0f;
-                e.shape.shape = Vfx::EmitterShape::Sphere;
+                e.shape.shape = VFX::EmitterShape::Sphere;
                 e.shape.radius = 0.1f;
                 e.init.lifetime_min = 1.0f;
                 e.init.lifetime_max = 1.8f;
@@ -173,13 +173,13 @@ namespace SushiEngine
                 e.turbulence.frequency = 0.8f;
                 e.turbulence.amplitude = 1.2f;
                 e.color_over_life.enabled = true;
-                e.color_over_life.gradient.add_color_key(Vfx::ColorKey{0.0f, Vector3{0.5, 0.85, 1.0}});
-                e.color_over_life.gradient.add_color_key(Vfx::ColorKey{1.0f, Vector3{0.1, 0.25, 0.6}});
-                e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{0.0f, 1.0f});
-                e.color_over_life.gradient.add_alpha_key(Vfx::AlphaKey{1.0f, 0.0f});
-                e.render.alignment = Vfx::RenderAlignment::Ribbon;
+                e.color_over_life.gradient.add_color_key(VFX::ColorKey{0.0f, Vector3{0.5, 0.85, 1.0}});
+                e.color_over_life.gradient.add_color_key(VFX::ColorKey{1.0f, Vector3{0.1, 0.25, 0.6}});
+                e.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{0.0f, 1.0f});
+                e.color_over_life.gradient.add_alpha_key(VFX::AlphaKey{1.0f, 0.0f});
+                e.render.alignment = VFX::RenderAlignment::Ribbon;
 
-                Vfx::ParticleEffect effect;
+                VFX::ParticleEffect effect;
                 effect.name = "Trail";
                 effect.emitters.push_back(e);
                 return effect;
@@ -201,17 +201,17 @@ namespace SushiEngine
             effect_id_ = database_.add(default_emitter_effect());
         }
 
-        Vfx::ParticleEffect& EffectPreview::effect() noexcept
+        VFX::ParticleEffect& EffectPreview::effect() noexcept
         {
             return database_.effect_for_edit(effect_id_);
         }
 
-        void EffectPreview::set_effect(const Vfx::ParticleEffect& effect)
+        void EffectPreview::set_effect(const VFX::ParticleEffect& effect)
         {
             database_.replace(effect_id_, effect);
         }
 
-        const Vfx::ParticleEffect& EffectPreview::effect() const noexcept
+        const VFX::ParticleEffect& EffectPreview::effect() const noexcept
         {
             return database_.effect(effect_id_);
         }
@@ -221,7 +221,7 @@ namespace SushiEngine
             time_ = 0.0f;
             step_carry_ = 0.0f;
             std::fill(accumulators_.begin(), accumulators_.end(), 0.0f);
-            std::fill(states_.begin(), states_.end(), Vfx::DeterministicEmitterState{});
+            std::fill(states_.begin(), states_.end(), VFX::DeterministicEmitterState{});
             billboards_.clear();
         }
 
@@ -249,8 +249,8 @@ namespace SushiEngine
 
         void EffectPreview::replay_deterministic()
         {
-            const Vfx::CompiledEffect& compiled = database_.compiled(effect_id_);
-            states_.assign(compiled.emitters.size(), Vfx::DeterministicEmitterState{});
+            const VFX::CompiledEffect& compiled = database_.compiled(effect_id_);
+            states_.assign(compiled.emitters.size(), VFX::DeterministicEmitterState{});
             billboards_.clear();
             if (compiled.emitters.empty())
                 return;
@@ -268,7 +268,7 @@ namespace SushiEngine
                 // same asset looks like through the other one.
                 for (std::size_t i = 0; i < compiled.emitters.size(); ++i)
                 {
-                    Vfx::CpuDeterministicBackend::step(states_[i], compiled.emitters[i], compiled,
+                    VFX::CPUDeterministicBackend::step(states_[i], compiled.emitters[i], compiled,
                                                        DETERMINISTIC_STEP, position_, identity);
                 }
             }
@@ -278,11 +278,11 @@ namespace SushiEngine
         void EffectPreview::collect_billboards()
         {
             billboards_.clear();
-            for (const Vfx::DeterministicEmitterState& state : states_)
+            for (const VFX::DeterministicEmitterState& state : states_)
             {
                 for (std::uint32_t i = 0; i < state.alive_count; ++i)
                 {
-                    const Vfx::GpuParticle& particle = state.particles[i];
+                    const VFX::GPUParticle& particle = state.particles[i];
                     Render::ParticleBillboard billboard;
                     billboard.position =
                         Vector3{particle.position[0], particle.position[1], particle.position[2]};
@@ -299,7 +299,7 @@ namespace SushiEngine
         void EffectPreview::update(float dt)
         {
             views_.clear();
-            const Vfx::CompiledEffect& compiled = database_.compiled(effect_id_);
+            const VFX::CompiledEffect& compiled = database_.compiled(effect_id_);
             if (compiled.emitters.empty())
             {
                 billboards_.clear();
@@ -321,7 +321,7 @@ namespace SushiEngine
                         time_ += DETERMINISTIC_STEP;
                         for (std::size_t i = 0; i < compiled.emitters.size(); ++i)
                         {
-                            Vfx::CpuDeterministicBackend::step(states_[i], compiled.emitters[i],
+                            VFX::CPUDeterministicBackend::step(states_[i], compiled.emitters[i],
                                                                compiled, DETERMINISTIC_STEP,
                                                                position_, identity);
                         }
@@ -343,8 +343,8 @@ namespace SushiEngine
 
             for (std::size_t i = 0; i < compiled.emitters.size(); ++i)
             {
-                const Vfx::CompiledEmitter& emitter = compiled.emitters[i];
-                if (emitter.domain != Vfx::SimulationDomain::Cosmetic)
+                const VFX::CompiledEmitter& emitter = compiled.emitters[i];
+                if (emitter.domain != VFX::SimulationDomain::Cosmetic)
                     continue;
 
                 std::uint32_t spawn_count = 0;

@@ -45,7 +45,7 @@ namespace SushiEngine
                 // is zero-cleared once by the sim pass on its first run, so a particle's life
                 // starts at 0 (dead) before anything writes it.
                 const VkDeviceSize pool_bytes =
-                    static_cast<VkDeviceSize>(capacity_) * sizeof(Vfx::GpuParticle);
+                    static_cast<VkDeviceSize>(capacity_) * sizeof(VFX::GPUParticle);
                 grow(pool_,
                      pool_bytes,
                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, false,
@@ -119,11 +119,11 @@ namespace SushiEngine
                 for (std::size_t i = 0; i < count; ++i)
                 {
                     const ParticleEmitterView& view = emitters[i];
-                    const auto* compiled = static_cast<const Vfx::CompiledEmitter*>(view.compiled);
+                    const auto* compiled = static_cast<const VFX::CompiledEmitter*>(view.compiled);
                     if (compiled == nullptr)
                         continue;
 
-                    GpuEmitter gpu{};
+                    GPUEmitter gpu{};
                     for (int m = 0; m < 16; ++m)
                         gpu.model[m] = static_cast<float>(view.model.m[m]);
                     gpu.shape = static_cast<std::uint32_t>(compiled->shape);
@@ -178,13 +178,13 @@ namespace SushiEngine
                     gpu.soft_fade_distance = compiled->soft_fade_distance;
                     gpu.texture = 0;
                     gpu.pad_material = 0.0f;
-                    if ((compiled->render_flags & Vfx::RENDER_TEXTURED) != 0)
+                    if ((compiled->render_flags & VFX::RENDER_TEXTURED) != 0)
                     {
                         const std::uint32_t heap_slot = textures.heap_index(
                             static_cast<TextureId>(compiled->texture),
                             Assets::DefaultTexture::White);
                         if (heap_slot == Resources::INVALID_HEAP_INDEX)
-                            gpu.render_flags &= ~Vfx::RENDER_TEXTURED;
+                            gpu.render_flags &= ~VFX::RENDER_TEXTURED;
                         else
                             gpu.texture = heap_slot;
                     }
@@ -199,7 +199,7 @@ namespace SushiEngine
                     gpu.collision_restitution = compiled->collision_restitution;
                     gpu.collision_friction = compiled->collision_friction;
                     gpu.collision_thickness = compiled->collision_thickness;
-                    for (std::uint32_t f = 0; f < Vfx::MAX_FORCE_FIELDS; ++f)
+                    for (std::uint32_t f = 0; f < VFX::MAX_FORCE_FIELDS; ++f)
                     {
                         float* out = gpu.force_fields[f];
                         if (f >= compiled->force_field_count)
@@ -208,7 +208,7 @@ namespace SushiEngine
                                 out[k] = 0.0f;
                             continue;
                         }
-                        const Vfx::CompiledForceField& field = compiled->force_fields[f];
+                        const VFX::CompiledForceField& field = compiled->force_fields[f];
                         // Centre: the full transform (rotation, scale, translation).
                         for (int row = 0; row < 3; ++row)
                         {
@@ -252,7 +252,7 @@ namespace SushiEngine
                     gpu.beam_pad[1] = 0.0f;
 
                     gpu.mesh_slot = NO_MESH_SLOT;
-                    if (compiled->alignment == Vfx::RenderAlignment::Mesh &&
+                    if (compiled->alignment == VFX::RenderAlignment::Mesh &&
                         mesh_draws_.size() < MAX_MESH_EMITTERS)
                     {
                         const MeshId mesh_id = static_cast<MeshId>(compiled->mesh);
@@ -264,7 +264,7 @@ namespace SushiEngine
                                 MeshDraw{mesh_id, gpu.mesh_slot, mesh.index_count});
                         }
                     }
-                    if (compiled->blend == Vfx::BlendMode::Alpha)
+                    if (compiled->blend == VFX::BlendMode::Alpha)
                         has_alpha_ = true;
                     emitters_.push_back(gpu);
 
@@ -274,7 +274,7 @@ namespace SushiEngine
                 if (!emitters_.empty())
                 {
                     const VkDeviceSize table_bytes =
-                        static_cast<VkDeviceSize>(emitters_.size()) * sizeof(GpuEmitter);
+                        static_cast<VkDeviceSize>(emitters_.size()) * sizeof(GPUEmitter);
                     grow(emitter_tables_[slot], table_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true,
                          false);
                     std::memcpy(emitter_tables_[slot].mapped, emitters_.data(), table_bytes);
@@ -290,12 +290,12 @@ namespace SushiEngine
                     return;
 
                 const VkDeviceSize bytes =
-                    static_cast<VkDeviceSize>(count) * sizeof(Vfx::GpuParticle);
+                    static_cast<VkDeviceSize>(count) * sizeof(VFX::GPUParticle);
                 grow(billboards_[slot], bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true, false);
-                auto* out = static_cast<Vfx::GpuParticle*>(billboards_[slot].mapped);
+                auto* out = static_cast<VFX::GPUParticle*>(billboards_[slot].mapped);
                 for (std::size_t i = 0; i < count; ++i)
                 {
-                    Vfx::GpuParticle particle{};
+                    VFX::GPUParticle particle{};
                     particle.position[0] = static_cast<float>(billboards[i].position.x);
                     particle.position[1] = static_cast<float>(billboards[i].position.y);
                     particle.position[2] = static_cast<float>(billboards[i].position.z);
@@ -327,12 +327,12 @@ namespace SushiEngine
 
             VkDeviceSize ParticleSystem::billboard_range() const noexcept
             {
-                return static_cast<VkDeviceSize>(billboard_count_) * sizeof(Vfx::GpuParticle);
+                return static_cast<VkDeviceSize>(billboard_count_) * sizeof(VFX::GPUParticle);
             }
 
             VkDeviceSize ParticleSystem::pool_range() const noexcept
             {
-                return static_cast<VkDeviceSize>(capacity_) * sizeof(Vfx::GpuParticle);
+                return static_cast<VkDeviceSize>(capacity_) * sizeof(VFX::GPUParticle);
             }
 
             VkBuffer ParticleSystem::emitter_buffer(std::uint32_t slot) const noexcept
@@ -342,7 +342,7 @@ namespace SushiEngine
 
             VkDeviceSize ParticleSystem::emitter_range() const noexcept
             {
-                return static_cast<VkDeviceSize>(emitters_.size()) * sizeof(GpuEmitter);
+                return static_cast<VkDeviceSize>(emitters_.size()) * sizeof(GPUEmitter);
             }
 
             VkBuffer ParticleSystem::curve_lut_buffer(std::uint32_t slot) const noexcept

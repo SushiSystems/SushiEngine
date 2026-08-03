@@ -668,7 +668,7 @@ namespace SushiEngine
             // concern the renderer never learns. The pointer is converted with the previous
             // frame's image origin, which is not yet known for this one; a frame of latency on
             // a hover tint is not perceptible, and it is the only thing that depends on it.
-            SushiEngine::Render::UiView ui_view;
+            SushiEngine::Render::UIView ui_view;
             if (inputs.ui_overlay != nullptr && inputs.ui_overlay->count > 0)
             {
                 std::vector<ImVec4> local_rects;

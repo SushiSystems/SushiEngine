@@ -90,7 +90,7 @@ namespace
     }
 }
 
-TEST(Unit_GeometrySdf, ADegenerateMeshBakesNothing)
+TEST(Unit_GeometrySDF, ADegenerateMeshBakesNothing)
 {
     // Reported as an empty brick rather than as a crash or a field of zeros: zero is
     // a legal distance (it means "on the surface"), so a caller has to be able to
@@ -101,7 +101,7 @@ TEST(Unit_GeometrySdf, ADegenerateMeshBakesNothing)
     EXPECT_TRUE(brick.distances.empty());
 }
 
-TEST(Unit_GeometrySdf, ACubeReadsNegativeInsideAndPositiveOutside)
+TEST(Unit_GeometrySDF, ACubeReadsNegativeInsideAndPositiveOutside)
 {
     const TriangleMesh cube = unit_cube();
     const SignedDistanceFieldBrick brick = bake_signed_distance_field(cube.view(), 24);
@@ -120,7 +120,7 @@ TEST(Unit_GeometrySdf, ACubeReadsNegativeInsideAndPositiveOutside)
     EXPECT_NEAR(sample(brick, 0.0f, 0.0f, 0.0f), -0.5f, voxel * 2.0f);
 }
 
-TEST(Unit_GeometrySdf, TheBoundsArePaddedSoTheSurfaceHasClearance)
+TEST(Unit_GeometrySDF, TheBoundsArePaddedSoTheSurfaceHasClearance)
 {
     // Rays entering from outside must read positive distances before they reach the
     // zero isosurface; a brick tight to the mesh would start them on it.
@@ -132,7 +132,7 @@ TEST(Unit_GeometrySdf, TheBoundsArePaddedSoTheSurfaceHasClearance)
     EXPECT_GT(brick.aabb_max[0], 0.5f);
 }
 
-TEST(Unit_GeometrySdf, AStridedViewReadsTheSamePositions)
+TEST(Unit_GeometrySDF, AStridedViewReadsTheSamePositions)
 {
     // The reason TriangleMeshView carries a stride at all: the renderer's vertices
     // are 60 bytes with normals, tangents and two UV sets, and the baker walks them
@@ -169,7 +169,7 @@ TEST(Unit_GeometrySdf, AStridedViewReadsTheSamePositions)
         ASSERT_FLOAT_EQ(packed.distances[i], spread.distances[i]) << "voxel " << i;
 }
 
-TEST(Unit_GeometrySdf, BoundsCoverEveryVertex)
+TEST(Unit_GeometrySDF, BoundsCoverEveryVertex)
 {
     const TriangleMesh cube = unit_cube();
     float minimum[3];

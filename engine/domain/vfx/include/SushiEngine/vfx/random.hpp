@@ -40,7 +40,7 @@
 
 namespace SushiEngine
 {
-    namespace Vfx
+    namespace VFX
     {
         /**
          * @brief A permuted-congruential 32-bit generator with 64-bit state.
@@ -108,5 +108,5 @@ namespace SushiEngine
                 return min + (max - min) * next_float();
             }
         };
-    } // namespace Vfx
+    } // namespace VFX
 } // namespace SushiEngine

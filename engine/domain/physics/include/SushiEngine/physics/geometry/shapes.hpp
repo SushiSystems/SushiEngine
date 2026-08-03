@@ -79,7 +79,7 @@ namespace SushiEngine
 
         /** @brief An axis-aligned bounding box: its minimum and maximum corners. */
         template <typename T>
-        struct Aabb
+        struct AABB
         {
             Vector3T<T> min;
             Vector3T<T> max;
@@ -87,7 +87,7 @@ namespace SushiEngine
 
         /** @brief Whether two AABBs overlap on all three axes. */
         template <typename T>
-        inline bool aabb_overlap(const Aabb<T>& a, const Aabb<T>& b) noexcept
+        inline bool aabb_overlap(const AABB<T>& a, const AABB<T>& b) noexcept
         {
             return a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.y <= b.max.y &&
                    b.min.y <= a.max.y && a.min.z <= b.max.z && b.min.z <= a.max.z;
@@ -95,9 +95,9 @@ namespace SushiEngine
 
         /** @brief The smallest box containing both. */
         template <typename T>
-        inline Aabb<T> aabb_union(const Aabb<T>& a, const Aabb<T>& b) noexcept
+        inline AABB<T> aabb_union(const AABB<T>& a, const AABB<T>& b) noexcept
         {
-            return Aabb<T>{Vector3T<T>{a.min.x < b.min.x ? a.min.x : b.min.x,
+            return AABB<T>{Vector3T<T>{a.min.x < b.min.x ? a.min.x : b.min.x,
                                        a.min.y < b.min.y ? a.min.y : b.min.y,
                                        a.min.z < b.min.z ? a.min.z : b.min.z},
                            Vector3T<T>{a.max.x > b.max.x ? a.max.x : b.max.x,
@@ -107,16 +107,16 @@ namespace SushiEngine
 
         /** @brief A box grown by @p margin on every side. */
         template <typename T>
-        inline Aabb<T> aabb_expand(const Aabb<T>& box, T margin) noexcept
+        inline AABB<T> aabb_expand(const AABB<T>& box, T margin) noexcept
         {
-            return Aabb<T>{
+            return AABB<T>{
                 Vector3T<T>{box.min.x - margin, box.min.y - margin, box.min.z - margin},
                 Vector3T<T>{box.max.x + margin, box.max.y + margin, box.max.z + margin}};
         }
 
         /** @brief Whether @p outer encloses @p inner entirely. */
         template <typename T>
-        inline bool aabb_contains(const Aabb<T>& outer, const Aabb<T>& inner) noexcept
+        inline bool aabb_contains(const AABB<T>& outer, const AABB<T>& inner) noexcept
         {
             return outer.min.x <= inner.min.x && outer.min.y <= inner.min.y &&
                    outer.min.z <= inner.min.z && outer.max.x >= inner.max.x &&
@@ -132,7 +132,7 @@ namespace SushiEngine
          * A flat box has almost no volume and is not remotely free to traverse.
          */
         template <typename T>
-        inline T aabb_surface_area(const Aabb<T>& box) noexcept
+        inline T aabb_surface_area(const AABB<T>& box) noexcept
         {
             const Vector3T<T> size = box.max - box.min;
             const T x = size.x > T(0) ? size.x : T(0);
@@ -179,7 +179,7 @@ namespace SushiEngine
          * @return True when the ray is inside the box somewhere before @p max_distance.
          */
         template <typename T>
-        inline bool ray_hits_aabb(const Aabb<T>& box, const Vector3T<T>& origin,
+        inline bool ray_hits_aabb(const AABB<T>& box, const Vector3T<T>& origin,
                                   const Vector3T<T>& inverse_direction, T max_distance) noexcept
         {
             T near_distance = T(0);
@@ -331,7 +331,7 @@ namespace SushiEngine
          * plane gets and for the same reason.
          */
         template <typename T>
-        struct SdfCollider
+        struct SDFCollider
         {
             const float* distances = nullptr;
             std::int32_t resolution = 0;
@@ -352,7 +352,7 @@ namespace SushiEngine
          * gradient there.
          */
         template <typename T>
-        inline T sdf_gradient_epsilon(const SdfCollider<T>& field) noexcept
+        inline T sdf_gradient_epsilon(const SDFCollider<T>& field) noexcept
         {
             if (field.resolution <= 0)
                 return T(1e-3);
@@ -376,7 +376,7 @@ namespace SushiEngine
          *         with" rather than as a real, very-far-away sample.
          */
         template <typename T>
-        inline T sdf_sample_local(const SdfCollider<T>& field,
+        inline T sdf_sample_local(const SDFCollider<T>& field,
                                   const Vector3T<T>& local_point) noexcept
         {
             if (field.distances == nullptr || field.resolution <= 0)
@@ -408,7 +408,7 @@ namespace SushiEngine
 
         /** @brief Nearest-voxel sample of the field at a point in world space. */
         template <typename T>
-        inline T sdf_sample_world(const SdfCollider<T>& field,
+        inline T sdf_sample_world(const SDFCollider<T>& field,
                                   const Vector3T<T>& world_point) noexcept
         {
             const Vector3T<T> local = rotate(conjugate(field.orientation), world_point - field.center);
@@ -429,7 +429,7 @@ namespace SushiEngine
          * so a caller never receives a zero vector to divide by.
          */
         template <typename T>
-        inline Vector3T<T> sdf_gradient_world(const SdfCollider<T>& field,
+        inline Vector3T<T> sdf_gradient_world(const SDFCollider<T>& field,
                                               const Vector3T<T>& world_point) noexcept
         {
             const T epsilon = sdf_gradient_epsilon(field);
@@ -488,7 +488,7 @@ namespace SushiEngine
          *         @ref sdf_sample_local gives.
          */
         template <typename T>
-        inline T sdf_sample_interpolated_local(const SdfCollider<T>& field,
+        inline T sdf_sample_interpolated_local(const SDFCollider<T>& field,
                                                const Vector3T<T>& local_point,
                                                Vector3T<T>& out_gradient) noexcept
         {
@@ -593,7 +593,7 @@ namespace SushiEngine
          * @return The interpolated signed distance; negative inside the solid.
          */
         template <typename T>
-        inline T sdf_sample_interpolated_world(const SdfCollider<T>& field,
+        inline T sdf_sample_interpolated_world(const SDFCollider<T>& field,
                                                const Vector3T<T>& world_point,
                                                Vector3T<T>& out_normal) noexcept
         {
@@ -611,10 +611,10 @@ namespace SushiEngine
 
         /** @brief The world-space box enclosing a signed-distance field's padded brick. */
         template <typename T>
-        inline Aabb<T> world_bounds(const SdfCollider<T>& field) noexcept
+        inline AABB<T> world_bounds(const SDFCollider<T>& field) noexcept
         {
             if (field.resolution <= 0)
-                return Aabb<T>{field.center, field.center};
+                return AABB<T>{field.center, field.center};
             const Vector3T<T> corners_local[8] = {
                 Vector3T<T>{field.field_min.x, field.field_min.y, field.field_min.z},
                 Vector3T<T>{field.field_max.x, field.field_min.y, field.field_min.z},
@@ -634,7 +634,7 @@ namespace SushiEngine
                 high = Vector3T<T>{std::max(high.x, world.x), std::max(high.y, world.y),
                                    std::max(high.z, world.z)};
             }
-            return Aabb<T>{low, high};
+            return AABB<T>{low, high};
         }
 
         /**
@@ -862,15 +862,15 @@ namespace SushiEngine
 
         /** @brief The world-space box enclosing a sphere. */
         template <typename T>
-        inline Aabb<T> world_bounds(const SphereCollider<T>& sphere) noexcept
+        inline AABB<T> world_bounds(const SphereCollider<T>& sphere) noexcept
         {
             const Vector3T<T> extent{sphere.radius, sphere.radius, sphere.radius};
-            return Aabb<T>{sphere.center - extent, sphere.center + extent};
+            return AABB<T>{sphere.center - extent, sphere.center + extent};
         }
 
         /** @brief The world-space box enclosing an oriented box. */
         template <typename T>
-        inline Aabb<T> world_bounds(const OrientedBox<T>& box) noexcept
+        inline AABB<T> world_bounds(const OrientedBox<T>& box) noexcept
         {
             Vector3T<T> axes[3];
             obb_axes(box, axes);
@@ -882,12 +882,12 @@ namespace SushiEngine
                 extent.y += std::abs(axes[i].y) * extents[i];
                 extent.z += std::abs(axes[i].z) * extents[i];
             }
-            return Aabb<T>{box.center - extent, box.center + extent};
+            return AABB<T>{box.center - extent, box.center + extent};
         }
 
         /** @brief The world-space box enclosing a capsule. */
         template <typename T>
-        inline Aabb<T> world_bounds(const CapsuleCollider<T>& capsule) noexcept
+        inline AABB<T> world_bounds(const CapsuleCollider<T>& capsule) noexcept
         {
             Vector3T<T> start;
             Vector3T<T> end;
@@ -899,14 +899,14 @@ namespace SushiEngine
             const Vector3T<T> high{start.x > end.x ? start.x : end.x,
                                    start.y > end.y ? start.y : end.y,
                                    start.z > end.z ? start.z : end.z};
-            return Aabb<T>{low - radius, high + radius};
+            return AABB<T>{low - radius, high + radius};
         }
 
         /** @brief The world-space box enclosing a triangle. */
         template <typename T>
-        inline Aabb<T> world_bounds(const TriangleCollider<T>& triangle) noexcept
+        inline AABB<T> world_bounds(const TriangleCollider<T>& triangle) noexcept
         {
-            Aabb<T> bounds;
+            AABB<T> bounds;
             bounds.min = Vector3T<T>{
                 std::min(triangle.a.x, std::min(triangle.b.x, triangle.c.x)),
                 std::min(triangle.a.y, std::min(triangle.b.y, triangle.c.y)),
@@ -920,10 +920,10 @@ namespace SushiEngine
 
         /** @brief The world-space box enclosing a convex hull. */
         template <typename T>
-        inline Aabb<T> world_bounds(const ConvexHullView<T>& hull) noexcept
+        inline AABB<T> world_bounds(const ConvexHullView<T>& hull) noexcept
         {
             if (hull.vertices == nullptr || hull.vertex_count == 0)
-                return Aabb<T>{hull.center, hull.center};
+                return AABB<T>{hull.center, hull.center};
             Vector3T<T> low = rotate(hull.orientation, hull.vertices[0]);
             Vector3T<T> high = low;
             for (std::uint32_t i = 1; i < hull.vertex_count; ++i)
@@ -936,7 +936,7 @@ namespace SushiEngine
             }
             const Vector3T<T> inflation{hull.convex_radius, hull.convex_radius,
                                         hull.convex_radius};
-            return Aabb<T>{hull.center + low - inflation, hull.center + high + inflation};
+            return AABB<T>{hull.center + low - inflation, hull.center + high + inflation};
         }
 
         /** @brief The triangle's furthest vertex along @p direction. */

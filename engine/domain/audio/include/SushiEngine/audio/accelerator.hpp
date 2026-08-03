@@ -40,7 +40,7 @@
  * CPU mix is written against a seam rather than a concrete runtime call. The seam itself
  * stays intentionally thin — the sole query is @ref available — because the runtime's
  * fluent API is unstable and must not leak into the SDL/SYCL-free header tree. The concrete
- * S10 implementation, @ref SyclDspAccelerator in `accelerator_sycl.hpp` (a SYCL-only header),
+ * S10 implementation, @ref SYCLDSPAccelerator in `accelerator_sycl.hpp` (a SYCL-only header),
  * carries the batch-submit surface (upload/submit/collect) and confines all SushiRuntime
  * coupling to that one file; it reports @ref available true once its device queue is usable
  * and offloads batch FIR convolution with k-block lookahead. The CPU path remains the
@@ -63,10 +63,10 @@ namespace SushiEngine
          * directly and the offload can be switched on later without touching call
          * sites.
          */
-        class IDspAccelerator
+        class IDSPAccelerator
         {
             public:
-                virtual ~IDspAccelerator() = default;
+                virtual ~IDSPAccelerator() = default;
 
                 /**
                  * @brief Whether GPU batch offload is available in this build/session.

@@ -63,7 +63,7 @@ namespace SushiEngine
 
         namespace Graph
         {
-            class GpuProfiler;
+            class GPUProfiler;
             class PassCapture;
             class RenderGraph;
 
@@ -341,7 +341,7 @@ namespace SushiEngine
                      * @param device   The live Vulkan device.
                      * @param profiler Per-pass timing, or nullptr to record none.
                      */
-                    RenderGraph(Vulkan::VulkanDevice& device, GpuProfiler* profiler);
+                    RenderGraph(Vulkan::VulkanDevice& device, GPUProfiler* profiler);
 
                     RenderGraph(const RenderGraph&) = delete;
                     RenderGraph& operator=(const RenderGraph&) = delete;
@@ -587,7 +587,7 @@ namespace SushiEngine
                     Vulkan::VulkanDevice& device_;
                     Resources::TexturePool* textures_ = nullptr;
                     Resources::BufferPool* buffers_ = nullptr;
-                    GpuProfiler* profiler_ = nullptr;
+                    GPUProfiler* profiler_ = nullptr;
                     PassCapture* capture_ = nullptr;
                     std::vector<PassNode> passes_;
                     std::vector<TextureResource> texture_resources_;

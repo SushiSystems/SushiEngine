@@ -19,8 +19,8 @@
 /* permissions and limitations under the License.                        */
 /**************************************************************************/
 
-// Unit_SdfManifold: signed-distance-field collision, §7.5's "first-class
-// narrowphase path" (physics/geometry/shapes.hpp's SdfCollider, and
+// Unit_SDFManifold: signed-distance-field collision, §7.5's "first-class
+// narrowphase path" (physics/geometry/shapes.hpp's SDFCollider, and
 // physics/collision/sdf_manifold.hpp).
 //
 // A real cooked field comes from the collision cooker (P4) and is exercised
@@ -60,10 +60,10 @@ namespace
         Vector3 field_min{-1.0, -1.0, -1.0};
         Vector3 field_max{1.0, 1.0, 1.0};
 
-        SdfCollider<Scalar> shape(Vector3 center = Vector3{0.0, 0.0, 0.0},
+        SDFCollider<Scalar> shape(Vector3 center = Vector3{0.0, 0.0, 0.0},
                                   Quaternion orientation = Quaternion{0.0, 0.0, 0.0, 1.0}) const
         {
-            SdfCollider<Scalar> field;
+            SDFCollider<Scalar> field;
             field.distances = distances.data();
             field.resolution = resolution;
             field.field_min = field_min;
@@ -102,10 +102,10 @@ namespace
 // The gradient of a flat plane's field is the plane's own normal everywhere —
 // the simplest possible non-degenerate case, and the one every other
 // assertion in this file leans on.
-TEST(Unit_SdfManifold, GradientOfAPlaneFieldIsThePlaneNormal)
+TEST(Unit_SDFManifold, GradientOfAPlaneFieldIsThePlaneNormal)
 {
     const PlaneField built = build_plane_field(64);
-    const SdfCollider<Scalar> field = built.shape();
+    const SDFCollider<Scalar> field = built.shape();
 
     const Vector3 gradient = sdf_gradient_world(field, Vector3{0.1, 0.3, -0.2});
     EXPECT_NEAR(gradient.x, 0.0, 1e-6);
@@ -116,10 +116,10 @@ TEST(Unit_SdfManifold, GradientOfAPlaneFieldIsThePlaneNormal)
 // A sphere well clear of the surface produces no manifold at all — the same
 // "further apart than contact_offset reports nothing" contract every other
 // narrowphase routine in the engine holds to.
-TEST(Unit_SdfManifold, SphereFarFromTheFieldProducesNoContact)
+TEST(Unit_SDFManifold, SphereFarFromTheFieldProducesNoContact)
 {
     const PlaneField built = build_plane_field(64);
-    const SdfCollider<Scalar> field = built.shape();
+    const SDFCollider<Scalar> field = built.shape();
     const SphereCollider<Scalar> sphere{Vector3{0.0, 0.5, 0.0}, 0.1};
 
     const ContactManifold<Scalar> manifold = generate_convex_sdf_manifold<Scalar>(
@@ -130,10 +130,10 @@ TEST(Unit_SdfManifold, SphereFarFromTheFieldProducesNoContact)
 // A sphere overlapping the plane produces exactly one point, pushing the
 // sphere out along the plane's normal — up, away from the solid the field
 // encodes as `y < 0`.
-TEST(Unit_SdfManifold, OverlappingSphereProducesAnUpwardPushingContact)
+TEST(Unit_SDFManifold, OverlappingSphereProducesAnUpwardPushingContact)
 {
     const PlaneField built = build_plane_field(64);
-    const SdfCollider<Scalar> field = built.shape();
+    const SDFCollider<Scalar> field = built.shape();
     // Centre just above the plane, radius large enough that the sphere's
     // underside is well inside it.
     const SphereCollider<Scalar> sphere{Vector3{0.0, 0.02, 0.0}, 0.1};
@@ -159,7 +159,7 @@ TEST(Unit_SdfManifold, OverlappingSphereProducesAnUpwardPushingContact)
 // The dispatch table (§4.2) must resolve both orders of an SDF pair, and the
 // two answers must be the same contact seen from either side — the property
 // `gjk.hpp`'s own tests hold every convex pair to.
-TEST(Unit_SdfManifold, DispatchTableResolvesBothOrders)
+TEST(Unit_SDFManifold, DispatchTableResolvesBothOrders)
 {
     const PlaneField built = build_plane_field(64);
     const CollisionShape<Scalar> field_shape =
@@ -183,12 +183,12 @@ TEST(Unit_SdfManifold, DispatchTableResolvesBothOrders)
 
 // world_bounds must report the field's padded local bounds carried into the
 // world by its placement, the same contract every other shape's bounds hold.
-TEST(Unit_SdfManifold, WorldBoundsFollowsPlacement)
+TEST(Unit_SDFManifold, WorldBoundsFollowsPlacement)
 {
     const PlaneField built = build_plane_field(8);
-    const SdfCollider<Scalar> field = built.shape(Vector3{5.0, 0.0, 0.0});
+    const SDFCollider<Scalar> field = built.shape(Vector3{5.0, 0.0, 0.0});
 
-    const Aabb<Scalar> bounds = world_bounds(field);
+    const AABB<Scalar> bounds = world_bounds(field);
     EXPECT_NEAR(bounds.min.x, 4.0, 1e-9);
     EXPECT_NEAR(bounds.max.x, 6.0, 1e-9);
     EXPECT_NEAR(bounds.min.y, -1.0, 1e-9);
@@ -197,9 +197,9 @@ TEST(Unit_SdfManifold, WorldBoundsFollowsPlacement)
 
 // An empty field (no baked distances — an asset that carries none) must
 // report no contact rather than dereference a null pointer.
-TEST(Unit_SdfManifold, EmptyFieldProducesNoContact)
+TEST(Unit_SDFManifold, EmptyFieldProducesNoContact)
 {
-    SdfCollider<Scalar> field; // default: distances == nullptr
+    SDFCollider<Scalar> field; // default: distances == nullptr
     const SphereCollider<Scalar> sphere{Vector3{0.0, 0.0, 0.0}, 0.5};
 
     const ContactManifold<Scalar> manifold = generate_convex_sdf_manifold<Scalar>(

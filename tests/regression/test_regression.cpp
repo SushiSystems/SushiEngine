@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Regression_Ecs: behaviours that have a single correct answer and must never
+// Regression_ECS: behaviours that have a single correct answer and must never
 // drift. Each test pins one invariant that a future change could silently break.
 
 #include <cstddef>
@@ -44,7 +44,7 @@ namespace
 // Destroying many entities in arbitrary order must keep every surviving handle
 // resolving to its own data — the swap-remove directory repointing must hold up
 // across a full churn, not just a single removal.
-TEST(Regression_Ecs, SwapRemoveSurvivesInterleavedChurn)
+TEST(Regression_ECS, SwapRemoveSurvivesInterleavedChurn)
 {
     World world(Harness::shared_context(), 1024);
 
@@ -72,7 +72,7 @@ TEST(Regression_Ecs, SwapRemoveSurvivesInterleavedChurn)
 
 // A schedule whose systems match no live entities must run cleanly without
 // throwing, so an idle frame is safe even before anything is spawned.
-TEST(Regression_Ecs, EmptyScheduleRunIsANoOp)
+TEST(Regression_ECS, EmptyScheduleRunIsANoOp)
 {
     World world(Harness::shared_context(), 64);
     Schedule schedule(Harness::shared_context());

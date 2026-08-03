@@ -27,7 +27,7 @@
  *
  * `FiniteElementModel` owns a flat array of particles (`RigidBodyT`, exactly
  * the point-mass-with-no-rotation particles `soft/cloth.hpp` and the mass-spring
- * `soft/soft_body.hpp` already use) and a flat array of `FemTetrahedronT`
+ * `soft/soft_body.hpp` already use) and a flat array of `FEMTetrahedronT`
  * elements, and steps them with §9.1's two constraints per element, one
  * Gauss-Seidel sweep per sub-step — the same "many small steps, one iteration
  * each" schedule (§0.2) every other constraint kind in this engine already
@@ -39,7 +39,7 @@
  * for exactly two bodies per constraint, and a tetrahedron touches four. That
  * generalization is real, separable work, deliberately not taken on inside
  * P6-A — this class is the correct, tested physics first, in the same
- * relationship `HostXpbdSolver` has to `RuntimeGraphBuilder`, except for now
+ * relationship `HostXPBDSolver` has to `RuntimeGraphBuilder`, except for now
  * it is the only implementation rather than a conformance mirror of one.
  *
  * The element sweep runs in a fixed order (element index, ascending) every
@@ -87,7 +87,7 @@ namespace SushiEngine
                 using SoftBodyBase<T>::particles;
 
                 /** @brief The body's tetrahedra. */
-                std::vector<FemTetrahedronT<T>> elements;
+                std::vector<FEMTetrahedronT<T>> elements;
 
                 /** @brief The constitutive parameters every element's constraints read. */
                 SoftBodyMaterialT<T> material;
@@ -104,7 +104,7 @@ namespace SushiEngine
                 void project_constraints(T h) noexcept override
                 {
                     const LameParameters<T> lame = lame_parameters(material);
-                    for (FemTetrahedronT<T>& element : elements)
+                    for (FEMTetrahedronT<T>& element : elements)
                     {
                         element.deviatoric_lambda = 0;
                         element.hydrostatic_lambda = 0;
@@ -114,7 +114,7 @@ namespace SushiEngine
                         element.mu = lame.mu;
                         element.lambda = lame.lambda;
                     }
-                    for (FemTetrahedronT<T>& element : elements)
+                    for (FEMTetrahedronT<T>& element : elements)
                     {
                         project_fem_deviatoric(particles.data(), element, h);
                         project_fem_hydrostatic(particles.data(), element, h);
@@ -136,10 +136,10 @@ namespace SushiEngine
                 void end_tick() noexcept override
                 {
                     const LameParameters<T> lame = lame_parameters(material);
-                    for (FemTetrahedronT<T>& element : elements)
+                    for (FEMTetrahedronT<T>& element : elements)
                         element.von_mises_stress = tetrahedron_von_mises_stress(
                             particles.data(), element, lame.mu, lame.lambda);
-                    for (FemTetrahedronT<T>& element : elements)
+                    for (FEMTetrahedronT<T>& element : elements)
                         apply_fem_plasticity(particles.data(), element, material);
                 }
 
@@ -155,7 +155,7 @@ namespace SushiEngine
                 T maximum_stress() const noexcept override
                 {
                     T worst = 0;
-                    for (const FemTetrahedronT<T>& element : elements)
+                    for (const FEMTetrahedronT<T>& element : elements)
                         if (element.von_mises_stress > worst)
                             worst = element.von_mises_stress;
                     return worst;
@@ -226,7 +226,7 @@ namespace SushiEngine
                 const Vector3* source_inverse =
                     view.rest_inverse + std::size_t(record.first_tetrahedron + t) * 3;
 
-                FemTetrahedronT<T>& element = model.elements[t];
+                FEMTetrahedronT<T>& element = model.elements[t];
                 for (int corner = 0; corner < 4; ++corner)
                     element.vertex[corner] = source_vertex[corner] - record.first_vertex;
 

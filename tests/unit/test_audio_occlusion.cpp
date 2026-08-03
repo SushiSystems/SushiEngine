@@ -76,7 +76,7 @@ namespace
 }
 
 // The BLAS ray test: a segment through the wall is blocked; one that clears it is not.
-TEST(Unit_Audio, OcclusionBvhLineOfSight)
+TEST(Unit_Audio, OcclusionBVHLineOfSight)
 {
     AcousticMesh mesh;
     AcousticBlas blas;
@@ -219,7 +219,7 @@ TEST(Unit_Audio, OcclusionFilterWetSend)
 TEST(Unit_Audio, PortalGraphDoorwaySource)
 {
     PortalGraph graph;
-    AcousticAabb room_a, room_b;
+    AcousticAABB room_a, room_b;
     room_a.min = AudioVec3{-10, -5, -5}; room_a.max = AudioVec3{-0.1f, 5, 5};
     room_b.min = AudioVec3{0.1f, -5, -5}; room_b.max = AudioVec3{10, 5, 5};
     graph.add_room(1, room_a);

@@ -61,13 +61,13 @@ namespace SushiEngine
          * @c Temporal is the default: at these resolutions it costs less than MSAA,
          * removes shimmer MSAA cannot (specular, alpha-tested, and ray-marched sky
          * detail), and is what makes rendering below the output resolution viable.
-         * @c Fxaa is the cheap fallback for the low tier and for a host that cannot
+         * @c FXAA is the cheap fallback for the low tier and for a host that cannot
          * tolerate any history at all.
          */
         enum class AntiAliasingMode : std::uint32_t
         {
             None,
-            Fxaa,
+            FXAA,
             Temporal,
         };
 
@@ -511,7 +511,7 @@ namespace SushiEngine
          * @c power shape how strongly it darkens. Zero @c enabled drops the pass to a cleared
          * unoccluded target that costs nothing to sample.
          */
-        struct GtaoSettings
+        struct GTAOSettings
         {
             bool enabled = true;         /**< Whether the horizon march runs at all. */
             float radius = 1.0f;         /**< World metres the occlusion reaches. */
@@ -530,7 +530,7 @@ namespace SushiEngine
          * pyramid Phase 10's occlusion culling will reuse. The reflection trace itself lands
          * in a later increment; the pyramid is the shared foundation.
          */
-        struct SsrSettings
+        struct SSRSettings
         {
             bool enabled = true;           /**< Build the hi-Z pyramid (and, later, trace SSR). */
             std::uint32_t max_steps = 64;  /**< Ray-march steps before giving up (High baseline). */
@@ -550,7 +550,7 @@ namespace SushiEngine
          * is the LOD gate that drops instances too small on screen to matter. The debug fields
          * surface the cull to the editor without changing what ships.
          */
-        struct GpuCullingSettings
+        struct GPUCullingSettings
         {
             bool enabled = true;             /**< Take the GPU-driven path when the tier permits. */
             bool occlusion = true;           /**< Cull instances behind last frame's depth. */
@@ -625,10 +625,10 @@ namespace SushiEngine
             DynamicResolutionSettings dynamic_resolution;
             VariableRateShadingSettings variable_rate_shading;
             LightEngineSettings lights;
-            GtaoSettings gtao;
-            SsrSettings ssr;
+            GTAOSettings gtao;
+            SSRSettings ssr;
             PostProcessSettings post;
-            GpuCullingSettings gpu_culling;
+            GPUCullingSettings gpu_culling;
             FrameDeliverySettings delivery;
         };
     } // namespace Render

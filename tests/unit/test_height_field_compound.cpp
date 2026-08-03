@@ -314,7 +314,7 @@ TEST(Unit_Compound, BoundsEncloseEveryPart)
     parts[2].shape = make_capsule_shape(Vector3{0.0, 0.0, 0.0}, 0.75, 0.2);
     parts[2].local_position = Vector3{2.0, 0.0, 0.0};
 
-    const Aabb<Scalar> bounds =
+    const AABB<Scalar> bounds =
         compound_bounds<Scalar>(parts.data(), 3, Vector3{0.0, 0.0, 0.0}, IDENTITY);
 
     EXPECT_NEAR(bounds.min.x, -2.5, 1e-9);

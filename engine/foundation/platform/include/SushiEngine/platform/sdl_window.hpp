@@ -40,7 +40,7 @@ namespace SushiEngine
          * subsystem lifetime: constructing it initializes SDL video, destroying it quits.
          * The only SDL-aware editor component besides the ImGui backend.
          */
-        class SdlWindow final : public IPlatformWindow
+        class SDLWindow final : public IPlatformWindow
         {
             public:
                 /**
@@ -50,11 +50,11 @@ namespace SushiEngine
                  * @param height Initial window height in pixels.
                  * @throws std::runtime_error if SDL or the window fails to initialize.
                  */
-                SdlWindow(const char* title, int width, int height);
-                ~SdlWindow() override;
+                SDLWindow(const char* title, int width, int height);
+                ~SDLWindow() override;
 
-                SdlWindow(const SdlWindow&) = delete;
-                SdlWindow& operator=(const SdlWindow&) = delete;
+                SDLWindow(const SDLWindow&) = delete;
+                SDLWindow& operator=(const SDLWindow&) = delete;
 
                 bool pump_events() override;
                 void set_event_handler(EventHandler handler) override

@@ -71,7 +71,7 @@ namespace SushiEngine
         };
 
         /** @brief The LOD a distance resolves to: how many joints to pose and how often. */
-        struct InstanceLod
+        struct InstanceLOD
         {
             std::uint32_t joint_count = 0; /**< Joint-count prefix to compose (a valid sub-skeleton). */
             std::uint32_t update_hz = 60;  /**< Re-pose cadence. */
@@ -85,7 +85,7 @@ namespace SushiEngine
          * @param budget   The tier-resolved knobs.
          * @return The joint-count prefix and update cadence to pose this instance at.
          */
-        inline InstanceLod select_lod(const SkeletonView& skeleton, float distance,
+        inline InstanceLOD select_lod(const SkeletonView& skeleton, float distance,
                                       const AnimationBudget& budget) noexcept
         {
             std::uint32_t level = 0;
@@ -95,7 +95,7 @@ namespace SushiEngine
             level += budget.bone_lod_bias;
             if (level > 3)
                 level = 3;
-            InstanceLod lod;
+            InstanceLOD lod;
             lod.level = level;
             // The skeleton's LOD table caps the prefix; a single-LOD skeleton always poses full.
             const std::uint32_t lod_index = level < skeleton.lod_count ? level : skeleton.lod_count - 1;
@@ -155,7 +155,7 @@ namespace SushiEngine
                     for (std::size_t i = 0; i < count; ++i)
                     {
                         const BatchInstance& item = items[i];
-                        const InstanceLod lod = select_lod(item.skeleton, item.distance, budget);
+                        const InstanceLOD lod = select_lod(item.skeleton, item.distance, budget);
                         // The update cadence: re-pose every (base_hz / update_hz) ticks, phased
                         // by the instance index so a crowd's re-poses do not all land together.
                         const std::uint32_t stride =

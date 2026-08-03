@@ -102,7 +102,7 @@ int main()
 
     // A bounded, decaying tail from a long-decay preset.
     {
-        FdnReverbEffect reverb;
+        FDNReverbEffect reverb;
         reverb.prepare(sample_rate, block);
         I3DL2Reverb p = I3DL2Reverb::concert_hall();
         p.wet_dry_mix = 100.0f;
@@ -126,7 +126,7 @@ int main()
 
     // Predelay: a 50 ms gap leaves the first block (10.7 ms) silent.
     {
-        FdnReverbEffect reverb;
+        FDNReverbEffect reverb;
         reverb.prepare(sample_rate, block);
         I3DL2Reverb p = I3DL2Reverb::generic();
         p.reverb_delay = 0.05f;
@@ -149,7 +149,7 @@ int main()
 
     // A longer requested decay rings longer than a short one.
     {
-        FdnReverbEffect shortv, longv;
+        FDNReverbEffect shortv, longv;
         shortv.prepare(sample_rate, block);
         longv.prepare(sample_rate, block);
         I3DL2Reverb ps = I3DL2Reverb::generic();
@@ -195,7 +195,7 @@ int main()
     // The real reverb, on a per-zone aux bus (S5 — replaces the S2 low-pass placeholder).
     engine.mixer().add_aux_send(sfx_bus, reverb_bus, 0.6f);
     {
-        std::unique_ptr<FdnReverbEffect> fx(new FdnReverbEffect());
+        std::unique_ptr<FDNReverbEffect> fx(new FDNReverbEffect());
         I3DL2Reverb hall = I3DL2Reverb::concert_hall();
         hall.wet_dry_mix = 100.0f; // aux bus: pure wet, dry goes direct to master
         fx->set_params(hall);
@@ -232,7 +232,7 @@ int main()
     std::vector<float> left(block, 0.0f), right(block, 0.0f);
     float* channels[2] = {left.data(), right.data()};
 
-    SdlAudioDevice device;
+    SDLAudioDevice device;
     AudioStreamFormat desired;
     desired.sample_rate = 48000;
     desired.channel_count = 2;

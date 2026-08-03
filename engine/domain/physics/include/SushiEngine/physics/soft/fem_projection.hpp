@@ -79,7 +79,7 @@ namespace SushiEngine
     {
         /** @brief A 3x3 matrix as three columns — exactly `Dm^-1`'s own storage shape. */
         template <typename T>
-        struct FemMatrix3
+        struct FEMMatrix3
         {
             Vector3T<T> column0{Vector3T<T>{T(0), T(0), T(0)}};
             Vector3T<T> column1{Vector3T<T>{T(0), T(0), T(0)}};
@@ -97,12 +97,12 @@ namespace SushiEngine
          * @param rest_inverse_column2 `Dm^-1`'s column 2.
          */
         template <typename T>
-        inline FemMatrix3<T> tetrahedron_deformation_gradient(
+        inline FEMMatrix3<T> tetrahedron_deformation_gradient(
             const Vector3T<T>& edge1, const Vector3T<T>& edge2, const Vector3T<T>& edge3,
             const Vector3T<T>& rest_inverse_column0, const Vector3T<T>& rest_inverse_column1,
             const Vector3T<T>& rest_inverse_column2) noexcept
         {
-            FemMatrix3<T> f;
+            FEMMatrix3<T> f;
             f.column0 = edge1 * rest_inverse_column0.x + edge2 * rest_inverse_column0.y +
                        edge3 * rest_inverse_column0.z;
             f.column1 = edge1 * rest_inverse_column1.x + edge2 * rest_inverse_column1.y +
@@ -114,7 +114,7 @@ namespace SushiEngine
 
         /** @brief The Frobenius norm of a deformation gradient. */
         template <typename T>
-        inline T frobenius_norm(const FemMatrix3<T>& f) noexcept
+        inline T frobenius_norm(const FEMMatrix3<T>& f) noexcept
         {
             return std::sqrt(dot(f.column0, f.column0) + dot(f.column1, f.column1) +
                              dot(f.column2, f.column2));
@@ -122,7 +122,7 @@ namespace SushiEngine
 
         /** @brief The determinant of a deformation gradient. */
         template <typename T>
-        inline T determinant(const FemMatrix3<T>& f) noexcept
+        inline T determinant(const FEMMatrix3<T>& f) noexcept
         {
             return dot(f.column0, cross(f.column1, f.column2));
         }
@@ -132,7 +132,7 @@ namespace SushiEngine
          *
          * The standard cofactor identity — for `M = [c0|c1|c2]`, `M^-1`'s *rows* are
          * `(c1 x c2)`, `(c2 x c0)`, `(c0 x c1)`, each divided by `det(M)` — assembled
-         * back into columns here so the result is a `FemMatrix3` in the same
+         * back into columns here so the result is a `FEMMatrix3` in the same
          * column-major shape every other matrix in this file is. §9.1 never needs
          * this (the rest inverse arrives pre-cooked), but §9.4's plasticity does: it
          * has to invert the *current*, evolving shape matrix at runtime, which
@@ -144,7 +144,7 @@ namespace SushiEngine
          *         safely — a degenerate (collapsed or inverted) element.
          */
         template <typename T>
-        inline bool invert_fem_matrix3(const FemMatrix3<T>& m, FemMatrix3<T>& out) noexcept
+        inline bool invert_fem_matrix3(const FEMMatrix3<T>& m, FEMMatrix3<T>& out) noexcept
         {
             const T det = determinant(m);
             if (!(det > T(1e-24)) && !(det < T(-1e-24)))
@@ -173,9 +173,9 @@ namespace SushiEngine
          * @return Its transpose.
          */
         template <typename T>
-        inline FemMatrix3<T> transpose(const FemMatrix3<T>& m) noexcept
+        inline FEMMatrix3<T> transpose(const FEMMatrix3<T>& m) noexcept
         {
-            FemMatrix3<T> out;
+            FEMMatrix3<T> out;
             out.column0 = Vector3T<T>{m.column0.x, m.column1.x, m.column2.x};
             out.column1 = Vector3T<T>{m.column0.y, m.column1.y, m.column2.y};
             out.column2 = Vector3T<T>{m.column0.z, m.column1.z, m.column2.z};
@@ -184,7 +184,7 @@ namespace SushiEngine
 
         /** @brief One constraint's value and the gradient it hands each of the tetrahedron's four vertices. */
         template <typename T>
-        struct FemConstraintEvaluation
+        struct FEMConstraintEvaluation
         {
             T value = 0;
             /** @brief Gradient with respect to vertex 0, 1, 2, 3, in that order. */
@@ -216,12 +216,12 @@ namespace SushiEngine
          *        needs them again, alongside `f`).
          */
         template <typename T>
-        inline FemConstraintEvaluation<T> evaluate_deviatoric_constraint(
-            const FemMatrix3<T>& f, const Vector3T<T>& rest_inverse_column0,
+        inline FEMConstraintEvaluation<T> evaluate_deviatoric_constraint(
+            const FEMMatrix3<T>& f, const Vector3T<T>& rest_inverse_column0,
             const Vector3T<T>& rest_inverse_column1,
             const Vector3T<T>& rest_inverse_column2) noexcept
         {
-            FemConstraintEvaluation<T> result;
+            FEMConstraintEvaluation<T> result;
             const T norm = frobenius_norm(f);
             result.value = norm;
 
@@ -259,12 +259,12 @@ namespace SushiEngine
          *        deviatoric and hydrostatic terms do not fight each other at rest).
          */
         template <typename T>
-        inline FemConstraintEvaluation<T> evaluate_hydrostatic_constraint(
-            const FemMatrix3<T>& f, const Vector3T<T>& rest_inverse_column0,
+        inline FEMConstraintEvaluation<T> evaluate_hydrostatic_constraint(
+            const FEMMatrix3<T>& f, const Vector3T<T>& rest_inverse_column0,
             const Vector3T<T>& rest_inverse_column1, const Vector3T<T>& rest_inverse_column2,
             T mu_over_lambda) noexcept
         {
-            FemConstraintEvaluation<T> result;
+            FEMConstraintEvaluation<T> result;
             result.value = determinant(f) - T(1) - mu_over_lambda;
 
             // The determinant's gradient with respect to one column, holding the
@@ -304,7 +304,7 @@ namespace SushiEngine
          */
         template <typename T>
         inline void apply_fem_constraint(RigidBodyT<T>* bodies, const std::uint32_t vertex[4],
-                                         const FemConstraintEvaluation<T>& evaluation, T compliance,
+                                         const FEMConstraintEvaluation<T>& evaluation, T compliance,
                                          T& accumulated_lambda, T h) noexcept
         {
             T denominator = 0;
@@ -336,11 +336,11 @@ namespace SushiEngine
          *
          * @param bodies   The owning solver's particle array.
          * @param element  The element; its `deviatoric_lambda` is updated, and its own
-         *                 @ref FemTetrahedronT::mu is the material this reads.
+         *                 @ref FEMTetrahedronT::mu is the material this reads.
          * @param h        Sub-step duration, in seconds.
          */
         template <typename T>
-        inline void project_fem_deviatoric(RigidBodyT<T>* bodies, FemTetrahedronT<T>& element,
+        inline void project_fem_deviatoric(RigidBodyT<T>* bodies, FEMTetrahedronT<T>& element,
                                            T h) noexcept
         {
             const T mu = element.mu;
@@ -348,10 +348,10 @@ namespace SushiEngine
             const Vector3T<T> edge1 = bodies[element.vertex[1]].position - x0;
             const Vector3T<T> edge2 = bodies[element.vertex[2]].position - x0;
             const Vector3T<T> edge3 = bodies[element.vertex[3]].position - x0;
-            const FemMatrix3<T> f = tetrahedron_deformation_gradient(
+            const FEMMatrix3<T> f = tetrahedron_deformation_gradient(
                 edge1, edge2, edge3, element.plastic_inverse_column_0,
                 element.plastic_inverse_column_1, element.plastic_inverse_column_2);
-            const FemConstraintEvaluation<T> evaluation = evaluate_deviatoric_constraint(
+            const FEMConstraintEvaluation<T> evaluation = evaluate_deviatoric_constraint(
                 f, element.plastic_inverse_column_0, element.plastic_inverse_column_1,
                 element.plastic_inverse_column_2);
             const T compliance =
@@ -376,12 +376,12 @@ namespace SushiEngine
          *
          * @param bodies   The owning solver's particle array.
          * @param element  The element; its `hydrostatic_lambda` is updated, and its own
-         *                 @ref FemTetrahedronT::mu and @ref FemTetrahedronT::lambda are
+         *                 @ref FEMTetrahedronT::mu and @ref FEMTetrahedronT::lambda are
          *                 the material this reads.
          * @param h        Sub-step duration, in seconds.
          */
         template <typename T>
-        inline void project_fem_hydrostatic(RigidBodyT<T>* bodies, FemTetrahedronT<T>& element,
+        inline void project_fem_hydrostatic(RigidBodyT<T>* bodies, FEMTetrahedronT<T>& element,
                                             T h) noexcept
         {
             const T mu = element.mu;
@@ -390,12 +390,12 @@ namespace SushiEngine
             const Vector3T<T> edge1 = bodies[element.vertex[1]].position - x0;
             const Vector3T<T> edge2 = bodies[element.vertex[2]].position - x0;
             const Vector3T<T> edge3 = bodies[element.vertex[3]].position - x0;
-            const FemMatrix3<T> f = tetrahedron_deformation_gradient(
+            const FEMMatrix3<T> f = tetrahedron_deformation_gradient(
                 edge1, edge2, edge3, element.plastic_inverse_column_0,
                 element.plastic_inverse_column_1, element.plastic_inverse_column_2);
             const T stable_lambda = lambda + mu;
             const T mu_over_lambda = stable_lambda > T(0) ? mu / stable_lambda : T(0);
-            const FemConstraintEvaluation<T> evaluation = evaluate_hydrostatic_constraint(
+            const FEMConstraintEvaluation<T> evaluation = evaluate_hydrostatic_constraint(
                 f, element.plastic_inverse_column_0, element.plastic_inverse_column_1,
                 element.plastic_inverse_column_2, mu_over_lambda);
             const T compliance = element.rest_volume > T(0) && stable_lambda > T(0)

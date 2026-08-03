@@ -41,7 +41,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /**
              * @brief A first-order low-pass / high-pass / smoothing filter.
@@ -132,7 +132,7 @@ namespace SushiEngine
                     float coefficient_ = 1.0f;
                     float state_ = 0.0f;
             };
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

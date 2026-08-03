@@ -42,7 +42,7 @@
 
 namespace SushiEngine
 {
-    namespace Vfx
+    namespace VFX
     {
         /** @brief One colour stop of a @ref ColorGradient. */
         struct ColorKey
@@ -200,5 +200,5 @@ namespace SushiEngine
                 std::vector<ColorKey> color_keys_;
                 std::vector<AlphaKey> alpha_keys_;
         };
-    } // namespace Vfx
+    } // namespace VFX
 } // namespace SushiEngine

@@ -28,7 +28,7 @@
  * @brief §11.1's beam: a distance constraint that dents, and then lets go.
  *
  * A node-beam structure is a cloud of particles held by axial links, and §11.1 maps
- * the link onto "an `XpbdDistanceConstraint` with a compliance from its spring rate,
+ * the link onto "an `XPBDDistanceConstraint` with a compliance from its spring rate,
  * a damping term, a **deform threshold**, and a **break threshold**". Those four
  * additions are why this is a constraint *kind* rather than a distance constraint
  * with a lookup table beside it: two of them mutate the constraint (the rest length
@@ -38,7 +38,7 @@
  *
  * ### What a beam does not have: anchors, and therefore torque
  *
- * `XpbdDistanceConstraintT` carries a local anchor per body so it can hold two
+ * `XPBDDistanceConstraintT` carries a local anchor per body so it can hold two
  * *points on two rigid bodies* a distance apart. A beam holds two **nodes**, and
  * §11.1 defines a node as a particle — a body with zero inverse inertia and no
  * meaningful orientation. An anchor on a body that cannot rotate is a constant
@@ -50,7 +50,7 @@
  *
  * ### Why the material parameters are baked in
  *
- * `mu` and `lambda` sit inside `FemTetrahedronT` for the same reason `compliance`
+ * `mu` and `lambda` sit inside `FEMTetrahedronT` for the same reason `compliance`
  * and the two thresholds sit here: the projection reads them every substep, and a
  * material index would put a dependent load in front of every one of them. The
  * *plastic* parameters are not baked in, also for the same reason as the element —

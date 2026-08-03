@@ -272,7 +272,7 @@ TEST(Unit_ContactConstraint, ADroppedBoxComesToRestThroughTheSolver)
     // says the contact kind is wired into the substep loop in the right places —
     // a preparation after predict, or a velocity pass before it, lands elsewhere.
     const PhysicsConfiguration configuration = contact_scene();
-    HostXpbdSolver<Scalar> solver(configuration);
+    HostXPBDSolver<Scalar> solver(configuration);
 
     const BodyHandle handle = solver.add_body(unit_cube(Vector3{0.0, 2.0, 0.0}));
     ASSERT_TRUE(handle.valid());
@@ -298,7 +298,7 @@ TEST(Unit_ContactConstraint, TheSolvedImpulsesComeBackOut)
     // roughly `m * g * h` spread over its four corners, and if the readback gave
     // zeros the friction cone would be empty at the top of every tick.
     const PhysicsConfiguration configuration = contact_scene();
-    HostXpbdSolver<Scalar> solver(configuration);
+    HostXPBDSolver<Scalar> solver(configuration);
 
     const BodyHandle handle = solver.add_body(unit_cube(Vector3{0.0, 0.55, 0.0}));
     std::vector<BodyHandle> handles{handle};
@@ -331,7 +331,7 @@ TEST(Unit_ContactConstraint, SubmissionOrderIsWhatComesBack)
     // A caller that matched solved contacts to its own manifolds by storage order
     // would silently pair the wrong impulses with the wrong pairs.
     const PhysicsConfiguration configuration = contact_scene();
-    HostXpbdSolver<Scalar> solver(configuration);
+    HostXPBDSolver<Scalar> solver(configuration);
 
     std::vector<BodyHandle> handles;
     for (int i = 0; i < 4; ++i)
@@ -367,7 +367,7 @@ TEST(Unit_ContactConstraint, AStackOfBoxesSettlesThroughTheSolver)
     // Body-to-body contacts, which is the case the static sentinel does not cover:
     // both sides take a correction, and the pair must colour against each other.
     const PhysicsConfiguration configuration = contact_scene();
-    HostXpbdSolver<Scalar> solver(configuration);
+    HostXPBDSolver<Scalar> solver(configuration);
 
     constexpr std::size_t COUNT = 4;
     std::vector<BodyHandle> handles;
@@ -458,7 +458,7 @@ TEST(Unit_ContactConstraint, TheStatisticsCountWhatWasSubmitted)
     // The Physics panel reads these, and a zero where a number belongs is worse
     // than no field at all — it reads as "no contacts" rather than "not measured".
     const PhysicsConfiguration configuration = contact_scene();
-    HostXpbdSolver<Scalar> solver(configuration);
+    HostXPBDSolver<Scalar> solver(configuration);
 
     const BodyHandle handle = solver.add_body(unit_cube(Vector3{0.0, 0.4, 0.0}));
     std::vector<BodyHandle> handles{handle};
@@ -476,7 +476,7 @@ TEST(Unit_ContactConstraint, ARefusedContactIsCountedNotSwallowed)
     PhysicsConfiguration configuration = contact_scene();
     configuration.capacities.contacts = 2;
     configuration.capacities.colors = 1;
-    HostXpbdSolver<Scalar> solver(configuration);
+    HostXPBDSolver<Scalar> solver(configuration);
 
     std::vector<BodyHandle> handles;
     for (int i = 0; i < 3; ++i)

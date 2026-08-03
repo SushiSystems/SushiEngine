@@ -190,7 +190,7 @@ namespace SushiEngine
                                    Scene::SceneLayout& layout, Geometry::MeshRegistry& meshes,
                                    Geometry::DeformableBuffers& deformable,
                                    Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
-                               CloudShadowMapPass& cloud_shadow, IblPass& ibl,
+                               CloudShadowMapPass& cloud_shadow, IBLPass& ibl,
                                IrradianceVolumePass& gi, Lighting::LightSystem& lights,
                                Scene::InstanceSystem& instances, Scene::SkinningSystem& skinning)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
@@ -607,16 +607,16 @@ namespace SushiEngine
                                               gpu_mesh_pipeline_.get());
                             vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
                             const VkBuffer commands = context.buffer(frame.targets.draw_commands);
-                            const std::vector<Scene::GpuDrawBucket>& buckets = instances_.buckets();
+                            const std::vector<Scene::GPUDrawBucket>& buckets = instances_.buckets();
                             const VkDeviceSize zero_offset = 0;
                             for (std::size_t b = 0; b < buckets.size(); ++b)
                             {
-                                const Scene::GpuDrawBucket& bucket = buckets[b];
+                                const Scene::GPUDrawBucket& bucket = buckets[b];
                                 vkCmdBindVertexBuffers(cmd, 0, 1, &bucket.vertices, &zero_offset);
                                 vkCmdBindIndexBuffer(cmd, bucket.indices, 0, VK_INDEX_TYPE_UINT32);
-                                Scene::GpuDrawPush push{bucket.candidate_base, 0};
+                                Scene::GPUDrawPush push{bucket.candidate_base, 0};
                                 vkCmdPushConstants(cmd, gpu_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
-                                                   sizeof(Scene::GpuDrawPush), &push);
+                                                   sizeof(Scene::GPUDrawPush), &push);
                                 vkCmdDrawIndexedIndirect(
                                     cmd, commands, b * sizeof(VkDrawIndexedIndirectCommand), 1,
                                     sizeof(VkDrawIndexedIndirectCommand));

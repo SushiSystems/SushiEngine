@@ -69,7 +69,7 @@ namespace SushiEngine
              * shader so the blend is a plain "over" and a fully transparent element
              * contributes nothing at all rather than a black fringe.
              */
-            struct UiVertex
+            struct UIVertex
             {
                 float x = 0.0f;
                 float y = 0.0f;
@@ -83,7 +83,7 @@ namespace SushiEngine
              *
              * Non-copyable: it owns VMA allocations.
              */
-            class UiBuffers
+            class UIBuffers
             {
                 public:
                     /**
@@ -91,11 +91,11 @@ namespace SushiEngine
                      * @param device      The live Vulkan device.
                      * @param frame_slots Number of frames in flight.
                      */
-                    UiBuffers(Vulkan::VulkanDevice& device, std::uint32_t frame_slots);
-                    ~UiBuffers();
+                    UIBuffers(Vulkan::VulkanDevice& device, std::uint32_t frame_slots);
+                    ~UIBuffers();
 
-                    UiBuffers(const UiBuffers&) = delete;
-                    UiBuffers& operator=(const UiBuffers&) = delete;
+                    UIBuffers(const UIBuffers&) = delete;
+                    UIBuffers& operator=(const UIBuffers&) = delete;
 
                     /**
                      * @brief Tessellates the frame's draw list into this slot's buffers.
@@ -109,7 +109,7 @@ namespace SushiEngine
                      * @param ui   The frame's resolved UI geometry.
                      * @param font The baked glyph atlas, or an invalid one for no text.
                      */
-                    void prepare(std::uint32_t slot, const UiView& ui,
+                    void prepare(std::uint32_t slot, const UIView& ui,
                                  const Assets::FontAtlas& font);
 
                     /** @brief Whether the frame produced any drawable geometry. */
@@ -144,7 +144,7 @@ namespace SushiEngine
                     Vulkan::VulkanDevice& device_;
                     std::vector<Allocation> vertices_;
                     std::vector<Allocation> indices_;
-                    std::vector<UiVertex> vertex_scratch_;
+                    std::vector<UIVertex> vertex_scratch_;
                     std::vector<std::uint32_t> index_scratch_;
                     std::uint32_t index_count_ = 0;
             };

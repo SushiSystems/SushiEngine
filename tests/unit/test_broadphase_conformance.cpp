@@ -50,9 +50,9 @@ namespace
 {
     using Real = double;
 
-    Aabb<Real> cube(Real x, Real y, Real z, Real half)
+    AABB<Real> cube(Real x, Real y, Real z, Real half)
     {
-        return Aabb<Real>{Vector3T<Real>{x - half, y - half, z - half},
+        return AABB<Real>{Vector3T<Real>{x - half, y - half, z - half},
                           Vector3T<Real>{x + half, y + half, z + half}};
     }
 
@@ -61,7 +61,7 @@ namespace
     /** @brief One body in a generated scene: where it is and how it moves. */
     struct Sample
     {
-        Aabb<Real> bounds;
+        AABB<Real> bounds;
         Vector3T<Real> velocity;
         CollisionFilter filter;
         std::uint32_t flags = 0;
@@ -126,9 +126,9 @@ namespace
 // The tree
 // ---------------------------------------------------------------------------
 
-TEST(Unit_DynamicBvh, StaysWellFormedThroughInsertionAndRemoval)
+TEST(Unit_DynamicBVH, StaysWellFormedThroughInsertionAndRemoval)
 {
-    DynamicBvh<Real> tree;
+    DynamicBVH<Real> tree;
     std::vector<std::uint32_t> nodes;
     const std::vector<Sample> scene = make_scene(256, 11u);
     for (std::uint32_t i = 0; i < scene.size(); ++i)
@@ -151,25 +151,25 @@ TEST(Unit_DynamicBvh, StaysWellFormedThroughInsertionAndRemoval)
     EXPECT_EQ(tree.leaf_count(), scene.size() / 2);
 }
 
-TEST(Unit_DynamicBvh, SortedInsertionDoesNotDegenerateIntoAList)
+TEST(Unit_DynamicBVH, SortedInsertionDoesNotDegenerateIntoAList)
 {
     // The case rotation exists for: a terrain grid loaded row by row, every box
     // further along X than the last. An unbalanced tree would be 512 deep here.
-    DynamicBvh<Real> tree;
+    DynamicBVH<Real> tree;
     for (std::uint32_t i = 0; i < 512; ++i)
         tree.insert(cube(Real(i), 0, 0, 0.4), i);
     EXPECT_TRUE(tree.validate());
     EXPECT_LE(tree.height(), 24);
 }
 
-TEST(Unit_DynamicBvh, QueryFindsExactlyTheOverlappingLeaves)
+TEST(Unit_DynamicBVH, QueryFindsExactlyTheOverlappingLeaves)
 {
-    DynamicBvh<Real> tree;
+    DynamicBVH<Real> tree;
     const std::vector<Sample> scene = make_scene(180, 23u);
     for (std::uint32_t i = 0; i < scene.size(); ++i)
         tree.insert(scene[i].bounds, i);
 
-    const Aabb<Real> box = cube(3, -2, 5, 4);
+    const AABB<Real> box = cube(3, -2, 5, 4);
     std::vector<std::uint32_t> found;
     tree.query(box, [&](std::uint32_t payload, std::uint32_t) { found.push_back(payload); });
     std::sort(found.begin(), found.end());
@@ -182,9 +182,9 @@ TEST(Unit_DynamicBvh, QueryFindsExactlyTheOverlappingLeaves)
     EXPECT_EQ(found, expected);
 }
 
-TEST(Unit_DynamicBvh, RayQueryAgreesWithTheSlabTestOnEveryLeaf)
+TEST(Unit_DynamicBVH, RayQueryAgreesWithTheSlabTestOnEveryLeaf)
 {
-    DynamicBvh<Real> tree;
+    DynamicBVH<Real> tree;
     const std::vector<Sample> scene = make_scene(150, 37u);
     for (std::uint32_t i = 0; i < scene.size(); ++i)
         tree.insert(scene[i].bounds, i);
@@ -208,11 +208,11 @@ TEST(Unit_DynamicBvh, RayQueryAgreesWithTheSlabTestOnEveryLeaf)
     EXPECT_FALSE(expected.empty());
 }
 
-TEST(Unit_DynamicBvh, AnAxisParallelRayDoesNotBecomeANotANumber)
+TEST(Unit_DynamicBVH, AnAxisParallelRayDoesNotBecomeANotANumber)
 {
     // The `0 * infinity` case: a ray straight down X with exactly zero Y and Z.
     // Computed with a true infinity this misses everything, silently.
-    DynamicBvh<Real> tree;
+    DynamicBVH<Real> tree;
     tree.insert(cube(5, 0, 0, 1), 7);
     std::vector<std::uint32_t> found;
     tree.query_ray(vec(-10, 0, 0), vec(1, 0, 0), 100,
@@ -221,9 +221,9 @@ TEST(Unit_DynamicBvh, AnAxisParallelRayDoesNotBecomeANotANumber)
     EXPECT_EQ(found[0], 7u);
 }
 
-TEST(Unit_DynamicBvh, AProxyInsideItsStoredBoxIsNotReinserted)
+TEST(Unit_DynamicBVH, AProxyInsideItsStoredBoxIsNotReinserted)
 {
-    DynamicBvh<Real> tree;
+    DynamicBVH<Real> tree;
     const std::uint32_t node = tree.insert(cube(0, 0, 0, 2), 0);
     EXPECT_FALSE(tree.move_proxy(node, cube(0.5, 0, 0, 1), cube(0.5, 0, 0, 2)));
     EXPECT_TRUE(tree.move_proxy(node, cube(9, 0, 0, 1), cube(9, 0, 0, 2)));
@@ -238,7 +238,7 @@ TEST(Unit_BroadphaseConformance, BothImplementationsEmitTheSamePairSet)
 {
     const std::vector<Sample> scene = make_scene(300, 5u);
     SweepAndPruneBroadphase<Real> sweep;
-    BvhBroadphase<Real> hierarchy;
+    BVHBroadphase<Real> hierarchy;
 
     const std::vector<ProxyId> a = populate(sweep, scene);
     const std::vector<ProxyId> b = populate(hierarchy, scene);
@@ -258,7 +258,7 @@ TEST(Unit_BroadphaseConformance, TheyAgreeThroughMotionRemovalAndReinsertion)
 {
     std::vector<Sample> scene = make_scene(200, 91u);
     SweepAndPruneBroadphase<Real> sweep;
-    BvhBroadphase<Real> hierarchy;
+    BVHBroadphase<Real> hierarchy;
     const std::vector<ProxyId> proxies = populate(sweep, scene);
     populate(hierarchy, scene);
 
@@ -284,7 +284,7 @@ TEST(Unit_BroadphaseConformance, TheyAgreeThroughMotionRemovalAndReinsertion)
             }
             for (int extra = 0; extra < 12; ++extra)
             {
-                const Aabb<Real> box = cube(Real(extra) - 6, 1, 2, 0.9);
+                const AABB<Real> box = cube(Real(extra) - 6, 1, 2, 0.9);
                 const ProxyId left = sweep.create_proxy(box, CollisionFilter{}, 0u, 900u);
                 const ProxyId right = hierarchy.create_proxy(box, CollisionFilter{}, 0u, 900u);
                 ASSERT_EQ(left, right);
@@ -306,7 +306,7 @@ TEST(Unit_BroadphaseConformance, TheyAgreeThroughMotionRemovalAndReinsertion)
 
 TEST(Unit_BroadphasePairCache, ReportsAddedThenPersistedThenRemoved)
 {
-    BvhBroadphase<Real> broadphase;
+    BVHBroadphase<Real> broadphase;
     broadphase.set_enlargement(0.0, 0.0); // no hysteresis, so the streams are exact
     const ProxyId a = broadphase.create_proxy(cube(0, 0, 0, 1), CollisionFilter{}, 0u, 0u);
     const ProxyId b = broadphase.create_proxy(cube(1.5, 0, 0, 1), CollisionFilter{}, 0u, 1u);
@@ -335,10 +335,10 @@ TEST(Unit_BroadphasePairCache, ReportsAddedThenPersistedThenRemoved)
 
 TEST(Unit_BroadphasePairCache, HysteresisKeepsAStationaryBodyOutOfTheTree)
 {
-    BvhBroadphase<Real> broadphase;
+    BVHBroadphase<Real> broadphase;
     broadphase.set_enlargement(0.25, 0.0);
     const ProxyId proxy = broadphase.create_proxy(cube(0, 0, 0, 1), CollisionFilter{}, 0u, 0u);
-    const Aabb<Real> stored = broadphase.proxy(proxy).bounds;
+    const AABB<Real> stored = broadphase.proxy(proxy).bounds;
 
     // A body jittering inside its margin never restructures anything.
     broadphase.update_proxy(proxy, cube(0.1, 0.05, -0.08, 1), vec(0, 0, 0));
@@ -367,7 +367,7 @@ TEST(Unit_BroadphaseFilters, LayersRejectAPairBeforeAnyGeometryIsConsulted)
     for (int implementation = 0; implementation < 2; ++implementation)
     {
         SweepAndPruneBroadphase<Real> sweep;
-        BvhBroadphase<Real> hierarchy;
+        BVHBroadphase<Real> hierarchy;
         IBroadphase<Real>& broadphase =
             implementation == 0 ? static_cast<IBroadphase<Real>&>(sweep)
                                 : static_cast<IBroadphase<Real>&>(hierarchy);
@@ -386,7 +386,7 @@ TEST(Unit_BroadphaseFilters, LayersRejectAPairBeforeAnyGeometryIsConsulted)
 
 TEST(Unit_BroadphaseFilters, TwoQuietBodiesNeverPairButAWakingOneDoes)
 {
-    BvhBroadphase<Real> broadphase;
+    BVHBroadphase<Real> broadphase;
     const ProxyId ground =
         broadphase.create_proxy(cube(0, 0, 0, 5), CollisionFilter{}, BodyFlags::static_body, 0u);
     const ProxyId sleeper =
@@ -405,7 +405,7 @@ TEST(Unit_BroadphaseFilters, TwoQuietBodiesNeverPairButAWakingOneDoes)
 
 TEST(Unit_BroadphaseFilters, StaticProxiesLiveInTheirOwnTreeAndMoveWhenTheyStopBeingStatic)
 {
-    BvhBroadphase<Real> broadphase;
+    BVHBroadphase<Real> broadphase;
     broadphase.create_proxy(cube(0, 0, 0, 5), CollisionFilter{}, BodyFlags::static_body, 0u);
     const ProxyId crate =
         broadphase.create_proxy(cube(0, 6, 0, 1), CollisionFilter{}, BodyFlags::static_body, 1u);
@@ -423,7 +423,7 @@ TEST(Unit_BroadphaseFilters, ATriggerStillPairs)
 {
     // A trigger refuses the impulse, not the pair — it has to hear about the
     // overlap to report it (§7.7).
-    BvhBroadphase<Real> broadphase;
+    BVHBroadphase<Real> broadphase;
     broadphase.create_proxy(cube(0, 0, 0, 1), CollisionFilter{}, BodyFlags::trigger, 0u);
     broadphase.create_proxy(cube(0.5, 0, 0, 1), CollisionFilter{}, 0u, 1u);
     broadphase.update();
@@ -438,7 +438,7 @@ TEST(Unit_BroadphaseSweptBounds, AFastBodyPairsWithWhatItIsAboutToHit)
 {
     const Vector3T<Real> travel = vec(6, 0, 0); // this tick's motion, six metres
 
-    BvhBroadphase<Real> ordinary;
+    BVHBroadphase<Real> ordinary;
     ordinary.set_enlargement(0.05, 0.0); // no prediction, to isolate the sweep
     const ProxyId bullet =
         ordinary.create_proxy(cube(0, 0, 0, 0.1), CollisionFilter{}, 0u, 0u);
@@ -448,7 +448,7 @@ TEST(Unit_BroadphaseSweptBounds, AFastBodyPairsWithWhatItIsAboutToHit)
     EXPECT_TRUE(ordinary.pairs().empty()) << "without the sweep there is nothing to solve "
                                              "against until the bullet is already past";
 
-    BvhBroadphase<Real> continuous;
+    BVHBroadphase<Real> continuous;
     continuous.set_enlargement(0.05, 0.0);
     const ProxyId fast = continuous.create_proxy(cube(0, 0, 0, 0.1), CollisionFilter{},
                                                  BodyFlags::continuous_collision, 0u);

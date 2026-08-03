@@ -92,14 +92,14 @@ namespace SushiEngine
             // from here on, rather than re-testing `desc_.headless` at each call site.
             if (!desc_.headless)
             {
-                window_.reset(new Platform::SdlWindow(desc_.window_title.c_str(),
+                window_.reset(new Platform::SDLWindow(desc_.window_title.c_str(),
                                                        static_cast<int>(desc_.width),
                                                        static_cast<int>(desc_.height)));
                 window_->add_event_handler([this](const void* event)
                                            { handle_window_event(event); });
 
                 input_.reset(new Input::InputManager());
-                input_translator_.reset(new Input::SdlInputTranslator(*input_));
+                input_translator_.reset(new Input::SDLInputTranslator(*input_));
                 window_->add_event_handler([this](const void* event)
                                            { input_translator_->handle_native_event(event); });
             }

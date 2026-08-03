@@ -19,7 +19,7 @@
 /* permissions and limitations under the License.                        */
 /**************************************************************************/
 
-// Unit_FemProjection: §9.1's deformation gradient and its two constraints, in
+// Unit_FEMProjection: §9.1's deformation gradient and its two constraints, in
 // isolation from any solver. Host-only pure math, held to two kinds of oracle:
 //
 // 1. **Closed-form cases** whose answer does not depend on this file's own
@@ -58,7 +58,7 @@ namespace
         Vector3 column2{0.0, 0.0, 1.0};
     };
 
-    FemMatrix3<Scalar> gradient_at(const UnitTetRestState& rest, const Vector3& p0,
+    FEMMatrix3<Scalar> gradient_at(const UnitTetRestState& rest, const Vector3& p0,
                                    const Vector3& p1, const Vector3& p2, const Vector3& p3)
     {
         return tetrahedron_deformation_gradient(p1 - p0, p2 - p0, p3 - p0, rest.column0,
@@ -69,10 +69,10 @@ namespace
 // The rest configuration itself must map to the identity: the whole point of
 // Dm^-1 being the *inverse* rest matrix is that plugging the rest edges back
 // in undoes it exactly.
-TEST(Unit_FemProjection, RestConfigurationGivesTheIdentity)
+TEST(Unit_FEMProjection, RestConfigurationGivesTheIdentity)
 {
     const UnitTetRestState rest;
-    const FemMatrix3<Scalar> f = gradient_at(rest, rest.v0, rest.v1, rest.v2, rest.v3);
+    const FEMMatrix3<Scalar> f = gradient_at(rest, rest.v0, rest.v1, rest.v2, rest.v3);
 
     EXPECT_NEAR(f.column0.x, 1.0, 1e-12);
     EXPECT_NEAR(f.column0.y, 0.0, 1e-12);
@@ -101,7 +101,7 @@ TEST(Unit_FemProjection, RestConfigurationGivesTheIdentity)
 // determinant `s^3` — closed forms with nothing to do with this file's own
 // gradient code, so they catch a wrong deformation-gradient formula even
 // before the gradients are examined.
-TEST(Unit_FemProjection, UniformScaleMatchesClosedForm)
+TEST(Unit_FEMProjection, UniformScaleMatchesClosedForm)
 {
     const UnitTetRestState rest;
     const double s = 1.3;
@@ -109,7 +109,7 @@ TEST(Unit_FemProjection, UniformScaleMatchesClosedForm)
     const Vector3 p1{s, 0.0, 0.0};
     const Vector3 p2{0.0, s, 0.0};
     const Vector3 p3{0.0, 0.0, s};
-    const FemMatrix3<Scalar> f = gradient_at(rest, p0, p1, p2, p3);
+    const FEMMatrix3<Scalar> f = gradient_at(rest, p0, p1, p2, p3);
 
     EXPECT_NEAR(double(frobenius_norm(f)), s * std::sqrt(3.0), 1e-9);
     EXPECT_NEAR(double(determinant(f)), s * s * s, 1e-9);
@@ -123,7 +123,7 @@ TEST(Unit_FemProjection, UniformScaleMatchesClosedForm)
 // for any angle — rotation invariance, the property that makes this "stable"
 // neo-Hookean rather than a naive strain measure that would report a spinning
 // body as deformed.
-TEST(Unit_FemProjection, PureRotationLeavesDeviatoricConstraintAtRestValue)
+TEST(Unit_FEMProjection, PureRotationLeavesDeviatoricConstraintAtRestValue)
 {
     const UnitTetRestState rest;
     // quaternion_axis_angle assumes a unit axis; it does not normalize one for
@@ -140,7 +140,7 @@ TEST(Unit_FemProjection, PureRotationLeavesDeviatoricConstraintAtRestValue)
     const Vector3 p2 = p0 + rotate(rotation, rest.v2 - rest.v0);
     const Vector3 p3 = p0 + rotate(rotation, rest.v3 - rest.v0);
 
-    const FemMatrix3<Scalar> f = gradient_at(rest, p0, p1, p2, p3);
+    const FEMMatrix3<Scalar> f = gradient_at(rest, p0, p1, p2, p3);
     EXPECT_NEAR(double(frobenius_norm(f)), std::sqrt(3.0), 1e-9);
     EXPECT_NEAR(double(determinant(f)), 1.0, 1e-9);
 
@@ -152,14 +152,14 @@ TEST(Unit_FemProjection, PureRotationLeavesDeviatoricConstraintAtRestValue)
 // Both constraints' gradients must sum to zero across the tetrahedron's four
 // vertices — translation invariance, since every edge is `x_k - x_0` and no
 // constraint here can see a rigid translation of the whole element.
-TEST(Unit_FemProjection, GradientsSumToZeroAcrossTheFourVertices)
+TEST(Unit_FEMProjection, GradientsSumToZeroAcrossTheFourVertices)
 {
     const UnitTetRestState rest;
     const Vector3 p0{0.2, -0.1, 0.05};
     const Vector3 p1{1.3, 0.2, -0.1};
     const Vector3 p2{-0.1, 1.1, 0.3};
     const Vector3 p3{0.05, -0.2, 0.9};
-    const FemMatrix3<Scalar> f = gradient_at(rest, p0, p1, p2, p3);
+    const FEMMatrix3<Scalar> f = gradient_at(rest, p0, p1, p2, p3);
 
     const auto deviatoric = evaluate_deviatoric_constraint(f, rest.column0, rest.column1,
                                                            rest.column2);
@@ -182,14 +182,14 @@ TEST(Unit_FemProjection, GradientsSumToZeroAcrossTheFourVertices)
 // non-rest) configuration. This is the one test that would catch a transposed
 // index or a dropped sign in the hand-derived formulas, independent of
 // whether the closed-form cases above are symmetric enough to hide one.
-TEST(Unit_FemProjection, AnalyticGradientMatchesFiniteDifference)
+TEST(Unit_FEMProjection, AnalyticGradientMatchesFiniteDifference)
 {
     const UnitTetRestState rest;
     Vector3 p[4] = {{0.15, -0.05, 0.1}, {1.4, 0.3, -0.15}, {-0.2, 1.2, 0.25}, {0.1, -0.1, 1.05}};
     const double epsilon = 1e-6;
 
     const auto evaluate_both = [&](const Vector3 points[4]) {
-        const FemMatrix3<Scalar> f =
+        const FEMMatrix3<Scalar> f =
             gradient_at(rest, points[0], points[1], points[2], points[3]);
         const auto deviatoric =
             evaluate_deviatoric_constraint(f, rest.column0, rest.column1, rest.column2);
@@ -244,7 +244,7 @@ TEST(Unit_FemProjection, AnalyticGradientMatchesFiniteDifference)
 // E/2; incompressible materials (approaching 0.5) drive lambda very large
 // relative to mu, which is exactly the "resists volume change far more than
 // shape change" behaviour rubber and tissue need.
-TEST(Unit_FemProjection, LameParametersMatchKnownSpecialCases)
+TEST(Unit_FEMProjection, LameParametersMatchKnownSpecialCases)
 {
     SoftBodyMaterial zero_poisson;
     zero_poisson.young_modulus = 1.0e6;
@@ -263,7 +263,7 @@ TEST(Unit_FemProjection, LameParametersMatchKnownSpecialCases)
 // The material presets must each be internally consistent with §9.2's stated
 // ordering — steel and aluminium are stiffer than rubber by orders of
 // magnitude, and only the two metals yield and fracture at a finite stress.
-TEST(Unit_FemProjection, PresetsAreOrderedTheWayTheirNamesPromise)
+TEST(Unit_FEMProjection, PresetsAreOrderedTheWayTheirNamesPromise)
 {
     const SoftBodyMaterial rubber = rubber_material<Scalar>();
     const SoftBodyMaterial foam = foam_material<Scalar>();

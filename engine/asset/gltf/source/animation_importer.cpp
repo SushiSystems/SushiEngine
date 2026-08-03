@@ -208,7 +208,7 @@ namespace SushiEngine
                 return "morph_" + std::to_string(target_index);
             }
 
-            // The primitive whose morph-target order GltfAnimationImport::morph_target_names
+            // The primitive whose morph-target order GLTFAnimationImport::morph_target_names
             // reports. Render::Assets::import_gltf_skinned_mesh walks nodes then primitives in
             // the same glTF order under the same predicate, so target index i means the same
             // target on both sides; keep the two in step if either changes.
@@ -253,7 +253,7 @@ namespace SushiEngine
             };
         } // namespace
 
-        bool import_gltf_animated(const char* path, GltfAnimationImport& out, float sample_rate,
+        bool import_gltf_animated(const char* path, GLTFAnimationImport& out, float sample_rate,
                                   std::size_t skin_index)
         {
             out.skeleton_blob.clear();
@@ -443,7 +443,7 @@ namespace SushiEngine
                     }
                 }
 
-                GltfClip cooked;
+                GLTFClip cooked;
                 cooked.name = animation.name != nullptr ? std::string(animation.name)
                                                         : "clip_" + std::to_string(a);
                 if (build_clip_blob(clip, cooked.blob))

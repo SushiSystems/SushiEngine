@@ -64,17 +64,17 @@ namespace SushiEngine
                                   std::size_t skin_index = 0);
 
         /** @brief One imported animation: its name and cooked `.sushianim` blob. */
-        struct GltfClip
+        struct GLTFClip
         {
             std::string name;            /**< The glTF animation's name (or "clip_<i>"). */
             std::vector<std::byte> blob; /**< The cooked clip, in the skeleton's joint order. */
         };
 
         /** @brief The result of importing a rigged, animated glTF. */
-        struct GltfAnimationImport
+        struct GLTFAnimationImport
         {
             std::vector<std::byte> skeleton_blob; /**< The cooked `.sushiskel`. */
-            std::vector<GltfClip> clips;          /**< One entry per glTF animation. */
+            std::vector<GLTFClip> clips;          /**< One entry per glTF animation. */
 
             /**
              * @brief The skinned mesh's morph target names, in the mesh's own target order.
@@ -105,7 +105,7 @@ namespace SushiEngine
          *
          * A `weights` channel drives every morph target of its node at once (glTF packs all of
          * them into one sampler), so each such channel contributes one morph-weight track per
-         * target, named after the target (see @ref GltfAnimationImport::morph_target_names).
+         * target, named after the target (see @ref GLTFAnimationImport::morph_target_names).
          * Targets of the same name across two channels collapse to one track — the first seen
          * wins, matching @ref ClipView::find_morph's first-match lookup. An animation with no
          * `weights` channel yields no morph tracks, and a mesh whose targets no track names
@@ -118,7 +118,7 @@ namespace SushiEngine
          * @return True if the skeleton imported; the clip list may be empty if the file has
          *         no animations. False if the file cannot be read or has no such skin.
          */
-        bool import_gltf_animated(const char* path, GltfAnimationImport& out,
+        bool import_gltf_animated(const char* path, GLTFAnimationImport& out,
                                   float sample_rate = 30.0f, std::size_t skin_index = 0);
     } // namespace Animation
 } // namespace SushiEngine

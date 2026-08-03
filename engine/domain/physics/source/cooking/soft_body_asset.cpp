@@ -187,7 +187,7 @@ namespace SushiEngine
                 header.mappings_offset =
                     layout.reserve(asset.mappings.size() * sizeof(SoftBodyBinding));
                 header.surface_nodes_offset =
-                    layout.reserve(asset.surface_nodes.size() * sizeof(MeshBvhNode<Scalar>));
+                    layout.reserve(asset.surface_nodes.size() * sizeof(MeshBVHNode<Scalar>));
                 header.surface_order_offset =
                     layout.reserve(asset.surface_order.size() * sizeof(std::uint32_t));
                 header.surface_adjacency_offset =
@@ -294,7 +294,7 @@ namespace SushiEngine
                     return false;
                 if (!section_fits(total, header.surface_nodes_offset,
                                   std::size_t(header.surface_node_count) *
-                                      sizeof(MeshBvhNode<Scalar>)))
+                                      sizeof(MeshBVHNode<Scalar>)))
                     return false;
                 if (!section_fits(total, header.surface_order_offset,
                                   std::size_t(header.surface_triangle_count) *
@@ -419,7 +419,7 @@ namespace SushiEngine
                     pointer(header.mappings_offset, header.mapping_count));
                 view.surface_node_count = header.surface_node_count;
                 view.surface_triangle_count = header.surface_triangle_count;
-                view.surface_nodes = static_cast<const MeshBvhNode<Scalar>*>(
+                view.surface_nodes = static_cast<const MeshBVHNode<Scalar>*>(
                     pointer(header.surface_nodes_offset, header.surface_node_count));
                 view.surface_order = static_cast<const std::uint32_t*>(
                     pointer(header.surface_order_offset, header.surface_triangle_count));

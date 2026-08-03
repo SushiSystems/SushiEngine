@@ -151,7 +151,7 @@ namespace SushiEngine
                 int channels() const noexcept { return channels_; }
 
                 /** @brief The sample ring the consumer drains (audio thread). */
-                Dsp::SpscRing<float>& ring() noexcept { return ring_; }
+                DSP::SpscRing<float>& ring() noexcept { return ring_; }
 
                 /** @brief Whether the asset is fully decoded and the ring is empty. */
                 bool finished() const noexcept
@@ -248,7 +248,7 @@ namespace SushiEngine
                 std::unique_ptr<IAudioCodec> codec_;
                 bool loop_;
                 int channels_;
-                Dsp::SpscRing<float> ring_;
+                DSP::SpscRing<float> ring_;
                 std::vector<std::uint8_t> encoded_;
                 std::vector<float> decoded_;
                 std::uint32_t read_offset_ = 0;
@@ -276,7 +276,7 @@ namespace SushiEngine
 
                 bool render(float* out, int frame_count) noexcept override
                 {
-                    Dsp::SpscRing<float>& ring = decoder_.ring();
+                    DSP::SpscRing<float>& ring = decoder_.ring();
                     const float inv = channels_ > 0 ? 1.0f / static_cast<float>(channels_) : 1.0f;
                     for (int i = 0; i < frame_count; ++i)
                     {
@@ -298,7 +298,7 @@ namespace SushiEngine
 
                 bool advance(int frame_count) noexcept override
                 {
-                    Dsp::SpscRing<float>& ring = decoder_.ring();
+                    DSP::SpscRing<float>& ring = decoder_.ring();
                     float s = 0.0f;
                     for (int i = 0; i < frame_count * channels_; ++i)
                         if (!ring.pop(s))

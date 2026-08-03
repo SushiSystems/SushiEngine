@@ -54,7 +54,7 @@ namespace SushiEngine
             class VulkanDevice;
         }
 
-        namespace Gi
+        namespace GI
         {
             /**
              * @brief Fills every probe with the environment SH; no local occlusion.
@@ -99,6 +99,6 @@ namespace SushiEngine
                     VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
                     VkPipeline pipeline_ = VK_NULL_HANDLE;
             };
-        } // namespace Gi
+        } // namespace GI
     } // namespace Render
 } // namespace SushiEngine

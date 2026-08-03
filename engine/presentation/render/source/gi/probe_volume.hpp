@@ -47,7 +47,7 @@ namespace SushiEngine
 {
     namespace Render
     {
-        namespace Gi
+        namespace GI
         {
             /** @brief Probe count along the horizontal axes of each cascade. */
             constexpr std::int32_t PROBE_COUNT_HORIZONTAL = 32;
@@ -72,7 +72,7 @@ namespace SushiEngine
             constexpr std::int32_t PROBE_SH_COEFFICIENTS = 9;
 
             /**
-             * @brief The std140 block locating the probe cascades, mirroring @c GiProbeVolume.
+             * @brief The std140 block locating the probe cascades, mirroring @c GIProbeVolume.
              *
              * Flat 16-byte-aligned arrays so the GLSL side reads the identical layout. All
              * positions are camera-relative, like every other scene quantity, so the block
@@ -118,6 +118,6 @@ namespace SushiEngine
              */
             void configure_probe_volume(const double eye[3], bool enabled, float intensity,
                                         float normal_bias, ProbeVolumeConfig& out) noexcept;
-        } // namespace Gi
+        } // namespace GI
     } // namespace Render
 } // namespace SushiEngine

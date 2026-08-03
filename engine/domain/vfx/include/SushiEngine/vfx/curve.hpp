@@ -45,7 +45,7 @@
 
 namespace SushiEngine
 {
-    namespace Vfx
+    namespace VFX
     {
         /** @brief One control point of an @ref AnimationCurve. */
         struct CurveKey
@@ -181,5 +181,5 @@ namespace SushiEngine
             private:
                 std::vector<CurveKey> keys_;
         };
-    } // namespace Vfx
+    } // namespace VFX
 } // namespace SushiEngine

@@ -47,10 +47,10 @@ TEST(Integration_SoftBody, PinnedLatticeHoldsShapeUnderGravity)
     const Scalar h = outer_dt / Scalar(SUBSTEPS);
     const Vector3 origin{0, Scalar(2), 0};
 
-    PhysicsWorld<XpbdDistanceConstraint> world(Harness::shared_context());
+    PhysicsWorld<XPBDDistanceConstraint> world(Harness::shared_context());
     const SoftBodyLattice lattice = build_soft_body_lattice(
         world, N, N, N, spacing, origin, Scalar(0), /*pin_bottom=*/true);
-    world.finalize(16, h, XpbdDistanceProjection{});
+    world.finalize(16, h, XPBDDistanceProjection{});
 
     EXPECT_EQ(world.body_count(), N * N * N);
 

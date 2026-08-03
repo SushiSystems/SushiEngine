@@ -93,7 +93,7 @@ namespace
     }
 
     /** @brief Brute-force answer: every triangle whose bounds meet the box. */
-    std::vector<std::uint32_t> brute_force_query(const Grid& grid, const Aabb<Scalar>& box)
+    std::vector<std::uint32_t> brute_force_query(const Grid& grid, const AABB<Scalar>& box)
     {
         std::vector<std::uint32_t> hits;
         for (std::uint32_t t = 0; t < grid.triangle_count; ++t)
@@ -115,13 +115,13 @@ TEST(Unit_MeshCollision, HierarchyQueryMatchesBruteForce)
     const TriangleMeshView<Scalar> mesh = make_mesh_view<Scalar>(
         cooked, grid.vertices.data(), grid.indices.data(), grid.triangle_count);
 
-    const Aabb<Scalar> boxes[] = {
-        Aabb<Scalar>{Vector3{-0.4, -1.0, -0.4}, Vector3{0.4, 1.0, 0.4}},
-        Aabb<Scalar>{Vector3{-8.5, -1.0, -8.5}, Vector3{8.5, 1.0, 8.5}},
-        Aabb<Scalar>{Vector3{3.1, -0.1, -2.2}, Vector3{3.9, 0.1, -1.4}},
-        Aabb<Scalar>{Vector3{20.0, -1.0, 20.0}, Vector3{21.0, 1.0, 21.0}}};
+    const AABB<Scalar> boxes[] = {
+        AABB<Scalar>{Vector3{-0.4, -1.0, -0.4}, Vector3{0.4, 1.0, 0.4}},
+        AABB<Scalar>{Vector3{-8.5, -1.0, -8.5}, Vector3{8.5, 1.0, 8.5}},
+        AABB<Scalar>{Vector3{3.1, -0.1, -2.2}, Vector3{3.9, 0.1, -1.4}},
+        AABB<Scalar>{Vector3{20.0, -1.0, 20.0}, Vector3{21.0, 1.0, 21.0}}};
 
-    for (const Aabb<Scalar>& box : boxes)
+    for (const AABB<Scalar>& box : boxes)
     {
         std::vector<std::uint32_t> found;
         query_mesh_bvh<Scalar>(mesh, box, [&](std::uint32_t t) { found.push_back(t); });
@@ -144,7 +144,7 @@ TEST(Unit_MeshCollision, HierarchyPrunesMostOfTheMesh)
         cooked, grid.vertices.data(), grid.indices.data(), grid.triangle_count);
 
     std::size_t visited = 0;
-    query_mesh_bvh<Scalar>(mesh, Aabb<Scalar>{Vector3{-0.2, -0.5, -0.2}, Vector3{0.2, 0.5, 0.2}},
+    query_mesh_bvh<Scalar>(mesh, AABB<Scalar>{Vector3{-0.2, -0.5, -0.2}, Vector3{0.2, 0.5, 0.2}},
                            [&](std::uint32_t) { ++visited; });
     EXPECT_LT(visited, 32u);
     EXPECT_GT(visited, 0u);
@@ -395,7 +395,7 @@ TEST(Unit_MeshCollision, EmptyMeshIsInert)
     mesh.node_count = 0;
 
     std::size_t visits = 0;
-    query_mesh_bvh<Scalar>(mesh, Aabb<Scalar>{Vector3{-1.0, -1.0, -1.0}, Vector3{1.0, 1.0, 1.0}},
+    query_mesh_bvh<Scalar>(mesh, AABB<Scalar>{Vector3{-1.0, -1.0, -1.0}, Vector3{1.0, 1.0, 1.0}},
                            [&](std::uint32_t) { ++visits; });
     EXPECT_EQ(visits, 0u);
 }

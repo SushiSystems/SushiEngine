@@ -62,7 +62,7 @@ namespace SushiEngine
          *
          * The manager holds non-owning pointers to its sources and contexts: their lifetime
          * belongs to the caller (typically both outlive the loop), matching the worked example
-         * where a `SdlInputTranslator` and each `InputContext` are locals in `main`. This keeps
+         * where a `SDLInputTranslator` and each `InputContext` are locals in `main`. This keeps
          * the manager a pure orchestrator with no ownership policy of its own.
          */
         class InputManager

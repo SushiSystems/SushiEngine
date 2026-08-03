@@ -48,7 +48,7 @@ namespace SushiEngine
                                        Resources::ShaderLibrary& shaders,
                                        Resources::GraphicsPipelineFactory& pipelines,
                                        Scene::ParticleSystem& particles,
-                                       Lighting::LightSystem& lights, IblPass& ibl,
+                                       Lighting::LightSystem& lights, IBLPass& ibl,
                                        Resources::DescriptorHeap& heap)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), particles_(particles),
                   lights_(lights), ibl_(ibl), heap_(heap)
@@ -332,7 +332,7 @@ namespace SushiEngine
                                 Lighting::LIGHT_INDEX_COUNT * sizeof(std::uint32_t));
                             writer.uniform_buffer(6, lights_.config_buffer(),
                                                   lights_.config_buffer_range());
-                            writer.storage_buffer(7, ibl_.sh_buffer(), IblPass::sh_buffer_bytes());
+                            writer.storage_buffer(7, ibl_.sh_buffer(), IBLPass::sh_buffer_bytes());
                             // The sun's cascades. Bound on every bucket for the same reason: only
                             // the lit fragment path samples them.
                             writer.uniform_buffer(SHADOW_BLOCK_BINDING,

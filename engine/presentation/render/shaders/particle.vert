@@ -37,7 +37,7 @@ layout(location = 2) out vec4 out_light;
 // one is where the texture is sampled (a flipbook cell, so not the whole [0,1] square), while
 // out_uv stays the local quad coordinate the round-dot falloff and the hemisphere normal need.
 layout(location = 3) out vec2 out_atlas_uv;
-// The emitter's material: x = bindless texture slot, y = Vfx::RenderFlags. Flat because it is
+// The emitter's material: x = bindless texture slot, y = VFX::RenderFlags. Flat because it is
 // per-emitter, and interpolating a bitfield or a descriptor index is meaningless.
 layout(location = 4) flat out uvec2 out_material;
 layout(location = 5) flat out float out_soft_fade;

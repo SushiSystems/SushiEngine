@@ -73,7 +73,7 @@ layout(location = 0) in vec2 in_uv;   // local quad coordinate: the round fallof
 layout(location = 1) in vec4 in_color;
 layout(location = 2) in vec4 in_light; // xyz = camera-relative centre, w = view-space depth
 layout(location = 3) in vec2 in_atlas_uv;          // where the sprite texture is sampled
-layout(location = 4) flat in uvec2 in_material;    // x = bindless slot, y = Vfx::RenderFlags
+layout(location = 4) flat in uvec2 in_material;    // x = bindless slot, y = VFX::RenderFlags
 layout(location = 5) flat in float in_soft_fade;   // metres the soft fade ramps over
 
 layout(location = 0) out vec4 out_color;

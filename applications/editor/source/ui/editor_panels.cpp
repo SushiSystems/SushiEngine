@@ -684,13 +684,13 @@ namespace SushiEngine
             {
                 ImGui::TextDisabled("GPU timings unavailable");
             }
-            for (const ViewportGpuStatistics& statistics : context.gpu_statistics)
+            for (const ViewportGPUStatistics& statistics : context.gpu_statistics)
             {
                 float total = 0.0f;
-                for (const GpuPassStatistic& pass : statistics.passes)
+                for (const GPUPassStatistic& pass : statistics.passes)
                     total += pass.milliseconds;
                 ImGui::Text("%s GPU: %.3f ms", statistics.viewport.c_str(), total);
-                for (const GpuPassStatistic& pass : statistics.passes)
+                for (const GPUPassStatistic& pass : statistics.passes)
                     ImGui::TextDisabled("  %-18s %6.3f", pass.pass.c_str(),
                                         pass.milliseconds);
             }

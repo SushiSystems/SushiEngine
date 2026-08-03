@@ -17,7 +17,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Unit_Rng: the determinism guard rail. SushiLoop requires that the only source of
+// Unit_RNG: the determinism guard rail. SushiLoop requires that the only source of
 // nondeterminism is player input and that RNG state lives in the world so rollback can
 // snapshot and rewind it. These tests pin exactly that: identical seeds produce identical
 // streams, a copied state replays the future exactly (rollback), seed 0 is well-mixed
@@ -33,25 +33,25 @@
 using namespace SushiEngine;
 using namespace SushiEngine::Loop;
 
-TEST(Unit_Rng, StateIsTriviallyCopyableSoItCanBeAComponent)
+TEST(Unit_RNG, StateIsTriviallyCopyableSoItCanBeAComponent)
 {
     // component_id<T>() static_asserts trivial copyability; rollback snapshots it.
-    EXPECT_TRUE(std::is_trivially_copyable<RngState>::value);
+    EXPECT_TRUE(std::is_trivially_copyable<RNGState>::value);
 }
 
-TEST(Unit_Rng, IdenticalSeedsProduceIdenticalStreams)
+TEST(Unit_RNG, IdenticalSeedsProduceIdenticalStreams)
 {
-    RngState a = seed_rng(0xC0FFEE);
-    RngState b = seed_rng(0xC0FFEE);
+    RNGState a = seed_rng(0xC0FFEE);
+    RNGState b = seed_rng(0xC0FFEE);
     for (int i = 0; i < 1000; ++i)
         ASSERT_EQ(next_u64(a), next_u64(b)) << "diverged at draw " << i;
 }
 
-TEST(Unit_Rng, ZeroSeedIsWellMixedNotDegenerate)
+TEST(Unit_RNG, ZeroSeedIsWellMixedNotDegenerate)
 {
     // xorshift128+ collapses to all zeros if seeded with zero state; SplitMix64 must
     // spread the bits so seed 0 still generates a live stream.
-    RngState state = seed_rng(0);
+    RNGState state = seed_rng(0);
     EXPECT_FALSE(state.s0 == 0 && state.s1 == 0);
     bool any_nonzero = false;
     for (int i = 0; i < 16; ++i)
@@ -59,33 +59,33 @@ TEST(Unit_Rng, ZeroSeedIsWellMixedNotDegenerate)
     EXPECT_TRUE(any_nonzero);
 }
 
-TEST(Unit_Rng, CopiedStateReplaysTheFutureExactly)
+TEST(Unit_RNG, CopiedStateReplaysTheFutureExactly)
 {
-    RngState live = seed_rng(42);
+    RNGState live = seed_rng(42);
     for (int i = 0; i < 50; ++i)
         next_u64(live); // advance to some point in the stream
 
     // Snapshot, keep drawing, then replay from the snapshot: rollback-and-replay.
-    const RngState snapshot = live;
+    const RNGState snapshot = live;
     std::uint64_t forward[32];
     for (std::uint64_t& value : forward)
         value = next_u64(live);
 
-    RngState replay = snapshot;
+    RNGState replay = snapshot;
     for (std::uint64_t expected : forward)
         EXPECT_EQ(next_u64(replay), expected);
 }
 
-TEST(Unit_Rng, DifferentSeedsDiverge)
+TEST(Unit_RNG, DifferentSeedsDiverge)
 {
-    RngState a = seed_rng(1);
-    RngState b = seed_rng(2);
+    RNGState a = seed_rng(1);
+    RNGState b = seed_rng(2);
     EXPECT_NE(next_u64(a), next_u64(b));
 }
 
-TEST(Unit_Rng, NextUnitStaysInUnitInterval)
+TEST(Unit_RNG, NextUnitStaysInUnitInterval)
 {
-    RngState state = seed_rng(0xABCDEF123456);
+    RNGState state = seed_rng(0xABCDEF123456);
     for (int i = 0; i < 100000; ++i)
     {
         const double u = next_unit(state);

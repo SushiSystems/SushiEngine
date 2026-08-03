@@ -108,7 +108,7 @@ namespace SushiEngine
              * @brief The W3 dedicated cloud buffer's resolution scale, relative to the
              * output extent (design doc §4.7's "Cloud buffer" row).
              *
-             * Not a raw pixel size — `CloudPass`'s march target and `CloudTaaPass`'s
+             * Not a raw pixel size — `CloudPass`'s march target and `CloudTAAPass`'s
              * fixed half-output history reconstruct across whatever this resolves to,
              * the same render/output-extent split `taa.frag` already handles for the
              * main resolve. Low shades a third of the axis, Medium/High hold the
@@ -185,7 +185,7 @@ namespace SushiEngine
              * @brief Whether probe-volume GI is relit at this tier.
              *
              * Global illumination is a High/Ultra feature: the lower tiers keep the flat
-             * environment ambient. Gated with the author's @c GiParams::enabled, so this
+             * environment ambient. Gated with the author's @c GIParams::enabled, so this
              * only permits GI — it never forces it on.
              */
             bool probe_gi = false;
@@ -222,7 +222,7 @@ namespace SushiEngine
              * culling remove the per-instance CPU cost of dense scenes. The lowest tier keeps
              * the classic one-draw-per-instance path — its scenes are the simplest and its
              * devices least likely to want extra compute passes — while every other tier takes
-             * the GPU-driven path. Gated further by the author's @c GpuCullingSettings::enabled
+             * the GPU-driven path. Gated further by the author's @c GPUCullingSettings::enabled
              * and by the bindless heap being present, so this only *permits* it.
              */
             bool gpu_driven = true;

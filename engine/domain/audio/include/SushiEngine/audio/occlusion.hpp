@@ -206,9 +206,9 @@ namespace SushiEngine
                 SmoothedValue dry_blockage_;
                 SmoothedValue occlusion_;
                 SmoothedValue transmission_[ACOUSTIC_BAND_COUNT];
-                Dsp::Biquad low_pass_;
-                Dsp::Biquad low_shelf_;
-                Dsp::Biquad high_shelf_;
+                DSP::Biquad low_pass_;
+                DSP::Biquad low_shelf_;
+                DSP::Biquad high_shelf_;
                 double sample_rate_ = 48000.0;
             };
     } // namespace Audio

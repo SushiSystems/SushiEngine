@@ -65,7 +65,7 @@ namespace SushiEngine
          * Queried rather than assumed, so a subsystem that wants a backend-specific
          * capability asks for it instead of a portable seam pretending to offer
          * something one implementation cannot deliver. The pattern matches the engine's
-         * existing feature queries (`IDspAccelerator::available()`, the renderer's
+         * existing feature queries (`IDSPAccelerator::available()`, the renderer's
          * capability flags) rather than inventing a second convention.
          */
         struct BackendCapabilities

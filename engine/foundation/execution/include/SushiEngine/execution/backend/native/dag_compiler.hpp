@@ -42,14 +42,14 @@ namespace SushiEngine
             class ThreadPool;
 
             /**
-             * @brief Everything @ref DagCompiler needs about one submitted node,
+             * @brief Everything @ref DAGCompiler needs about one submitted node,
              * with its kernel bound.
              *
              * Unlike `RuntimeBackend`, which forwards a kernel unchanged into a SYCL
              * launch, the native backend has no device-capture constraint — a plain
              * worker thread calling a `std::function` is exactly what this backend
              * is. Erasing the kernel here is therefore not a compromise; it is what
-             * lets `DagCompiler` be a single, ordinary (non-template) compiled class
+             * lets `DAGCompiler` be a single, ordinary (non-template) compiled class
              * instead of one instantiation per kernel type per node.
              *
              * Owns copies of everything `NodeDescriptor` only borrows (`accesses`,
@@ -91,7 +91,7 @@ namespace SushiEngine
              * (RUNTIME-PORT1's next checkpoint) changes how `run()` dispatches ready
              * nodes, not this class's compiled representation of the graph.
              */
-            class DagCompiler
+            class DAGCompiler
             {
                 public:
                     /**
@@ -120,7 +120,7 @@ namespace SushiEngine
                      * `DynamicGraph`'s recompose is this method's one caller: each
                      * live region already holds its own recorded `NodeRecord`s (built
                      * through `Region::add_parallel`/`add_host`, which have no
-                     * `DagCompiler` of their own to add into), and recomposing means
+                     * `DAGCompiler` of their own to add into), and recomposing means
                      * moving every region's records into one flattened compiler in
                      * ascending region-key order.
                      *

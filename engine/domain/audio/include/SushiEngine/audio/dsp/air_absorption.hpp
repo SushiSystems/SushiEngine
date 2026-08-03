@@ -45,7 +45,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /** @brief The atmospheric state absorption and the speed of sound depend on. */
             struct Atmosphere
@@ -154,7 +154,7 @@ namespace SushiEngine
                 }
                 return static_cast<float>(0.5 * (lo + hi));
             }
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

@@ -137,7 +137,7 @@ TEST(Unit_InputVirtualControls, PointerOutsideTheRegionDoesNothing)
     EXPECT_FALSE(input.snapshot().held("Jump"));
 }
 
-TEST(Unit_InputVirtualControls, MouseFeedsPointerZeroAndTheUiPointer)
+TEST(Unit_InputVirtualControls, MouseFeedsPointerZeroAndTheUIPointer)
 {
     InputManager input;
     ScriptedInputSource source;

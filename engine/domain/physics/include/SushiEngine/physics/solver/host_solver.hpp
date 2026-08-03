@@ -36,7 +36,7 @@
  * in exactly one respect: how the work is executed. Everything else is deliberately
  * identical, and shared rather than re-derived — the same `ConstraintStore` decides
  * which colour a constraint takes and where in that colour's band it sits, and the
- * same `predict` / `XpbdDistanceProjectionT` / `update_velocity` do the arithmetic.
+ * same `predict` / `XPBDDistanceProjectionT` / `update_velocity` do the arithmetic.
  * If the layout were re-derived here the suite would be measuring the layout, which
  * is the one thing already known to agree.
  *
@@ -80,11 +80,11 @@ namespace SushiEngine
          * @tparam T The scalar element type.
          */
         template <typename T>
-        class HostXpbdSolver final : public IConstraintSolver<T>
+        class HostXPBDSolver final : public IConstraintSolver<T>
         {
             public:
                 /** @brief The persistent constraint kind this solver admits. */
-                using Constraint = XpbdDistanceConstraintT<T>;
+                using Constraint = XPBDDistanceConstraintT<T>;
 
                 /** @brief The per-tick constraint kind this solver admits. */
                 using Contact = ContactConstraintT<T>;
@@ -93,7 +93,7 @@ namespace SushiEngine
                 using Joint = JointConstraintT<T>;
 
                 /** @brief The deformable persistent kind this solver admits (§9.1). */
-                using Element = FemTetrahedronT<T>;
+                using Element = FEMTetrahedronT<T>;
 
                 /** @brief The structural persistent kind this solver admits (§11.1). */
                 using Beam = BeamConstraintT<T>;
@@ -108,7 +108,7 @@ namespace SushiEngine
                  *
                  * @param configuration The scene's budgets and substep schedule.
                  */
-                explicit HostXpbdSolver(const PhysicsConfigurationT<T>& configuration)
+                explicit HostXPBDSolver(const PhysicsConfigurationT<T>& configuration)
                     : configuration_(configuration),
                       body_slots_(configuration.capacities.bodies),
                       constraints_store_(configuration.capacities.bodies,
@@ -524,7 +524,7 @@ namespace SushiEngine
                                 // graph's kernel does: one iteration per substep, so
                                 // nothing carries across.
                                 T lambda = T(0);
-                                XpbdDistanceProjectionT<T> projection;
+                                XPBDDistanceProjectionT<T> projection;
                                 projection(constraints_[base + offset], bodies_.data(),
                                            lambda, h);
                             }

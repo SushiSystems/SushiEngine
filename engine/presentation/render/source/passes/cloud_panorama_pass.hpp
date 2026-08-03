@@ -36,7 +36,7 @@
  * The image is pass-owned and barriered by hand, exactly as those two are.
  *
  * Landed as a verified, standalone bake this phase; wiring a consumer (the reflection
- * probe capture in `IblPass`) is scoped out — see the W3 CHANGELOG entry for why.
+ * probe capture in `IBLPass`) is scoped out — see the W3 CHANGELOG entry for why.
  */
 
 #include "passes/render_pass.hpp"

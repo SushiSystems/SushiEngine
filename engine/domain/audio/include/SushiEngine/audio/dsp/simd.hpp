@@ -52,9 +52,9 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
-            namespace Simd
+            namespace SIMD
             {
                 /**
                  * @brief Scales a buffer in place by a constant gain: `buf[i] *= gain`.
@@ -194,8 +194,8 @@ namespace SushiEngine
                     out_left = std::cos(angle);
                     out_right = std::sin(angle);
                 }
-            } // namespace Simd
-        } // namespace Dsp
+            } // namespace SIMD
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

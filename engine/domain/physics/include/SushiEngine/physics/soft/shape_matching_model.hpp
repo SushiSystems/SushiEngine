@@ -89,22 +89,22 @@ namespace SushiEngine
          *         rotation is the right answer and the caller should skip the substep.
          */
         template <typename T>
-        inline bool polar_rotation(const FemMatrix3<T>& a, FemMatrix3<T>& out) noexcept
+        inline bool polar_rotation(const FEMMatrix3<T>& a, FEMMatrix3<T>& out) noexcept
         {
             if (!(determinant(a) > T(0)))
                 return false;
 
-            FemMatrix3<T> r = a;
+            FEMMatrix3<T> r = a;
             // Quadratic convergence reaches machine precision in well under a dozen
             // steps; the cap is a guard against a pathological input, not a budget.
             for (int iteration = 0; iteration < 24; ++iteration)
             {
-                FemMatrix3<T> inverse;
+                FEMMatrix3<T> inverse;
                 if (!invert_fem_matrix3(r, inverse))
                     return false;
-                const FemMatrix3<T> inverse_transpose = transpose(inverse);
+                const FEMMatrix3<T> inverse_transpose = transpose(inverse);
 
-                FemMatrix3<T> next;
+                FEMMatrix3<T> next;
                 next.column0 = (r.column0 + inverse_transpose.column0) * T(0.5);
                 next.column1 = (r.column1 + inverse_transpose.column1) * T(0.5);
                 next.column2 = (r.column2 + inverse_transpose.column2) * T(0.5);
@@ -192,7 +192,7 @@ namespace SushiEngine
                     // The cross-covariance `sum (x_i - c) (r_i - c0)^T`, accumulated as
                     // three columns because that is the shape every 3x3 in this
                     // directory is stored in.
-                    FemMatrix3<T> covariance;
+                    FEMMatrix3<T> covariance;
                     for (std::size_t i = 0; i < count; ++i)
                     {
                         const Vector3T<T> current = particles[i].position - current_centroid;
@@ -202,7 +202,7 @@ namespace SushiEngine
                         covariance.column2 = covariance.column2 + current * rest.z;
                     }
 
-                    FemMatrix3<T> rotation;
+                    FEMMatrix3<T> rotation;
                     if (!polar_rotation(covariance, rotation))
                         return; // collapsed or turned inside out: no fit to speak of
 

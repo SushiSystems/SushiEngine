@@ -83,7 +83,7 @@ int main()
     engine.mixer().set_master(master);
     engine.mixer().add_aux_send(sfx_bus, reverb_bus, 0.25f);
     {
-        std::unique_ptr<FdnReverbEffect> fx(new FdnReverbEffect());
+        std::unique_ptr<FDNReverbEffect> fx(new FDNReverbEffect());
         // A short, restrained room: this S2 slice checks the voice/mixer path, so the
         // reverb stays subtle (a long tail would build up under the sustained test tones).
         I3DL2Reverb params = I3DL2Reverb::room_small();
@@ -177,7 +177,7 @@ int main()
 
     // Best-effort playback (listener back near the sources).
     engine.voices().set_listener(ListenerState{AudioVec3{0.0f, 0.0f, 0.0f}});
-    SdlAudioDevice device;
+    SDLAudioDevice device;
     AudioStreamFormat desired;
     desired.sample_rate = 48000;
     desired.channel_count = 2;

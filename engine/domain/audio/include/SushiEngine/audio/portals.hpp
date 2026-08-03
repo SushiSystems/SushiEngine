@@ -68,7 +68,7 @@ namespace SushiEngine
         struct AcousticRoom
         {
             RoomId id = 0;
-            AcousticAabb bounds; /**< The room's world box (containment test). */
+            AcousticAABB bounds; /**< The room's world box (containment test). */
         };
 
         /** @brief A doorway/opening joining two rooms. */
@@ -107,7 +107,7 @@ namespace SushiEngine
         {
             public:
                 /** @brief Adds a room and returns its slot index. */
-                std::size_t add_room(RoomId id, const AcousticAabb& bounds)
+                std::size_t add_room(RoomId id, const AcousticAABB& bounds)
                 {
                     rooms_.push_back(AcousticRoom{id, bounds});
                     return rooms_.size() - 1;

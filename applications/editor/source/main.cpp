@@ -24,7 +24,7 @@
 // Editor shell: a Vulkan-backed window hosting Dear ImGui with a full-window
 // dockspace and a Unity-style panel set — Hierarchy, Inspector, Project, and a
 // text editor. It edits an editor-side scene and the on-disk project; a live
-// viewport and world follow in later increments. The window (SdlWindow), the
+// viewport and world follow in later increments. The window (SDLWindow), the
 // graphics device and swapchain (Render::IWindowRenderer), and the ImGui/Vulkan
 // glue (ImGuiBackend) sit behind narrow seams, so this loop names no windowing or
 // graphics API directly and a different backend could replace either.
@@ -167,7 +167,7 @@ int main(int argc, char** argv)
 {
     try
     {
-        SushiEngine::Platform::SdlWindow window("SushiEngine Editor", 1600, 900);
+        SushiEngine::Platform::SDLWindow window("SushiEngine Editor", 1600, 900);
 
         std::uint32_t width = 0;
         std::uint32_t height = 0;
@@ -212,7 +212,7 @@ int main(int argc, char** argv)
         // the resolved snapshot for its shortcuts and tool keys (see the EditorGlobal/
         // EditorViewport contexts pushed below).
         SushiEngine::Input::InputManager input;
-        SushiEngine::Input::SdlInputTranslator input_translator(input);
+        SushiEngine::Input::SDLInputTranslator input_translator(input);
         window.add_event_handler([&input_translator](const void* event)
         {
             input_translator.handle_native_event(event);
@@ -1064,7 +1064,7 @@ int main(int argc, char** argv)
                 const std::size_t timing_count = entry.panel->pass_timing_count();
                 if (timing_count == 0)
                     continue;
-                SushiEngine::Editor::ViewportGpuStatistics statistics;
+                SushiEngine::Editor::ViewportGPUStatistics statistics;
                 statistics.viewport = entry.panel->title();
                 statistics.passes.reserve(timing_count);
                 for (std::size_t i = 0; i < timing_count; ++i)

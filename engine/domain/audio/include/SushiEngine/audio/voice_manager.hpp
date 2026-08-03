@@ -90,7 +90,7 @@ namespace SushiEngine
         /**
          * @brief One control-thread intent, drained and applied by the audio thread.
          *
-         * A trivially-copyable POD so it crosses the lock-free @ref Dsp::SpscRing by value.
+         * A trivially-copyable POD so it crosses the lock-free @ref DSP::SpscRing by value.
          * `source` is a raw owning pointer for @ref VoiceCommandKind::Play — ownership is
          * transferred to the audio thread, which wraps it back in a `unique_ptr`.
          */
@@ -144,7 +144,7 @@ namespace SushiEngine
                  * @brief Sets the atmosphere used for the speed of sound and air absorption.
                  * @param atmosphere The temperature, humidity, and pressure.
                  */
-                void set_atmosphere(const Dsp::Atmosphere& atmosphere) noexcept
+                void set_atmosphere(const DSP::Atmosphere& atmosphere) noexcept
                 {
                     atmosphere_ = atmosphere;
                 }
@@ -522,7 +522,7 @@ namespace SushiEngine
                             return;
                         float g0 = 0.0f, g1 = 0.0f;
                         slot.gain.advance_block(frame_count, g0, g1);
-                        Dsp::Simd::apply_gain_ramp(scratch, frame_count, g0, g1);
+                        DSP::SIMD::apply_gain_ramp(scratch, frame_count, g0, g1);
                         slot.wet_scale = 1.0f;
                         if (slot.descriptor.spatial)
                         {
@@ -567,7 +567,7 @@ namespace SushiEngine
                         if (!placed)
                         {
                             float gain_left = 0.0f, gain_right = 0.0f;
-                            Dsp::Simd::equal_power_pan(slot.descriptor.pan, gain_left, gain_right);
+                            DSP::SIMD::equal_power_pan(slot.descriptor.pan, gain_left, gain_right);
                             mixer.accumulate(slot.descriptor.bus, scratch, frame_count, gain_left,
                                              gain_right);
                         }
@@ -815,7 +815,7 @@ namespace SushiEngine
                 VoiceRenderPool* pool_ = nullptr;
                 ListenerState listener_;
                 BinauralSpatializer* spatializer_ = nullptr;
-                Dsp::Atmosphere atmosphere_;
+                DSP::Atmosphere atmosphere_;
                 float max_propagation_distance_ = 200.0f;
                 int max_real_ = 32;
                 double hdr_window_db_ = 60.0;
@@ -830,9 +830,9 @@ namespace SushiEngine
                 // so the control side can reconcile. `control_gen_` is the control thread's
                 // per-slot generation, so the handle it returns from `enqueue_play` matches
                 // the one the audio thread installs.
-                Dsp::SpscRing<VoiceCommand> commands_;
-                Dsp::SpscRing<int> free_indices_;
-                Dsp::SpscRing<int> finished_;
+                DSP::SpscRing<VoiceCommand> commands_;
+                DSP::SpscRing<int> free_indices_;
+                DSP::SpscRing<int> finished_;
                 std::vector<std::uint32_t> control_gen_;
             };
     } // namespace Audio

@@ -40,7 +40,7 @@ namespace SushiEngine
     {
         namespace Passes
         {
-            FxaaPass::FxaaPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+            FXAAPass::FXAAPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                Resources::GraphicsPipelineFactory& pipelines,
                                Scene::SceneLayout& layout)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout)
@@ -48,32 +48,32 @@ namespace SushiEngine
                 create_pipeline();
             }
 
-            FxaaPass::~FxaaPass() { destroy_pipeline(); }
+            FXAAPass::~FXAAPass() { destroy_pipeline(); }
 
-            void FxaaPass::create_pipeline()
+            void FXAAPass::create_pipeline()
             {
                 pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("fxaa.frag"), Frame::RESOLVE_FORMAT));
             }
 
-            void FxaaPass::destroy_pipeline()
+            void FXAAPass::destroy_pipeline()
             {
                 // The factory owns the pipeline and swaps in its optimized rebuild, so
                 // the pass drops only its handle; clear_libraries() frees the pipeline.
                 pipeline_ = Resources::PipelineHandle{};
             }
 
-            void FxaaPass::rebuild_pipelines()
+            void FXAAPass::rebuild_pipelines()
             {
                 destroy_pipeline();
                 create_pipeline();
             }
 
-            void FxaaPass::register_pass(Graph::RenderGraph& graph,
+            void FXAAPass::register_pass(Graph::RenderGraph& graph,
                                          const Frame::FrameContext& frame)
             {
-                if (frame.settings.anti_aliasing != AntiAliasingMode::Fxaa)
+                if (frame.settings.anti_aliasing != AntiAliasingMode::FXAA)
                     return;
 
                 graph.add_pass(

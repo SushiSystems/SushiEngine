@@ -112,7 +112,7 @@ namespace SushiEngine
             /**
              * @brief A range along the line between the two anchors.
              *
-             * The generalization of `XpbdDistanceConstraintT`: a minimum and a
+             * The generalization of `XPBDDistanceConstraintT`: a minimum and a
              * maximum rather than a single rest length, so a rope goes slack and a
              * strut resists both ways.
              */

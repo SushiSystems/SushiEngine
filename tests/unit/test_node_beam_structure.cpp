@@ -205,7 +205,7 @@ namespace
     }
 
     /** @brief Advances the solver one tick and runs the structure's boundary pass. */
-    NodeBeamTickReport tick(HostXpbdSolver<Scalar>& solver, NodeBeamStructure& structure,
+    NodeBeamTickReport tick(HostXPBDSolver<Scalar>& solver, NodeBeamStructure& structure,
                             const Vector3& gravity = Vector3{0, -9.81, 0})
     {
         StepParameters<Scalar> parameters;
@@ -228,7 +228,7 @@ namespace
      * as one piece and every beam and mount in it carries exactly nothing. An impact
      * is a relative velocity, and this is the smallest way to make one.
      */
-    void yank(HostXpbdSolver<Scalar>& solver, BodyHandle handle, const Vector3& velocity)
+    void yank(HostXPBDSolver<Scalar>& solver, BodyHandle handle, const Vector3& velocity)
     {
         RigidBody body;
         ASSERT_TRUE(solver.read_body(handle, body));
@@ -243,7 +243,7 @@ TEST(Unit_NodeBeamStructure, InstancesEveryRecord)
     const Blob blob(two_part_vehicle(Scalar(0)));
     ASSERT_TRUE(blob.view.valid);
 
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     ASSERT_TRUE(structure.create(solver, blob.view, NodeBeamStructureSettings<Scalar>{}));
 
@@ -266,7 +266,7 @@ TEST(Unit_NodeBeamStructure, PlacesTheAssetAtTheSpawnPose)
     settings.position = Vector3{10, 4, -7};
     settings.orientation = quaternion_axis_angle(Vector3{0, 1, 0}, Scalar(1.1));
 
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     ASSERT_TRUE(structure.create(solver, blob.view, settings));
 
@@ -289,7 +289,7 @@ TEST(Unit_NodeBeamStructure, CoreCarriesTheAssetMassAndInertia)
 {
     const Cooking::NodeBeamAsset asset = two_part_vehicle(Scalar(0));
     const Blob blob(asset);
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     ASSERT_TRUE(structure.create(solver, blob.view, NodeBeamStructureSettings<Scalar>{}));
 
@@ -305,7 +305,7 @@ TEST(Unit_NodeBeamStructure, CoreCarriesTheAssetMassAndInertia)
 TEST(Unit_NodeBeamStructure, NodesAreParticles)
 {
     const Blob blob(hanging_pair(Scalar(0), Scalar(0)));
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     ASSERT_TRUE(structure.create(solver, blob.view, NodeBeamStructureSettings<Scalar>{}));
 
@@ -331,7 +331,7 @@ TEST(Unit_NodeBeamStructure, SpawnVelocityReachesEveryBody)
     NodeBeamStructureSettings<Scalar> settings;
     settings.velocity = Vector3{12, 0, 0};
 
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     ASSERT_TRUE(structure.create(solver, blob.view, settings));
 
@@ -349,7 +349,7 @@ TEST(Unit_NodeBeamStructure, SpawnVelocityReachesEveryBody)
 TEST(Unit_NodeBeamStructure, PureNodeBeamAssetHasNoCore)
 {
     const Blob blob(hanging_pair(Scalar(0), Scalar(0)));
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     ASSERT_TRUE(structure.create(solver, blob.view, NodeBeamStructureSettings<Scalar>{}));
 
@@ -361,7 +361,7 @@ TEST(Unit_NodeBeamStructure, PureNodeBeamAssetHasNoCore)
 /** @brief An asset that never loaded builds nothing. */
 TEST(Unit_NodeBeamStructure, RefusesAnInvalidAsset)
 {
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     EXPECT_FALSE(
         structure.create(solver, Cooking::NodeBeamAssetView{}, NodeBeamStructureSettings<Scalar>{}));
@@ -380,7 +380,7 @@ TEST(Unit_NodeBeamStructure, RefusalLeavesTheSolverEmpty)
     const Blob wide(two_part_vehicle(Scalar(0)));  // four nodes and a core: five bodies.
     const Blob narrow(hanging_pair(Scalar(0), Scalar(0)));
 
-    HostXpbdSolver<Scalar> solver(structure_scene(4));
+    HostXPBDSolver<Scalar> solver(structure_scene(4));
     NodeBeamStructure refused;
     ASSERT_FALSE(refused.create(solver, wide.view, NodeBeamStructureSettings<Scalar>{}));
     EXPECT_EQ(refused.node_count(), 0u);
@@ -394,7 +394,7 @@ TEST(Unit_NodeBeamStructure, RefusalLeavesTheSolverEmpty)
 TEST(Unit_NodeBeamStructure, DestroyGivesEverySlotBack)
 {
     const Blob blob(two_part_vehicle(Scalar(0)));
-    HostXpbdSolver<Scalar> solver(structure_scene(5));
+    HostXPBDSolver<Scalar> solver(structure_scene(5));
 
     NodeBeamStructure first;
     ASSERT_TRUE(first.create(solver, blob.view, NodeBeamStructureSettings<Scalar>{}));
@@ -410,7 +410,7 @@ TEST(Unit_NodeBeamStructure, DeformsABeamThatPassesItsThreshold)
 {
     // 100 kg under gravity is 981 N, an order of magnitude past this threshold.
     const Blob blob(hanging_pair(Scalar(100), Scalar(0)));
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     ASSERT_TRUE(structure.create(solver, blob.view, NodeBeamStructureSettings<Scalar>{}));
 
@@ -449,7 +449,7 @@ TEST(Unit_NodeBeamStructure, DeformsABeamThatPassesItsThreshold)
 TEST(Unit_NodeBeamStructure, BreaksABeamThatPassesItsBreakThreshold)
 {
     const Blob blob(hanging_pair(Scalar(0), Scalar(100)));
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     ASSERT_TRUE(structure.create(solver, blob.view, NodeBeamStructureSettings<Scalar>{}));
 
@@ -474,7 +474,7 @@ TEST(Unit_NodeBeamStructure, LosingEveryTieDetachesThePart)
     // A newton is nothing next to the load of arresting a node thrown at fifty metres
     // a second, so the door's two ties fail and part 0's — authored unbreakable — do not.
     const Blob blob(two_part_vehicle(Scalar(1)));
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     ASSERT_TRUE(structure.create(solver, blob.view, NodeBeamStructureSettings<Scalar>{}));
     yank(solver, structure.node(2), Vector3{0, -50, 0});
@@ -505,7 +505,7 @@ TEST(Unit_NodeBeamStructure, LosingEveryTieDetachesThePart)
 TEST(Unit_NodeBeamStructure, PartWithNoTiesIsNeverDetached)
 {
     const Blob blob(hanging_pair(Scalar(0), Scalar(0)));
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     ASSERT_TRUE(structure.create(solver, blob.view, NodeBeamStructureSettings<Scalar>{}));
 
@@ -518,7 +518,7 @@ TEST(Unit_NodeBeamStructure, PartWithNoTiesIsNeverDetached)
 TEST(Unit_NodeBeamStructure, AttachmentHoldsTheShellToTheCore)
 {
     const Blob blob(two_part_vehicle(Scalar(0)));
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     ASSERT_TRUE(structure.create(solver, blob.view, NodeBeamStructureSettings<Scalar>{}));
 
@@ -568,7 +568,7 @@ TEST(Unit_NodeBeamStructure, SkinFollowsTheInstancedStructure)
     NodeBeamStructureSettings<Scalar> settings;
     settings.position = Vector3{3, 5, -2};
 
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     ASSERT_TRUE(structure.create(solver, blob.view, settings));
 
@@ -596,7 +596,7 @@ TEST(Unit_NodeBeamStructure, ReplayIsIdentical)
 
     for (int run = 0; run < 2; ++run)
     {
-        HostXpbdSolver<Scalar> solver(structure_scene());
+        HostXPBDSolver<Scalar> solver(structure_scene());
         NodeBeamStructure structure;
         ASSERT_TRUE(structure.create(solver, blob.view, NodeBeamStructureSettings<Scalar>{}));
         yank(solver, structure.node(2), Vector3{0, -50, 0});
@@ -631,7 +631,7 @@ TEST(Unit_NodeBeamStructure, ReplayIsIdentical)
 /** @brief A structure that was never created does nothing at the tick boundary. */
 TEST(Unit_NodeBeamStructure, EmptyStructureReportsNothing)
 {
-    HostXpbdSolver<Scalar> solver(structure_scene());
+    HostXPBDSolver<Scalar> solver(structure_scene());
     NodeBeamStructure structure;
     const NodeBeamTickReport report = structure.end_tick(solver);
     EXPECT_EQ(report.beams_deformed, 0u);

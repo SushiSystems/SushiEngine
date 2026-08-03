@@ -55,7 +55,7 @@ int main()
         std::vector<float> ir(40);
         for (int i = 0; i < 40; ++i)
             ir[i] = std::exp(-i * 0.12f) * std::sin(i * 0.6f);
-        Dsp::PartitionedConvolver conv;
+        DSP::PartitionedConvolver conv;
         conv.prepare(b, ir.data(), static_cast<int>(ir.size()));
         std::vector<float> x(8 * b);
         for (int i = 0; i < 8 * b; ++i)
@@ -183,7 +183,7 @@ int main()
     std::vector<float> left(block, 0.0f), right(block, 0.0f);
     float* channels[2] = {left.data(), right.data()};
 
-    SdlAudioDevice device;
+    SDLAudioDevice device;
     AudioStreamFormat desired;
     desired.sample_rate = 48000;
     desired.channel_count = 2;

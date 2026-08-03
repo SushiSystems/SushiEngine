@@ -93,7 +93,7 @@ namespace SushiEngine
         namespace Passes
         {
             class CloudShadowMapPass;
-            class IblPass;
+            class IBLPass;
             class IrradianceVolumePass;
 
             /** @brief Uploads this frame's tiles and draws one body's selected nodes. */
@@ -126,7 +126,7 @@ namespace SushiEngine
                     TerrainPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                 Resources::GraphicsPipelineFactory& pipelines,
                                 Terrain::TerrainLayout& layout, Terrain::PlanetTerrain& terrain,
-                                IblPass& ibl, CloudShadowMapPass& cloud_shadow,
+                                IBLPass& ibl, CloudShadowMapPass& cloud_shadow,
                                 IrradianceVolumePass& gi, Assets::MaterialSystem& materials,
                                 Scene::MotionSystem& motion, Lighting::LightSystem& lights);
                     ~TerrainPass() override;
@@ -155,7 +155,7 @@ namespace SushiEngine
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Terrain::TerrainLayout& layout_;
                     Terrain::PlanetTerrain& terrain_;
-                    IblPass& ibl_;
+                    IBLPass& ibl_;
                     CloudShadowMapPass& cloud_shadow_;
                     IrradianceVolumePass& gi_;
                     Assets::MaterialSystem& materials_;

@@ -47,7 +47,7 @@
 
 namespace SushiEngine
 {
-    namespace Vfx
+    namespace VFX
     {
         /**
          * @brief Owns particle-effect assets and their cached compiled forms.
@@ -157,5 +157,5 @@ namespace SushiEngine
 
                 std::vector<Entry> entries_;
         };
-    } // namespace Vfx
+    } // namespace VFX
 } // namespace SushiEngine

@@ -69,7 +69,7 @@ namespace SushiEngine
          * @tparam T The scalar element type.
          */
         template <typename T>
-        class BvhBroadphase final : public BroadphaseBase<T>
+        class BVHBroadphase final : public BroadphaseBase<T>
         {
             public:
                 void update() override
@@ -134,7 +134,7 @@ namespace SushiEngine
                     static_membership_[id] = now_static;
                 }
 
-                void query_overlap(const Aabb<T>& box,
+                void query_overlap(const AABB<T>& box,
                                    const std::function<void(ProxyId)>& visit) const override
                 {
                     const auto report = [&](std::uint32_t id, std::uint32_t) { visit(id); };
@@ -152,10 +152,10 @@ namespace SushiEngine
                 }
 
                 /** @brief The dynamic tree, for tests that check its invariants. */
-                const DynamicBvh<T>& dynamic_tree() const noexcept { return dynamic_tree_; }
+                const DynamicBVH<T>& dynamic_tree() const noexcept { return dynamic_tree_; }
 
                 /** @brief The static tree, for the same reason. */
-                const DynamicBvh<T>& static_tree() const noexcept { return static_tree_; }
+                const DynamicBVH<T>& static_tree() const noexcept { return static_tree_; }
 
             protected:
                 void on_proxy_created(ProxyId id) override
@@ -189,7 +189,7 @@ namespace SushiEngine
                 }
 
             private:
-                DynamicBvh<T>& tree_for(bool is_static) noexcept
+                DynamicBVH<T>& tree_for(bool is_static) noexcept
                 {
                     return is_static ? static_tree_ : dynamic_tree_;
                 }
@@ -207,8 +207,8 @@ namespace SushiEngine
                     found_.push_back(BroadphasePair::make(a, b));
                 }
 
-                DynamicBvh<T> dynamic_tree_;
-                DynamicBvh<T> static_tree_;
+                DynamicBVH<T> dynamic_tree_;
+                DynamicBVH<T> static_tree_;
                 std::vector<std::uint32_t> nodes_;
                 // `char` rather than `bool`: a vector of bools is a bitfield whose
                 // elements have no address, and this one is indexed in hot loops.

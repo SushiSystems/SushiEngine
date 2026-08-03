@@ -61,7 +61,7 @@ namespace SushiEngine
              * empty effect. The name is derived from the entity, which is what keeps the world
              * registration one-per-emitter.
              */
-            Vfx::ParticleEffect& particle_effect_for(EditorContext& context,
+            VFX::ParticleEffect& particle_effect_for(EditorContext& context,
                                                      SushiEngine::Simulation::EntityId entity,
                                                      IWorldEditor& world)
             {
@@ -97,7 +97,7 @@ namespace SushiEngine
              * @param assets Library the path is loaded through; null disables loading.
              * @return true when the slot changed.
              */
-            bool draw_particle_texture(Vfx::RenderModule& render,
+            bool draw_particle_texture(VFX::RenderModule& render,
                                        SushiEngine::Render::IAssetLibrary* assets)
             {
                 bool changed = false;
@@ -113,15 +113,15 @@ namespace SushiEngine
                 ImGui::SameLine();
                 const bool clear = ImGui::SmallButton("Clear");
                 ImGui::SameLine();
-                ImGui::TextDisabled("%s", render.texture != Vfx::NO_PARTICLE_TEXTURE ? "set"
+                ImGui::TextDisabled("%s", render.texture != VFX::NO_PARTICLE_TEXTURE ? "set"
                                                                                      : "dot");
 
                 if (clear)
                 {
-                    if (render.texture != Vfx::NO_PARTICLE_TEXTURE && assets != nullptr)
+                    if (render.texture != VFX::NO_PARTICLE_TEXTURE && assets != nullptr)
                         assets->release_texture(
                             static_cast<SushiEngine::Render::TextureId>(render.texture));
-                    render.texture = Vfx::NO_PARTICLE_TEXTURE;
+                    render.texture = VFX::NO_PARTICLE_TEXTURE;
                     render.texture_path.clear();
                     return true;
                 }
@@ -133,19 +133,19 @@ namespace SushiEngine
                         render.texture_path.empty()
                             ? SushiEngine::Render::INVALID_TEXTURE
                             : assets->load_texture(render.texture_path.c_str(),
-                                                   SushiEngine::Render::TextureColorSpace::Srgb);
-                    if (render.texture != Vfx::NO_PARTICLE_TEXTURE)
+                                                   SushiEngine::Render::TextureColorSpace::SRGB);
+                    if (render.texture != VFX::NO_PARTICLE_TEXTURE)
                         assets->release_texture(
                             static_cast<SushiEngine::Render::TextureId>(render.texture));
                     render.texture = loaded == SushiEngine::Render::INVALID_TEXTURE
-                                         ? Vfx::NO_PARTICLE_TEXTURE
+                                         ? VFX::NO_PARTICLE_TEXTURE
                                          : static_cast<std::uint32_t>(loaded);
                     changed = true;
                 }
                 return changed;
             }
 
-            bool draw_effect_library(Vfx::ParticleEffect& target,
+            bool draw_effect_library(VFX::ParticleEffect& target,
                                      SushiEngine::Render::IAssetLibrary* assets,
                                      EffectLibraryState& library)
             {
@@ -173,7 +173,7 @@ namespace SushiEngine
                                              name_buffer + Scene::EFFECT_FILE_EXTENSION;
                     // The file keeps the asset's name; the emitter's own effect keeps the name the
                     // world knows it by, so saving a template never renames the live emitter.
-                    Vfx::ParticleEffect asset = target;
+                    VFX::ParticleEffect asset = target;
                     asset.name = name_buffer;
                     status = Scene::save_effect(asset, path) ? "Saved " + path
                                                       : "Could not write " + path;
@@ -224,7 +224,7 @@ namespace SushiEngine
                             // A library entry is a **template**: it is copied into this emitter,
                             // not bound to it, so editing one emitter never changes another that
                             // started from the same file.
-                            Vfx::ParticleEffect loaded;
+                            VFX::ParticleEffect loaded;
                             if (Scene::load_effect(file, loaded))
                             {
                                 // The file names its sprite textures by path; the handles it was
@@ -264,11 +264,11 @@ namespace SushiEngine
             {
                 // Read through the const overload: the mutable one marks the compiled effect stale,
                 // and drawing a timeline is not an edit.
-                const Vfx::ParticleEffect& effect =
+                const VFX::ParticleEffect& effect =
                     static_cast<const EffectPreview&>(preview).effect();
                 if (effect.emitters.empty())
                     return;
-                const Vfx::EmitterDescriptor& emitter = effect.emitters[0];
+                const VFX::EmitterDescriptor& emitter = effect.emitters[0];
                 const float duration = emitter.duration > 0.0f ? emitter.duration : 1.0f;
                 const float head = emitter.looping ? std::fmod(preview.time(), duration)
                                                    : std::min(preview.time(), duration);
@@ -284,7 +284,7 @@ namespace SushiEngine
                                          IM_COL32(38, 38, 44, 255), 3.0f);
 
                 // Burst markers, so the schedule is visible rather than only listed.
-                for (const Vfx::ParticleBurst& burst : emitter.spawn.bursts)
+                for (const VFX::ParticleBurst& burst : emitter.spawn.bursts)
                 {
                     const float t = duration > 0.0f ? burst.time / duration : 0.0f;
                     if (t < 0.0f || t > 1.0f)
@@ -319,7 +319,7 @@ namespace SushiEngine
              * toggles the module it stands for; the parameters stay in the sections below, which is
              * where an author edits numbers.
              */
-            void draw_effect_graph(Vfx::EmitterDescriptor& emitter)
+            void draw_effect_graph(VFX::EmitterDescriptor& emitter)
             {
                 if (!ImGui::CollapsingHeader("Graph"))
                     return;
@@ -429,7 +429,7 @@ namespace SushiEngine
                 return;
             }
 
-            Vfx::ParticleEffect& target = particle_effect_for(context, entity, *world);
+            VFX::ParticleEffect& target = particle_effect_for(context, entity, *world);
             // The pre-frame shape of the effect, for the undo bracketing at the bottom:
             // these widgets edit the scratch directly and report no per-widget change,
             // so "did this frame edit the effect" is answered by comparing captures.
@@ -470,7 +470,7 @@ namespace SushiEngine
 
             if (target.emitters.empty())
                 return;
-            Vfx::EmitterDescriptor& emitter = target.emitters[0];
+            VFX::EmitterDescriptor& emitter = target.emitters[0];
 
             draw_effect_graph(emitter);
 
@@ -484,7 +484,7 @@ namespace SushiEngine
             int burst_to_remove = -1;
             for (std::size_t i = 0; i < emitter.spawn.bursts.size(); ++i)
             {
-                Vfx::ParticleBurst& burst = emitter.spawn.bursts[i];
+                VFX::ParticleBurst& burst = emitter.spawn.bursts[i];
                 ImGui::PushID(static_cast<int>(i));
                 ImGui::SetNextItemWidth(90.0f);
                 ImGui::DragFloat("##time", &burst.time, 0.05f, 0.0f, emitter.duration);
@@ -505,7 +505,7 @@ namespace SushiEngine
             }
             if (ImGui::Button("Add Burst"))
             {
-                emitter.spawn.bursts.push_back(Vfx::ParticleBurst{0.0f, 10u});
+                emitter.spawn.bursts.push_back(VFX::ParticleBurst{0.0f, 10u});
                 context.particle_effect_dirty = true;
             }
 
@@ -513,7 +513,7 @@ namespace SushiEngine
             const char* shape_names[] = {"Point", "Sphere", "Hemisphere", "Cone", "Box", "Circle"};
             int shape = static_cast<int>(emitter.shape.shape);
             if (ImGui::Combo("Shape", &shape, shape_names, IM_ARRAYSIZE(shape_names)))
-                emitter.shape.shape = static_cast<Vfx::EmitterShape>(shape);
+                emitter.shape.shape = static_cast<VFX::EmitterShape>(shape);
             ImGui::DragFloat("Radius", &emitter.shape.radius, 0.01f, 0.0f, 20.0f);
             ImGui::SliderAngle("Cone Angle", &emitter.shape.cone_angle_radians, 0.0f, 90.0f);
 
@@ -561,15 +561,15 @@ namespace SushiEngine
 
             ImGui::SeparatorText("Force Fields");
             if (ImGui::Button("Add Field") &&
-                emitter.force_fields.size() < Vfx::MAX_FORCE_FIELDS)
+                emitter.force_fields.size() < VFX::MAX_FORCE_FIELDS)
             {
-                Vfx::ForceFieldModule field;
+                VFX::ForceFieldModule field;
                 field.enabled = true;
                 emitter.force_fields.push_back(field);
             }
             for (std::size_t f = 0; f < emitter.force_fields.size(); ++f)
             {
-                Vfx::ForceFieldModule& field = emitter.force_fields[f];
+                VFX::ForceFieldModule& field = emitter.force_fields[f];
                 ImGui::PushID(static_cast<int>(f));
                 ImGui::Checkbox("##enabled", &field.enabled);
                 ImGui::SameLine();
@@ -577,7 +577,7 @@ namespace SushiEngine
                 int kind = static_cast<int>(field.kind);
                 ImGui::SetNextItemWidth(120.0f);
                 if (ImGui::Combo("##kind", &kind, kind_names, IM_ARRAYSIZE(kind_names)))
-                    field.kind = static_cast<Vfx::ForceFieldKind>(kind);
+                    field.kind = static_cast<VFX::ForceFieldKind>(kind);
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Remove"))
                 {
@@ -593,7 +593,7 @@ namespace SushiEngine
                                          static_cast<float>(field.position.z)};
                     if (ImGui::DragFloat3("Position", position, 0.05f))
                         field.position = Vector3{position[0], position[1], position[2]};
-                    if (field.kind == Vfx::ForceFieldKind::Vortex)
+                    if (field.kind == VFX::ForceFieldKind::Vortex)
                     {
                         float axis[3] = {static_cast<float>(field.axis.x),
                                          static_cast<float>(field.axis.y),
@@ -614,7 +614,7 @@ namespace SushiEngine
             if (emitter.color_over_life.enabled &&
                 emitter.color_over_life.gradient.color_keys().size() >= 2)
             {
-                std::vector<Vfx::ColorKey>& keys = emitter.color_over_life.gradient.color_keys();
+                std::vector<VFX::ColorKey>& keys = emitter.color_over_life.gradient.color_keys();
                 float start[3] = {static_cast<float>(keys.front().color.x),
                                   static_cast<float>(keys.front().color.y),
                                   static_cast<float>(keys.front().color.z)};
@@ -631,18 +631,18 @@ namespace SushiEngine
             const char* blend_names[] = {"Additive", "Alpha", "Premultiplied"};
             int blend = static_cast<int>(emitter.render.blend);
             if (ImGui::Combo("Blend", &blend, blend_names, IM_ARRAYSIZE(blend_names)))
-                emitter.render.blend = static_cast<Vfx::BlendMode>(blend);
+                emitter.render.blend = static_cast<VFX::BlendMode>(blend);
             const char* alignment_names[] = {"Face Camera", "Velocity Stretched", "Ribbon", "Mesh"};
             int alignment = static_cast<int>(emitter.render.alignment);
             if (ImGui::Combo("Alignment", &alignment, alignment_names,
                              IM_ARRAYSIZE(alignment_names)))
-                emitter.render.alignment = static_cast<Vfx::RenderAlignment>(alignment);
-            if (emitter.render.alignment == Vfx::RenderAlignment::VelocityStretched)
+                emitter.render.alignment = static_cast<VFX::RenderAlignment>(alignment);
+            if (emitter.render.alignment == VFX::RenderAlignment::VelocityStretched)
                 ImGui::DragFloat("Stretch", &emitter.render.velocity_stretch, 0.005f, 0.0f, 1.0f,
                                  "%.3f m per m/s");
-            if (emitter.render.alignment == Vfx::RenderAlignment::Ribbon)
+            if (emitter.render.alignment == VFX::RenderAlignment::Ribbon)
                 ImGui::TextDisabled("Ribbons trail the last 8 simulated positions.");
-            if (emitter.render.alignment == Vfx::RenderAlignment::Mesh)
+            if (emitter.render.alignment == VFX::RenderAlignment::Mesh)
             {
                 int mesh = static_cast<int>(emitter.render.mesh);
                 if (ImGui::InputInt("Mesh", &mesh))
@@ -657,7 +657,7 @@ namespace SushiEngine
                 ImGui::TextDisabled("No asset library; textures cannot be loaded.");
             if (draw_particle_texture(emitter.render, context.assets))
                 context.particle_effect_dirty = true;
-            if (emitter.render.alignment == Vfx::RenderAlignment::Mesh)
+            if (emitter.render.alignment == VFX::RenderAlignment::Mesh)
                 ImGui::TextDisabled("Mesh particles take their look from the mesh, not this.");
 
             int flipbook[2] = {static_cast<int>(emitter.render.flipbook_columns),

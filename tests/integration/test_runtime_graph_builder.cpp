@@ -103,7 +103,7 @@ TEST(Integration_RuntimeGraphBuilder, TheGraphIsCompiledOnceHoweverTheWorldChang
         const BodyHandle transient = solver.add_body(falling_body(Scalar(3)));
         ASSERT_TRUE(transient.valid());
 
-        XpbdDistanceConstraint link;
+        XPBDDistanceConstraint link;
         link.a = std::uint32_t(solver.body_slot(anchor));
         link.b = std::uint32_t(solver.body_slot(transient));
         link.rest_length = Scalar(1);
@@ -154,7 +154,7 @@ TEST(Integration_RuntimeGraphBuilder, RemovingABodyTakesItsConstraintsWithIt)
     const BodyHandle a = solver.add_body(falling_body(Scalar(1)));
     const BodyHandle b = solver.add_body(falling_body(Scalar(2)));
 
-    XpbdDistanceConstraint link;
+    XPBDDistanceConstraint link;
     link.a = std::uint32_t(solver.body_slot(a));
     link.b = std::uint32_t(solver.body_slot(b));
     link.rest_length = Scalar(1);
@@ -184,13 +184,13 @@ TEST(Integration_RuntimeGraphBuilder, ConstraintsOnASharedBodyTakeDifferentColou
     const BodyHandle spoke_a = solver.add_body(falling_body(Scalar(2)));
     const BodyHandle spoke_b = solver.add_body(falling_body(Scalar(3)));
 
-    XpbdDistanceConstraint first;
+    XPBDDistanceConstraint first;
     first.a = std::uint32_t(solver.body_slot(hub));
     first.b = std::uint32_t(solver.body_slot(spoke_a));
     first.rest_length = Scalar(1);
     ASSERT_TRUE(solver.add_constraint(first).valid());
 
-    XpbdDistanceConstraint second;
+    XPBDDistanceConstraint second;
     second.a = std::uint32_t(solver.body_slot(hub));
     second.b = std::uint32_t(solver.body_slot(spoke_b));
     second.rest_length = Scalar(1);
@@ -243,7 +243,7 @@ TEST(Integration_RuntimeGraphBuilder, ADistanceConstraintPullsTwoBodiesTogether)
     const BodyHandle a = solver.add_body(left);
     const BodyHandle b = solver.add_body(right);
 
-    XpbdDistanceConstraint link;
+    XPBDDistanceConstraint link;
     link.a = std::uint32_t(solver.body_slot(a));
     link.b = std::uint32_t(solver.body_slot(b));
     link.rest_length = Scalar(1);
@@ -397,7 +397,7 @@ TEST(Integration_RuntimeGraphBuilder, ATetrahedralLatticeColoursCleanlyAndCompos
             for (int x = 0; x < CELLS; ++x)
                 for (const auto& corners : CELL_TETRAHEDRA)
                 {
-                    FemTetrahedron element;
+                    FEMTetrahedron element;
                     Vector3 corner[4];
                     for (int i = 0; i < 4; ++i)
                     {
@@ -410,11 +410,11 @@ TEST(Integration_RuntimeGraphBuilder, ATetrahedralLatticeColoursCleanlyAndCompos
                         corner[i] = rest[element.vertex[i]];
                     }
 
-                    FemMatrix3<Scalar> rest_shape;
+                    FEMMatrix3<Scalar> rest_shape;
                     rest_shape.column0 = corner[1] - corner[0];
                     rest_shape.column1 = corner[2] - corner[0];
                     rest_shape.column2 = corner[3] - corner[0];
-                    FemMatrix3<Scalar> inverse;
+                    FEMMatrix3<Scalar> inverse;
                     ASSERT_TRUE(invert_fem_matrix3(rest_shape, inverse))
                         << "a degenerate element means the lattice itself is wrong";
                     element.rest_inverse_column_0 = inverse.column0;

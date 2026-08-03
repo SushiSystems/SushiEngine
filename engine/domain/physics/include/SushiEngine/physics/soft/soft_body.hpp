@@ -31,8 +31,8 @@
  * constraints across each face diagonal, which together resist stretch and shear so
  * the block keeps its shape while still deforming under load. Like cloth it introduces
  * no new solver or constraint: it wires a topology into the caller's
- * `PhysicsWorld<XpbdDistanceConstraint>` (of whichever precision), so the existing
- * graph-coloured `XpbdSolver` runs it unchanged. Tetrahedral volume constraints are a
+ * `PhysicsWorld<XPBDDistanceConstraint>` (of whichever precision), so the existing
+ * graph-coloured `XPBDSolver` runs it unchanged. Tetrahedral volume constraints are a
  * later refinement; a structural+shear lattice is the mass-spring soft body many
  * engines ship and is enough to make a deformable block that settles and recovers.
  */

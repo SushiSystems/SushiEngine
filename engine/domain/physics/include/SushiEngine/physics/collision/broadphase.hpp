@@ -62,7 +62,7 @@
 #include <SushiEngine/physics/core/body_flags.hpp>
 
 #include <SushiEngine/core/types.hpp>
-// `Aabb` and `aabb_overlap` live in `physics/geometry` with the rest of the
+// `AABB` and `aabb_overlap` live in `physics/geometry` with the rest of the
 // single-shape value types (§3.2): a bounding box is meaningful without a second
 // box to test it against, and the mesh hierarchy one layer down needs them too.
 // They are used unqualified here, exactly as when they were declared in this file.
@@ -87,7 +87,7 @@ namespace SushiEngine
          * @param out_pairs  Receives the candidate index pairs (cleared on entry).
          */
         template <typename T>
-        inline void sweep_and_prune(const std::vector<Aabb<T>>& boxes,
+        inline void sweep_and_prune(const std::vector<AABB<T>>& boxes,
                                     std::vector<std::pair<std::uint32_t, std::uint32_t>>& out_pairs)
         {
             out_pairs.clear();
@@ -142,8 +142,8 @@ namespace SushiEngine
         template <typename T>
         struct BroadphaseProxy
         {
-            Aabb<T> bounds{};       /**< The enlarged box the structure holds. */
-            Aabb<T> tight_bounds{}; /**< Where the shape actually is. */
+            AABB<T> bounds{};       /**< The enlarged box the structure holds. */
+            AABB<T> tight_bounds{}; /**< Where the shape actually is. */
             CollisionFilter filter{};
             std::uint32_t flags = 0;   /**< `BodyFlags` bits. */
             std::uint32_t payload = 0; /**< The caller's identifier for the body. */
@@ -232,7 +232,7 @@ namespace SushiEngine
                 virtual ~IBroadphase() = default;
 
                 /** @brief Adds a proxy and returns its identifier. */
-                virtual ProxyId create_proxy(const Aabb<T>& bounds, const CollisionFilter& filter,
+                virtual ProxyId create_proxy(const AABB<T>& bounds, const CollisionFilter& filter,
                                              std::uint32_t flags, std::uint32_t payload) = 0;
 
                 /** @brief Removes a proxy; its identifier may be reused afterwards. */
@@ -247,7 +247,7 @@ namespace SushiEngine
                  *                     the next update; the enlargement leans this way,
                  *                     and a continuous-collision body sweeps it.
                  */
-                virtual void update_proxy(ProxyId proxy, const Aabb<T>& bounds,
+                virtual void update_proxy(ProxyId proxy, const AABB<T>& bounds,
                                           const Vector3T<T>& displacement) = 0;
 
                 /** @brief Replaces a proxy's filter and flag word. */
@@ -273,7 +273,7 @@ namespace SushiEngine
                 virtual const std::vector<BroadphasePair>& removed_pairs() const noexcept = 0;
 
                 /** @brief Calls @p visit for every proxy whose stored box meets @p box. */
-                virtual void query_overlap(const Aabb<T>& box,
+                virtual void query_overlap(const AABB<T>& box,
                                            const std::function<void(ProxyId)>& visit) const = 0;
 
                 /** @brief Calls @p visit for every proxy whose stored box the ray meets. */
@@ -320,7 +320,7 @@ namespace SushiEngine
                 /** @brief How many live proxies there are. */
                 std::size_t proxy_count() const noexcept { return live_count_; }
 
-                ProxyId create_proxy(const Aabb<T>& bounds, const CollisionFilter& filter,
+                ProxyId create_proxy(const AABB<T>& bounds, const CollisionFilter& filter,
                                      std::uint32_t flags, std::uint32_t payload) override
                 {
                     ProxyId id;
@@ -357,7 +357,7 @@ namespace SushiEngine
                     --live_count_;
                 }
 
-                void update_proxy(ProxyId id, const Aabb<T>& bounds,
+                void update_proxy(ProxyId id, const AABB<T>& bounds,
                                   const Vector3T<T>& displacement) override
                 {
                     if (id >= proxies_.size() || !proxies_[id].alive)
@@ -415,10 +415,10 @@ namespace SushiEngine
                  * before the impact rather than after the body has passed through
                  * (§7.5). That is the broadphase's whole half of continuous collision.
                  */
-                Aabb<T> enlarged(const Aabb<T>& tight, const Vector3T<T>& displacement,
+                AABB<T> enlarged(const AABB<T>& tight, const Vector3T<T>& displacement,
                                  std::uint32_t flags) const noexcept
                 {
-                    Aabb<T> box = aabb_expand(tight, margin_);
+                    AABB<T> box = aabb_expand(tight, margin_);
                     const Vector3T<T> lean = displacement * prediction_;
                     if (lean.x < T(0))
                         box.min.x += lean.x;
@@ -434,7 +434,7 @@ namespace SushiEngine
                         box.max.z += lean.z;
                     if (has_any_flag(flags, BodyFlags::continuous_collision))
                     {
-                        const Aabb<T> swept{tight.min + displacement, tight.max + displacement};
+                        const AABB<T> swept{tight.min + displacement, tight.max + displacement};
                         box = aabb_union(box, aabb_expand(swept, margin_));
                     }
                     return box;
@@ -542,7 +542,7 @@ namespace SushiEngine
                     this->publish_pairs(found_);
                 }
 
-                void query_overlap(const Aabb<T>& box,
+                void query_overlap(const AABB<T>& box,
                                    const std::function<void(ProxyId)>& visit) const override
                 {
                     for (ProxyId id = 0; id < this->proxies_.size(); ++id)
@@ -563,7 +563,7 @@ namespace SushiEngine
                 }
 
             private:
-                std::vector<Aabb<T>> boxes_;
+                std::vector<AABB<T>> boxes_;
                 std::vector<ProxyId> proxy_of_box_;
                 std::vector<std::pair<std::uint32_t, std::uint32_t>> raw_pairs_;
                 std::vector<BroadphasePair> found_;

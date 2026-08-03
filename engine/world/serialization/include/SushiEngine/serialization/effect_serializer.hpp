@@ -27,7 +27,7 @@
  * @file effect_serializer.hpp
  * @brief Reading and writing `.sushieffect` files (design §8, VFX6a).
  *
- * A particle effect is authored as a `Vfx::ParticleEffect` — the descriptor tree, not the compiled
+ * A particle effect is authored as a `VFX::ParticleEffect` — the descriptor tree, not the compiled
  * record — so that is what is persisted: JSON in the same shape and spirit as `.sushiscene`, one
  * object per emitter with a sub-object per module. The compiled form is a build product and is
  * never written; it is rebuilt from this on load, which is what lets a saved effect survive a
@@ -61,7 +61,7 @@ namespace SushiEngine
          * @param effect The authored effect.
          * @return The effect as a JSON object.
          */
-        nlohmann::json capture_effect(const Vfx::ParticleEffect& effect);
+        nlohmann::json capture_effect(const VFX::ParticleEffect& effect);
 
         /**
          * @brief Rebuilds @p effect from JSON in the shape @ref capture_effect produces.
@@ -73,7 +73,7 @@ namespace SushiEngine
          * @param effect Replaced with the described effect.
          * @return True when @p root was a usable effect object.
          */
-        bool apply_effect(const nlohmann::json& root, Vfx::ParticleEffect& effect);
+        bool apply_effect(const nlohmann::json& root, VFX::ParticleEffect& effect);
 
         /**
          * @brief Turns every emitter's authored texture path into a live texture handle.
@@ -83,13 +83,13 @@ namespace SushiEngine
          * rather than lazily, so a path that names no file costs one failed read instead of one
          * per frame for as long as the effect is selected.
          *
-         * An emitter with no path keeps @c Vfx::NO_PARTICLE_TEXTURE and draws as the built-in dot;
+         * An emitter with no path keeps @c VFX::NO_PARTICLE_TEXTURE and draws as the built-in dot;
          * so does one whose path could not be read.
          *
          * @param effect The effect to resolve, edited in place.
          * @param assets The library the paths are loaded through.
          */
-        void resolve_effect_textures(Vfx::ParticleEffect& effect, Render::IAssetLibrary& assets);
+        void resolve_effect_textures(VFX::ParticleEffect& effect, Render::IAssetLibrary& assets);
 
         /**
          * @brief Writes @p effect to @p path.
@@ -97,7 +97,7 @@ namespace SushiEngine
          * @param path   Destination file path; overwritten if it exists.
          * @return True on success; false if the file could not be written.
          */
-        bool save_effect(const Vfx::ParticleEffect& effect, const std::string& path);
+        bool save_effect(const VFX::ParticleEffect& effect, const std::string& path);
 
         /**
          * @brief Reads an effect from @p path.
@@ -105,7 +105,7 @@ namespace SushiEngine
          * @param effect Replaced with the loaded effect on success; untouched on failure.
          * @return True on success; false if the file could not be read or parsed.
          */
-        bool load_effect(const std::string& path, Vfx::ParticleEffect& effect);
+        bool load_effect(const std::string& path, VFX::ParticleEffect& effect);
 
         /**
          * @brief Lists the effect assets in @p directory, newest listing order unspecified.

@@ -55,7 +55,7 @@ namespace SushiEngine
     namespace Geometry
     {
         /** @brief What an import found, and what it could not use. */
-        struct GltfMeshImportReport
+        struct GLTFMeshImportReport
         {
             /** @brief Triangle primitives merged into the output. */
             std::uint32_t primitives_imported = 0;
@@ -82,7 +82,7 @@ namespace SushiEngine
          * All primitives of all meshes are merged, because a cooked collider or soft body is
          * a property of the *model* rather than of the arbitrary way an exporter split it
          * into primitives at material boundaries. A caller that wants them separately has
-         * @ref GltfMeshImportReport to see how many there were and can import per node once
+         * @ref GLTFMeshImportReport to see how many there were and can import per node once
          * something needs that.
          *
          * **Node transforms are applied**, so a model assembled from instanced nodes arrives
@@ -95,6 +95,6 @@ namespace SushiEngine
          * @return False when the file cannot be read or held no usable triangle.
          */
         bool import_gltf_mesh(const char* path, TriangleMesh& out,
-                              GltfMeshImportReport* report = nullptr);
+                              GLTFMeshImportReport* report = nullptr);
     } // namespace Geometry
 } // namespace SushiEngine

@@ -71,7 +71,7 @@ namespace
         return out;
     }
 
-    Vector3 deviation_of(const XpbdBendingConstraint& constraint,
+    Vector3 deviation_of(const XPBDBendingConstraint& constraint,
                          const std::vector<RigidBodyT<Scalar>>& particles)
     {
         Vector3 sum{0, 0, 0};
@@ -106,7 +106,7 @@ TEST(Unit_BendingConstraint, TheWeightsAnnihilateTheRestStencilAndSumToZero)
     Vector3 rest[4];
     flat_stencil(rest);
 
-    XpbdBendingConstraint constraint;
+    XPBDBendingConstraint constraint;
     ASSERT_TRUE(build_bending_constraint(rest[0], rest[1], rest[2], rest[3], constraint));
 
     Scalar sum = 0;
@@ -130,7 +130,7 @@ TEST(Unit_BendingConstraint, IsBlindToRigidMotionAndToUniformScale)
     // size changed — none of which is bending.
     Vector3 rest[4];
     flat_stencil(rest);
-    XpbdBendingConstraint constraint;
+    XPBDBendingConstraint constraint;
     ASSERT_TRUE(build_bending_constraint(rest[0], rest[1], rest[2], rest[3], constraint));
     for (int i = 0; i < 4; ++i)
         constraint.particle[i] = std::uint32_t(i);
@@ -154,14 +154,14 @@ TEST(Unit_BendingConstraint, LeavesAFlatStencilExactlyWhereItIs)
 {
     Vector3 rest[4];
     flat_stencil(rest);
-    XpbdBendingConstraint constraint;
+    XPBDBendingConstraint constraint;
     ASSERT_TRUE(build_bending_constraint(rest[0], rest[1], rest[2], rest[3], constraint));
     for (int i = 0; i < 4; ++i)
         constraint.particle[i] = std::uint32_t(i);
 
     std::vector<RigidBodyT<Scalar>> particles = particles_at(rest, Scalar(1));
     Scalar lambda = 0;
-    XpbdBendingProjection{}(constraint, particles.data(), lambda, Scalar(1.0 / 600.0));
+    XPBDBendingProjection{}(constraint, particles.data(), lambda, Scalar(1.0 / 600.0));
 
     for (int i = 0; i < 4; ++i)
         EXPECT_LT(double(length(particles[i].position - rest[i])), 1e-12)
@@ -172,7 +172,7 @@ TEST(Unit_BendingConstraint, PushesAFoldedStencilBackTowardFlatWithoutOvershooti
 {
     Vector3 rest[4];
     flat_stencil(rest);
-    XpbdBendingConstraint constraint;
+    XPBDBendingConstraint constraint;
     ASSERT_TRUE(build_bending_constraint(rest[0], rest[1], rest[2], rest[3], constraint));
     for (int i = 0; i < 4; ++i)
         constraint.particle[i] = std::uint32_t(i);
@@ -187,7 +187,7 @@ TEST(Unit_BendingConstraint, PushesAFoldedStencilBackTowardFlatWithoutOvershooti
     ASSERT_GT(double(before), 1e-6) << "the fold did not register";
 
     Scalar lambda = 0;
-    XpbdBendingProjection{}(constraint, particles.data(), lambda, Scalar(1.0 / 600.0));
+    XPBDBendingProjection{}(constraint, particles.data(), lambda, Scalar(1.0 / 600.0));
     const Scalar after = length(deviation_of(constraint, particles));
 
     EXPECT_LT(double(after), double(before)) << "the fold was not reduced";
@@ -204,7 +204,7 @@ TEST(Unit_BendingConstraint, ConservesTheCentreOfMassOfTheStencil)
     // sheet's centre would make a hanging flag swim sideways.
     Vector3 rest[4];
     flat_stencil(rest);
-    XpbdBendingConstraint constraint;
+    XPBDBendingConstraint constraint;
     ASSERT_TRUE(build_bending_constraint(rest[0], rest[1], rest[2], rest[3], constraint));
     for (int i = 0; i < 4; ++i)
         constraint.particle[i] = std::uint32_t(i);
@@ -221,7 +221,7 @@ TEST(Unit_BendingConstraint, ConservesTheCentreOfMassOfTheStencil)
         before = before + particle.position * (Scalar(1) / particle.inv_mass);
 
     Scalar lambda = 0;
-    XpbdBendingProjection{}(constraint, particles.data(), lambda, Scalar(1.0 / 600.0));
+    XPBDBendingProjection{}(constraint, particles.data(), lambda, Scalar(1.0 / 600.0));
 
     Vector3 after{0, 0, 0};
     for (const RigidBodyT<Scalar>& particle : particles)
@@ -233,7 +233,7 @@ TEST(Unit_BendingConstraint, RefusesADegenerateStencil)
 {
     const Vector3 collinear[4] = {Vector3{0, 0, 0}, Vector3{1, 0, 0}, Vector3{2, 0, 0},
                                   Vector3{3, 0, 0}};
-    XpbdBendingConstraint constraint;
+    XPBDBendingConstraint constraint;
     EXPECT_FALSE(build_bending_constraint(collinear[0], collinear[1], collinear[2], collinear[3],
                                           constraint));
 }

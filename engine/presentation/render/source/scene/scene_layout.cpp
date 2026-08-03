@@ -253,7 +253,7 @@ namespace SushiEngine
                                                      instance_set_layout_};
                 VkPushConstantRange gpu_range{};
                 gpu_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-                gpu_range.size = sizeof(GpuDrawPush);
+                gpu_range.size = sizeof(GPUDrawPush);
 
                 VkPipelineLayoutCreateInfo gpu_pipeline_info{};
                 gpu_pipeline_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;

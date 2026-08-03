@@ -33,7 +33,7 @@
  * of one. Since W3 it also folds in the cloud's own aerial perspective (haze/desaturate/
  * sink toward the horizon with distance, exactly like a mesh already does) sampled once
  * per pixel from the cloud march's own weighted mean depth, and reads the resolved cloud
- * colour from `CloudTaaPass` rather than the raw march target.
+ * colour from `CloudTAAPass` rather than the raw march target.
  */
 
 #include "passes/render_pass.hpp"
@@ -63,8 +63,8 @@ namespace SushiEngine
 
         namespace Passes
         {
-            class AtmosphereLutPass;
-            class CloudTaaPass;
+            class AtmosphereLUTPass;
+            class CloudTAAPass;
 
             /**
              * @brief Composites the cloud target over the sky target.
@@ -86,8 +86,8 @@ namespace SushiEngine
                     CloudCompositePass(Vulkan::VulkanDevice& device,
                                        Resources::ShaderLibrary& shaders,
                                        Resources::GraphicsPipelineFactory& pipelines,
-                                       Scene::SceneLayout& layout, CloudTaaPass& cloud_taa,
-                                       AtmosphereLutPass& atmosphere);
+                                       Scene::SceneLayout& layout, CloudTAAPass& cloud_taa,
+                                       AtmosphereLUTPass& atmosphere);
                     ~CloudCompositePass() override;
 
                     CloudCompositePass(const CloudCompositePass&) = delete;
@@ -105,8 +105,8 @@ namespace SushiEngine
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::SceneLayout& layout_;
-                    CloudTaaPass& cloud_taa_;
-                    AtmosphereLutPass& atmosphere_;
+                    CloudTAAPass& cloud_taa_;
+                    AtmosphereLUTPass& atmosphere_;
                     Resources::PipelineHandle pipeline_;
             };
         } // namespace Passes

@@ -67,7 +67,7 @@ namespace SushiEngine
                 }
             } // namespace
 
-            RunReport DagCompiler::run(ThreadPool& pool)
+            RunReport DAGCompiler::run(ThreadPool& pool)
             {
                 const Clock::time_point compile_start = Clock::now();
                 compile();

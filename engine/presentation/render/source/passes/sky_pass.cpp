@@ -51,7 +51,7 @@ namespace SushiEngine
             SkyPass::SkyPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                              Resources::GraphicsPipelineFactory& pipelines,
                              Scene::SceneLayout& layout, CloudShadowMapPass& cloud_shadow,
-                             AtmosphereLutPass& atmosphere, VolumetricFogPass& fog,
+                             AtmosphereLUTPass& atmosphere, VolumetricFogPass& fog,
                              Lighting::LightSystem& lights)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   cloud_shadow_(cloud_shadow), atmosphere_(atmosphere), fog_(fog), lights_(lights)

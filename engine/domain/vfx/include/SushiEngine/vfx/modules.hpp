@@ -48,7 +48,7 @@
 
 namespace SushiEngine
 {
-    namespace Vfx
+    namespace VFX
     {
         /**
          * @brief Which simulator advances an emitter's particles.
@@ -317,5 +317,5 @@ namespace SushiEngine
             std::uint32_t flipbook_columns = 1;             /**< Sub-UV atlas columns (1 = no flipbook). */
             bool lit = false;                               /**< Receive the sun, clustered lights, and SH ambient. */
         };
-    } // namespace Vfx
+    } // namespace VFX
 } // namespace SushiEngine

@@ -47,7 +47,7 @@ namespace SushiEngine
             {
                 constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
                 // The design doc asks for an R8 history weight; R8_UNORM is not on
-                // Vulkan's mandatory storage-image format list, so — like HizPass,
+                // Vulkan's mandatory storage-image format list, so — like HiZPass,
                 // CloudLightVolumePass, and CloudShadowMapPass before it — this bakes
                 // its single channel into the codebase's safe R32_SFLOAT precedent.
                 constexpr VkFormat WEIGHT_FORMAT = VK_FORMAT_R32_SFLOAT;
@@ -130,7 +130,7 @@ namespace SushiEngine
                 }
             } // namespace
 
-            CloudTaaPass::CloudTaaPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+            CloudTAAPass::CloudTAAPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                        Resources::GraphicsPipelineFactory& pipelines,
                                        Resources::SamplerCache& samplers, std::uint32_t output_width,
                                        std::uint32_t output_height)
@@ -190,7 +190,7 @@ namespace SushiEngine
                 create_pipeline();
             }
 
-            CloudTaaPass::~CloudTaaPass()
+            CloudTAAPass::~CloudTAAPass()
             {
                 destroy_pipeline();
                 destroy_history();
@@ -200,7 +200,7 @@ namespace SushiEngine
                     vkDestroyDescriptorSetLayout(device_.device(), set_layout_, nullptr);
             }
 
-            void CloudTaaPass::create_history()
+            void CloudTAAPass::create_history()
             {
                 for (Slot& slot : slots_)
                 {
@@ -214,7 +214,7 @@ namespace SushiEngine
                 current_color_view_ = slots_[0].color_view;
             }
 
-            void CloudTaaPass::destroy_history()
+            void CloudTAAPass::destroy_history()
             {
                 for (Slot& slot : slots_)
                 {
@@ -223,7 +223,7 @@ namespace SushiEngine
                 }
             }
 
-            void CloudTaaPass::resize(std::uint32_t output_width, std::uint32_t output_height)
+            void CloudTAAPass::resize(std::uint32_t output_width, std::uint32_t output_height)
             {
                 const std::uint32_t new_width = std::max<std::uint32_t>(1u, output_width / 2u);
                 const std::uint32_t new_height = std::max<std::uint32_t>(1u, output_height / 2u);
@@ -235,25 +235,25 @@ namespace SushiEngine
                 create_history();
             }
 
-            void CloudTaaPass::create_pipeline()
+            void CloudTAAPass::create_pipeline()
             {
                 pipeline_ = pipelines_.create_compute(pipeline_layout_, shaders_.module("cloud_taa.comp"));
             }
 
-            void CloudTaaPass::destroy_pipeline()
+            void CloudTAAPass::destroy_pipeline()
             {
                 if (pipeline_ != VK_NULL_HANDLE)
                     vkDestroyPipeline(device_.device(), pipeline_, nullptr);
                 pipeline_ = VK_NULL_HANDLE;
             }
 
-            void CloudTaaPass::rebuild_pipelines()
+            void CloudTAAPass::rebuild_pipelines()
             {
                 destroy_pipeline();
                 create_pipeline();
             }
 
-            void CloudTaaPass::register_pass(Graph::RenderGraph& graph,
+            void CloudTAAPass::register_pass(Graph::RenderGraph& graph,
                                              const Frame::FrameContext& frame)
             {
                 const bool clouds_on =

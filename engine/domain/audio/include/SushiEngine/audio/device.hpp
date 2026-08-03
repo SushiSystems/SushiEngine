@@ -34,7 +34,7 @@
  * implementation (`sushiengine_audio_backend`) hides `SDL_AudioDeviceID` entirely, so a consumer
  * includes this header and links the backend without pulling SDL into its own
  * translation unit — exactly as the input module keeps SDL behind
- * `SdlInputTranslator`.
+ * `SDLInputTranslator`.
  *
  * The seam encodes the one architectural invariant of every shipping AAA audio
  * runtime (§0): a strict split between the control plane (the game/ECS thread) and

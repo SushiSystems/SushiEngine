@@ -1,7 +1,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-// Resolves the cloud buffer's own dedicated TAA (CloudTaaPass) over the full-resolution
+// Resolves the cloud buffer's own dedicated TAA (CloudTAAPass) over the full-resolution
 // sky, producing the linear HDR image the rest of the frame works on.
 //
 // This used to be two lines at the top of the tonemap pass. It is its own pass now
@@ -18,7 +18,7 @@
 
 // Truncated prefix of the shared scene block, declared through `misc` — the one member
 // this pass reads. misc.w is the cloudscape master switch, and the composite has to
-// consult it because CloudTaaPass's history is pass-owned and outlives a disable:
+// consult it because CloudTAAPass's history is pass-owned and outlives a disable:
 // without the gate below, switching clouds off left the last resolved frame glued to
 // the screen (the march stops, the TAA early-outs, but this pass kept sampling the
 // stale accumulation) until clouds were switched back on.
@@ -48,7 +48,7 @@ layout(set = 0, binding = 0) uniform SceneBlock
 } scene;
 
 layout(set = 0, binding = 1) uniform sampler2D sky_texture;
-// CloudTaaPass's own resolved history: rgb = premultiplied in-scattered cloud light,
+// CloudTAAPass's own resolved history: rgb = premultiplied in-scattered cloud light,
 // a = transmittance along the view ray. Point-sampled: the composite below does its own
 // weighted reconstruction from the four nearest texels, so a hardware bilinear tap here
 // would blend a texel a second time.

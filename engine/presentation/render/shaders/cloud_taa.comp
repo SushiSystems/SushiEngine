@@ -1,6 +1,6 @@
 #version 450
 
-// CloudTaaPass (W3): the cloud buffer's own dedicated temporal resolve, War Thunder's
+// CloudTAAPass (W3): the cloud buffer's own dedicated temporal resolve, War Thunder's
 // shipped scheme per the design doc — YCoCg neighbourhood variance clip (gamma ~= 1.2),
 // motion vectors sourced from the existing velocity target where opaque geometry is
 // visible and a view-ray reprojection fallback where it is not (the common case: most

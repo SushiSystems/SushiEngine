@@ -120,7 +120,7 @@ namespace SushiEngine
          * @brief The "Particle Emitter" component: an entity that plays a VFX effect.
          *
          * Present only on entities with an emitter attached. It stores just a handle into a
-         * `Vfx::EffectDatabase` plus the small runtime state a play head needs — the heavy
+         * `VFX::EffectDatabase` plus the small runtime state a play head needs — the heavy
          * authored data (modules, curves, gradients) lives in the effect asset, and the live
          * particles live in a backend pool (GPU-side for cosmetic emitters, a deterministic
          * CPU pool for gameplay ones). Every field is an id, a scalar, or a flag, so the
@@ -130,7 +130,7 @@ namespace SushiEngine
          */
         struct ParticleEmitter
         {
-            Vfx::AssetId effect = Vfx::INVALID_EFFECT; /**< The effect asset to play. */
+            VFX::AssetId effect = VFX::INVALID_EFFECT; /**< The effect asset to play. */
             std::uint32_t seed = 0;                    /**< Per-instance RNG seed (deterministic path). */
             float time = 0.0f;                         /**< Seconds since the emitter started playing. */
             float spawn_accumulator = 0.0f;            /**< Fractional continuous-spawn carry. */

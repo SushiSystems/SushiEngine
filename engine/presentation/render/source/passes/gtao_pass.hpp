@@ -66,7 +66,7 @@ namespace SushiEngine
         namespace Passes
         {
             /** @brief Builds and resolves the frame's screen-space ambient occlusion. */
-            class GtaoPass : public IRenderPass
+            class GTAOPass : public IRenderPass
             {
                 public:
                     /**
@@ -76,12 +76,12 @@ namespace SushiEngine
                      * @param pipelines The factory owning the pipelines.
                      * @param layout    The shared scene layout the resolve pipeline binds.
                      */
-                    GtaoPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+                    GTAOPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                              Resources::GraphicsPipelineFactory& pipelines, Scene::SceneLayout& layout);
-                    ~GtaoPass() override;
+                    ~GTAOPass() override;
 
-                    GtaoPass(const GtaoPass&) = delete;
-                    GtaoPass& operator=(const GtaoPass&) = delete;
+                    GTAOPass(const GTAOPass&) = delete;
+                    GTAOPass& operator=(const GTAOPass&) = delete;
 
                     void register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame) override;

@@ -97,23 +97,23 @@ namespace SushiEngine
 
                 void process(float* left, float* right, int frame_count) noexcept override
                 {
-                    Dsp::Simd::apply_gain(left, frame_count, gain_);
-                    Dsp::Simd::apply_gain(right, frame_count, gain_);
+                    DSP::SIMD::apply_gain(left, frame_count, gain_);
+                    DSP::SIMD::apply_gain(right, frame_count, gain_);
                 }
 
             private:
                 float gain_;
             };
 
-        /** @brief A biquad EQ insert: one @ref Dsp::Biquad per channel. */
+        /** @brief A biquad EQ insert: one @ref DSP::Biquad per channel. */
         class BiquadBusEffect final : public IBusEffect
         {
             public:
                 /** @brief The left-channel biquad, for configuration. */
-                Dsp::Biquad& left() noexcept { return left_; }
+                DSP::Biquad& left() noexcept { return left_; }
 
                 /** @brief The right-channel biquad, for configuration. */
-                Dsp::Biquad& right() noexcept { return right_; }
+                DSP::Biquad& right() noexcept { return right_; }
 
                 void reset() noexcept override
                 {
@@ -130,8 +130,8 @@ namespace SushiEngine
                 }
 
             private:
-                Dsp::Biquad left_;
-                Dsp::Biquad right_;
+                DSP::Biquad left_;
+                DSP::Biquad right_;
             };
 
         /**
@@ -221,8 +221,8 @@ namespace SushiEngine
                         frame_count = max_block_;
                     for (std::unique_ptr<Bus>& bus : buses_)
                     {
-                        Dsp::Simd::fill(bus->left.data(), frame_count, 0.0f);
-                        Dsp::Simd::fill(bus->right.data(), frame_count, 0.0f);
+                        DSP::SIMD::fill(bus->left.data(), frame_count, 0.0f);
+                        DSP::SIMD::fill(bus->right.data(), frame_count, 0.0f);
                     }
                 }
 
@@ -238,8 +238,8 @@ namespace SushiEngine
                                 float gain_left, float gain_right) noexcept
                 {
                     Bus& bus = *buses_[static_cast<std::size_t>(bus_id)];
-                    Dsp::Simd::mix_accumulate(bus.left.data(), mono, frame_count, gain_left);
-                    Dsp::Simd::mix_accumulate(bus.right.data(), mono, frame_count, gain_right);
+                    DSP::SIMD::mix_accumulate(bus.left.data(), mono, frame_count, gain_left);
+                    DSP::SIMD::mix_accumulate(bus.right.data(), mono, frame_count, gain_right);
                 }
 
                 /**
@@ -262,8 +262,8 @@ namespace SushiEngine
 
                         float g0 = 0.0f, g1 = 0.0f;
                         bus.gain.advance_block(frame_count, g0, g1);
-                        Dsp::Simd::apply_gain_ramp(left, frame_count, g0, g1);
-                        Dsp::Simd::apply_gain_ramp(right, frame_count, g0, g1);
+                        DSP::SIMD::apply_gain_ramp(left, frame_count, g0, g1);
+                        DSP::SIMD::apply_gain_ramp(right, frame_count, g0, g1);
 
                         // Post-fader meters (what a mixer strip shows): the block's peak and
                         // RMS across both channels, for the editor's live profiler.
@@ -286,8 +286,8 @@ namespace SushiEngine
                         if (bus.output != NO_BUS && bus.output != id)
                         {
                             Bus& parent = *buses_[static_cast<std::size_t>(bus.output)];
-                            Dsp::Simd::mix_accumulate(parent.left.data(), left, frame_count, 1.0f);
-                            Dsp::Simd::mix_accumulate(parent.right.data(), right, frame_count, 1.0f);
+                            DSP::SIMD::mix_accumulate(parent.left.data(), left, frame_count, 1.0f);
+                            DSP::SIMD::mix_accumulate(parent.right.data(), right, frame_count, 1.0f);
                         }
 
                         for (const Send& send : bus.sends)
@@ -295,8 +295,8 @@ namespace SushiEngine
                             if (send.target == id)
                                 continue;
                             Bus& target = *buses_[static_cast<std::size_t>(send.target)];
-                            Dsp::Simd::mix_accumulate(target.left.data(), left, frame_count, send.level);
-                            Dsp::Simd::mix_accumulate(target.right.data(), right, frame_count, send.level);
+                            DSP::SIMD::mix_accumulate(target.left.data(), left, frame_count, send.level);
+                            DSP::SIMD::mix_accumulate(target.right.data(), right, frame_count, send.level);
                         }
                     }
                 }

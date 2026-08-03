@@ -27,7 +27,7 @@
  *
  * Non-penetration is an inequality constraint — a contact only ever pushes bodies
  * apart, never pulls them together — so it is handled as a projection pass over the
- * predicted positions rather than through the compile-once `XpbdSolver` (whose
+ * predicted positions rather than through the compile-once `XPBDSolver` (whose
  * constraint set is fixed): contacts appear and vanish as bodies move, so they are
  * regenerated from the narrowphase each pass. Run it between `predict` and
  * `update_velocity` in a sub-step: the position change it makes is exactly what
@@ -280,7 +280,7 @@ namespace SushiEngine
 
         /** @brief The world-space AABB enclosing a contact body's shape. */
         template <typename T>
-        inline Aabb<T> contact_body_aabb(const ContactBody<T>& body) noexcept
+        inline AABB<T> contact_body_aabb(const ContactBody<T>& body) noexcept
         {
             T ex = body.radius;
             T ey = body.radius;
@@ -304,7 +304,7 @@ namespace SushiEngine
                      std::abs(axes[2].z) * body.half_extents.z;
             }
             const Vector3T<T>& c = *body.position;
-            return Aabb<T>{Vector3T<T>{c.x - ex, c.y - ey, c.z - ez},
+            return AABB<T>{Vector3T<T>{c.x - ex, c.y - ey, c.z - ez},
                            Vector3T<T>{c.x + ex, c.y + ey, c.z + ez}};
         }
 

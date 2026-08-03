@@ -45,7 +45,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /**
              * @brief A sine oscillator source (0 inputs, 1 output).
@@ -145,8 +145,8 @@ namespace SushiEngine
                         float* out = outputs[0];
                         const float target = target_gain_.load(std::memory_order_relaxed);
                         const float start = applied_gain_;
-                        Simd::copy_scaled(out, in, frame_count, 1.0f);
-                        Simd::apply_gain_ramp(out, frame_count, start, target);
+                        SIMD::copy_scaled(out, in, frame_count, 1.0f);
+                        SIMD::apply_gain_ramp(out, frame_count, start, target);
                         applied_gain_ = target;
                     }
 
@@ -174,9 +174,9 @@ namespace SushiEngine
                                  int frame_count) noexcept override
                     {
                         float* out = outputs[0];
-                        Simd::fill(out, frame_count, 0.0f);
+                        SIMD::fill(out, frame_count, 0.0f);
                         for (int p = 0; p < input_port_count(); ++p)
-                            Simd::mix_accumulate(out, inputs[p], frame_count, 1.0f);
+                            SIMD::mix_accumulate(out, inputs[p], frame_count, 1.0f);
                     }
             };
 
@@ -208,7 +208,7 @@ namespace SushiEngine
                 private:
                     Biquad filter_;
             };
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

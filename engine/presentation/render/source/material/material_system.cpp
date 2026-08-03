@@ -48,7 +48,7 @@ namespace SushiEngine
             {
                 slots_.resize(frame_slots);
                 for (Slot& slot : slots_)
-                    grow(slot, INITIAL_CAPACITY * sizeof(GpuMaterial));
+                    grow(slot, INITIAL_CAPACITY * sizeof(GPUMaterial));
             }
 
             MaterialSystem::~MaterialSystem()
@@ -102,7 +102,7 @@ namespace SushiEngine
 
             std::uint32_t MaterialSystem::push(const Render::Material& material)
             {
-                GpuMaterial gpu{};
+                GPUMaterial gpu{};
 
                 gpu.base_color[0] = static_cast<float>(material.albedo.x);
                 gpu.base_color[1] = static_cast<float>(material.albedo.y);
@@ -217,10 +217,10 @@ namespace SushiEngine
                 // Always keep at least one entry: a zero-range storage buffer is not a
                 // legal descriptor, and a frame with nothing to draw still writes a set.
                 const std::size_t count = std::max<std::size_t>(packed_.size(), 1);
-                grow(slot, count * sizeof(GpuMaterial));
+                grow(slot, count * sizeof(GPUMaterial));
                 if (!packed_.empty())
                     std::memcpy(slot.mapped, packed_.data(),
-                                packed_.size() * sizeof(GpuMaterial));
+                                packed_.size() * sizeof(GPUMaterial));
             }
 
             VkBuffer MaterialSystem::buffer() const noexcept
@@ -230,8 +230,8 @@ namespace SushiEngine
 
             VkDeviceSize MaterialSystem::buffer_range() const noexcept
             {
-                return std::max<VkDeviceSize>(packed_.size() * sizeof(GpuMaterial),
-                                              sizeof(GpuMaterial));
+                return std::max<VkDeviceSize>(packed_.size() * sizeof(GPUMaterial),
+                                              sizeof(GPUMaterial));
             }
         } // namespace Assets
     } // namespace Render

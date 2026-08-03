@@ -55,14 +55,14 @@ namespace SushiEngine
                 }
             } // namespace
 
-            UiBuffers::UiBuffers(Vulkan::VulkanDevice& device, std::uint32_t frame_slots)
+            UIBuffers::UIBuffers(Vulkan::VulkanDevice& device, std::uint32_t frame_slots)
                 : device_(device)
             {
                 vertices_.resize(frame_slots);
                 indices_.resize(frame_slots);
             }
 
-            UiBuffers::~UiBuffers()
+            UIBuffers::~UIBuffers()
             {
                 for (Allocation& allocation : vertices_)
                     destroy(allocation);
@@ -70,7 +70,7 @@ namespace SushiEngine
                     destroy(allocation);
             }
 
-            void UiBuffers::grow(Allocation& target, VkDeviceSize bytes, VkBufferUsageFlags usage)
+            void UIBuffers::grow(Allocation& target, VkDeviceSize bytes, VkBufferUsageFlags usage)
             {
                 if (bytes == 0 || bytes <= target.capacity)
                     return;
@@ -94,19 +94,19 @@ namespace SushiEngine
                 target.capacity = bytes;
             }
 
-            void UiBuffers::destroy(Allocation& target)
+            void UIBuffers::destroy(Allocation& target)
             {
                 if (target.buffer != VK_NULL_HANDLE)
                     vmaDestroyBuffer(device_.allocator(), target.buffer, target.allocation);
                 target = Allocation{};
             }
 
-            void UiBuffers::push_quad(float x0, float y0, float x1, float y1, float u0, float v0,
+            void UIBuffers::push_quad(float x0, float y0, float x1, float y1, float u0, float v0,
                                       float u1, float v1, const std::uint8_t color[4])
             {
                 const std::uint32_t base = static_cast<std::uint32_t>(vertex_scratch_.size());
 
-                UiVertex vertex;
+                UIVertex vertex;
                 std::memcpy(vertex.color, color, 4);
 
                 vertex.x = x0; vertex.y = y0; vertex.u = u0; vertex.v = v0;
@@ -126,7 +126,7 @@ namespace SushiEngine
                 index_scratch_.push_back(base + 3);
             }
 
-            void UiBuffers::prepare(std::uint32_t slot, const UiView& ui,
+            void UIBuffers::prepare(std::uint32_t slot, const UIView& ui,
                                     const Assets::FontAtlas& font)
             {
                 vertex_scratch_.clear();
@@ -207,7 +207,7 @@ namespace SushiEngine
                 if (index_scratch_.empty())
                     return;
 
-                const VkDeviceSize vertex_bytes = vertex_scratch_.size() * sizeof(UiVertex);
+                const VkDeviceSize vertex_bytes = vertex_scratch_.size() * sizeof(UIVertex);
                 const VkDeviceSize index_bytes = index_scratch_.size() * sizeof(std::uint32_t);
                 grow(vertices_[slot], vertex_bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
                 grow(indices_[slot], index_bytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
@@ -221,12 +221,12 @@ namespace SushiEngine
                 index_count_ = static_cast<std::uint32_t>(index_scratch_.size());
             }
 
-            VkBuffer UiBuffers::vertices(std::uint32_t slot) const noexcept
+            VkBuffer UIBuffers::vertices(std::uint32_t slot) const noexcept
             {
                 return slot < vertices_.size() ? vertices_[slot].buffer : VK_NULL_HANDLE;
             }
 
-            VkBuffer UiBuffers::indices(std::uint32_t slot) const noexcept
+            VkBuffer UIBuffers::indices(std::uint32_t slot) const noexcept
             {
                 return slot < indices_.size() ? indices_[slot].buffer : VK_NULL_HANDLE;
             }

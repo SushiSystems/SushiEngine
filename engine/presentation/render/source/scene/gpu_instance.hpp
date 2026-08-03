@@ -28,8 +28,8 @@
  * @brief The per-object records the GPU-driven geometry path culls and draws from.
  *
  * When GPU-driven rendering is on (Phase 10), the CPU stops issuing one draw per
- * instance. Instead it packs every drawable into a @ref GpuInstance array, groups them
- * by mesh into @ref GpuDrawBucket ranges, and hands the whole set to the GPU: a compute
+ * instance. Instead it packs every drawable into a @ref GPUInstance array, groups them
+ * by mesh into @ref GPUDrawBucket ranges, and hands the whole set to the GPU: a compute
  * pass tests each instance against the frustum, its screen coverage, and last frame's
  * occlusion pyramid, and writes a compacted survivor list plus one
  * `VkDrawIndexedIndirectCommand` per bucket whose instance count it decides. The draw
@@ -38,7 +38,7 @@
  *
  * Everything a draw used to carry in the 128-byte push constant that varies per instance
  * — the transform, the material and motion indices, the picking id — moves into
- * @ref GpuInstance, because an indirect draw carries no per-draw push constant. The
+ * @ref GPUInstance, because an indirect draw carries no per-draw push constant. The
  * layouts here are the C++ mirror of the `std430` blocks in `cull.comp` and
  * `mesh_gpu.vert`; keep the two in lockstep. GPU data is 32-bit regardless of the
  * engine's Scalar precision, so transforms and bounds are explicit float arrays that a
@@ -65,7 +65,7 @@ namespace SushiEngine
              * against the same current eye: xyz the centre, w the radius, the shape the
              * frustum and occlusion tests need.
              */
-            struct GpuInstance
+            struct GPUInstance
             {
                 float model[16];          /**< Camera-relative object-to-world, scale baked. */
                 float bounding_sphere[4]; /**< xyz = camera-relative centre, w = radius. */
@@ -75,8 +75,8 @@ namespace SushiEngine
                 std::uint32_t bucket_index;   /**< Which draw bucket (mesh) this instance draws with. */
             };
 
-            static_assert(sizeof(GpuInstance) == 96,
-                          "GpuInstance must match the std430 block in cull.comp / mesh_gpu.vert");
+            static_assert(sizeof(GPUInstance) == 96,
+                          "GPUInstance must match the std430 block in cull.comp / mesh_gpu.vert");
 
             /**
              * @brief CPU-side metadata for one draw bucket: a unique mesh drawn this frame.
@@ -87,7 +87,7 @@ namespace SushiEngine
              * draw; @c candidate_base is where this bucket's slice of the instance and
              * compacted arrays begins (a prefix sum of the earlier buckets' counts).
              */
-            struct GpuDrawBucket
+            struct GPUDrawBucket
             {
                 VkBuffer vertices = VK_NULL_HANDLE; /**< The mesh's vertex buffer to bind. */
                 VkBuffer indices = VK_NULL_HANDLE;  /**< The mesh's index buffer to bind. */
@@ -102,7 +102,7 @@ namespace SushiEngine
              * x = the mesh's index count (written into the indirect command), y = the
              * bucket's @c candidate_base (where its survivors compact to). z, w spare.
              */
-            struct GpuBucketMeta
+            struct GPUBucketMeta
             {
                 std::uint32_t index_count;
                 std::uint32_t candidate_base;
@@ -110,8 +110,8 @@ namespace SushiEngine
                 std::uint32_t reserved1;
             };
 
-            static_assert(sizeof(GpuBucketMeta) == 16,
-                          "GpuBucketMeta must match the std430 uvec4 in cull.comp");
+            static_assert(sizeof(GPUBucketMeta) == 16,
+                          "GPUBucketMeta must match the std430 uvec4 in cull.comp");
 
             /**
              * @brief The push constant a GPU-driven draw hands its vertex shader.
@@ -121,7 +121,7 @@ namespace SushiEngine
              * on the CPU before that bucket's single indirect draw. @c gl_InstanceIndex then
              * indexes the compacted list at @c candidate_base + instance.
              */
-            struct GpuDrawPush
+            struct GPUDrawPush
             {
                 std::uint32_t candidate_base;
                 std::uint32_t reserved;

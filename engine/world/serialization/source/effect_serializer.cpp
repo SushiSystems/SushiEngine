@@ -67,10 +67,10 @@ namespace SushiEngine
                 return value < count ? static_cast<Enum>(value) : fallback;
             }
 
-            json curve_to_json(const Vfx::AnimationCurve& curve)
+            json curve_to_json(const VFX::AnimationCurve& curve)
             {
                 json keys = json::array();
-                for (const Vfx::CurveKey& key : curve.keys())
+                for (const VFX::CurveKey& key : curve.keys())
                 {
                     keys.push_back(json{{"time", key.time},
                                         {"value", key.value},
@@ -80,14 +80,14 @@ namespace SushiEngine
                 return keys;
             }
 
-            void curve_from_json(const json& node, Vfx::AnimationCurve& curve)
+            void curve_from_json(const json& node, VFX::AnimationCurve& curve)
             {
                 curve.keys().clear();
                 if (!node.is_array())
                     return;
                 for (const json& key : node)
                 {
-                    Vfx::CurveKey out;
+                    VFX::CurveKey out;
                     out.time = key.value("time", 0.0f);
                     out.value = key.value("value", 0.0f);
                     out.in_tangent = key.value("in_tangent", 0.0f);
@@ -96,26 +96,26 @@ namespace SushiEngine
                 }
             }
 
-            json gradient_to_json(const Vfx::ColorGradient& gradient)
+            json gradient_to_json(const VFX::ColorGradient& gradient)
             {
                 json colors = json::array();
-                for (const Vfx::ColorKey& key : gradient.color_keys())
+                for (const VFX::ColorKey& key : gradient.color_keys())
                     colors.push_back(json{{"time", key.time}, {"color", vector3_to_json(key.color)}});
                 json alphas = json::array();
-                for (const Vfx::AlphaKey& key : gradient.alpha_keys())
+                for (const VFX::AlphaKey& key : gradient.alpha_keys())
                     alphas.push_back(json{{"time", key.time}, {"alpha", key.alpha}});
                 return json{{"colors", colors}, {"alphas", alphas}};
             }
 
-            void gradient_from_json(const json& node, Vfx::ColorGradient& gradient)
+            void gradient_from_json(const json& node, VFX::ColorGradient& gradient)
             {
-                gradient = Vfx::ColorGradient{};
+                gradient = VFX::ColorGradient{};
                 if (!node.is_object())
                     return;
                 const json& colors = node.value("colors", json::array());
                 for (const json& key : colors)
                 {
-                    Vfx::ColorKey out;
+                    VFX::ColorKey out;
                     out.time = key.value("time", 0.0f);
                     out.color = vector3_from_json(key.value("color", json::object()),
                                                   Vector3{1, 1, 1});
@@ -124,14 +124,14 @@ namespace SushiEngine
                 const json& alphas = node.value("alphas", json::array());
                 for (const json& key : alphas)
                 {
-                    Vfx::AlphaKey out;
+                    VFX::AlphaKey out;
                     out.time = key.value("time", 0.0f);
                     out.alpha = key.value("alpha", 1.0f);
                     gradient.add_alpha_key(out);
                 }
             }
 
-            json force_field_to_json(const Vfx::ForceFieldModule& field)
+            json force_field_to_json(const VFX::ForceFieldModule& field)
             {
                 return json{{"enabled", field.enabled},
                             {"kind", static_cast<std::uint32_t>(field.kind)},
@@ -142,9 +142,9 @@ namespace SushiEngine
                             {"falloff", field.falloff}};
             }
 
-            Vfx::ForceFieldModule force_field_from_json(const json& node)
+            VFX::ForceFieldModule force_field_from_json(const json& node)
             {
-                Vfx::ForceFieldModule field;
+                VFX::ForceFieldModule field;
                 field.enabled = node.value("enabled", field.enabled);
                 field.kind = enum_from_json(node, "kind", field.kind, 3);
                 field.position = vector3_from_json(node.value("position", json::object()),
@@ -156,14 +156,14 @@ namespace SushiEngine
                 return field;
             }
 
-            json emitter_to_json(const Vfx::EmitterDescriptor& e)
+            json emitter_to_json(const VFX::EmitterDescriptor& e)
             {
                 json bursts = json::array();
-                for (const Vfx::ParticleBurst& burst : e.spawn.bursts)
+                for (const VFX::ParticleBurst& burst : e.spawn.bursts)
                     bursts.push_back(json{{"time", burst.time}, {"count", burst.count}});
 
                 json fields = json::array();
-                for (const Vfx::ForceFieldModule& field : e.force_fields)
+                for (const VFX::ForceFieldModule& field : e.force_fields)
                     fields.push_back(force_field_to_json(field));
 
                 return json{
@@ -237,9 +237,9 @@ namespace SushiEngine
                           {"lit", e.render.lit}}}};
             }
 
-            Vfx::EmitterDescriptor emitter_from_json(const json& node)
+            VFX::EmitterDescriptor emitter_from_json(const json& node)
             {
-                Vfx::EmitterDescriptor e;
+                VFX::EmitterDescriptor e;
                 if (!node.is_object())
                     return e;
 
@@ -255,7 +255,7 @@ namespace SushiEngine
                 e.spawn.rate_per_second = spawn.value("rate_per_second", e.spawn.rate_per_second);
                 for (const json& burst : spawn.value("bursts", json::array()))
                 {
-                    Vfx::ParticleBurst out;
+                    VFX::ParticleBurst out;
                     out.time = burst.value("time", 0.0f);
                     out.count = burst.value("count", 0u);
                     e.spawn.bursts.push_back(out);
@@ -341,15 +341,15 @@ namespace SushiEngine
 
         const char* const EFFECT_FILE_EXTENSION = ".sushieffect";
 
-        nlohmann::json capture_effect(const Vfx::ParticleEffect& effect)
+        nlohmann::json capture_effect(const VFX::ParticleEffect& effect)
         {
             json emitters = json::array();
-            for (const Vfx::EmitterDescriptor& emitter : effect.emitters)
+            for (const VFX::EmitterDescriptor& emitter : effect.emitters)
                 emitters.push_back(emitter_to_json(emitter));
             return json{{"name", effect.name}, {"emitters", emitters}};
         }
 
-        bool apply_effect(const nlohmann::json& root, Vfx::ParticleEffect& effect)
+        bool apply_effect(const nlohmann::json& root, VFX::ParticleEffect& effect)
         {
             if (!root.is_object() || !root.contains("emitters"))
                 return false;
@@ -357,7 +357,7 @@ namespace SushiEngine
             if (!emitters.is_array())
                 return false;
 
-            Vfx::ParticleEffect loaded;
+            VFX::ParticleEffect loaded;
             loaded.name = root.value("name", std::string{"Effect"});
             for (const json& emitter : emitters)
                 loaded.emitters.push_back(emitter_from_json(emitter));
@@ -365,7 +365,7 @@ namespace SushiEngine
             return true;
         }
 
-        bool save_effect(const Vfx::ParticleEffect& effect, const std::string& path)
+        bool save_effect(const VFX::ParticleEffect& effect, const std::string& path)
         {
             std::error_code error;
             const std::filesystem::path parent = std::filesystem::path(path).parent_path();
@@ -379,7 +379,7 @@ namespace SushiEngine
             return file.good();
         }
 
-        bool load_effect(const std::string& path, Vfx::ParticleEffect& effect)
+        bool load_effect(const std::string& path, VFX::ParticleEffect& effect)
         {
             std::ifstream file(path);
             if (!file.is_open())
@@ -390,19 +390,19 @@ namespace SushiEngine
             return apply_effect(root, effect);
         }
 
-        void resolve_effect_textures(Vfx::ParticleEffect& effect, Render::IAssetLibrary& assets)
+        void resolve_effect_textures(VFX::ParticleEffect& effect, Render::IAssetLibrary& assets)
         {
-            for (Vfx::EmitterDescriptor& emitter : effect.emitters)
+            for (VFX::EmitterDescriptor& emitter : effect.emitters)
             {
                 if (emitter.render.texture_path.empty())
                 {
-                    emitter.render.texture = Vfx::NO_PARTICLE_TEXTURE;
+                    emitter.render.texture = VFX::NO_PARTICLE_TEXTURE;
                     continue;
                 }
                 const Render::TextureId loaded = assets.load_texture(
-                    emitter.render.texture_path.c_str(), Render::TextureColorSpace::Srgb);
+                    emitter.render.texture_path.c_str(), Render::TextureColorSpace::SRGB);
                 emitter.render.texture = loaded == Render::INVALID_TEXTURE
-                                             ? Vfx::NO_PARTICLE_TEXTURE
+                                             ? VFX::NO_PARTICLE_TEXTURE
                                              : static_cast<std::uint32_t>(loaded);
             }
         }

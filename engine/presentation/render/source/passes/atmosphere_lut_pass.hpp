@@ -67,7 +67,7 @@ namespace SushiEngine
              *
              * Non-copyable: it owns images, views, and compute pipelines.
              */
-            class AtmosphereLutPass final : public IRenderPass
+            class AtmosphereLUTPass final : public IRenderPass
             {
                 public:
                     /**
@@ -76,13 +76,13 @@ namespace SushiEngine
                      * @param shaders   Library the compute modules come from.
                      * @param pipelines Factory the compute pipelines are built through.
                      */
-                    AtmosphereLutPass(Vulkan::VulkanDevice& device,
+                    AtmosphereLUTPass(Vulkan::VulkanDevice& device,
                                       Resources::ShaderLibrary& shaders,
                                       Resources::GraphicsPipelineFactory& pipelines);
-                    ~AtmosphereLutPass() override;
+                    ~AtmosphereLUTPass() override;
 
-                    AtmosphereLutPass(const AtmosphereLutPass&) = delete;
-                    AtmosphereLutPass& operator=(const AtmosphereLutPass&) = delete;
+                    AtmosphereLUTPass(const AtmosphereLUTPass&) = delete;
+                    AtmosphereLUTPass& operator=(const AtmosphereLUTPass&) = delete;
 
                     void register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame) override;
@@ -120,7 +120,7 @@ namespace SushiEngine
                     };
 
                     /** @brief One LUT or volume: its image, sampled view, and allocation. */
-                    struct Lut
+                    struct LUT
                     {
                         VkImage image = VK_NULL_HANDLE;
                         VmaAllocation allocation = VK_NULL_HANDLE;
@@ -130,10 +130,10 @@ namespace SushiEngine
                         std::uint32_t depth = 1; /**< >1 makes it a 3D volume. */
                     };
 
-                    void create_image(Lut& lut, std::uint32_t width, std::uint32_t height);
-                    void create_volume(Lut& lut, std::uint32_t width, std::uint32_t height,
+                    void create_image(LUT& lut, std::uint32_t width, std::uint32_t height);
+                    void create_volume(LUT& lut, std::uint32_t width, std::uint32_t height,
                                        std::uint32_t depth);
-                    void destroy_image(Lut& lut);
+                    void destroy_image(LUT& lut);
                     void create_pipelines();
                     void destroy_pipelines();
                     bool medium_changed(const Push& push);
@@ -142,10 +142,10 @@ namespace SushiEngine
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
 
-                    Lut transmittance_;
-                    Lut multiscatter_;
-                    Lut sky_view_;
-                    Lut aerial_;
+                    LUT transmittance_;
+                    LUT multiscatter_;
+                    LUT sky_view_;
+                    LUT aerial_;
 
                     VkDescriptorSetLayout transmittance_layout_ = VK_NULL_HANDLE;
                     VkPipelineLayout transmittance_pipeline_layout_ = VK_NULL_HANDLE;

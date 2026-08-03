@@ -158,7 +158,7 @@ namespace SushiEngine
         {
             public:
                 /** @brief The persistent constraint kind this solver admits. */
-                using Constraint = XpbdDistanceConstraintT<T>;
+                using Constraint = XPBDDistanceConstraintT<T>;
 
                 /** @brief The per-tick constraint kind this solver admits. */
                 using Contact = ContactConstraintT<T>;
@@ -167,7 +167,7 @@ namespace SushiEngine
                 using Joint = JointConstraintT<T>;
 
                 /** @brief The deformable persistent kind this solver admits (§9.1). */
-                using Element = FemTetrahedronT<T>;
+                using Element = FEMTetrahedronT<T>;
 
                 /** @brief The structural persistent kind this solver admits (§11.1). */
                 using Beam = BeamConstraintT<T>;
@@ -935,7 +935,7 @@ namespace SushiEngine
                                     // on, and recomputing it would cost a second
                                     // projection.
                                     T lambda = T(0);
-                                    XpbdDistanceProjectionT<T> projection;
+                                    XPBDDistanceProjectionT<T> projection;
                                     projection(constraints[k], bodies, lambda,
                                                uniforms->substep_duration);
                                     lambdas[k] = lambda;

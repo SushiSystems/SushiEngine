@@ -99,7 +99,7 @@ namespace
         return configuration;
     }
 
-    BodyHandle spawn_wheel(HostXpbdSolver<Scalar>& solver)
+    BodyHandle spawn_wheel(HostXPBDSolver<Scalar>& solver)
     {
         RigidBody wheel;
         wheel.position = Vector3{0, RADIUS + SKIN, 0};
@@ -116,7 +116,7 @@ namespace
     }
 
     /** @brief One tick: a hand-built ground contact, the tyre, then the solve. */
-    TyreReportT<Scalar> roll(HostXpbdSolver<Scalar>& solver, BodyHandle wheel,
+    TyreReportT<Scalar> roll(HostXPBDSolver<Scalar>& solver, BodyHandle wheel,
                              const TyreSettings& tyre, ContactManifold<Scalar>& carried,
                              BodyHandle ground = BodyHandle{})
     {
@@ -173,7 +173,7 @@ namespace
     }
 
     /** @brief Holds a wheel's spin against whatever the tyre takes out of it. */
-    void hold_spin(HostXpbdSolver<Scalar>& solver, BodyHandle wheel, Scalar rate)
+    void hold_spin(HostXPBDSolver<Scalar>& solver, BodyHandle wheel, Scalar rate)
     {
         RigidBody body;
         solver.read_body(wheel, body);
@@ -309,7 +309,7 @@ TEST(Unit_VehicleTyre, StandstillIsADamperAndNotASingularity)
 /** @brief A driven wheel turns its spin into travel and settles at rolling. */
 TEST(Unit_VehicleTyre, ASpinningWheelDrivesItselfForward)
 {
-    HostXpbdSolver<Scalar> solver(wheel_scene());
+    HostXPBDSolver<Scalar> solver(wheel_scene());
     const BodyHandle wheel = spawn_wheel(solver);
     ContactManifold<Scalar> carried;
     const TyreSettings tyre = road_tyre();
@@ -338,7 +338,7 @@ TEST(Unit_VehicleTyre, ASpinningWheelDrivesItselfForward)
 /** @brief A freely rolling wheel is not slowed by its own tyre. */
 TEST(Unit_VehicleTyre, ARollingWheelIsLeftAlone)
 {
-    HostXpbdSolver<Scalar> solver(wheel_scene());
+    HostXPBDSolver<Scalar> solver(wheel_scene());
     const BodyHandle wheel = spawn_wheel(solver);
     ContactManifold<Scalar> carried;
     const TyreSettings tyre = road_tyre();
@@ -361,7 +361,7 @@ TEST(Unit_VehicleTyre, ARollingWheelIsLeftAlone)
 /** @brief A locked wheel slides at exactly the friction limit, and slows. */
 TEST(Unit_VehicleTyre, ALockedWheelSlidesAtTheFrictionLimit)
 {
-    HostXpbdSolver<Scalar> solver(wheel_scene());
+    HostXPBDSolver<Scalar> solver(wheel_scene());
     const BodyHandle wheel = spawn_wheel(solver);
     ContactManifold<Scalar> carried;
     const TyreSettings tyre = road_tyre();
@@ -396,7 +396,7 @@ TEST(Unit_VehicleTyre, ALockedWheelSlidesAtTheFrictionLimit)
  */
 TEST(Unit_VehicleTyre, AParkedWheelSitsStillAndCarriesItsOwnWeight)
 {
-    HostXpbdSolver<Scalar> solver(wheel_scene());
+    HostXPBDSolver<Scalar> solver(wheel_scene());
     const BodyHandle wheel = spawn_wheel(solver);
     ContactManifold<Scalar> carried;
     const TyreSettings tyre = road_tyre();
@@ -416,7 +416,7 @@ TEST(Unit_VehicleTyre, AParkedWheelSitsStillAndCarriesItsOwnWeight)
 /** @brief Whatever the wheel pushes against takes the other end of it. */
 TEST(Unit_VehicleTyre, TheGroundTakesTheReaction)
 {
-    HostXpbdSolver<Scalar> solver(wheel_scene());
+    HostXPBDSolver<Scalar> solver(wheel_scene());
 
     RigidBody floor;
     floor.position = Vector3{0, 0, 0};
@@ -470,7 +470,7 @@ TEST(Unit_VehicleTyre, TheGroundTakesTheReaction)
 /** @brief A tyre with no friction is a castor: grounded, and doing nothing. */
 TEST(Unit_VehicleTyre, ATyreWithNoFrictionDoesNothing)
 {
-    HostXpbdSolver<Scalar> solver(wheel_scene());
+    HostXPBDSolver<Scalar> solver(wheel_scene());
     const BodyHandle wheel = spawn_wheel(solver);
     ContactManifold<Scalar> carried;
     TyreSettings castor = road_tyre();
@@ -491,7 +491,7 @@ TEST(Unit_VehicleTyre, ATyreWithNoFrictionDoesNothing)
 /** @brief A wheel with no contact reports nothing rather than guessing. */
 TEST(Unit_VehicleTyre, AnAirborneWheelReportsNothing)
 {
-    HostXpbdSolver<Scalar> solver(wheel_scene());
+    HostXPBDSolver<Scalar> solver(wheel_scene());
     const BodyHandle wheel = spawn_wheel(solver);
 
     solver.begin_contacts();

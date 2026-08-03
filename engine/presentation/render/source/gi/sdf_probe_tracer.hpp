@@ -64,14 +64,14 @@ namespace SushiEngine
             class VulkanDevice;
         }
 
-        namespace Gi
+        namespace GI
         {
             /**
              * @brief Sphere-traces a scene distance clipmap to relight the probes.
              *
              * Non-copyable: owns a 3D image, two compute pipelines, and ring buffers.
              */
-            class SdfProbeTracer final : public IProbeTracer
+            class SDFProbeTracer final : public IProbeTracer
             {
                 public:
                     /**
@@ -80,13 +80,13 @@ namespace SushiEngine
                      * @param shaders   Library the compute modules come from.
                      * @param pipelines Factory the compute pipelines are built through.
                      */
-                    SdfProbeTracer(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+                    SDFProbeTracer(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                    Resources::GraphicsPipelineFactory& pipelines,
                                    Geometry::MeshRegistry& meshes);
-                    ~SdfProbeTracer() override;
+                    ~SDFProbeTracer() override;
 
-                    SdfProbeTracer(const SdfProbeTracer&) = delete;
-                    SdfProbeTracer& operator=(const SdfProbeTracer&) = delete;
+                    SDFProbeTracer(const SDFProbeTracer&) = delete;
+                    SDFProbeTracer& operator=(const SDFProbeTracer&) = delete;
 
                     void relight(VkCommandBuffer cmd, const ProbeRelightInputs& inputs) override;
                     const char* name() const noexcept override { return "sdf"; }
@@ -197,6 +197,6 @@ namespace SushiEngine
                     float last_sun_[3] = {0.0f, 0.0f, 0.0f};
                     float last_sun_intensity_ = -1.0f;
             };
-        } // namespace Gi
+        } // namespace GI
     } // namespace Render
 } // namespace SushiEngine

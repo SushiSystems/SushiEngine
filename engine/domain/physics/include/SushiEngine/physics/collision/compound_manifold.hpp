@@ -95,18 +95,18 @@ namespace SushiEngine
 
         /** @brief The world-space box enclosing every part of a placed compound. */
         template <typename T>
-        inline Aabb<T> compound_bounds(const CompoundPart<T>* parts, std::uint32_t part_count,
+        inline AABB<T> compound_bounds(const CompoundPart<T>* parts, std::uint32_t part_count,
                                        const Vector3T<T>& body_center,
                                        const QuaternionT<T>& body_orientation) noexcept
         {
-            Aabb<T> bounds{body_center, body_center};
+            AABB<T> bounds{body_center, body_center};
             for (std::uint32_t i = 0; i < part_count; ++i)
             {
                 const CollisionShape<T> placed =
                     place_compound_part(parts[i], body_center, body_orientation);
                 if (placed.type == ShapeType::plane)
                     continue; // a half-space has no bounds worth taking a union with
-                const Aabb<T> part_bounds = shape_world_bounds(placed);
+                const AABB<T> part_bounds = shape_world_bounds(placed);
                 bounds = i == 0 ? part_bounds : aabb_union(bounds, part_bounds);
             }
             return bounds;

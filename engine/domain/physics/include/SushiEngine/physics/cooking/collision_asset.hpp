@@ -174,7 +174,7 @@ namespace SushiEngine
                 std::uint32_t hull_vertices_offset; /**< Vector3[hull_vertex_count]. */
                 std::uint32_t mesh_vertices_offset; /**< Vector3[mesh_vertex_count]. */
                 std::uint32_t mesh_indices_offset;  /**< uint32[3 * mesh_triangle_count]. */
-                std::uint32_t mesh_nodes_offset;    /**< MeshBvhNode<Scalar>[mesh_node_count]. */
+                std::uint32_t mesh_nodes_offset;    /**< MeshBVHNode<Scalar>[mesh_node_count]. */
                 std::uint32_t mesh_order_offset;    /**< uint32[mesh_triangle_count]. */
                 std::uint32_t mesh_adjacency_offset;/**< uint32[3 * mesh_triangle_count]. */
                 std::uint32_t field_offset;         /**< float[resolution^3]. */
@@ -189,7 +189,7 @@ namespace SushiEngine
                 std::vector<Vector3> hull_vertices;
                 std::vector<Vector3> mesh_vertices;
                 std::vector<std::uint32_t> mesh_indices;
-                std::vector<MeshBvhNode<Scalar>> mesh_nodes;
+                std::vector<MeshBVHNode<Scalar>> mesh_nodes;
                 std::vector<std::uint32_t> mesh_order;
                 std::vector<std::uint32_t> mesh_adjacency;
                 Geometry::SignedDistanceFieldBrick field;
@@ -214,7 +214,7 @@ namespace SushiEngine
                 const Vector3* mesh_vertices = nullptr;
                 std::uint32_t mesh_vertex_count = 0;
                 const std::uint32_t* mesh_indices = nullptr;
-                const MeshBvhNode<Scalar>* mesh_nodes = nullptr;
+                const MeshBVHNode<Scalar>* mesh_nodes = nullptr;
                 const std::uint32_t* mesh_order = nullptr;
                 const std::uint32_t* mesh_adjacency = nullptr;
                 std::uint32_t mesh_triangle_count = 0;
@@ -319,11 +319,11 @@ namespace SushiEngine
              * @return The field view, pointing into the blob; empty (a null
              *         `distances` pointer) when the asset carries no field.
              */
-            inline SdfCollider<Scalar> collision_asset_field(const CollisionAssetView& view,
+            inline SDFCollider<Scalar> collision_asset_field(const CollisionAssetView& view,
                                                               const Vector3& center,
                                                               const Quaternion& orientation) noexcept
             {
-                SdfCollider<Scalar> field;
+                SDFCollider<Scalar> field;
                 if (view.distances == nullptr || view.field_resolution == 0)
                     return field;
                 field.distances = view.distances;

@@ -60,7 +60,7 @@ namespace SushiEngine
 
         namespace Passes
         {
-            class HizPass;
+            class HiZPass;
             class IrradianceVolumePass;
 
             /** @brief Emits and integrates the frame's cosmetic particles on the GPU. */
@@ -80,7 +80,7 @@ namespace SushiEngine
                      */
                     ParticleSimPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                     Resources::GraphicsPipelineFactory& pipelines,
-                                    Scene::ParticleSystem& particles, HizPass& hiz,
+                                    Scene::ParticleSystem& particles, HiZPass& hiz,
                                     IrradianceVolumePass& volumes);
                     ~ParticleSimPass() override;
 
@@ -129,7 +129,7 @@ namespace SushiEngine
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::ParticleSystem& particles_;
-                    HizPass& hiz_;
+                    HiZPass& hiz_;
                     IrradianceVolumePass& volumes_;
 
                     VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;

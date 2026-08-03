@@ -77,7 +77,7 @@ namespace SushiEngine
 
         namespace Passes
         {
-            class AtmosphereLutPass;
+            class AtmosphereLUTPass;
             class VolumetricFogPass;
 
             /**
@@ -85,7 +85,7 @@ namespace SushiEngine
              *
              * Non-copyable: it owns images, views, and pipelines.
              */
-            class IblPass final : public IRenderPass
+            class IBLPass final : public IRenderPass
             {
                 public:
                     /**
@@ -100,15 +100,15 @@ namespace SushiEngine
                      *                   the captured sky shader now reads.
                      * @param fog        The pass owning the fog volume the sky shader binds.
                      */
-                    IblPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+                    IBLPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                             Resources::GraphicsPipelineFactory& pipelines,
                             Resources::SamplerCache& samplers, Scene::SceneLayout& layout,
-                            Textures::CloudNoise& noise, AtmosphereLutPass& atmosphere,
+                            Textures::CloudNoise& noise, AtmosphereLUTPass& atmosphere,
                             VolumetricFogPass& fog);
-                    ~IblPass() override;
+                    ~IBLPass() override;
 
-                    IblPass(const IblPass&) = delete;
-                    IblPass& operator=(const IblPass&) = delete;
+                    IBLPass(const IBLPass&) = delete;
+                    IBLPass& operator=(const IBLPass&) = delete;
 
                     void register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame) override;
@@ -167,7 +167,7 @@ namespace SushiEngine
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::SceneLayout& layout_;
                     Textures::CloudNoise& noise_;
-                    AtmosphereLutPass& atmosphere_;
+                    AtmosphereLUTPass& atmosphere_;
                     VolumetricFogPass& fog_;
 
                     Cube environment_;

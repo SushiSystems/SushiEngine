@@ -222,7 +222,7 @@ int main()
     std::vector<float> left(block, 0.0f), right(block, 0.0f);
     float* channels[2] = {left.data(), right.data()};
 
-    SdlAudioDevice device;
+    SDLAudioDevice device;
     AudioStreamFormat desired;
     desired.sample_rate = 48000;
     desired.channel_count = 2;

@@ -43,7 +43,7 @@ namespace SushiEngine
         /**
          * @brief Draws the Particle System section for one entity's emitter.
          *
-         * Edits the entity's @ref SushiEngine::Vfx::ParticleEffect in place, bracketing a
+         * Edits the entity's @ref SushiEngine::VFX::ParticleEffect in place, bracketing a
          * drag as one undo step and a discrete edit (a library load, a burst change) as
          * its own. The isolated Preview viewport is pointed at whatever is being edited
          * here, so the two never show different effects.

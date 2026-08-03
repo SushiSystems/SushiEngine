@@ -110,7 +110,7 @@ namespace SushiEngine
          */
         template <typename T>
         inline ContactManifold<T> generate_particle_sdf_manifold(const Vector3T<T>& position,
-                                                                 const SdfCollider<T>& field,
+                                                                 const SDFCollider<T>& field,
                                                                  T contact_offset) noexcept
         {
             if (field.distances == nullptr || field.resolution <= 0)
@@ -154,7 +154,7 @@ namespace SushiEngine
         {
             public:
                 /** @brief The rigid body's cooked field, already placed in the world. */
-                SdfCollider<T> field{};
+                SDFCollider<T> field{};
 
                 /**
                  * @brief The body the field belongs to, or null for immovable geometry.

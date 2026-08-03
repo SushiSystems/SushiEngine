@@ -17,17 +17,17 @@ layout(rgba16f, set = 0, binding = 5) uniform writeonly image3D emissive_clipmap
 
 layout(std430, set = 0, binding = 1) readonly buffer Primitives
 {
-    SdfPrimitive primitives[];
+    SDFPrimitive primitives[];
 } scene;
 
 layout(set = 0, binding = 2) uniform ClipmapBlock
 {
-    SdfClipmapConfig cfg;
+    SDFClipmapConfig cfg;
 } clip;
 
 layout(std430, set = 0, binding = 3) readonly buffer MeshInstances
 {
-    SdfMeshInstance instances[];
+    SDFMeshInstance instances[];
 } meshes;
 
 layout(std430, set = 0, binding = 4) readonly buffer BrickAtlas

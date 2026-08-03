@@ -108,19 +108,19 @@ namespace
                                            {0, 4, 6, 7}, {0, 2, 6, 7}, {0, 2, 3, 7}};
 
     /** @brief One element, cooked from its own rest corners. */
-    FemTetrahedronT<float> cook(const std::uint32_t vertex[4], const Vector3T<float> rest[4],
+    FEMTetrahedronT<float> cook(const std::uint32_t vertex[4], const Vector3T<float> rest[4],
                                const LameParameters<float>& lame)
     {
-        FemTetrahedronT<float> element;
+        FEMTetrahedronT<float> element;
         for (int i = 0; i < 4; ++i)
             element.vertex[i] = vertex[i];
 
-        FemMatrix3<float> rest_shape;
+        FEMMatrix3<float> rest_shape;
         rest_shape.column0 = rest[1] - rest[0];
         rest_shape.column1 = rest[2] - rest[0];
         rest_shape.column2 = rest[3] - rest[0];
 
-        FemMatrix3<float> inverse;
+        FEMMatrix3<float> inverse;
         invert_fem_matrix3(rest_shape, inverse);
         element.rest_inverse_column_0 = inverse.column0;
         element.rest_inverse_column_1 = inverse.column1;

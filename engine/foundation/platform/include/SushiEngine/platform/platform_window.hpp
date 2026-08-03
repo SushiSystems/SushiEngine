@@ -37,7 +37,7 @@ namespace SushiEngine
          * @brief The window the editor runs in, abstracted from any windowing library.
          *
          * The editor's app logic programs against this, never against SDL, so a
-         * different backend (GLFW, Win32, Wayland) can replace @ref SdlWindow without
+         * different backend (GLFW, Win32, Wayland) can replace @ref SDLWindow without
          * touching the loop. It surfaces exactly what a Vulkan host needs: the instance
          * extensions to enable, a way to create a surface once the instance exists, the
          * drawable size, and event pumping. Native OS/library types cross the seam as
@@ -74,7 +74,7 @@ namespace SushiEngine
                  *
                  * Every registered handler receives each pumped event in registration order,
                  * so the ImGui backend (registered first) still sees events before a later
-                 * @ref SushiEngine::Input::SdlInputTranslator. This grows the seam from a
+                 * @ref SushiEngine::Input::SDLInputTranslator. This grows the seam from a
                  * single sink to a list without adding a second `SDL_PollEvent` loop.
                  *
                  * @param handler Called once per event with an opaque native event pointer.

@@ -5,8 +5,8 @@
 
 #define GI_NUM_CASCADES 3
 
-// The std140 mirror of Render::Gi::ProbeVolumeConfig. Field-for-field identical packing.
-struct GiProbeVolume
+// The std140 mirror of Render::GI::ProbeVolumeConfig. Field-for-field identical packing.
+struct GIProbeVolume
 {
     vec4 params;   // x = enabled, y = indirect intensity, z = normal bias metres, w = cascade count
     ivec4 counts;  // xyz probe counts per axis, w = probes per cascade
@@ -36,7 +36,7 @@ vec3 gi_sh_irradiance(vec4 coeff[9], vec3 n)
 
 // Linear index of a probe cell in cascade `cascade`, in the (z, y, x) row-major order the
 // relight writes, offset by the cascade's block in the shared SH buffer (cascade-major).
-int gi_probe_index(GiProbeVolume vol, int cascade, ivec3 cell)
+int gi_probe_index(GIProbeVolume vol, int cascade, ivec3 cell)
 {
     ivec3 c = clamp(cell, ivec3(0), vol.counts.xyz - 1);
     return cascade * vol.counts.w + (c.z * vol.counts.y + c.y) * vol.counts.x + c.x;
@@ -45,7 +45,7 @@ int gi_probe_index(GiProbeVolume vol, int cascade, ivec3 cell)
 // Locates the lower corner of the lattice cell a camera-relative point falls in within
 // cascade `cascade`, and the fractional position inside it. Returns false when the point is
 // outside that cascade, so the caller can try the next coarser cascade or the environment.
-bool gi_locate_cascade(GiProbeVolume vol, int cascade, vec3 camera_relative_pos,
+bool gi_locate_cascade(GIProbeVolume vol, int cascade, vec3 camera_relative_pos,
                        out ivec3 base, out vec3 frac)
 {
     vec3 grid = (camera_relative_pos - vol.cascade[cascade].xyz) / vol.cascade[cascade].w;

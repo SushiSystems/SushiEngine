@@ -88,7 +88,7 @@ namespace
 
         merged.particles.insert(merged.particles.end(), upper.particles.begin(),
                                 upper.particles.end());
-        for (FemTetrahedron element : upper.elements)
+        for (FEMTetrahedron element : upper.elements)
         {
             for (int i = 0; i < 4; ++i)
                 element.vertex[i] += offset;

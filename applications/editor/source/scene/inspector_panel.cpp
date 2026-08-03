@@ -1337,7 +1337,7 @@ namespace SushiEngine
                                 ImGui::PopID();
                             };
                             map_field("Albedo Map", params.albedo_map, params.albedo_map_path,
-                                      SushiEngine::Render::TextureColorSpace::Srgb);
+                                      SushiEngine::Render::TextureColorSpace::SRGB);
                             map_field("ORM Map", params.orm_map, params.orm_map_path,
                                       SushiEngine::Render::TextureColorSpace::Linear);
                             if (maps_changed)

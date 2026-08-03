@@ -31,7 +31,7 @@ namespace SushiEngine
 {
     namespace Render
     {
-        namespace Gi
+        namespace GI
         {
             namespace
             {
@@ -75,7 +75,7 @@ namespace SushiEngine
             } // namespace
 
             void configure_sdf_clipmap(const double eye[3], std::int32_t primitive_count,
-                                       SdfClipmapConfig& out) noexcept
+                                       SDFClipmapConfig& out) noexcept
             {
                 const double voxel =
                     static_cast<double>(SDF_CLIPMAP_EXTENT_METRES) / SDF_CLIPMAP_RESOLUTION;
@@ -104,7 +104,7 @@ namespace SushiEngine
             }
 
             std::int32_t build_sdf_primitives(const Frame::SceneDrawList& draws, const double eye[3],
-                                              SdfPrimitive* out, std::int32_t max) noexcept
+                                              SDFPrimitive* out, std::int32_t max) noexcept
             {
                 std::int32_t count = 0;
                 for (std::size_t i = 0; i < draws.instance_count && count < max; ++i)
@@ -118,7 +118,7 @@ namespace SushiEngine
                     const float scale_y = column_length(model, 1);
                     const float scale_z = column_length(model, 2);
 
-                    SdfPrimitive& p = out[count];
+                    SDFPrimitive& p = out[count];
                     // The world centre is the model's translation, rebased against the eye.
                     p.center_kind[0] = static_cast<float>(static_cast<double>(model.m[12]) - eye[0]);
                     p.center_kind[1] = static_cast<float>(static_cast<double>(model.m[13]) - eye[1]);
@@ -130,20 +130,20 @@ namespace SushiEngine
                     switch (instance.kind)
                     {
                         case MeshKind::Sphere:
-                            p.center_kind[3] = static_cast<float>(SdfPrimitiveKind::Sphere);
+                            p.center_kind[3] = static_cast<float>(SDFPrimitiveKind::Sphere);
                             p.extent[0] = static_cast<float>(s.x) * scale_x;
                             p.extent[1] = static_cast<float>(s.x) * scale_x;
                             p.extent[2] = static_cast<float>(s.x) * scale_x;
                             break;
                         case MeshKind::Cylinder:
-                            p.center_kind[3] = static_cast<float>(SdfPrimitiveKind::Cylinder);
+                            p.center_kind[3] = static_cast<float>(SDFPrimitiveKind::Cylinder);
                             p.extent[0] = static_cast<float>(s.x) * scale_x;
                             p.extent[1] = static_cast<float>(s.y) * scale_y;
                             p.extent[2] = static_cast<float>(s.x) * scale_x;
                             break;
                         case MeshKind::Box:
                         default:
-                            p.center_kind[3] = static_cast<float>(SdfPrimitiveKind::Box);
+                            p.center_kind[3] = static_cast<float>(SDFPrimitiveKind::Box);
                             p.extent[0] = static_cast<float>(s.x) * scale_x;
                             p.extent[1] = static_cast<float>(s.y) * scale_y;
                             p.extent[2] = static_cast<float>(s.z) * scale_z;
@@ -173,7 +173,7 @@ namespace SushiEngine
             void fill_sdf_mesh_instance(const Mat4& model, const double eye[3],
                                         const float aabb_min[3], const float aabb_max[3],
                                         std::int32_t slot, const float albedo[3],
-                                        const float emissive[3], SdfMeshInstance& out) noexcept
+                                        const float emissive[3], SDFMeshInstance& out) noexcept
             {
                 float r[3][3];
                 invert_upper3x3(model, r);
@@ -220,6 +220,6 @@ namespace SushiEngine
                 out.emissive[2] = emissive[2];
                 out.emissive[3] = 0.0f;
             }
-        } // namespace Gi
+        } // namespace GI
     } // namespace Render
 } // namespace SushiEngine

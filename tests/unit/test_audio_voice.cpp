@@ -170,7 +170,7 @@ TEST(Unit_Audio, SurroundOutputRouting)
 }
 
 // HDR: a loud voice masks quieter ones, culling them to virtual even under the real cap.
-TEST(Unit_Audio, HdrLoudnessCulling)
+TEST(Unit_Audio, HDRLoudnessCulling)
 {
     VoiceManager voices(8, 8); // real cap high, so only HDR limits
     voices.prepare(48000.0, 256);

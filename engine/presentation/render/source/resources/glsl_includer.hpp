@@ -51,14 +51,14 @@ namespace SushiEngine
          * Local and system includes resolve identically: the shader tree is flat, so
          * `#include "x.glsl"` and `#include <x.glsl>` mean the same file.
          */
-        class GlslIncluder final : public glslang::TShader::Includer
+        class GLSLIncluder final : public glslang::TShader::Includer
         {
             public:
                 /**
                  * @brief Binds the includer to the directory headers are read from.
                  * @param directory Directory containing the shader sources.
                  */
-                explicit GlslIncluder(std::string directory) : directory_(std::move(directory)) {}
+                explicit GLSLIncluder(std::string directory) : directory_(std::move(directory)) {}
 
                 /**
                  * @brief Resolves a quoted include.

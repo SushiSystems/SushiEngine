@@ -32,7 +32,7 @@
 #include <SushiEngine/vfx/deterministic_backend.hpp>
 
 using namespace SushiEngine;
-using namespace SushiEngine::Vfx;
+using namespace SushiEngine::VFX;
 
 namespace
 {
@@ -191,12 +191,12 @@ TEST(Unit_ParticleSpawn, RateAndCapacityAccounting)
     const CompiledEffect compiled = EmitterCompiler::compile(effect);
 
     DeterministicEmitterState state;
-    CpuDeterministicBackend::reset(state, 42);
+    CPUDeterministicBackend::reset(state, 42);
 
     const float dt = 1.0f / 60.0f;
     for (int i = 0; i < 600; ++i) // 10 seconds
     {
-        CpuDeterministicBackend::step(state, compiled.emitters[0], compiled, dt,
+        CPUDeterministicBackend::step(state, compiled.emitters[0], compiled, dt,
                                       Vector3{0, 0, 0}, Quaternion{});
         ASSERT_LE(state.alive_count, compiled.emitters[0].capacity)
             << "pool must never exceed its capacity";
@@ -217,9 +217,9 @@ TEST(Unit_ParticleSpawn, NoSpawnWithoutRateOrBurst)
     const CompiledEffect compiled = EmitterCompiler::compile(effect);
 
     DeterministicEmitterState state;
-    CpuDeterministicBackend::reset(state, 7);
+    CPUDeterministicBackend::reset(state, 7);
     for (int i = 0; i < 120; ++i)
-        CpuDeterministicBackend::step(state, compiled.emitters[0], compiled, 1.0f / 60.0f,
+        CPUDeterministicBackend::step(state, compiled.emitters[0], compiled, 1.0f / 60.0f,
                                       Vector3{0, 0, 0}, Quaternion{});
     EXPECT_EQ(state.alive_count, 0u);
     EXPECT_EQ(state.spawn_serial, 0u);

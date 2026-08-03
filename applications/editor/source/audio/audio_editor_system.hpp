@@ -154,7 +154,7 @@ namespace SushiEngine
                 ToneFactory factory_;
                 Audio::AudioScene scene_;
                 Audio::AudioProfileSnapshot profile_{};
-                std::unique_ptr<SushiEngine::Audio::SdlAudioDevice> device_;
+                std::unique_ptr<SushiEngine::Audio::SDLAudioDevice> device_;
                 Audio::IReverb* reverb_ = nullptr; /**< The FDN on the reverb aux bus (borrowed). */
 
                 int master_bus_ = 0;

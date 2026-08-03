@@ -47,20 +47,20 @@ namespace
     }
 
     // The whole file, imported once: every test here reads the same two animations.
-    const Animation::GltfAnimationImport& imported()
+    const Animation::GLTFAnimationImport& imported()
     {
-        static const Animation::GltfAnimationImport import = []
+        static const Animation::GLTFAnimationImport import = []
         {
-            Animation::GltfAnimationImport result;
+            Animation::GLTFAnimationImport result;
             Animation::import_gltf_animated(asset_path(), result, SAMPLE_RATE);
             return result;
         }();
         return import;
     }
 
-    const Animation::GltfClip* clip_named(const char* name)
+    const Animation::GLTFClip* clip_named(const char* name)
     {
-        for (const Animation::GltfClip& clip : imported().clips)
+        for (const Animation::GLTFClip& clip : imported().clips)
             if (clip.name == name)
                 return &clip;
         return nullptr;
@@ -82,7 +82,7 @@ TEST(Unit_AnimationMorphImport, ImportsBothAnimationsAndTheTargetNames)
 
 TEST(Unit_AnimationMorphImport, WeightsChannelBecomesOneTrackPerTarget)
 {
-    const Animation::GltfClip* talk = clip_named("talk");
+    const Animation::GLTFClip* talk = clip_named("talk");
     ASSERT_NE(talk, nullptr);
     const Animation::ClipView clip = Animation::load_clip_blob(talk->blob.data(), talk->blob.size());
     ASSERT_TRUE(clip.valid());
@@ -99,7 +99,7 @@ TEST(Unit_AnimationMorphImport, WeightsChannelBecomesOneTrackPerTarget)
 
 TEST(Unit_AnimationMorphImport, ResampledWeightsReproduceTheAuthoredKeys)
 {
-    const Animation::GltfClip* talk = clip_named("talk");
+    const Animation::GLTFClip* talk = clip_named("talk");
     ASSERT_NE(talk, nullptr);
     const Animation::ClipView clip = Animation::load_clip_blob(talk->blob.data(), talk->blob.size());
     ASSERT_TRUE(clip.valid());
@@ -129,7 +129,7 @@ TEST(Unit_AnimationMorphImport, ResampledWeightsReproduceTheAuthoredKeys)
 
 TEST(Unit_AnimationMorphImport, AnimationWithoutAWeightsChannelHasNoMorphTracks)
 {
-    const Animation::GltfClip* turn = clip_named("turn");
+    const Animation::GLTFClip* turn = clip_named("turn");
     ASSERT_NE(turn, nullptr);
     const Animation::ClipView clip = Animation::load_clip_blob(turn->blob.data(), turn->blob.size());
     ASSERT_TRUE(clip.valid());
@@ -139,7 +139,7 @@ TEST(Unit_AnimationMorphImport, AnimationWithoutAWeightsChannelHasNoMorphTracks)
 
 TEST(Unit_AnimationMorphImport, MorphStateResolvesTargetsByNameNotPosition)
 {
-    const Animation::GltfClip* talk = clip_named("talk");
+    const Animation::GLTFClip* talk = clip_named("talk");
     ASSERT_NE(talk, nullptr);
     const Animation::ClipView clip = Animation::load_clip_blob(talk->blob.data(), talk->blob.size());
     ASSERT_TRUE(clip.valid());
@@ -160,7 +160,7 @@ TEST(Unit_AnimationMorphImport, MorphStateResolvesTargetsByNameNotPosition)
 
 TEST(Unit_AnimationMorphImport, MorphStateZeroesEveryTargetForAClipWithoutTracks)
 {
-    const Animation::GltfClip* turn = clip_named("turn");
+    const Animation::GLTFClip* turn = clip_named("turn");
     ASSERT_NE(turn, nullptr);
     const Animation::ClipView clip = Animation::load_clip_blob(turn->blob.data(), turn->blob.size());
     ASSERT_TRUE(clip.valid());
@@ -181,7 +181,7 @@ TEST(Unit_AnimationMorphImport, JointTracksStillImportAlongsideTheWeightsChannel
     // The channel loop routes weights and joint paths in the same pass; a rotation channel
     // must still resample, and a weights-only animation must still be one frame per joint
     // holding the bind pose rather than an empty clip.
-    const Animation::GltfClip* turn = clip_named("turn");
+    const Animation::GLTFClip* turn = clip_named("turn");
     ASSERT_NE(turn, nullptr);
     const Animation::ClipView rotated =
         Animation::load_clip_blob(turn->blob.data(), turn->blob.size());
@@ -199,7 +199,7 @@ TEST(Unit_AnimationMorphImport, JointTracksStillImportAlongsideTheWeightsChannel
     EXPECT_NEAR(rotation.z, 0.7071068f, 1e-4f);
     EXPECT_NEAR(rotation.w, 0.7071068f, 1e-4f);
 
-    const Animation::GltfClip* talk = clip_named("talk");
+    const Animation::GLTFClip* talk = clip_named("talk");
     ASSERT_NE(talk, nullptr);
     const Animation::ClipView weighted =
         Animation::load_clip_blob(talk->blob.data(), talk->blob.size());

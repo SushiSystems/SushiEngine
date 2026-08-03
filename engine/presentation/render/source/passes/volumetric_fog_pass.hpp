@@ -69,7 +69,7 @@ namespace SushiEngine
 
         namespace Passes
         {
-            class AtmosphereLutPass;
+            class AtmosphereLUTPass;
 
             /**
              * @brief Builds and owns the volumetric-fog froxel volume.
@@ -90,7 +90,7 @@ namespace SushiEngine
                     VolumetricFogPass(Vulkan::VulkanDevice& device,
                                       Resources::ShaderLibrary& shaders,
                                       Resources::GraphicsPipelineFactory& pipelines,
-                                      AtmosphereLutPass& atmosphere,
+                                      AtmosphereLUTPass& atmosphere,
                                       Lighting::LightSystem& lights);
                     ~VolumetricFogPass() override;
 
@@ -143,7 +143,7 @@ namespace SushiEngine
                     Vulkan::VulkanDevice& device_;
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
-                    AtmosphereLutPass& atmosphere_;
+                    AtmosphereLUTPass& atmosphere_;
                     Lighting::LightSystem& lights_;
 
                     Volume volume_;

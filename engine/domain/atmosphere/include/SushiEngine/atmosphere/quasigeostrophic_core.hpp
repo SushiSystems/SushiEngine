@@ -64,7 +64,7 @@
  * makes this core cheap, and it is exact rather than approximate.
  *
  * **Determinism.** Every stochastic decision — the initial perturbation's phases — draws from
- * a `Loop::RngState` seeded by the caller, never from a clock. Two cores seeded identically
+ * a `Loop::RNGState` seeded by the caller, never from a clock. Two cores seeded identically
  * and stepped with the same sequence of `dt` stay bit-identical. §3.4's posture says the
  * atmosphere is not part of the rollback snapshot; this is nonetheless deterministic, because
  * a tier that cannot be reproduced cannot be debugged.

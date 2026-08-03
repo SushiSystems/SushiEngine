@@ -58,12 +58,12 @@ TEST(Integration_PhysicsBridge, RegisteredEntitySyncsAndUnregisteredDoesNot)
     const Entity untouched = world.spawn(
         Simulation::Transform{Vector3{3, 3, 3}}, Simulation::Orientation{}, Simulation::PhysicsBody{});
 
-    PhysicsWorld<XpbdDistanceConstraint> physics(Harness::shared_context());
+    PhysicsWorld<XPBDDistanceConstraint> physics(Harness::shared_context());
     const BodyId falling_id =
         physics.add_body(Simulation::initial_rigid_body(world, falling, Scalar(1)));
     // No constraints: a single free-falling body under gravity is enough to prove
     // the bridge, without pulling constraint mechanics into this test.
-    physics.finalize(1, SUBSTEP_DT, XpbdDistanceProjection{});
+    physics.finalize(1, SUBSTEP_DT, XPBDDistanceProjection{});
 
     world.get<Simulation::PhysicsBody>(falling).body_id = falling_id;
     // `untouched` keeps PhysicsBody::INVALID: never registered with the physics world.

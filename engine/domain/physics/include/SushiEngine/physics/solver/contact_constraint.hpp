@@ -37,7 +37,7 @@
  *
  * ### Why the descriptor lives beside the projection rather than in `constraints/`
  *
- * `XpbdDistanceConstraintT` sits in `constraints/` with its projection. A contact's
+ * `XPBDDistanceConstraintT` sits in `constraints/` with its projection. A contact's
  * projection is `contact_projection.hpp`, here in `solver/`, because it names
  * `ContactManifold` — and a descriptor is the pair *(what is constrained, under what
  * coefficients)*, where the coefficients are `ContactSolveParams`, defined by the
@@ -194,7 +194,7 @@ namespace SushiEngine
          * @brief Non-penetration and static friction, positionally, for one contact.
          *
          * Runs after `predict` and after the persistent constraint kinds, in the same
-         * place `XpbdDistanceProjectionT` runs: it corrects *positions*, and every
+         * place `XPBDDistanceProjectionT` runs: it corrects *positions*, and every
          * positional projection in a substep belongs together.
          */
         template <typename T>

@@ -32,12 +32,12 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        SdlAudioDevice::~SdlAudioDevice()
+        SDLAudioDevice::~SDLAudioDevice()
         {
             close();
         }
 
-        bool SdlAudioDevice::open(const AudioStreamFormat& desired, IAudioRenderer& renderer)
+        bool SDLAudioDevice::open(const AudioStreamFormat& desired, IAudioRenderer& renderer)
         {
             if (running_)
                 return false;
@@ -54,7 +54,7 @@ namespace SushiEngine
             want.format = AUDIO_F32SYS; // our mix is planar float; SDL takes interleaved float
             want.channels = static_cast<Uint8>(desired.channel_count);
             want.samples = static_cast<Uint16>(desired.block_frames);
-            want.callback = &SdlAudioDevice::audio_callback;
+            want.callback = &SDLAudioDevice::audio_callback;
             want.userdata = this;
 
             // Let the OS mixer pick its native rate and buffer size (common on shared
@@ -91,7 +91,7 @@ namespace SushiEngine
             return true;
         }
 
-        void SdlAudioDevice::close() noexcept
+        void SDLAudioDevice::close() noexcept
         {
             if (device_id_ != 0)
             {
@@ -109,7 +109,7 @@ namespace SushiEngine
             renderer_ = nullptr;
         }
 
-        void SdlAudioDevice::render_block(float* interleaved, int frame_count) noexcept
+        void SDLAudioDevice::render_block(float* interleaved, int frame_count) noexcept
         {
             const int channels = format_.channel_count;
 
@@ -137,9 +137,9 @@ namespace SushiEngine
                         channel_ptrs_[static_cast<std::size_t>(c)][f];
         }
 
-        void SdlAudioDevice::audio_callback(void* user, unsigned char* stream, int length)
+        void SDLAudioDevice::audio_callback(void* user, unsigned char* stream, int length)
         {
-            SdlAudioDevice* self = static_cast<SdlAudioDevice*>(user);
+            SDLAudioDevice* self = static_cast<SDLAudioDevice*>(user);
             float* out = reinterpret_cast<float*>(stream);
             const int bytes_per_frame =
                 static_cast<int>(sizeof(float)) * self->format_.channel_count;

@@ -28,7 +28,7 @@ namespace SushiEngine
 {
     namespace Render
     {
-        namespace Gi
+        namespace GI
         {
             void configure_probe_volume(const double eye[3], bool enabled, float intensity,
                                         float normal_bias, ProbeVolumeConfig& out) noexcept
@@ -64,6 +64,6 @@ namespace SushiEngine
                     out.cascade_origin[cascade][3] = static_cast<float>(spacing);
                 }
             }
-        } // namespace Gi
+        } // namespace GI
     } // namespace Render
 } // namespace SushiEngine

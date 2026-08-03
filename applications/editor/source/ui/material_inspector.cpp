@@ -184,7 +184,7 @@ namespace SushiEngine
             ImGui::Separator();
 
             changed |= texture_slot("Albedo", material.albedo_map, paths.albedo_map, assets,
-                                    TextureColorSpace::Srgb);
+                                    TextureColorSpace::SRGB);
             changed |= color_row("Base Color", material.albedo, false);
             changed |= ImGui::SliderFloat("Alpha", &material.base_alpha, 0.0f, 1.0f);
 
@@ -222,7 +222,7 @@ namespace SushiEngine
             if (material.emissive_enabled)
             {
                 changed |= texture_slot("Emissive", material.emissive_map, paths.emissive_map,
-                                        assets, TextureColorSpace::Srgb);
+                                        assets, TextureColorSpace::SRGB);
                 changed |= color_row("Emissive Color", material.emissive, true);
                 changed |= ImGui::DragFloat("Emissive Intensity", &material.emissive_intensity,
                                             0.05f, 0.0f, 100.0f);
@@ -233,7 +233,7 @@ namespace SushiEngine
                 changed |= transform_rows("Detail Maps", material.detail_transform);
                 changed |= texture_slot("Detail Albedo", material.detail_albedo_map,
                                         paths.detail_albedo_map, assets,
-                                        TextureColorSpace::Srgb);
+                                        TextureColorSpace::SRGB);
                 changed |= texture_slot("Detail Normal", material.detail_normal_map,
                                         paths.detail_normal_map, assets,
                                         TextureColorSpace::Linear);

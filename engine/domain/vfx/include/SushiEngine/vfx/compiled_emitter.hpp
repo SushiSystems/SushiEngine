@@ -36,7 +36,7 @@
  * the particle system's equivalent of resolving authored @c RenderSettings into a POD
  * @c QualityParams: rich intent in, flat data out.
  *
- * The per-particle working layout (@ref GpuParticle) is defined here too so the CPU backend,
+ * The per-particle working layout (@ref GPUParticle) is defined here too so the CPU backend,
  * the GPU system, and the compute shader share one 64-byte record.
  */
 
@@ -48,7 +48,7 @@
 
 namespace SushiEngine
 {
-    namespace Vfx
+    namespace VFX
     {
         /** @brief Samples per baked scalar-curve LUT row. */
         constexpr std::uint32_t CURVE_LUT_WIDTH = 64;
@@ -220,7 +220,7 @@ namespace SushiEngine
          * storage-buffer element with no padding surprises. @c seed carries the particle's RNG
          * sub-stream; @c emitter_index keys it to its @ref CompiledEmitter.
          */
-        struct GpuParticle
+        struct GPUParticle
         {
             float position[3] = {0.0f, 0.0f, 0.0f}; /**< World position (camera-relative on GPU). */
             float life = 0.0f;                       /**< Remaining life normalized to [0, 1]. */
@@ -238,7 +238,7 @@ namespace SushiEngine
             float birth_size = 0.1f;                 /**< Size at birth; size-over-life multiplies it. */
         };
 
-        static_assert(sizeof(GpuParticle) == 80, "GpuParticle must stay an 80-byte std430 record.");
+        static_assert(sizeof(GPUParticle) == 80, "GPUParticle must stay an 80-byte std430 record.");
 
         /**
          * @brief A compiled effect: the emitter records plus the two baked LUT atlases.
@@ -328,5 +328,5 @@ namespace SushiEngine
             for (std::uint32_t c = 0; c < 4; ++c)
                 out[c] = row[i * 4 + c] + (row[j * 4 + c] - row[i * 4 + c]) * f;
         }
-    } // namespace Vfx
+    } // namespace VFX
 } // namespace SushiEngine

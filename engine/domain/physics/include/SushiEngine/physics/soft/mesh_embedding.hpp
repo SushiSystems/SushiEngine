@@ -72,7 +72,7 @@ namespace SushiEngine
          * The cooked `Cooking::SoftBodyBinding` names an *element*, which costs an
          * extra indirection per vertex per tick to resolve. This resolves it once,
          * at build time, into the four particle indices themselves — the same
-         * trade `FemTetrahedronT` makes by carrying `Dm^-1` rather than the rest
+         * trade `FEMTetrahedronT` makes by carrying `Dm^-1` rather than the rest
          * positions it was derived from.
          *
          * @tparam T The scalar element type.
@@ -209,7 +209,7 @@ namespace SushiEngine
                  * @param remap What that pass reported.
                  */
                 template <typename Model>
-                void follow_fracture(const Model& model, const FemFractureRemap& remap)
+                void follow_fracture(const Model& model, const FEMFractureRemap& remap)
                 {
                     for (EmbeddedVertex<T>& binding : vertices)
                     {
@@ -218,7 +218,7 @@ namespace SushiEngine
                             continue;
 
                         const std::uint32_t moved = remap.element[binding.element];
-                        if (moved == FemFractureRemap::REMOVED)
+                        if (moved == FEMFractureRemap::REMOVED)
                         {
                             binding.element = EmbeddedVertex<T>::UNBOUND;
                             continue;

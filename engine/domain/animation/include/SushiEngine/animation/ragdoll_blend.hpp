@@ -41,7 +41,7 @@
  * pure physics, and anything between is the transition window a hit reaction or death
  * ragdoll needs (weight ramping 0→1 over the transition is the caller's job, e.g. driven
  * by a timer or an impact-force curve; this modifier is a stateless function of whatever
- * weight it is given this frame). It does **not** map joints to `Physics::XpbdSolver`
+ * weight it is given this frame). It does **not** map joints to `Physics::XPBDSolver`
  * bodies, run inverse dynamics, or blend velocities for a physically-continuous
  * handoff — those are real follow-up work once a gameplay feature needs them (matching
  * §12.4's "prioritize only against an actual gameplay/content need" rule).

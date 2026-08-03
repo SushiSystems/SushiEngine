@@ -50,7 +50,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /** @brief A partitioned overlap-save convolver against a fixed impulse response. */
             class PartitionedConvolver
@@ -168,7 +168,7 @@ namespace SushiEngine
                     }
 
                 private:
-                    RadixFft fft_;
+                    RadixFFT fft_;
                     std::vector<std::vector<std::complex<float>>> ir_spectra_;
                     std::vector<std::vector<std::complex<float>>> fdl_;
                     std::vector<float> prev_input_;
@@ -302,7 +302,7 @@ namespace SushiEngine
                     int out_r_ = 0, out_w_ = 0, out_count_ = 0;
                     bool has_tail_ = false;
             };
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

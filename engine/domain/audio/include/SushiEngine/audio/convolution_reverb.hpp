@@ -317,7 +317,7 @@ namespace SushiEngine
                     reset();
                 }
 
-                Dsp::PartitionedConvolver convolver_[2];
+                DSP::PartitionedConvolver convolver_[2];
                 I3DL2Reverb params_;
                 std::vector<float> in_fifo_[2];
                 std::vector<float> out_fifo_[2];

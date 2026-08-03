@@ -118,7 +118,7 @@ int main()
     std::printf("headless profiler checks passed\n");
 
     // --- 2. Best-effort playback with a live profiler readout ------------------------
-    SdlAudioDevice device;
+    SDLAudioDevice device;
     AudioStreamFormat desired;
     desired.sample_rate = 48000;
     desired.channel_count = 2;

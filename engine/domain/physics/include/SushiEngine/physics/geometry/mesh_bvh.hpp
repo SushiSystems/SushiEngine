@@ -81,9 +81,9 @@ namespace SushiEngine
          * share a cache line.
          */
         template <typename T>
-        struct MeshBvhNode
+        struct MeshBVHNode
         {
-            Aabb<T> bounds;
+            AABB<T> bounds;
             /** @brief Interior: the left child's index. Leaf: the first triangle. */
             std::uint32_t first = 0;
             /** @brief How many triangles this leaf holds; zero marks an interior node. */
@@ -104,7 +104,7 @@ namespace SushiEngine
             const Vector3T<T>* vertices = nullptr;
             /** @brief Three vertex indices per triangle. */
             const std::uint32_t* indices = nullptr;
-            const MeshBvhNode<T>* nodes = nullptr;
+            const MeshBVHNode<T>* nodes = nullptr;
             /** @brief The cooked triangle order the leaves index into. */
             const std::uint32_t* order = nullptr;
             /**
@@ -130,7 +130,7 @@ namespace SushiEngine
         template <typename T>
         struct CookedTriangleMesh
         {
-            std::vector<MeshBvhNode<T>> nodes;
+            std::vector<MeshBVHNode<T>> nodes;
             std::vector<std::uint32_t> order;
             std::vector<std::uint32_t> adjacency;
         };
@@ -150,7 +150,7 @@ namespace SushiEngine
 
         /** @brief The mesh-local bounds of triangle @p index. */
         template <typename T>
-        inline Aabb<T> local_triangle_bounds(const Vector3T<T>* vertices,
+        inline AABB<T> local_triangle_bounds(const Vector3T<T>* vertices,
                                              const std::uint32_t* indices,
                                              std::uint32_t index) noexcept
         {
@@ -158,7 +158,7 @@ namespace SushiEngine
             const Vector3T<T>& a = vertices[corner[0]];
             const Vector3T<T>& b = vertices[corner[1]];
             const Vector3T<T>& c = vertices[corner[2]];
-            Aabb<T> bounds;
+            AABB<T> bounds;
             bounds.min = Vector3T<T>{std::min(a.x, std::min(b.x, c.x)),
                                      std::min(a.y, std::min(b.y, c.y)),
                                      std::min(a.z, std::min(b.z, c.z))};
@@ -246,7 +246,7 @@ namespace SushiEngine
                 return cooked;
 
             cooked.order.resize(triangle_count);
-            std::vector<Aabb<T>> bounds(triangle_count);
+            std::vector<AABB<T>> bounds(triangle_count);
             std::vector<Vector3T<T>> centroids(triangle_count);
             for (std::uint32_t t = 0; t < triangle_count; ++t)
             {
@@ -256,7 +256,7 @@ namespace SushiEngine
             }
 
             cooked.nodes.reserve(2u * static_cast<std::size_t>(triangle_count));
-            cooked.nodes.push_back(MeshBvhNode<T>{});
+            cooked.nodes.push_back(MeshBVHNode<T>{});
 
             // An explicit stack rather than recursion: the same shape the traversal
             // uses, and it cannot overflow on a degenerate mesh.
@@ -274,7 +274,7 @@ namespace SushiEngine
                 const Pending job = pending.back();
                 pending.pop_back();
 
-                Aabb<T> node_bounds = bounds[cooked.order[job.first]];
+                AABB<T> node_bounds = bounds[cooked.order[job.first]];
                 for (std::uint32_t i = 1; i < job.count; ++i)
                     node_bounds = aabb_union(node_bounds, bounds[cooked.order[job.first + i]]);
                 cooked.nodes[job.node].bounds = node_bounds;
@@ -317,8 +317,8 @@ namespace SushiEngine
 
                 const std::uint32_t left_count = job.count / 2;
                 const std::uint32_t left = static_cast<std::uint32_t>(cooked.nodes.size());
-                cooked.nodes.push_back(MeshBvhNode<T>{});
-                cooked.nodes.push_back(MeshBvhNode<T>{});
+                cooked.nodes.push_back(MeshBVHNode<T>{});
+                cooked.nodes.push_back(MeshBVHNode<T>{});
                 cooked.nodes[job.node].first = left;
                 cooked.nodes[job.node].count = 0;
 
@@ -361,7 +361,7 @@ namespace SushiEngine
          * optimistic one misses contacts.
          */
         template <typename T>
-        inline Aabb<T> world_box_to_mesh_space(const Aabb<T>& box,
+        inline AABB<T> world_box_to_mesh_space(const AABB<T>& box,
                                                const TriangleMeshView<T>& mesh) noexcept
         {
             const Vector3T<T> center = (box.min + box.max) * T(0.5);
@@ -381,7 +381,7 @@ namespace SushiEngine
                 local_extent.y += std::abs(axes[i].y) * components[i];
                 local_extent.z += std::abs(axes[i].z) * components[i];
             }
-            return Aabb<T>{local_center - local_extent, local_center + local_extent};
+            return AABB<T>{local_center - local_extent, local_center + local_extent};
         }
 
         /**
@@ -394,12 +394,12 @@ namespace SushiEngine
          * narrowphase input.
          */
         template <typename T, typename Visit>
-        inline void query_mesh_bvh(const TriangleMeshView<T>& mesh, const Aabb<T>& world_box,
+        inline void query_mesh_bvh(const TriangleMeshView<T>& mesh, const AABB<T>& world_box,
                                    Visit&& visit) noexcept
         {
             if (mesh.node_count == 0 || mesh.triangle_count == 0)
                 return;
-            const Aabb<T> box = world_box_to_mesh_space(world_box, mesh);
+            const AABB<T> box = world_box_to_mesh_space(world_box, mesh);
 
             std::uint32_t stack[max_bvh_stack_depth];
             std::size_t depth = 0;
@@ -407,7 +407,7 @@ namespace SushiEngine
 
             while (depth > 0)
             {
-                const MeshBvhNode<T>& node = mesh.nodes[stack[--depth]];
+                const MeshBVHNode<T>& node = mesh.nodes[stack[--depth]];
                 if (!aabb_overlap(node.bounds, box))
                     continue;
                 if (node.count > 0)

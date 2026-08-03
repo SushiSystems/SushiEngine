@@ -41,7 +41,7 @@
 
 namespace SushiEngine
 {
-    namespace Vfx
+    namespace VFX
     {
         /** @brief The largest number of emitters one effect may contain. */
         constexpr std::uint32_t MAX_EMITTERS_PER_EFFECT = 16;
@@ -64,5 +64,5 @@ namespace SushiEngine
                 return emitters.empty();
             }
         };
-    } // namespace Vfx
+    } // namespace VFX
 } // namespace SushiEngine

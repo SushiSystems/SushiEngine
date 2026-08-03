@@ -32,12 +32,12 @@
 #include <SushiEngine/audio/audio.hpp>
 
 using namespace SushiEngine::Audio;
-using namespace SushiEngine::Audio::Dsp;
+using namespace SushiEngine::Audio::DSP;
 
 // The FFT is its own inverse up to scale.
-TEST(Unit_Audio, FftRoundTrip)
+TEST(Unit_Audio, FFTRoundTrip)
 {
-    RadixFft fft;
+    RadixFFT fft;
     fft.prepare(64);
     std::vector<std::complex<float>> original(64), work(64);
     for (int i = 0; i < 64; ++i)

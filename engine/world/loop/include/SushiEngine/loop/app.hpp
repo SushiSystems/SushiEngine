@@ -29,7 +29,7 @@
  *
  * `Loop::App<Command>` is the one object a game constructs. It composes the pieces
  * that already exist — a `World`, a `Schedule`, a `FixedTimestepClock`, a
- * `CommandBuffer`, an `InputHistory`, a `RollbackBuffer`, and a seeded `RngState` —
+ * `CommandBuffer`, an `InputHistory`, a `RollbackBuffer`, and a seeded `RNGState` —
  * into a single fixed-step deterministic loop with a tidy way to register gameplay.
  * It is deliberately **not** a per-instance object model (no virtual `Update()` per
  * entity): gameplay is written as pure-ECS systems, exactly as `docs/slop/SUSHILOOP.md`
@@ -270,7 +270,7 @@ namespace SushiEngine
                 CommandBuffer& commands() noexcept { return commands_; }
 
                 /** @brief The world's deterministic RNG, seeded from the config. */
-                RngState& rng() noexcept { return rng_; }
+                RNGState& rng() noexcept { return rng_; }
 
                 /** @brief The duration of one fixed simulation step, in seconds. */
                 Scalar fixed_dt() const noexcept { return clock_.fixed_dt(); }
@@ -476,7 +476,7 @@ namespace SushiEngine
                 Schedule schedule_;
                 CommandBuffer commands_;
                 FixedTimestepClock clock_;
-                RngState rng_;
+                RNGState rng_;
                 InputHistory<Command> input_history_;
                 std::optional<RollbackBuffer> rollback_;
                 Net::INetworkTransport<Command>* transport_ = nullptr;

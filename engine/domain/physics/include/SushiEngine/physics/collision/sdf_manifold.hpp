@@ -74,7 +74,7 @@ namespace SushiEngine
          */
         template <typename T, typename Shape>
         inline ContactManifold<T> generate_convex_sdf_manifold(const Shape& shape,
-                                                               const SdfCollider<T>& field,
+                                                               const SDFCollider<T>& field,
                                                                const Vector3T<T>& center,
                                                                const QuaternionT<T>& orientation,
                                                                T contact_offset = T(0)) noexcept

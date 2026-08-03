@@ -78,7 +78,7 @@ namespace
     struct Scene
     {
         RigidBody bodies[2];
-        XpbdDistanceConstraint constraint;
+        XPBDDistanceConstraint constraint;
     };
 
     /**
@@ -123,7 +123,7 @@ namespace
         const RigidBody before[2] = {scene.bodies[0], scene.bodies[1]};
 
         Scalar lambda = 0.0;
-        XpbdDistanceProjection{}(scene.constraint, scene.bodies, lambda, 1.0 / 60.0);
+        XPBDDistanceProjection{}(scene.constraint, scene.bodies, lambda, 1.0 / 60.0);
 
         linear = Vector3{0.0, 0.0, 0.0};
         angular = Vector3{0.0, 0.0, 0.0};
@@ -205,7 +205,7 @@ TEST(Unit_DistanceProjection, HardConstraintReachesItsRestLength)
     for (int iteration = 0; iteration < 24; ++iteration)
     {
         Scalar lambda = 0.0;
-        XpbdDistanceProjection{}(scene.constraint, scene.bodies, lambda, 1.0 / 60.0);
+        XPBDDistanceProjection{}(scene.constraint, scene.bodies, lambda, 1.0 / 60.0);
     }
 
     const Vector3 pa = scene.bodies[0].position +
@@ -232,7 +232,7 @@ TEST(Unit_DistanceProjection, BodiesWithoutRotationSplitByInverseMassAlone)
     const Vector3 xb = scene.bodies[1].position;
 
     Scalar lambda = 0.0;
-    XpbdDistanceProjection{}(scene.constraint, scene.bodies, lambda, 1.0 / 60.0);
+    XPBDDistanceProjection{}(scene.constraint, scene.bodies, lambda, 1.0 / 60.0);
 
     // Neither body turned at all.
     EXPECT_LT(length(delta_rotation(qa, scene.bodies[0].orientation)), 1e-15);

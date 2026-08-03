@@ -22,11 +22,11 @@
 /**************************************************************************/
 
 // Integration_PhysicsWorld: the sub-stepped XPBD loop (predict / solve / derive
-// velocity) that `PhysicsWorld` wraps around `XpbdSolver`, against the real
+// velocity) that `PhysicsWorld` wraps around `XPBDSolver`, against the real
 // runtime. Two bodies, the first pinned, joined by a rigid link: under gravity the
 // free body must fall until the link is taut and then hold at rest length —
 // proving `step()`'s own gravity integration and velocity derivation, not just the
-// one-shot constraint projection `Integration_XpbdSolver` already covers.
+// one-shot constraint projection `Integration_XPBDSolver` already covers.
 
 #include <cmath>
 #include <cstdint>
@@ -52,7 +52,7 @@ namespace
 
 TEST(Integration_PhysicsWorld, PinnedPairSettlesAtRestLength)
 {
-    PhysicsWorld<XpbdDistanceConstraint> world(Harness::shared_context());
+    PhysicsWorld<XPBDDistanceConstraint> world(Harness::shared_context());
 
     RigidBody anchor;
     anchor.position = Vector3{0, 0, 0};
@@ -64,10 +64,10 @@ TEST(Integration_PhysicsWorld, PinnedPairSettlesAtRestLength)
     weight.inv_mass = Scalar(1);
     const BodyId weight_id = world.add_body(weight);
 
-    world.add_constraint(XpbdDistanceConstraint{
+    world.add_constraint(XPBDDistanceConstraint{
         anchor_id, weight_id, Vector3{0, 0, 0}, Vector3{0, 0, 0}, REST_LENGTH, Scalar(0)});
 
-    world.finalize(ITERATIONS, SUBSTEP_DT, XpbdDistanceProjection{});
+    world.finalize(ITERATIONS, SUBSTEP_DT, XPBDDistanceProjection{});
     ASSERT_EQ(world.color_count(), 1u);
 
     for (std::size_t frame = 0; frame < FRAMES; ++frame)

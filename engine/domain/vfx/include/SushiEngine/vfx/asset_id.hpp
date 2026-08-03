@@ -37,12 +37,12 @@
 
 namespace SushiEngine
 {
-    namespace Vfx
+    namespace VFX
     {
         /** @brief A handle naming one loaded particle effect within an EffectDatabase. */
         using AssetId = std::uint32_t;
 
         /** @brief The id returned when an effect fails to load or is not found. */
         constexpr AssetId INVALID_EFFECT = 0xFFFFFFFFu;
-    } // namespace Vfx
+    } // namespace VFX
 } // namespace SushiEngine

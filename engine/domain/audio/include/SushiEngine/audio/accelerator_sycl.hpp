@@ -24,7 +24,7 @@
  * @file accelerator_sycl.hpp
  * @brief The SushiRuntime-backed GPU batch-DSP accelerator (§12.2, §S10).
  *
- * The real implementation of the @ref SushiEngine::Audio::IDspAccelerator seam declared at
+ * The real implementation of the @ref SushiEngine::Audio::IDSPAccelerator seam declared at
  * S0. The real-time mix stays on the CPU; this offloads **batch, latency-tolerant** DSP —
  * here long FIR convolution — onto the SushiRuntime SYCL device with **k-block lookahead**,
  * so the audio thread submits work for a future block and collects an already-finished
@@ -59,13 +59,13 @@ namespace SushiEngine
     namespace Audio
     {
         /**
-         * @brief An @ref IDspAccelerator that runs batch FIR convolution on the SYCL device.
+         * @brief An @ref IDSPAccelerator that runs batch FIR convolution on the SYCL device.
          *
          * Construct with the app's runtime and the block/IR sizes; @ref set_impulse uploads
          * the filter; then pipeline with @ref submit (async, non-blocking) and @ref collect
          * (waits on that slot). @ref lookahead slots pipeline device work behind the host.
          */
-        class SyclDspAccelerator final : public IDspAccelerator
+        class SYCLDSPAccelerator final : public IDSPAccelerator
         {
             public:
                 /**
@@ -75,7 +75,7 @@ namespace SushiEngine
                  * @param max_ir    The longest impulse response supported.
                  * @param lookahead How many blocks may be in flight (the pipeline depth).
                  */
-                SyclDspAccelerator(SushiRuntime::API::Runtime& runtime, int block, int max_ir,
+                SYCLDSPAccelerator(SushiRuntime::API::Runtime& runtime, int block, int max_ir,
                                    int lookahead)
                     : block_(block), max_ir_(max_ir), slots_(lookahead + 1)
                 {
@@ -104,7 +104,7 @@ namespace SushiEngine
                     }
                 }
 
-                ~SyclDspAccelerator() override
+                ~SYCLDSPAccelerator() override
                 {
                     if (context_ == nullptr)
                         return;
@@ -122,8 +122,8 @@ namespace SushiEngine
                     }
                 }
 
-                SyclDspAccelerator(const SyclDspAccelerator&) = delete;
-                SyclDspAccelerator& operator=(const SyclDspAccelerator&) = delete;
+                SYCLDSPAccelerator(const SYCLDSPAccelerator&) = delete;
+                SYCLDSPAccelerator& operator=(const SYCLDSPAccelerator&) = delete;
 
                 bool available() const noexcept override { return available_; }
 

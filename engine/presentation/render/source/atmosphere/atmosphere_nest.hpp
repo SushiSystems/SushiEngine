@@ -489,7 +489,7 @@ namespace SushiEngine
                     // is a hundred lines of query-pool plumbing that would drift from it.
                     // Resolved where the slot's timeline value is already known to have passed,
                     // so the measurement costs no stall of its own.
-                    std::unique_ptr<Graph::GpuProfiler> profiler_;
+                    std::unique_ptr<Graph::GPUProfiler> profiler_;
                     AtmosphereStepCost step_cost_{};
 
                     // Resolved from the authored parameters each step; the shader loop needs a

@@ -151,7 +151,7 @@ integrate external forces into a predicted pose, solve constraints against that
 prediction, then recover velocity and angular velocity from how far the solve moved
 it — never from an explicit force/torque integration.
 
-`XpbdDistanceConstraint` generalizes `DistanceConstraint` to two attachment points
+`XPBDDistanceConstraint` generalizes `DistanceConstraint` to two attachment points
 (offsets in each body's own local frame, so an anchor at the origin recovers a
 plain rigid link) and adds `compliance` — XPBD's defining feature over plain PBD:
 a constraint's stiffness is a physical unit (inverse stiffness, really) instead of
@@ -160,19 +160,19 @@ constraint and identical PGS behaviour (verified in `test_xpbd_solver.cpp`: with
 zero inverse inertia and zero-offset anchors, no angular coupling can occur, so
 the two solvers' linear terms are the same arithmetic).
 
-`XpbdSolver<Constraint>` reuses `color_constraints`/`ColorBatches` unchanged — same
+`XPBDSolver<Constraint>` reuses `color_constraints`/`ColorBatches` unchanged — same
 graph-colouring, same compile-once-replay-every-frame structure as
 `ConstraintSolver` — but the shared resource is one `RigidBody` buffer instead of
 separate position/mass buffers, and each constraint carries a per-step Lagrange
 multiplier (`lambda`) that `solve()` resets to zero before every step, because the
 compliance term is only meaningful accumulated within a single step.
 `examples/xpbd_demo.cpp` ports `pgs_demo.cpp`'s hanging chain onto `RigidBody`/
-`XpbdSolver`, checked against a byte-for-byte host mirror of the projection.
+`XPBDSolver`, checked against a byte-for-byte host mirror of the projection.
 
 `physics/scene/physics_world.hpp`'s `PhysicsWorld<Constraint>` is the layer above
-`XpbdSolver` that turns a one-shot solve into an actual loop: register bodies and
+`XPBDSolver` that turns a one-shot solve into an actual loop: register bodies and
 constraints, `finalize()` once (uploads the bodies, compiles the graph — mirrors
-`XpbdSolver`'s own build-once-replay-every-frame split), then `step()` every frame
+`XPBDSolver`'s own build-once-replay-every-frame split), then `step()` every frame
 runs predict → solve → derive-velocity for each requested sub-step. It takes no
 dependency on `ecs/` on purpose, keeping the layering direction in §2 intact; the
 ECS-facing half (mapping entities to body indices, syncing `Transform`/
@@ -191,7 +191,7 @@ seam (`sim/physics_services.hpp`), not in `RuntimeSimulation`: whenever the
 physics-driven entity set changes, `tick()` gathers one `RigidBodyDesc` per Rigid Body
 entity and calls `set_rigid_bodies`, which rebuilds a free-body `PhysicsWorld` (no
 constraints registered — no joints yet) inside the seam, the same "rebuild only when
-the input set changes" discipline `Schedule` and `XpbdSolver` follow. That rebuild
+the input set changes" discipline `Schedule` and `XPBDSolver` follow. That rebuild
 snapshots every currently-simulated body's live state first, so toggling physics on one
 entity never resets another already-falling body; a brand-new body seeds from its
 descriptor pose at rest instead. `RuntimeSimulation` only marshals poses across the
@@ -241,8 +241,8 @@ XPBD is one framework, not a family of special-cased solvers: cloth adds no new
 solver or constraint type, only a topology. It registers `rows * cols` `RigidBody`s
 (zero inverse inertia, so anchors implicitly at each body's own origin recover the
 same linear-only degeneration `xpbd_demo.cpp`'s hanging chain already relies on)
-into the caller's `PhysicsWorld<XpbdDistanceConstraint>`, with row 0 pinned
-(`inv_mass == 0`), and wires a structural `XpbdDistanceConstraint` to each right and
+into the caller's `PhysicsWorld<XPBDDistanceConstraint>`, with row 0 pinned
+(`inv_mass == 0`), and wires a structural `XPBDDistanceConstraint` to each right and
 below neighbour plus a shear constraint to each diagonal neighbour pair — the shear
 links are what keep the grid from collapsing into a parallelogram under load, since
 structural links alone only resist stretching along the grid axes. `ClothGrid`
@@ -252,7 +252,7 @@ indexing itself.
 
 `examples/cloth_demo.cpp` mirrors `xpbd_demo.cpp`: a device solve through
 `PhysicsWorld`, checked against a byte-for-byte host mirror of
-`XpbdDistanceProjection` run over the identical topology. `Integration_Cloth`
+`XPBDDistanceProjection` run over the identical topology. `Integration_Cloth`
 (`tests/functional/integration/test_cloth.cpp`) proves the grid's shape (body/
 constraint counts, which row is pinned) and that the pinned row never moves while
 the rest of the grid falls and settles under gravity.
@@ -390,7 +390,7 @@ They are geometry only — no runtime, ECS, or solver dependency — so they are
 unit-tested directly (`Unit_Collision`).
 `physics/collision/contact_solver.hpp` consumes them: non-penetration is an inequality
 constraint that only pushes bodies apart, so rather than living in the compile-once
-`XpbdSolver` (whose constraint set is fixed) it is a positional projection pass
+`XPBDSolver` (whose constraint set is fixed) it is a positional projection pass
 regenerated from the narrowphase each sub-step, run between `predict` and
 `update_velocity`. Because `update_velocity` derives velocity from the post-projection
 position, a body that lands on a surface loses its downward velocity with no explicit
@@ -398,7 +398,7 @@ restitution term (inelastic contact).
 
 `physics/soft/soft_body.hpp` is the 3D counterpart of the cloth grid (§4.2):
 `build_soft_body_lattice` wires an `nx*ny*nz` particle grid held by structural (axis)
-and shear (face-diagonal) `XpbdDistanceConstraint`s into a `PhysicsWorld`, so the same
+and shear (face-diagonal) `XPBDDistanceConstraint`s into a `PhysicsWorld`, so the same
 solver runs a deformable block with no new constraint type — a mass-spring soft body
 (tetrahedral volume constraints are a later refinement). Both are validated headlessly
 (`Integration_SoftBody`, `examples/soft_body_demo.cpp`).
@@ -801,7 +801,7 @@ a lower tier scales the expensive half down from it.
 - **The GPU-driven geometry path** (Phase 10) replaces the CPU's one-draw-per-instance loop
   with two device buffers and a cull dispatch, so the CPU cost is flat in the number of
   distinct meshes rather than the number of instances. `InstanceSystem` (`render/scene/`)
-  packs every opaque mesh instance into a per-frame `GpuInstance` storage-buffer record —
+  packs every opaque mesh instance into a per-frame `GPUInstance` storage-buffer record —
   camera-relative transform, bounding sphere, and the material/motion/pick indices the classic
   draw used to push — and groups them by mesh into per-mesh buckets, one host-mapped buffer
   per frame slot in the exact shape `MaterialSystem` and `MotionSystem` already use. `CullPass`
@@ -811,7 +811,7 @@ a lower tier scales the expensive half down from it.
   writes one `VkDrawIndexedIndirectCommand` per bucket whose instance count it decides — no CPU
   readback in the loop (a survivor counter is read back one frame late only for the editor's
   cull statistics). `OcclusionPass` owns that pyramid: a persistent max-Z (farthest-depth) mip
-  chain built after the depth prepass, the conservative twin of the `HizPass` nearest-depth
+  chain built after the depth prepass, the conservative twin of the `HiZPass` nearest-depth
   pyramid the SSR trace marches (nearest is right for reflections and wrong for culling). It
   lives outside the render graph and is read at the *start* of the next frame by the cull —
   reprojected with the previous view-projection and the eye delta — so an instance is tested
@@ -824,7 +824,7 @@ a lower tier scales the expensive half down from it.
   buffers ride a **set-2** descriptor set (`SceneLayout::INSTANCE_SET`), so the bindless heap
   keeps set 1 and both vertex shaders feed the same `pbr.frag`. The whole path is **two-path**:
   the scene view takes the GPU-driven route when the tier permits it (`QualityParams::gpu_driven`
-  — off on Low, on for Medium/High/Ultra), the author has left `GpuCullingSettings::enabled`
+  — off on Low, on for Medium/High/Ultra), the author has left `GPUCullingSettings::enabled`
   on, the bindless heap is present, and nothing is selected; anything else falls back to the
   classic CPU per-instance draw (a selection keeps it so the outline's stencil mask still
   works), while the cull machinery stays primed so the pyramid remains fresh for when it
@@ -838,7 +838,7 @@ a lower tier scales the expensive half down from it.
   the latter per pixel, and marches the GI distance clipmap toward each with `sdf_visibility()`,
   weighting by one over the probability it was picked. Because that estimator is unbiased, the
   temporal resolve is the denoiser — no new pass, no new history. The field is the one
-  `SdfProbeTracer` already builds for probe GI, offered through `IProbeTracer::visibility_field()`
+  `SDFProbeTracer` already builds for probe GI, offered through `IProbeTracer::visibility_field()`
   so the shading pass depends on a field existing and never on which tier produced it; it reaches
   every shading pipeline through the bindless heap's volume array, because the per-frame push set
   is full at its guaranteed 32 bindings. The consequence worth stating plainly: the number of
@@ -871,7 +871,7 @@ a lower tier scales the expensive half down from it.
   **Frame Delivery** section authors the block.
 - **Reconstruction is an interface** (`render/frame/upscaler.hpp`). Rendering below the output
   extent and reconstructing back up is a contract — colour, depth, motion, history, jitter,
-  exposure, and the two extents — that `TaaPass` is simply the first implementation of. A
+  exposure, and the two extents — that `TAAPass` is simply the first implementation of. A
   vendor upscaler (FSR/DLSS/XeSS) lands as another implementation rather than as a fork of the
   frame loop; `Frame::upscaler_availability` reports which backends this build carries, and one
   it does not resolves back to the built-in temporal reconstruction with the reason surfaced in
@@ -895,7 +895,7 @@ a lower tier scales the expensive half down from it.
   field that is uniform only before filtering, so a coarse fetch has to be thresholded
   against the spread it lost rather than against its mean.
 
-Two supporting mechanisms make the graph usable day to day. `GpuProfiler` brackets
+Two supporting mechanisms make the graph usable day to day. `GPUProfiler` brackets
 every executed pass with timestamp queries and resolves a slot's results at the
 point its fence has already been waited on, so per-pass GPU times cost no stall;
 `ISceneView::pass_timing_count()` / `pass_timing()` surface them, the main loop copies
@@ -985,7 +985,7 @@ global environment SH beyond the coarsest cascade or when GI is off, so nine coe
 always shade a pixel. `IrradianceVolumePass` owns the probe SH grid (scene set-0 bindings
 29–30, pass-owned and hand-barriered like the IBL SH buffer) and relights it each frame
 through a pluggable `IProbeTracer` — the strategy seam (DIP) that decides how a probe
-gathers incident radiance. The default `SdfProbeTracer` (Tier A, all hardware) rebuilds a
+gathers incident radiance. The default `SDFProbeTracer` (Tier A, all hardware) rebuilds a
 coarse scene distance clipmap (64³) each frame from the frame's analytic primitives and the
 per-mesh signed-distance bricks `MeshRegistry` bakes at import (`Geometry::bake_signed_distance_field`,
 reached through the `gi/mesh_sdf_baker.hpp` adapter), then
@@ -1022,7 +1022,7 @@ a different reason to change.
   is scaled by view z and the perspective divide is by −z, so a positive entry shifts
   the result negative, and the ray offset and the motion vector's jitter removal are
   both matched against that.
-- **The resolve.** `TaaPass` dilates the motion vector to the closest surface in a 3×3
+- **The resolve.** `TAAPass` dilates the motion vector to the closest surface in a 3×3
   neighbourhood, clips the reprojected history into that neighbourhood's colour
   distribution in YCoCg, reconstructs both inputs with a Catmull-Rom filter, blends
   under Karis tone weighting, and sharpens to offset the temporal softening. The
@@ -1130,7 +1130,7 @@ the frame in **three HDR passes** (the Vulkan scene view's targets are now linea
    WGS84 ellipsoid for the lit ground (onto which the cloud stack casts its combined
    shadow), and evaluates the atmosphere's Rayleigh + Mie scattering not as a
    per-pixel march but through the **Hillaire 2020 LUT stack** a preceding
-   `AtmosphereLutPass` builds (`render/passes/atmosphere_lut_pass.*`,
+   `AtmosphereLUTPass` builds (`render/passes/atmosphere_lut_pass.*`,
    `atmosphere_common.glsl`): a **transmittance LUT** and a **multiple-scattering LUT**
    (view-independent, change-gated), a per-frame **sky-view LUT** (the background sky in
    the camera's local frame), and a per-frame **aerial-perspective froxel volume** (the
@@ -1177,7 +1177,7 @@ the frame in **three HDR passes** (the Vulkan scene view's targets are now linea
    W3) marches the field and light volume into a 512×256 equirectangular panorama — the
    design doc's far-field/reflection-probe impostor — refreshing a row group at a time;
    landed as a verified, standalone bake this phase, with wiring a consumer (the
-   reflection-probe capture in `IblPass`) scoped out (see the W3 CHANGELOG entry). All
+   reflection-probe capture in `IBLPass`) scoped out (see the W3 CHANGELOG entry). All
    four bakes register first in the frame, ahead of every consumer.
 
    `cloud.frag`'s march reads the field with one or two fetches (plus a coarser
@@ -1216,7 +1216,7 @@ the frame in **three HDR passes** (the Vulkan scene view's targets are now linea
    way it steers the sky pass. Disabling clouds (`Environment::Clouds::enabled`) skips
    every bake and the march entirely — their render-graph nodes clear/no-op in hardware
    instead of running a shader.
-4. **Tonemap** — before the composite, `CloudTaaPass` (`cloud_taa_pass.{hpp,cpp}`,
+4. **Tonemap** — before the composite, `CloudTAAPass` (`cloud_taa_pass.{hpp,cpp}`,
    `cloud_taa.comp`, W3) resolves the cloud buffer's own dedicated temporal history: a
    YCoCg neighbourhood variance clip (gamma ≈ 1.2, `QualityParams::cloud_variance_clip`
    — Low instead takes a cheaper 5-tap cross min/max clamp, design doc §4.7's TAA row;
@@ -1235,12 +1235,12 @@ the frame in **three HDR passes** (the Vulkan scene view's targets are now linea
    resolve, without forcing a history resize on every step. This runs entirely before —
    and is independent of — the frame's own `taa_pass_`, which only ever sees the already-
    composited cloud contribution as an ordinary shaded pixel. `cloud_composite_pass` then
-   resolves CloudTaaPass's output over the full-resolution sky (`sky * transmittance +
+   resolves CloudTAAPass's output over the full-resolution sky (`sky * transmittance +
    scattered`) with a nearest-depth-aware upsample — weighting each of the four nearest
    cloud texels by whether its depth roughly matches the output pixel's, so a background
    cloud sample cannot bleed a halo across a foreground silhouette, the same four weights
    also reconstructing the W3 cloud-depth MRT — and folds in aerial perspective by
-   sampling the Hillaire aerial-perspective froxel volume (`AtmosphereLutPass`) once per
+   sampling the Hillaire aerial-perspective froxel volume (`AtmosphereLUTPass`) once per
    pixel at that reconstructed depth: the cloud's own in-scattered light is attenuated by
    the air in front of it and the air's own in-scatter is added back, weighted by how
    much cloud is actually there, so a distant deck hazes, desaturates, and sinks toward
@@ -1469,7 +1469,7 @@ significant digits), making it unusable at the seam; double is the engine's one 
 `Scalar`. The placeholder's `Float` is a plain `using Float = double`
 (`core/blas_placeholder.hpp`), the sole reader of the choice. The vector and quaternion
 types are, however, element-parametric (`Vector3T<T>`/`QuaternionT<T>`), and the physics
-layer templates on that element (`RigidBodyT<T>`, `XpbdDistanceConstraintT<T>`), so the
+layer templates on that element (`RigidBodyT<T>`, `XPBDDistanceConstraintT<T>`), so the
 **simulation's physics-solve precision is a separate runtime choice**
 (`Simulation::Precision`): both a float and a double solver are compiled into `sushiengine_simulation`
 and `create_simulation(Precision)` picks one behind `Simulation::IPhysicsScene`,
@@ -1510,7 +1510,7 @@ keeps a low orbit bound and deterministic (`Unit_JulianDate`, `Unit_OrbitalEleme
 in `core/types.hpp` (quaternion rotation vs. its matrix form, the reverse-Z
 infinite-far projection, `look_at`, `compose_transform`) is pinned in
 `Unit_MathPrimitives`. The **determinism guard rails** — the seeded xorshift128+ RNG
-and the fixed-timestep accumulator — are pinned in `Unit_Rng` (identical seeds replay
+and the fixed-timestep accumulator — are pinned in `Unit_RNG` (identical seeds replay
 identically; a snapshot replays the future exactly, as rollback needs) and
 `Unit_FixedTimestep` (step count depends only on total elapsed time, never on how it
 was chunked across frames).
@@ -1635,7 +1635,7 @@ work (M1 onward) builds on:
   these and is its first consumer: the editor's main loop measures real frame time
   and feeds it into `ISimulation::tick(real_delta_seconds)`, keeping the one
   wall-clock read outside `sim/` entirely.
-- **`RngState`** (`loop/rng.hpp`) is a trivially copyable xorshift128+ generator,
+- **`RNGState`** (`loop/rng.hpp`) is a trivially copyable xorshift128+ generator,
   storable as an ECS component so seeded randomness travels with the world through
   snapshots and rollback instead of living in a hidden global.
 - **`InputHistory<Command>`** (`loop/input.hpp`) is the per-tick, numbered command
@@ -1698,7 +1698,7 @@ differently between runs.
   explicitly out of scope, same as the whole-chunk capture scoping in M3.
 - **SushiLoop M5 — Soft bodies and cloth (done).** `Physics::build_cloth_grid`
   (§4.2): a pinned-top grid of `RigidBody`s connected by structural and shear
-  `XpbdDistanceConstraint`s over the existing `PhysicsWorld`, no new solver or
+  `XPBDDistanceConstraint`s over the existing `PhysicsWorld`, no new solver or
   constraint type. `examples/cloth_demo.cpp` and `Integration_Cloth` validate it
   the same way `xpbd_demo.cpp`/`Integration_PhysicsWorld` validate the hanging
   chain. Volumetric (tetrahedral) soft bodies are out of scope.
@@ -1769,7 +1769,7 @@ differently between runs.
   A launch is configured by a `boot.json` beside the executable
   (`se_player/boot_manifest.{hpp,cpp}`, read the same tolerant,
   missing-field-degrades-to-default way `editor/core/preferences.cpp`'s
-  `JsonPreferencesStore` reads its own JSON) — the shape a double-click-to-play
+  `JSONPreferencesStore` reads its own JSON) — the shape a double-click-to-play
   build needs, since there is no terminal to pass `--scene` to — with every field
   still overridable from the command line for local testing.
   `--headless --frames N` (PLATFORM0 S6) runs a fixed number of deterministic-tick
@@ -1811,12 +1811,12 @@ because the two sides of that contract weigh very differently: building a list n
 the world and the layout solver, drawing one needs three structs. That split is what
 lets `render/scene_view.hpp` name a UI draw list without pulling the ECS in behind it.
 
-`Render::UiView` carries it across the render seam as a non-owning POD, the same shape
+`Render::UIView` carries it across the render seam as a non-owning POD, the same shape
 as `DeformableMeshView`, plus the screen size the layout was solved against — an editor
 viewport solves its UI against the viewport, not the window, so the renderer cannot
 infer it from the target.
 
-`Passes::UiPass` runs **last of the colour passes**, after tone mapping and FXAA, and
+`Passes::UIPass` runs **last of the colour passes**, after tone mapping and FXAA, and
 composites into `targets.resolve` with `AttachmentLoad::Load`. The position is the
 point: UI drawn before the tone map would shift hue with the scene's exposure, and UI
 drawn before the AA filter would have its text softened. Drawn here it is exactly the
@@ -1827,7 +1827,7 @@ Rectangles and glyphs share one vertex format, one atlas and one indexed draw.
 the `Stb` vcpkg package the image loader already uses, so the font path costs no new
 dependency) and reserves texel (0,0) as opaque white, which is what untextured
 geometry samples — without it a solid panel would need a second pipeline.
-`Geometry::UiBuffers` tessellates the list into per-frame-slot host-visible buffers
+`Geometry::UIBuffers` tessellates the list into per-frame-slot host-visible buffers
 that only grow, the arrangement `DeformableBuffers` uses and for the same reason.
 
 It degrades rather than fails. With no font the atlas slot falls back to the texture
@@ -1934,7 +1934,7 @@ ground through the `IPoseTaskContext` seam. Beyond posing joints, a clip carries
 A7): `morph.hpp` maps a clip's morph tracks onto a mesh's target order — by target *name*, so one
 clip drives any mesh sharing the naming — and gives the CPU reference of the skin-pass morph blend.
 The importer fills those tracks from glTF `weights` animation channels, naming each after the
-target it drives (`import/gltf_animation_importer.cpp`; `GltfAnimationImport::morph_target_names`
+target it drives (`import/gltf_animation_importer.cpp`; `GLTFAnimationImport::morph_target_names`
 reports the mesh's own target order, the order the render mesh's delta buffer is uploaded in), and
 `generic_track.hpp` routes generic tracks to an
 `IFloatSink` binding registry (material/UI/script hooks). **Retargeting** (A8) lets one clip
@@ -1958,7 +1958,7 @@ to the layer's entry), Entry/Exit/Any-State nodes, a parameter panel, and JSON s
 asset formats and the compressed error bound), `Unit_AnimatorStep` (the state machine, root motion,
 and the byte-exact determinism/rollback contract), `Unit_AnimationBlendTree`,
 `Unit_AnimationLayers`, `Unit_AnimationIk` (seven pose modifiers including foot placement),
-`Unit_AnimationMorphImport`, `Unit_AnimationRetarget`, `Unit_AnimationControllerJson`,
+`Unit_AnimationMorphImport`, `Unit_AnimationRetarget`, `Unit_AnimationControllerJSON`,
 `Unit_AnimationKeyframe`, and `Unit_AnimationAuthoringTail` (§12.4's motion matching,
 dual-quaternion algebra, ARKit-52 mapping and sequencer timeline). The headless demos
 (`clip_demo`, `animation_benchmark`, `animator_demo`, `blend_tree_demo`,
@@ -2019,16 +2019,16 @@ pieces are seven single-responsibility objects (SRP by construction):
 
 **The compiled backend (`input/`, `sushiengine_input_backend` STATIC).** The mirror of `sushiengine_render`'s
 recipe: links `SDL2::SDL2` only, no SYCL, no runtime, C++17. It holds the one SDL-aware input
-component, `Input::SdlInputTranslator`, which turns already-pumped `SDL_Event` records into
+component, `Input::SDLInputTranslator`, which turns already-pumped `SDL_Event` records into
 engine `InputEvent`s. It does **not** pump SDL — the single `SDL_PollEvent` loop stays in
-`SdlWindow`, and the translator registers on the window's event-handler seam alongside ImGui.
+`SDLWindow`, and the translator registers on the window's event-handler seam alongside ImGui.
 That seam grew from one handler to a handler list: `IPlatformWindow::add_event_handler`
 appends, so ImGui still sees events first. The native `SDL_Event` crosses the translator's
 header as `const void*`, so SDL leaks into no consumer translation unit — the editor's
-"only SDL-aware components" set grows from two (`SdlWindow`, `ImGuiBackend`) to three.
+"only SDL-aware components" set grows from two (`SDLWindow`, `ImGuiBackend`) to three.
 
 **Gamepad and haptics.** A controller is a device family, not a special case: the same
-`"Move"`/`"Jump"` bindings drive keyboard or pad. `SdlWindow` inits `SDL_INIT_GAMECONTROLLER`
+`"Move"`/`"Jump"` bindings drive keyboard or pad. `SDLWindow` inits `SDL_INIT_GAMECONTROLLER`
 (core SDL2) and the translator opens/closes controllers on hot-plug, translating their button
 and axis events to the same `InputEvent` shapes a stick binding already reads (SDL's button and
 axis ordinals match the engine enums, so the translation is a reinterpretation). A controller's
@@ -2162,7 +2162,7 @@ runtime link:
   interleaving only at the device boundary. `IAudioDevice` (open/close/is_running/format)
   isolates the one unstable, platform-specific dependency so the whole mix is testable
   against a trivial renderer and the backend is swappable without touching a line of DSP.
-- `accelerator.hpp` — `IDspAccelerator`, the optional GPU batch-DSP seam, declared now and
+- `accelerator.hpp` — `IDSPAccelerator`, the optional GPU batch-DSP seam, declared now and
   implemented later (S10). It carries a single `available()` query so a subsystem that could
   offload long convolution / HRTF / ambisonic decode asks first and falls back to its CPU
   path — which is every build today. Kept intentionally thin because the runtime's fluent
@@ -2171,7 +2171,7 @@ runtime link:
 **The compiled backend (`audio/`, `sushiengine_audio_backend` STATIC).** The mirror of `sushiengine_input_backend`: a
 plain STATIC library linking SDL2 and nothing else — no SYCL, no runtime — so it builds on a
 stock toolchain and never touches the one-way `SushiEngine → SushiRuntime` arrow. It carries
-the sole SDL-aware audio component, `Audio::SdlAudioDevice`, which opens an
+the sole SDL-aware audio component, `Audio::SDLAudioDevice`, which opens an
 `SDL_AudioDevice` and drives an `IAudioRenderer` once per block on SDL's callback thread:
 the planar scratch and channel-pointer table are allocated once in `open` (never in the
 callback), the renderer fills them, and the device interleaves the result into SDL's output
@@ -2321,12 +2321,12 @@ encode/decode kernel, the left/right level cues, the ITD, front symmetry, and he
 
 The analytic HRTF is self-contained (no measured data) and gives solid horizontal
 localisation and externalisation. The **measured-HRTF** fidelity upgrade now slots in behind
-the same encode → decode seam: `hrtf.hpp` defines a dependency-free `IHrtfDatabase` (an HRIR
+the same encode → decode seam: `hrtf.hpp` defines a dependency-free `IHRTFDatabase` (an HRIR
 pair per head-relative direction) and `HrirConvolver` (a per-ear direct-form FIR), and
 `BinauralSpatializer::set_hrtf_database` switches each virtual speaker from the analytic
 ITD + shadow model to a convolution through that direction's measured impulse response —
 capturing the pinna/torso cues the analytic model approximates. `sofa_hrtf.hpp`'s
-`SofaHrtfDatabase` (behind HDF5, off the umbrella like the SYCL accelerator) loads a real SOFA
+`SofaHRTFDatabase` (behind HDF5, off the umbrella like the SYCL accelerator) loads a real SOFA
 `SimpleFreeFieldHRIR` file (`Data.IR` / `SourcePosition` / `Data.SamplingRate`), maps each
 source position to a head-relative unit vector, resamples the taps to the stream rate, and
 serves the nearest pair; `write_sofa` bakes the same datasets. Passing `nullptr` restores the
@@ -2339,7 +2339,7 @@ squares — complex (exact ITD) below a cutoff, **magnitude** LS with phase cont
 suppress the high-frequency coloration a finite order otherwise produces — and applies them straight
 to the bus (`channels × 2` convolutions, independent of the measurement count).
 `BinauralSpatializer::set_magls_decoder` selects it above both the per-speaker HRIR and the analytic
-model. `AnthropometricHrtfDatabase` personalizes any `IHrtfDatabase` by warping the impulse-response
+model. `AnthropometricHRTFDatabase` personalizes any `IHRTFDatabase` by warping the impulse-response
 time axis to the listener's head size. `audio_magls_demo`.
 
 Beyond the parametric FDN/convolution reverbs, **ray-traced room acoustics** (`acoustic_raytracer.hpp`)
@@ -2479,11 +2479,11 @@ sections for the emitter (params + a live attenuation-curve plot + a Play auditi
 The final phase, three independent pieces. **Procedural SFX**: modal synthesis (`dsp/modal.hpp`) — a
 bank of two-pole resonators struck by an impulse, with material presets — wrapped as a `ModalImpactSource`
 (a one-shot ring) and a `WindSource` (speed-driven filtered noise + a Strouhal Aeolian tone), both plain
-`VoiceSource`s. **Convolution reverb**: a from-scratch radix-2 FFT behind an `IFft` seam (`dsp/fft.hpp`),
+`VoiceSource`s. **Convolution reverb**: a from-scratch radix-2 FFT behind an `IFFT` seam (`dsp/fft.hpp`),
 a uniformly-partitioned overlap-save `PartitionedConvolver` (`dsp/convolution.hpp`), and a
 `ConvolutionReverb` (`audio/convolution_reverb.hpp`) — an `IReverb` interchangeable with the FDN on the
 same aux bus, synthesising its room impulse response from the I3DL2 parameters. **GPU accelerator**:
-`SyclDspAccelerator` (`audio/accelerator_sycl.hpp`) is the concrete `IDspAccelerator`, offloading batch
+`SYCLDSPAccelerator` (`audio/accelerator_sycl.hpp`) is the concrete `IDSPAccelerator`, offloading batch
 FIR convolution to the SushiRuntime SYCL device with k-block lookahead (async submit / deferred collect
 over a USM slot ring) while the RT mix stays on the CPU — the only place the runtime enters the audio
 subsystem, confined to that one SYCL-only header (kept off the umbrella) and falling back to the CPU path
@@ -2510,18 +2510,18 @@ fixed-width LUTs. `EmitterCompiler` flattens a `ParticleEffect` (a list of `Emit
 into a `CompiledEffect`: an array of POD `CompiledEmitter` records plus two baked LUT atlases — the
 single artifact both backends and the GPU consume, the particle equivalent of resolving authored
 `RenderSettings` into a POD `QualityParams`. `EffectDatabase` is the AssetId registry (lazy
-compilation), mirroring `AnimationDatabase`. `GpuParticle` is the shared 80-byte, five-`vec4`
+compilation), mirroring `AnimationDatabase`. `GPUParticle` is the shared 80-byte, five-`vec4`
 std430 record used by the CPU backend, the GPU pools, and the shaders.
 
 **Deterministic backend (`vfx/deterministic_backend.hpp` + `Simulation::ParticleEmitter`).** A
 fixed-pool integrator run as an ECS system inside the fixed step. Its whole per-emitter state is a
-`DeterministicEmitterState` — a capped `GpuParticle` pool, a count, a `Pcg32`, and a few scalars,
+`DeterministicEmitterState` — a capped `GPUParticle` pool, a count, a `Pcg32`, and a few scalars,
 pointer-free — so a tick is byte-snapshottable and a rolled-back-then-replayed tick reproduces it
 exactly (`Integration_ParticleDeterminism`). Shapes, forces (gravity/drag/curl-noise turbulence),
 and the size/colour-over-life LUTs all run here too, sampling the same baked LUTs the GPU does.
 
 **GPU render path.** `Render::Scene::ParticleSystem` owns the shared, persistent, device-local
-particle pool (zero-cleared once), the per-slot host-visible emitter table (`GpuEmitter`, a std430
+particle pool (zero-cleared once), the per-slot host-visible emitter table (`GPUEmitter`, a std430
 mirror of the compute-visible `CompiledEmitter` subset with the emitter's world transform and ring
 cursor baked in), and the uploaded LUT atlases. `ParticleSimPass` (a compute `IRenderPass`, after
 `skinning_pass_`) sweeps the pool: a simulate dispatch advances/ages/retires and appends survivors
@@ -2550,19 +2550,19 @@ systems and two passes into `sushiengine_render`.
 `IWorldEditor` (the emitter quartet `create_particle_emitter` / `has_particle_emitter` /
 `particle_emitter_params` / `set_particle_emitter_params` / `set_has_particle_emitter` +
 `particle_effect_count`/`particle_effect_name`). Like cloth, this is host bookkeeping — no ECS
-migration: `RuntimeSimulation::Record` gains the fixed `Vfx::DeterministicEmitterState pool` (~80 KB,
+migration: `RuntimeSimulation::Record` gains the fixed `VFX::DeterministicEmitterState pool` (~80 KB,
 off the ECS chunk), plus the effect handle and play head. `step_particle_emitters()` runs inside
 `step_once()` (after the schedule, before extract), advancing every playing pool one fixed step via
-`CpuDeterministicBackend::step`; `extract()` emits one `RenderScene::particle_billboard` per live
+`CPUDeterministicBackend::step`; `extract()` emits one `RenderScene::particle_billboard` per live
 particle. A built-in effect library (Fire/Sparks/Smoke, Deterministic domain) lives on the sim's
 `EffectDatabase`. The renderer draws these through a new `ParticleBillboard` extract channel on
 `ISceneView::render` — already-simulated world-space particles billboarded directly (the particle
-analogue of `DeformableMeshView`), uploaded to a host-visible `GpuParticle` buffer by
+analogue of `DeformableMeshView`), uploaded to a host-visible `GPUParticle` buffer by
 `ParticleSystem::prepare_billboards` and drawn by a `vkCmdDraw` in `ParticlePass`. The editor adds
 "GameObject ▸ Particle Emitter", an Add-Component entry, an Inspector section (effect/seed/playing),
 and `.sushiscene` persistence.
 
-**Alpha particles (VFX2a).** `GpuEmitter` now carries the emitter's blend and sort modes. During the
+**Alpha particles (VFX2a).** `GPUEmitter` now carries the emitter's blend and sort modes. During the
 compute compaction, `particle_simulate.comp`/`particle_emit.comp` bucket each particle by blend —
 additive/premultiplied into `particle_draw`, true-alpha into `particle_alpha` — each with its own
 `VkDrawIndirectCommand` in a single `particle_args` buffer (additive at offset 0, alpha at 16).
@@ -2627,7 +2627,7 @@ already described.
 behind it. It now works: the vertex stage aims the quad's long axis down the particle's
 screen-projected velocity and lengthens it by `size + speed * velocity_stretch`, so a spark reads as
 a streak. `RenderModule::velocity_stretch` (streak metres per m/s) is the authored scale, carried
-through `CompiledEmitter` into `GpuEmitter`'s spare lanes — the record's size did not change. Two
+through `CompiledEmitter` into `GPUEmitter`'s spare lanes — the record's size did not change. Two
 degenerate cases fall back to camera-facing, which is what a zero-length streak *is*: a particle
 barely moving, and one flying straight at the eye (whose screen-projected velocity is null).
 
@@ -2679,7 +2679,7 @@ which no blend mode fixes — so this is a pass rather than a fourth bucket in `
 
 A draw binds one mesh, so mesh particles cannot share a single indirect command the way sprites do.
 Up to `MAX_MESH_EMITTERS` (4) mesh-aligned emitters each claim an equal slice of one shared list and
-one `VkDrawIndexedIndirectCommand`; the emitter carries its slice in `GpuEmitter::mesh_slot`, and an
+one `VkDrawIndexedIndirectCommand`; the emitter carries its slice in `GPUEmitter::mesh_slot`, and an
 emitter past the last slice draws nothing rather than borrowing another's mesh. The command's index
 count is a host fact and its instance count a GPU fact, so the sim pass seeds the whole command from
 `ParticleSystem`'s mesh-draw table — which is why `prepare` now takes the `MeshRegistry`. The
@@ -2716,7 +2716,7 @@ variable-length list cannot live in it; the compiler takes the first four *enabl
 
 Fields are authored in the emitter's local frame so they travel with their emitter, and placed into
 world space once per step rather than per particle — `ParticleSystem` bakes the emitter matrix into
-`GpuEmitter` when it flattens the frame, and `CpuDeterministicBackend::integrate` (which now takes
+`GPUEmitter` when it flattens the frame, and `CPUDeterministicBackend::integrate` (which now takes
 the emitter pose for exactly this) applies the pose at the top of the step. The GLSL
 `particle_force_fields` and the deterministic backend's field loop are line-for-line counterparts,
 as `curl_noise` already is: they read the same authored record, so they must agree on what it means.
@@ -2728,12 +2728,12 @@ only each deterministic in itself.
 Cosmetic particles bounce off whatever the camera can see, tested against depth the renderer already
 produced — no collision geometry, no broadphase. The apparent obstacle was pass order:
 `ParticleSimPass` runs *before* `depth_prepass`, so this frame's depth does not exist when the
-particles move. But `HizPass` owns a **persistent** image rather than a graph transient, so at sim
+particles move. But `HiZPass` owns a **persistent** image rather than a graph transient, so at sim
 time its level 0 still holds last frame's linearised depth (`near / depth` — exactly the linear view
 distance the test needs). One frame of lag on a spark's bounce is invisible; this is the same
 cross-frame read `cull_pass` already makes of the occlusion pyramid.
 
-`HizPass::has_history()` reports whether there is anything to read: false before the first build and
+`HiZPass::has_history()` reports whether there is anything to read: false before the first build and
 while the pass is off (it follows SSR), because an image never written holds garbage and has never
 left `UNDEFINED`. The sim pass then binds a 1×1 stand-in it owns and clears the collision bit in its
 push constant — a combined-image-sampler binding needs a real view even on a frame the shader will
@@ -2776,7 +2776,7 @@ GPU preview it moves the **emission schedule**: the rate and burst evaluation ju
 fractional-particle accumulators are cleared so their debt does not spill as a burst at the new time,
 but the particles already alive do not wind back and cannot — the cosmetic pool lives on the GPU and
 advances one step per rendered frame, so there is no host copy to rewind. A **"CPU (scrubbable)"**
-mode previews through `CpuDeterministicBackend` instead, and there the scrub is exact: that backend
+mode previews through `CPUDeterministicBackend` instead, and there the scrub is exact: that backend
 is a pure function of (state, emitter, dt), so seeking resets the pools and replays from zero at a
 fixed step, reproducing precisely the frame that time would have shown. The replay is capped at 4096
 steps so dragging to the end of a long cycle cannot stall the editor. The CPU preview steps *every*
@@ -3071,14 +3071,14 @@ extra froxel-fog density, extra atmosphere Mie turbidity, ground wetness, a prec
 intensity echo, and a near-surface wind passthrough. `extract()` samples one column, hands
 it to both compilers, and writes the results into `Environment::clouds` and
 `Environment::weather` respectively. `WeatherCoupling` is deliberately additive/multiplicative
-rather than a replacement: `VolumetricFogPass` and `AtmosphereLutPass` add its bias fields
+rather than a replacement: `VolumetricFogPass` and `AtmosphereLUTPass` add its bias fields
 onto the author's own `FogParams::density`/`AtmosphereParams::mie_coefficient` at push-constant
 build time, so a scene with weather off renders exactly as it did before this phase (every
 field defaults to zero), and the author's fog/atmosphere sliders are never overwritten in
 place the way `Environment::clouds` is — which is what keeps this field safe to recompute
 from scratch every `extract()` without the read-modify-write hazard a full overwrite would
 create through the editor's `environment()` -> edit -> `set_environment()` round trip.
-`AtmosphereLutPass`'s existing `medium_changed()` memcmp gate already rebuilds the static
+`AtmosphereLUTPass`'s existing `medium_changed()` memcmp gate already rebuilds the static
 transmittance/multi-scatter LUTs exactly when the weather-adjusted Mie coefficient changes
 tick to tick — "runtime-dynamic in the Hillaire model" (§5.3) needed no new plumbing.
 
@@ -3098,7 +3098,7 @@ no binding changes. `create_terrain()` opts its own material in by default so th
 scenario shows wet ground without extra authoring; every other material opts in explicitly.
 
 **Precipitation VFX**: `RuntimeSimulation::extract()` builds one synthetic, sim-owned
-`Vfx::CompiledEmitter` (`weather_rain_emitter_`) each frame precipitation is active, and
+`VFX::CompiledEmitter` (`weather_rain_emitter_`) each frame precipitation is active, and
 appends a `Render::ParticleEmitterView` for it straight into `RenderScene::particle_emitters`
 — the same seam an authored particle-emitter entity's Cosmetic sub-emitters already write
 through (§15.9), just sourced from weather instead of a record. Not an authored ECS entity:
@@ -3183,7 +3183,7 @@ ambient term produce on their own once deep inside a thick deck. No push-constan
 pass signature changed.
 
 **Canopy wisp particles** follow the exact precedent `WeatherWorldCoupling`'s rain emitter
-set at W5: a second synthetic, sim-owned `Vfx::CompiledEmitter`
+set at W5: a second synthetic, sim-owned `VFX::CompiledEmitter`
 (`RuntimeSimulation::weather_wisp_emitter_`) built fresh each `extract()` and appended to
 `RenderScene::particle_emitters`, not an authored ECS entity. Unlike the rain emitter it is
 not gated on precipitation or even on `ProceduralWeather` being active — it reacts to

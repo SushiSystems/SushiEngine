@@ -32,7 +32,7 @@ namespace SushiEngine
     {
         namespace Graph
         {
-            GpuProfiler::GpuProfiler(Vulkan::VulkanDevice& device, std::uint32_t frame_slots,
+            GPUProfiler::GPUProfiler(Vulkan::VulkanDevice& device, std::uint32_t frame_slots,
                                      std::uint32_t max_passes)
                 : device_(device), max_passes_(max_passes)
             {
@@ -59,14 +59,14 @@ namespace SushiEngine
                 }
             }
 
-            GpuProfiler::~GpuProfiler()
+            GPUProfiler::~GPUProfiler()
             {
                 for (Slot& slot : slots_)
                     if (slot.pool != VK_NULL_HANDLE)
                         vkDestroyQueryPool(device_.device(), slot.pool, nullptr);
             }
 
-            bool GpuProfiler::resolve(std::uint32_t slot_index, bool wait)
+            bool GPUProfiler::resolve(std::uint32_t slot_index, bool wait)
             {
                 if (!enabled_ || slot_index >= slots_.size())
                     return false;
@@ -103,7 +103,7 @@ namespace SushiEngine
                 return true;
             }
 
-            void GpuProfiler::begin_frame(std::uint32_t slot_index, VkCommandBuffer cmd)
+            void GPUProfiler::begin_frame(std::uint32_t slot_index, VkCommandBuffer cmd)
             {
                 if (!enabled_ || slot_index >= slots_.size())
                     return;
@@ -114,7 +114,7 @@ namespace SushiEngine
                 slot.recorded = 0;
             }
 
-            std::uint32_t GpuProfiler::begin_pass(VkCommandBuffer cmd, const char* name)
+            std::uint32_t GPUProfiler::begin_pass(VkCommandBuffer cmd, const char* name)
             {
                 if (!enabled_ || recording_slot_ >= slots_.size())
                     return INVALID_TIMER;
@@ -128,7 +128,7 @@ namespace SushiEngine
                 return timer;
             }
 
-            void GpuProfiler::end_pass(VkCommandBuffer cmd, std::uint32_t timer)
+            void GPUProfiler::end_pass(VkCommandBuffer cmd, std::uint32_t timer)
             {
                 if (!enabled_ || timer == INVALID_TIMER || recording_slot_ >= slots_.size())
                     return;

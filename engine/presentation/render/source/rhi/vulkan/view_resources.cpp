@@ -619,7 +619,7 @@ namespace SushiEngine
                     color_target(cloud_width, cloud_height, Frame::HDR_FORMAT, "clouds"));
                 // The W3 transmittance-weighted mean march depth, same grid as `cloud`;
                 // R32_SFLOAT matches this codebase's precedent for a linear single-channel
-                // distance target (HizPass, CloudLightVolumePass, CloudShadowMapPass all
+                // distance target (HiZPass, CloudLightVolumePass, CloudShadowMapPass all
                 // bake into the same format).
                 targets.cloud_depth = graph.create_texture(
                     color_target(cloud_width, cloud_height, VK_FORMAT_R32_SFLOAT, "cloud depth"));
@@ -674,7 +674,7 @@ namespace SushiEngine
                 // unless a spatial filter still has to run over it, in which case it needs
                 // its own intermediate to read from.
                 targets.display =
-                    frame.settings.anti_aliasing == AntiAliasingMode::Fxaa
+                    frame.settings.anti_aliasing == AntiAliasingMode::FXAA
                         ? graph.create_texture(
                               color_target(width_, height_, Frame::RESOLVE_FORMAT, "tonemapped"))
                         : targets.resolve;
@@ -842,7 +842,7 @@ namespace SushiEngine
                 {
                     Graph::BufferDesc draw_desc;
                     draw_desc.size = static_cast<VkDeviceSize>(frame.particle_capacity) *
-                                     sizeof(Vfx::GpuParticle);
+                                     sizeof(VFX::GPUParticle);
                     draw_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                     draw_desc.name = "particle draw list";
                     targets.particle_draw = graph.create_buffer(draw_desc);

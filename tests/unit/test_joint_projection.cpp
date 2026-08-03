@@ -279,7 +279,7 @@ TEST(Unit_JointProjection, LimitViolationIsZeroInsideAndSignedOutside)
 
 TEST(Unit_JointProjection, BallJointHoldsTheAnchorAndLeavesRotationFree)
 {
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
     RigidBody spinning = moving_body(Vector3{Scalar(0.5), 0, 0}, Scalar(10), Scalar(1));
     spinning.angular_velocity = Vector3{Scalar(2), 0, 0};
@@ -304,7 +304,7 @@ TEST(Unit_JointProjection, BallJointHoldsTheAnchorAndLeavesRotationFree)
 
 TEST(Unit_JointProjection, FixedJointAlignsBothTheFramesAndTheAnchors)
 {
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
     RigidBody tilted = moving_body(Vector3{Scalar(1), 0, 0}, Scalar(10), Scalar(1));
     tilted.orientation = quaternion_axis_angle(Vector3{0, 0, 1}, Scalar(0.9));
@@ -323,7 +323,7 @@ TEST(Unit_JointProjection, FixedJointAlignsBothTheFramesAndTheAnchors)
 
 TEST(Unit_JointProjection, HingeRemovesTheSwingAndKeepsTheTwist)
 {
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
     RigidBody door = moving_body(Vector3{Scalar(0.5), 0, 0}, Scalar(35), Scalar(3));
     // Spun about the hinge axis and shoved off it: only the first should survive.
@@ -356,7 +356,7 @@ TEST(Unit_JointProjection, HingeTwistLimitBoundsTheAngleFromBothSides)
 
     for (const Scalar spin : {Scalar(3), Scalar(-3)})
     {
-        HostXpbdSolver<Scalar> solver(joint_scene());
+        HostXPBDSolver<Scalar> solver(joint_scene());
         const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
         RigidBody door = moving_body(Vector3{Scalar(0.5), 0, 0}, Scalar(35), Scalar(3));
         door.angular_velocity = Vector3{0, spin, 0};
@@ -389,7 +389,7 @@ TEST(Unit_JointProjection, HingePositionMotorDrivesTheDoorToItsTarget)
 {
     const Scalar target = Scalar(45.0 * PI / 180.0);
 
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
     const BodyHandle b =
         solver.add_body(moving_body(Vector3{Scalar(0.5), 0, 0}, Scalar(35), Scalar(3)));
@@ -416,7 +416,7 @@ TEST(Unit_JointProjection, HingeVelocityMotorWithZeroTargetIsFriction)
 
     for (int with_friction = 0; with_friction < 2; ++with_friction)
     {
-        HostXpbdSolver<Scalar> solver(joint_scene());
+        HostXPBDSolver<Scalar> solver(joint_scene());
         const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
         RigidBody door = moving_body(Vector3{Scalar(0.5), 0, 0}, Scalar(35), Scalar(3));
         door.angular_velocity = Vector3{0, Scalar(2), 0};
@@ -449,7 +449,7 @@ TEST(Unit_JointProjection, HingeVelocityMotorWithZeroTargetIsFriction)
 
 TEST(Unit_JointProjection, SliderTravelsAlongItsAxisAndNowhereElse)
 {
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
     const BodyHandle b = solver.add_body(moving_body(Vector3{0, 0, 0}, Scalar(20), Scalar(2)));
 
@@ -471,7 +471,7 @@ TEST(Unit_JointProjection, SliderTravelsAlongItsAxisAndNowhereElse)
 
 TEST(Unit_JointProjection, DistanceJointIsSlackInsideItsRangeAndTautAtTheEnd)
 {
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
     const BodyHandle b =
         solver.add_body(moving_body(Vector3{0, Scalar(-0.5), 0}, Scalar(5), Scalar(1)));
@@ -501,7 +501,7 @@ TEST(Unit_JointProjection, ConeTwistBoundsTheSwingCone)
 {
     const Scalar cone = Scalar(20.0 * PI / 180.0);
 
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
     RigidBody limb = moving_body(Vector3{0, Scalar(-0.5), 0}, Scalar(8), Scalar(1));
     const BodyHandle b = solver.add_body(limb);
@@ -525,7 +525,7 @@ TEST(Unit_JointProjection, ConeTwistBoundsTheSwingCone)
 
 TEST(Unit_JointProjection, SixDegreeOfFreedomHonoursEachAxisSeparately)
 {
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
     const BodyHandle b = solver.add_body(moving_body(Vector3{0, 0, 0}, Scalar(10), Scalar(1)));
 
@@ -558,7 +558,7 @@ TEST(Unit_JointProjection, ForceRecoveryReportsTheLoadTheJointActuallyCarries)
     const Scalar mass = Scalar(35);
     const Scalar lever = Scalar(0.5);
 
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
     const BodyHandle b = solver.add_body(moving_body(Vector3{lever, 0, 0}, mass, Scalar(3)));
 
@@ -624,7 +624,7 @@ TEST(Unit_JointProjection, AnImpactIsReportedAsAPeakTheMeanCannotSee)
     // The same claim through the solver rather than by construction: a joint yanked far
     // out of place and snapped back reports a mean near its resting load and a peak
     // orders of magnitude above it.
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, Scalar(2), 0}));
     const BodyHandle b =
         solver.add_body(moving_body(Vector3{Scalar(1.5), Scalar(2), 0}, Scalar(35), Scalar(3)));
@@ -667,7 +667,7 @@ TEST(Unit_JointProjection, AMotorForceLimitCapsWhatTheDriveCanSpend)
 
     for (int limited = 0; limited < 2; ++limited)
     {
-        HostXpbdSolver<Scalar> solver(joint_scene());
+        HostXPBDSolver<Scalar> solver(joint_scene());
         const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
         const BodyHandle b =
             solver.add_body(moving_body(Vector3{Scalar(0.5), 0, 0}, Scalar(200), Scalar(60)));
@@ -694,7 +694,7 @@ TEST(Unit_JointProjection, AMotorForceLimitCapsWhatTheDriveCanSpend)
 
 TEST(Unit_JointProjection, ADisabledJointIsNotProjectedAtAll)
 {
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
     const BodyHandle b =
         solver.add_body(moving_body(Vector3{Scalar(0.5), 0, 0}, Scalar(10), Scalar(1)));
@@ -722,7 +722,7 @@ TEST(Unit_JointProjection, ADisabledJointIsNotProjectedAtAll)
 
 TEST(Unit_JointProjection, RemovingABodyRemovesTheJointsThatNamedIt)
 {
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
     const BodyHandle b =
         solver.add_body(moving_body(Vector3{Scalar(1), 0, 0}, Scalar(10), Scalar(1)));
@@ -754,7 +754,7 @@ TEST(Unit_JointProjection, RemovingAJointKeepsTheRemainingOnesReadable)
     // The bands are kept dense by moving the last joint into the vacated slot, so the
     // handle of whatever moved has to keep resolving. A stale slot map is invisible
     // until a caller reads the wrong joint.
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     std::vector<BodyHandle> bodies;
     for (int i = 0; i < 6; ++i)
         bodies.push_back(
@@ -787,7 +787,7 @@ TEST(Unit_JointProjection, RemovingAJointKeepsTheRemainingOnesReadable)
 
 TEST(Unit_JointProjection, WritingAJointChangesWhatTheNextStepProjects)
 {
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
     const BodyHandle b =
         solver.add_body(moving_body(Vector3{Scalar(0.5), 0, 0}, Scalar(35), Scalar(3)));
@@ -821,7 +821,7 @@ TEST(Unit_JointProjection, ExhaustingTheJointBudgetIsCountedRatherThanFatal)
     PhysicsConfiguration configuration = joint_scene();
     configuration.capacities.joints = 4;
     configuration.capacities.colors = 2;  // two bands of two
-    HostXpbdSolver<Scalar> solver(configuration);
+    HostXPBDSolver<Scalar> solver(configuration);
 
     std::vector<BodyHandle> bodies;
     for (int i = 0; i < 12; ++i)
@@ -851,7 +851,7 @@ TEST(Unit_JointProjection, MotorDampingBleedsOffAHingeSpin)
     Scalar remaining[2] = {0, 0};
     for (int damped = 0; damped < 2; ++damped)
     {
-        HostXpbdSolver<Scalar> solver(joint_scene());
+        HostXPBDSolver<Scalar> solver(joint_scene());
         const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
         const BodyHandle b =
             solver.add_body(moving_body(Vector3{0, 0, 0}, Scalar(20), Scalar(1.2)));
@@ -892,7 +892,7 @@ TEST(Unit_JointProjection, MotorDampingIsARateAndNotAPerSubstepFraction)
         PhysicsConfiguration configuration = joint_scene();
         configuration.substeps.minimum = schedules[schedule];
         configuration.substeps.maximum = schedules[schedule];
-        HostXpbdSolver<Scalar> solver(configuration);
+        HostXPBDSolver<Scalar> solver(configuration);
 
         const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
         const BodyHandle b =
@@ -926,7 +926,7 @@ TEST(Unit_JointProjection, ASpringDamperStrutSettlesWhereASpringAloneRings)
     Scalar swing[2] = {0, 0};
     for (int damped = 0; damped < 2; ++damped)
     {
-        HostXpbdSolver<Scalar> solver(joint_scene());
+        HostXPBDSolver<Scalar> solver(joint_scene());
         const BodyHandle a = solver.add_body(anchor_body(Vector3{0, 0, 0}));
         const BodyHandle b =
             solver.add_body(moving_body(Vector3{0, Scalar(-0.4), 0}, Scalar(300), Scalar(50)));
@@ -964,7 +964,7 @@ TEST(Unit_JointProjection, AFreeBodyKeepsItsSpinExactly)
     // pair instead of an exact one leaks angular velocity in proportion to the spin --
     // measured at a third of a wheel's speed per second before it was fixed, on a body
     // with no constraint on it at all.
-    HostXpbdSolver<Scalar> solver(joint_scene());
+    HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle b = solver.add_body(moving_body(Vector3{0, 0, 0}, Scalar(20), Scalar(1.2)));
 
     RigidBody body;

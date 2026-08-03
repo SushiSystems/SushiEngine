@@ -36,7 +36,7 @@ namespace SushiEngine
             if (path == nullptr)
                 return false;
 
-            Animation::GltfAnimationImport import;
+            Animation::GLTFAnimationImport import;
             if (!Animation::import_gltf_animated(path, import, 30.0f, skin_index) ||
                 import.clips.empty())
                 return false;
@@ -112,8 +112,8 @@ namespace SushiEngine
             if (clip_name == nullptr || !loaded())
                 return false;
 
-            const Animation::GltfClip* found = nullptr;
-            for (const Animation::GltfClip& candidate : available_clips_)
+            const Animation::GLTFClip* found = nullptr;
+            for (const Animation::GLTFClip& candidate : available_clips_)
                 if (candidate.name == clip_name)
                 {
                     found = &candidate;

@@ -61,7 +61,7 @@ namespace SushiEngine
                 }
             } // namespace
 
-            GtaoPass::GtaoPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+            GTAOPass::GTAOPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                Resources::GraphicsPipelineFactory& pipelines,
                                Scene::SceneLayout& layout)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout)
@@ -103,7 +103,7 @@ namespace SushiEngine
                 create_pipelines();
             }
 
-            GtaoPass::~GtaoPass()
+            GTAOPass::~GTAOPass()
             {
                 destroy_pipelines();
                 if (pipeline_layout_ != VK_NULL_HANDLE)
@@ -112,7 +112,7 @@ namespace SushiEngine
                     vkDestroyDescriptorSetLayout(device_.device(), set_layout_, nullptr);
             }
 
-            void GtaoPass::create_pipelines()
+            void GTAOPass::create_pipelines()
             {
                 compute_pipeline_ = pipelines_.create_compute(pipeline_layout_,
                                                               shaders_.module("gtao.comp"));
@@ -123,7 +123,7 @@ namespace SushiEngine
                     shaders_.module("gtao_resolve.frag"), Frame::HDR_FORMAT));
             }
 
-            void GtaoPass::destroy_pipelines()
+            void GTAOPass::destroy_pipelines()
             {
                 if (compute_pipeline_ != VK_NULL_HANDLE)
                     vkDestroyPipeline(device_.device(), compute_pipeline_, nullptr);
@@ -133,13 +133,13 @@ namespace SushiEngine
                 resolve_pipeline_ = Resources::PipelineHandle{};
             }
 
-            void GtaoPass::rebuild_pipelines()
+            void GTAOPass::rebuild_pipelines()
             {
                 destroy_pipelines();
                 create_pipelines();
             }
 
-            void GtaoPass::register_pass(Graph::RenderGraph& graph,
+            void GTAOPass::register_pass(Graph::RenderGraph& graph,
                                          const Frame::FrameContext& frame)
             {
                 if (!frame.targets.ao.valid())

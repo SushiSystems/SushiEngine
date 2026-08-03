@@ -54,7 +54,7 @@ namespace SushiEngine
             struct MeshVertex;
         }
 
-        namespace Gi
+        namespace GI
         {
             /**
              * @brief The shared brick type, under the name the renderer already uses.
@@ -63,7 +63,7 @@ namespace SushiEngine
              * code has nothing to gain from the churn, and the type it was using was
              * always this one.
              */
-            using MeshSdfBrick = SushiEngine::Geometry::SignedDistanceFieldBrick;
+            using MeshSDFBrick = SushiEngine::Geometry::SignedDistanceFieldBrick;
 
             /**
              * @brief Bakes a signed distance field brick for a renderer mesh.
@@ -79,10 +79,10 @@ namespace SushiEngine
              * @param resolution   Voxels per axis of the cube brick (e.g. 32).
              * @return The baked brick; distances empty if the mesh was degenerate.
              */
-            MeshSdfBrick bake_mesh_sdf(const Geometry::MeshVertex* vertices,
+            MeshSDFBrick bake_mesh_sdf(const Geometry::MeshVertex* vertices,
                                        std::size_t vertex_count,
                                        const std::uint32_t* indices,
                                        std::size_t index_count, std::int32_t resolution);
-        } // namespace Gi
+        } // namespace GI
     } // namespace Render
 } // namespace SushiEngine

@@ -24,7 +24,7 @@
 // Integration_DeterministicReplay: proves SushiLoop M0/M1's core claim end to end
 // (docs/slop/SUSHILOOP.md) — replaying the same numbered input stream against a
 // fresh world, driven by the same fixed-step clock and the same seeded per-entity
-// RngState, produces bit-identical world state. This is the property rollback
+// RNGState, produces bit-identical world state. This is the property rollback
 // depends on: same input, same result, on the same binary.
 
 #include <cstdint>
@@ -41,7 +41,7 @@ using namespace SushiEngine;
 namespace
 {
     struct Position { Vector3 v; };
-    struct Random   { Loop::RngState state; };
+    struct Random   { Loop::RNGState state; };
 
     constexpr Scalar FIXED_DT       = Scalar(0.02);
     constexpr std::size_t ENTITIES  = 16;
@@ -49,7 +49,7 @@ namespace
     constexpr std::size_t CAPACITY  = 32;
 
     // One step of gameplay logic: nudges every entity by the tick's input command
-    // plus a per-entity jitter drawn from its own seeded RngState. Pure host code —
+    // plus a per-entity jitter drawn from its own seeded RNGState. Pure host code —
     // no SYCL kernel — so this test isolates SushiLoop's determinism guarantee from
     // the runtime's device dispatch.
     void step(World& world, const std::vector<Entity>& entities, Scalar command)
@@ -64,7 +64,7 @@ namespace
         }
     }
 
-    // Runs a full, independent simulation: fresh world, fresh RngState seeds, the
+    // Runs a full, independent simulation: fresh world, fresh RNGState seeds, the
     // same recorded input stream, and returns the final Position of every entity.
     std::vector<Vector3> run(Execution::Context& execution,
                              const Loop::InputHistory<Scalar>& input)
@@ -112,7 +112,7 @@ TEST(Integration_DeterministicReplay, SameInputStreamProducesSameWorldState)
     // player command sequence — deterministic, numbered by tick, and shared between
     // both runs exactly as a real replay would receive it over the network.
     Loop::InputHistory<Scalar> input;
-    Loop::RngState input_rng = Loop::seed_rng(0xC0FFEEu);
+    Loop::RNGState input_rng = Loop::seed_rng(0xC0FFEEu);
     for (Loop::TickId tick = 0; tick < TICKS; ++tick)
         input.record(tick, Scalar(Loop::next_unit(input_rng)) - Scalar(0.5));
 

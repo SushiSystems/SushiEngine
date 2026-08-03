@@ -52,7 +52,7 @@
 
 using SushiEngine::Audio::AudioStreamFormat;
 using SushiEngine::Audio::IAudioRenderer;
-using SushiEngine::Audio::SdlAudioDevice;
+using SushiEngine::Audio::SDLAudioDevice;
 
 namespace
 {
@@ -123,7 +123,7 @@ int main()
                 static_cast<unsigned long long>(renderer.frames()));
 
     // (2) Best-effort device open. Not an error to fail on a headless host.
-    SdlAudioDevice device;
+    SDLAudioDevice device;
     AudioStreamFormat desired;
     desired.sample_rate = 48000;
     desired.channel_count = 2;

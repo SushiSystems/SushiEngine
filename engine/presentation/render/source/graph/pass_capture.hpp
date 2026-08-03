@@ -40,7 +40,7 @@
  * never initialised. That is a bug, and capture makes it show up as a hash that
  * differs between captured and uncaptured runs rather than hiding it.
  *
- * The instrument follows @ref GpuProfiler exactly: one store per frame slot,
+ * The instrument follows @ref GPUProfiler exactly: one store per frame slot,
  * begin_frame() on the slot being recorded, resolve() on a slot whose submit has
  * completed. They are the same lifecycle because they are the same kind of thing.
  */
@@ -177,7 +177,7 @@ namespace SushiEngine
                      *
                      * Only call once the submit that wrote @p slot is known to have
                      * completed; the results are otherwise undefined, exactly as for
-                     * @ref GpuProfiler::resolve.
+                     * @ref GPUProfiler::resolve.
                      *
                      * @param slot The frame slot whose submit has completed.
                      * @param out  Receives one entry per captured output, in record order.

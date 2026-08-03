@@ -28,14 +28,14 @@
  * @brief The CPU-deterministic particle backend — a fixed-pool, byte-reproducible integrator.
  *
  * The gameplay-authoritative half of the hybrid system (design §6). Its entire per-emitter
- * state is a @ref DeterministicEmitterState: a fixed-capacity pool of @ref GpuParticle, an
+ * state is a @ref DeterministicEmitterState: a fixed-capacity pool of @ref GPUParticle, an
  * integer count, a @ref Pcg32, and a handful of scalars — no heap, no pointers — so a state is
  * trivially copyable and a rolled-back-then-replayed tick reproduces it byte-for-byte. It runs
  * a fixed-step Euler integrator over the same @ref CompiledEmitter and baked LUTs the GPU path
  * uses, so an effect looks the same whichever domain simulates it. Nothing here reads the wall
  * clock or a global RNG; the only randomness is drawn from the state's own generator.
  *
- * The stepper is a set of static methods on @ref CpuDeterministicBackend (no instance state):
+ * The stepper is a set of static methods on @ref CPUDeterministicBackend (no instance state):
  * @ref reset seeds a pool, @ref step advances it one fixed tick.
  */
 
@@ -51,7 +51,7 @@
 
 namespace SushiEngine
 {
-    namespace Vfx
+    namespace VFX
     {
         /**
          * @brief One emitter's complete deterministic simulation state.
@@ -62,7 +62,7 @@ namespace SushiEngine
          */
         struct DeterministicEmitterState
         {
-            GpuParticle particles[MAX_DETERMINISTIC_PARTICLES]; /**< Packed live pool. */
+            GPUParticle particles[MAX_DETERMINISTIC_PARTICLES]; /**< Packed live pool. */
             std::uint32_t alive_count = 0;      /**< Live particles, in [0, capacity]. */
             std::uint32_t spawn_serial = 0;     /**< Monotonic id assigned to each spawned particle. */
             Pcg32 rng;                          /**< The one and only source of randomness. */
@@ -80,7 +80,7 @@ namespace SushiEngine
          * the backend a pure function of (state, emitter, dt, transform), which is exactly what
          * makes replay reproducible.
          */
-        class CpuDeterministicBackend
+        class CPUDeterministicBackend
         {
             public:
                 /**
@@ -212,8 +212,8 @@ namespace SushiEngine
                     const Vector3 world_velocity =
                         rotate(emitter_rotation, to_double(local_direction * speed));
 
-                    GpuParticle& particle = state.particles[state.alive_count];
-                    particle = GpuParticle{};
+                    GPUParticle& particle = state.particles[state.alive_count];
+                    particle = GPUParticle{};
                     particle.position[0] = static_cast<float>(world_position.x);
                     particle.position[1] = static_cast<float>(world_position.y);
                     particle.position[2] = static_cast<float>(world_position.z);
@@ -285,7 +285,7 @@ namespace SushiEngine
                     std::uint32_t i = 0;
                     while (i < state.alive_count)
                     {
-                        GpuParticle& p = state.particles[i];
+                        GPUParticle& p = state.particles[i];
 
                         float ax = 0.0f, ay = 0.0f, az = 0.0f;
                         if (has_gravity)
@@ -559,5 +559,5 @@ namespace SushiEngine
                     out_z = ((p2_x1 - p2_x0) - (p1_y1 - p1_y0)) * inv;
                 }
         };
-    } // namespace Vfx
+    } // namespace VFX
 } // namespace SushiEngine

@@ -29,7 +29,7 @@
  *
  * docs/slop/SUSHILOOP.md requires that "the only source of nondeterminism is
  * player input" and that RNG state "lives inside the world like any other
- * component" — never a hidden global or `std::random_device`. `RngState` is a
+ * component" — never a hidden global or `std::random_device`. `RNGState` is a
  * trivially copyable xorshift128+ generator, so it can be stored as an ECS
  * component and snapshotted/rewound with everything else during rollback.
  */
@@ -44,26 +44,26 @@ namespace SushiEngine
          * @brief Deterministic xorshift128+ generator state, storable as a component.
          *
          * Trivially copyable, as `component_id<T>()` requires of every component.
-         * Two `RngState`s seeded identically and advanced with the same sequence of
+         * Two `RNGState`s seeded identically and advanced with the same sequence of
          * `next_u64()` calls always produce the same values — the property that
          * makes rollback-and-replay reproducible.
          */
-        struct RngState
+        struct RNGState
         {
             std::uint64_t s0 = 0;
             std::uint64_t s1 = 0;
         };
 
         /**
-         * @brief Seeds an `RngState` from a single 64-bit seed.
+         * @brief Seeds an `RNGState` from a single 64-bit seed.
          *
          * Runs the seed through SplitMix64 to spread its bits before handing them to
          * xorshift128+, which does not tolerate a low-entropy or all-zero seed.
          *
          * @param seed Any 64-bit value; 0 is valid and produces a well-mixed state.
-         * @return An `RngState` ready for `next_u64()`.
+         * @return An `RNGState` ready for `next_u64()`.
          */
-        inline RngState seed_rng(std::uint64_t seed) noexcept
+        inline RNGState seed_rng(std::uint64_t seed) noexcept
         {
             auto split_mix64 = [](std::uint64_t& x) noexcept -> std::uint64_t
             {
@@ -74,7 +74,7 @@ namespace SushiEngine
                 return z ^ (z >> 31);
             };
             std::uint64_t x = seed;
-            RngState state;
+            RNGState state;
             state.s0 = split_mix64(x);
             state.s1 = split_mix64(x);
             return state;
@@ -85,7 +85,7 @@ namespace SushiEngine
          * @param state The generator state to advance in place.
          * @return A uniformly distributed 64-bit value.
          */
-        inline std::uint64_t next_u64(RngState& state) noexcept
+        inline std::uint64_t next_u64(RNGState& state) noexcept
         {
             std::uint64_t x = state.s0;
             const std::uint64_t y = state.s1;
@@ -102,7 +102,7 @@ namespace SushiEngine
          * @param state The generator state to advance in place.
          * @return A double in [0, 1); the 53 mantissa bits of `next_u64()`.
          */
-        inline double next_unit(RngState& state) noexcept
+        inline double next_unit(RNGState& state) noexcept
         {
             constexpr std::uint64_t MANTISSA_BITS = 53;
             constexpr double SCALE = 1.0 / (std::uint64_t(1) << MANTISSA_BITS);

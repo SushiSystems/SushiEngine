@@ -45,8 +45,8 @@ namespace SushiEngine
             CloudCompositePass::CloudCompositePass(Vulkan::VulkanDevice& device,
                                                    Resources::ShaderLibrary& shaders,
                                                    Resources::GraphicsPipelineFactory& pipelines,
-                                                   Scene::SceneLayout& layout, CloudTaaPass& cloud_taa,
-                                                   AtmosphereLutPass& atmosphere)
+                                                   Scene::SceneLayout& layout, CloudTAAPass& cloud_taa,
+                                                   AtmosphereLUTPass& atmosphere)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   cloud_taa_(cloud_taa), atmosphere_(atmosphere)
             {
@@ -87,7 +87,7 @@ namespace SushiEngine
                         builder.read(frame.targets.composite,
                                      Graph::TextureAccess::SampledFragment);
                         // frame.targets.cloud itself is not read here any more —
-                        // CloudTaaPass already resolved it into its own pass-owned
+                        // CloudTAAPass already resolved it into its own pass-owned
                         // history, which this pass samples directly below — but its
                         // W3 depth sibling still is, for the aerial-perspective lookup.
                         builder.read(frame.targets.cloud_depth,
@@ -113,7 +113,7 @@ namespace SushiEngine
                                        context.buffer(frame.targets.uniforms),
                                        sizeof(Scene::SceneUniforms));
                         writer.image(1, context.sampled_view(frame.targets.composite), sampler);
-                        // CloudTaaPass's own resolved history, kept in GENERAL across its
+                        // CloudTAAPass's own resolved history, kept in GENERAL across its
                         // compute resolve like the other pass-owned bakes this same
                         // descriptor set samples elsewhere in the frame.
                         writer.image(2, cloud_taa_.color_view(), point_sampler,

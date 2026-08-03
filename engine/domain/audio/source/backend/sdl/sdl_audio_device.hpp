@@ -59,16 +59,16 @@ namespace SushiEngine
          * are allocated once in @ref open — never in the callback — keeping the audio
          * thread allocation-free.
          */
-        class SdlAudioDevice final : public IAudioDevice
+        class SDLAudioDevice final : public IAudioDevice
         {
             public:
-                SdlAudioDevice() = default;
+                SDLAudioDevice() = default;
 
                 /** @brief Closes the device if still open. */
-                ~SdlAudioDevice() override;
+                ~SDLAudioDevice() override;
 
-                SdlAudioDevice(const SdlAudioDevice&) = delete;
-                SdlAudioDevice& operator=(const SdlAudioDevice&) = delete;
+                SDLAudioDevice(const SDLAudioDevice&) = delete;
+                SDLAudioDevice& operator=(const SDLAudioDevice&) = delete;
 
                 /** @copydoc IAudioDevice::open */
                 bool open(const AudioStreamFormat& desired, IAudioRenderer& renderer) override;

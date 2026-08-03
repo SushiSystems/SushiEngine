@@ -44,7 +44,7 @@
  * **Why six scalars instead of a general 3x3 matrix type.** Strain and stress
  * are symmetric by construction (Green strain by definition; Cauchy stress
  * because `F S F^T` with symmetric `S` is symmetric), so a general 3x3 type
- * would carry three redundant, always-equal fields. `FemSymmetricMatrix3`
+ * would carry three redundant, always-equal fields. `FEMSymmetricMatrix3`
  * names the six independent components once, the way an engine that already
  * avoids a matrix library for `fem_projection.hpp`'s column arithmetic should.
  */
@@ -60,15 +60,15 @@ namespace SushiEngine
     {
         /** @brief A symmetric 3x3 tensor: strain or stress, by its six independent components. */
         template <typename T>
-        struct FemSymmetricMatrix3
+        struct FEMSymmetricMatrix3
         {
             T xx = 0, yy = 0, zz = 0;
             T xy = 0, yz = 0, zx = 0;
         };
 
-        /** @brief One column of `FemMatrix3`, as a row — needed to form `F*S*F^T`. */
+        /** @brief One column of `FEMMatrix3`, as a row — needed to form `F*S*F^T`. */
         template <typename T>
-        inline Vector3T<T> fem_matrix_row(const FemMatrix3<T>& m, int row) noexcept
+        inline Vector3T<T> fem_matrix_row(const FEMMatrix3<T>& m, int row) noexcept
         {
             switch (row)
             {
@@ -91,9 +91,9 @@ namespace SushiEngine
          * whole frame is oriented in world space.
          */
         template <typename T>
-        inline FemSymmetricMatrix3<T> green_lagrange_strain(const FemMatrix3<T>& f) noexcept
+        inline FEMSymmetricMatrix3<T> green_lagrange_strain(const FEMMatrix3<T>& f) noexcept
         {
-            FemSymmetricMatrix3<T> e;
+            FEMSymmetricMatrix3<T> e;
             e.xx = (dot(f.column0, f.column0) - T(1)) * T(0.5);
             e.yy = (dot(f.column1, f.column1) - T(1)) * T(0.5);
             e.zz = (dot(f.column2, f.column2) - T(1)) * T(0.5);
@@ -111,11 +111,11 @@ namespace SushiEngine
          * @param lambda The material's Lame `lambda`.
          */
         template <typename T>
-        inline FemSymmetricMatrix3<T> second_piola_kirchhoff_stress(
-            const FemSymmetricMatrix3<T>& strain, T mu, T lambda) noexcept
+        inline FEMSymmetricMatrix3<T> second_piola_kirchhoff_stress(
+            const FEMSymmetricMatrix3<T>& strain, T mu, T lambda) noexcept
         {
             const T trace = strain.xx + strain.yy + strain.zz;
-            FemSymmetricMatrix3<T> s;
+            FEMSymmetricMatrix3<T> s;
             s.xx = lambda * trace + T(2) * mu * strain.xx;
             s.yy = lambda * trace + T(2) * mu * strain.yy;
             s.zz = lambda * trace + T(2) * mu * strain.zz;
@@ -138,11 +138,11 @@ namespace SushiEngine
          * was never a real material reading.
          */
         template <typename T>
-        inline FemSymmetricMatrix3<T> cauchy_stress(const FemMatrix3<T>& f,
-                                                     const FemSymmetricMatrix3<T>& second_pk) noexcept
+        inline FEMSymmetricMatrix3<T> cauchy_stress(const FEMMatrix3<T>& f,
+                                                     const FEMSymmetricMatrix3<T>& second_pk) noexcept
         {
             const T jacobian = determinant(f);
-            FemSymmetricMatrix3<T> sigma;
+            FEMSymmetricMatrix3<T> sigma;
             if (!(jacobian > T(1e-9)))
                 return sigma;
 
@@ -151,7 +151,7 @@ namespace SushiEngine
             const Vector3T<T> s_column0{second_pk.xx, second_pk.xy, second_pk.zx};
             const Vector3T<T> s_column1{second_pk.xy, second_pk.yy, second_pk.yz};
             const Vector3T<T> s_column2{second_pk.zx, second_pk.yz, second_pk.zz};
-            FemMatrix3<T> fs;
+            FEMMatrix3<T> fs;
             fs.column0 = f.column0 * s_column0.x + f.column1 * s_column0.y + f.column2 * s_column0.z;
             fs.column1 = f.column0 * s_column1.x + f.column1 * s_column1.y + f.column2 * s_column1.z;
             fs.column2 = f.column0 * s_column2.x + f.column1 * s_column2.y + f.column2 * s_column2.z;
@@ -178,7 +178,7 @@ namespace SushiEngine
          *        past a uniaxial yield point this stress state sits.
          */
         template <typename T>
-        inline T von_mises_stress(const FemSymmetricMatrix3<T>& sigma) noexcept
+        inline T von_mises_stress(const FEMSymmetricMatrix3<T>& sigma) noexcept
         {
             const T a = sigma.xx - sigma.yy;
             const T b = sigma.yy - sigma.zz;
@@ -202,19 +202,19 @@ namespace SushiEngine
          */
         template <typename T>
         inline T tetrahedron_von_mises_stress(const RigidBodyT<T>* bodies,
-                                              const FemTetrahedronT<T>& element, T mu,
+                                              const FEMTetrahedronT<T>& element, T mu,
                                               T lambda) noexcept
         {
             const Vector3T<T>& x0 = bodies[element.vertex[0]].position;
             const Vector3T<T> edge1 = bodies[element.vertex[1]].position - x0;
             const Vector3T<T> edge2 = bodies[element.vertex[2]].position - x0;
             const Vector3T<T> edge3 = bodies[element.vertex[3]].position - x0;
-            const FemMatrix3<T> f = tetrahedron_deformation_gradient(
+            const FEMMatrix3<T> f = tetrahedron_deformation_gradient(
                 edge1, edge2, edge3, element.plastic_inverse_column_0,
                 element.plastic_inverse_column_1, element.plastic_inverse_column_2);
-            const FemSymmetricMatrix3<T> strain = green_lagrange_strain(f);
-            const FemSymmetricMatrix3<T> stress = second_piola_kirchhoff_stress(strain, mu, lambda);
-            const FemSymmetricMatrix3<T> cauchy = cauchy_stress(f, stress);
+            const FEMSymmetricMatrix3<T> strain = green_lagrange_strain(f);
+            const FEMSymmetricMatrix3<T> stress = second_piola_kirchhoff_stress(strain, mu, lambda);
+            const FEMSymmetricMatrix3<T> cauchy = cauchy_stress(f, stress);
             return von_mises_stress(cauchy);
         }
     } // namespace Physics

@@ -26,7 +26,7 @@
  * @brief Screen-space reflections: the mirror trace over the hi-Z pyramid.
  *
  * A fullscreen pass on the shared scene layout. It reads the lit scene, the depth, the thin
- * roughness/reflectance G-buffer, and the hi-Z pyramid the HizPass owns, traces each smooth
+ * roughness/reflectance G-buffer, and the hi-Z pyramid the HiZPass owns, traces each smooth
  * surface's mirror ray, and writes the scene with its screen reflections folded in. Rough
  * surfaces and rays that leave the screen keep the IBL term untouched. Runs after the scene
  * is fully composited (sky + clouds) and before the temporal resolve reads it.
@@ -61,10 +61,10 @@ namespace SushiEngine
 
         namespace Passes
         {
-            class HizPass;
+            class HiZPass;
 
             /** @brief Traces and composites screen-space reflections into the scene. */
-            class SsrPass : public IRenderPass
+            class SSRPass : public IRenderPass
             {
                 public:
                     /**
@@ -75,13 +75,13 @@ namespace SushiEngine
                      * @param layout    The shared scene layout the pass binds.
                      * @param hiz       The pyramid pass whose image the trace samples.
                      */
-                    SsrPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+                    SSRPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                             Resources::GraphicsPipelineFactory& pipelines, Scene::SceneLayout& layout,
-                            HizPass& hiz);
-                    ~SsrPass() override;
+                            HiZPass& hiz);
+                    ~SSRPass() override;
 
-                    SsrPass(const SsrPass&) = delete;
-                    SsrPass& operator=(const SsrPass&) = delete;
+                    SSRPass(const SSRPass&) = delete;
+                    SSRPass& operator=(const SSRPass&) = delete;
 
                     void register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame) override;
@@ -101,7 +101,7 @@ namespace SushiEngine
                     Resources::ShaderLibrary& shaders_;
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::SceneLayout& layout_;
-                    HizPass& hiz_;
+                    HiZPass& hiz_;
                     Resources::PipelineHandle pipeline_;
             };
         } // namespace Passes

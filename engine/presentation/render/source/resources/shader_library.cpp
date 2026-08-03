@@ -199,7 +199,7 @@ namespace SushiEngine
 
                 const EShMessages messages =
                     static_cast<EShMessages>(EShMsgSpvRules | EShMsgVulkanRules);
-                GlslIncluder includer(source_directory_);
+                GLSLIncluder includer(source_directory_);
                 if (!shader.parse(GetDefaultResources(), 100, false, messages, includer))
                 {
                     std::fprintf(stderr, "SushiEngine: shader reload failed for %s:\n%s\n",

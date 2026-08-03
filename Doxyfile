@@ -20,7 +20,7 @@ FULL_SIDEBAR           = NO
 # Public engine surface plus the hand-written manual landing and architecture
 # guide. The reference and the manual build together, Unity-manual style.
 INPUT                  = docs/api/mainpage.md \
-                         docs/guides/ARCHITECTURE.md \
+                         docs/ARCHITECTURE.md \
                          engine
 FILE_PATTERNS          = *.hpp *.h *.md
 RECURSIVE              = YES

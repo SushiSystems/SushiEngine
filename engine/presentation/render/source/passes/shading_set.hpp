@@ -72,7 +72,7 @@ namespace SushiEngine
         namespace Passes
         {
             class CloudShadowMapPass;
-            class IblPass;
+            class IBLPass;
             class IrradianceVolumePass;
 
             /**
@@ -84,7 +84,7 @@ namespace SushiEngine
              */
             struct ShadingSetSources
             {
-                IblPass& ibl;
+                IBLPass& ibl;
                 CloudShadowMapPass& cloud_shadow;
                 IrradianceVolumePass& gi;
                 Assets::MaterialSystem& materials;

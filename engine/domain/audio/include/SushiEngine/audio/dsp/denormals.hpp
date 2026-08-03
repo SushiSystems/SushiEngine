@@ -55,7 +55,7 @@ namespace SushiEngine
 {
     namespace Audio
     {
-        namespace Dsp
+        namespace DSP
         {
             /**
              * @brief RAII flush-to-zero scope for the FPU control word.
@@ -115,7 +115,7 @@ namespace SushiEngine
                     std::uint64_t saved_ = 0;
 #endif
             };
-        } // namespace Dsp
+        } // namespace DSP
     } // namespace Audio
 } // namespace SushiEngine
 

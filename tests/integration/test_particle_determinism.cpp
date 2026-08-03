@@ -33,7 +33,7 @@
 #include <SushiEngine/vfx/deterministic_backend.hpp>
 
 using namespace SushiEngine;
-using namespace SushiEngine::Vfx;
+using namespace SushiEngine::VFX;
 
 namespace
 {
@@ -90,11 +90,11 @@ namespace
     DeterministicEmitterState run(const CompiledEffect& effect, std::uint32_t seed, int steps)
     {
         DeterministicEmitterState state;
-        CpuDeterministicBackend::reset(state, seed);
+        CPUDeterministicBackend::reset(state, seed);
         const Vector3 position{2.0, 1.0, -3.0};
         const Quaternion rotation = quaternion_axis_angle(Vector3{0, 0, 1}, Scalar(0.3));
         for (int i = 0; i < steps; ++i)
-            CpuDeterministicBackend::step(state, effect.emitters[0], effect, FIXED_DT, position,
+            CPUDeterministicBackend::step(state, effect.emitters[0], effect, FIXED_DT, position,
                                           rotation);
         return state;
     }
@@ -126,19 +126,19 @@ TEST(Integration_ParticleDeterminism, SnapshotRestoreReplayReproducesState)
 
     // Continuous reference run to TOTAL_STEPS, capturing a snapshot at SNAPSHOT_STEP.
     DeterministicEmitterState live;
-    CpuDeterministicBackend::reset(live, seed);
+    CPUDeterministicBackend::reset(live, seed);
     DeterministicEmitterState snapshot;
     for (int i = 0; i < TOTAL_STEPS; ++i)
     {
         if (i == SNAPSHOT_STEP)
             snapshot = live; // trivially-copyable: a plain byte copy
-        CpuDeterministicBackend::step(live, effect.emitters[0], effect, FIXED_DT, position, rotation);
+        CPUDeterministicBackend::step(live, effect.emitters[0], effect, FIXED_DT, position, rotation);
     }
 
     // Roll back to the snapshot and replay the remaining steps.
     DeterministicEmitterState replay = snapshot;
     for (int i = SNAPSHOT_STEP; i < TOTAL_STEPS; ++i)
-        CpuDeterministicBackend::step(replay, effect.emitters[0], effect, FIXED_DT, position, rotation);
+        CPUDeterministicBackend::step(replay, effect.emitters[0], effect, FIXED_DT, position, rotation);
 
     ASSERT_GT(live.alive_count, 0u);
     EXPECT_EQ(std::memcmp(&replay, &live, sizeof(DeterministicEmitterState)), 0)

@@ -23,7 +23,7 @@
  * @file effect_preview.hpp
  * @brief The editor's live particle-effect preview and its emitter gizmo overlay.
  *
- * Holds one authored `Vfx::ParticleEffect` and its `EffectDatabase`, advances a play clock,
+ * Holds one authored `VFX::ParticleEffect` and its `EffectDatabase`, advances a play clock,
  * and each frame builds the `ParticleEmitterView`s the Scene viewport hands to the renderer —
  * computing the host-side spawn count (rate over time plus bursts) so the GPU emit shader stays
  * a pure allocator. Mirrors the animation subsystem's `SkeletonPreview`: a state-owning class
@@ -54,13 +54,13 @@ namespace SushiEngine
          *
          * @return The default authored effect.
          */
-        Vfx::ParticleEffect default_emitter_effect();
+        VFX::ParticleEffect default_emitter_effect();
 
         /** @brief One starting point offered in the effect library. */
         struct EffectTemplate
         {
             const char* name;         /**< Label shown in the library list. */
-            Vfx::ParticleEffect (*build)(); /**< Builds a fresh copy. */
+            VFX::ParticleEffect (*build)(); /**< Builds a fresh copy. */
         };
 
         /**
@@ -95,10 +95,10 @@ namespace SushiEngine
                  *
                  * @return The mutable effect.
                  */
-                Vfx::ParticleEffect& effect() noexcept;
+                VFX::ParticleEffect& effect() noexcept;
 
                 /** @brief The authored effect (const). */
-                const Vfx::ParticleEffect& effect() const noexcept;
+                const VFX::ParticleEffect& effect() const noexcept;
 
                 /**
                  * @brief Mirrors @p effect onto the preview surface.
@@ -110,7 +110,7 @@ namespace SushiEngine
                  *
                  * @param effect The effect to show; copied.
                  */
-                void set_effect(const Vfx::ParticleEffect& effect);
+                void set_effect(const VFX::ParticleEffect& effect);
 
                 /** @brief Whether the preview is emitting. */
                 bool playing() const noexcept { return playing_; }
@@ -212,8 +212,8 @@ namespace SushiEngine
                 /** @brief Rebuilds @ref billboards_ from the deterministic pools. */
                 void collect_billboards();
 
-                Vfx::EffectDatabase database_;
-                Vfx::AssetId effect_id_ = Vfx::INVALID_EFFECT;
+                VFX::EffectDatabase database_;
+                VFX::AssetId effect_id_ = VFX::INVALID_EFFECT;
                 Vector3 position_{Vector3{0, 1, 0}};
                 bool playing_ = true;
                 bool deterministic_ = false;
@@ -222,7 +222,7 @@ namespace SushiEngine
                 float step_carry_ = 0.0f;
                 std::vector<float> accumulators_;
                 std::vector<Render::ParticleEmitterView> views_;
-                std::vector<Vfx::DeterministicEmitterState> states_;
+                std::vector<VFX::DeterministicEmitterState> states_;
                 std::vector<Render::ParticleBillboard> billboards_;
         };
 

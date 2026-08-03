@@ -90,7 +90,7 @@ namespace SushiEngine
             engine_.mixer().set_master(master_bus_);
 
             {
-                std::unique_ptr<Audio::FdnReverbEffect> fx(new Audio::FdnReverbEffect());
+                std::unique_ptr<Audio::FDNReverbEffect> fx(new Audio::FDNReverbEffect());
                 Audio::I3DL2Reverb hall = Audio::I3DL2Reverb::concert_hall();
                 hall.wet_dry_mix = 100.0f; // aux bus: pure wet, the dry goes direct to master
                 fx->set_params(hall);
@@ -118,7 +118,7 @@ namespace SushiEngine
             enabled_ = enabled;
             if (enabled_)
             {
-                device_.reset(new SushiEngine::Audio::SdlAudioDevice());
+                device_.reset(new SushiEngine::Audio::SDLAudioDevice());
                 Audio::AudioStreamFormat desired;
                 desired.sample_rate = 48000;
                 desired.channel_count = 2;

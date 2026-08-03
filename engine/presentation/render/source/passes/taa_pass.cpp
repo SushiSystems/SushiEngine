@@ -41,7 +41,7 @@ namespace SushiEngine
     {
         namespace Passes
         {
-            TaaPass::TaaPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+            TAAPass::TAAPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                              Resources::GraphicsPipelineFactory& pipelines,
                              Scene::SceneLayout& layout)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout)
@@ -49,31 +49,31 @@ namespace SushiEngine
                 create_pipeline();
             }
 
-            TaaPass::~TaaPass() { destroy_pipeline(); }
+            TAAPass::~TAAPass() { destroy_pipeline(); }
 
-            void TaaPass::create_pipeline()
+            void TAAPass::create_pipeline()
             {
                 pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("taa.frag"), Frame::HDR_FORMAT));
             }
 
-            void TaaPass::destroy_pipeline()
+            void TAAPass::destroy_pipeline()
             {
                 // The factory owns the pipeline and swaps in its optimized rebuild, so
                 // the pass drops only its handle; clear_libraries() frees the pipeline.
                 pipeline_ = Resources::PipelineHandle{};
             }
 
-            void TaaPass::rebuild_pipelines()
+            void TAAPass::rebuild_pipelines()
             {
                 destroy_pipeline();
                 create_pipeline();
             }
 
-            const char* TaaPass::name() const noexcept { return "Temporal (built-in)"; }
+            const char* TAAPass::name() const noexcept { return "Temporal (built-in)"; }
 
-            void TaaPass::register_pass(Graph::RenderGraph& graph,
+            void TAAPass::register_pass(Graph::RenderGraph& graph,
                                         const Frame::FrameContext& frame)
             {
                 if (!frame.temporal_enabled())
@@ -100,7 +100,7 @@ namespace SushiEngine
                 register_upscale(graph, frame, inputs);
             }
 
-            void TaaPass::register_upscale(Graph::RenderGraph& graph,
+            void TAAPass::register_upscale(Graph::RenderGraph& graph,
                                            const Frame::FrameContext& frame,
                                            const Frame::UpscaleInputs& inputs)
             {

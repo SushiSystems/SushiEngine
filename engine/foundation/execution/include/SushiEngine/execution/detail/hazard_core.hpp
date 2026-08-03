@@ -46,7 +46,7 @@
  * order fewer redundant pairs than a naive history scan would, so long as every real
  * conflict is still ordered.
  *
- * Deliberately not part of a backend namespace: `NativeBackend::DagCompiler` is one
+ * Deliberately not part of a backend namespace: `NativeBackend::DAGCompiler` is one
  * consumer, and a future render-side/RHI2 consumer is a second — both instantiate
  * this template over their own node-handle type rather than each hand-rolling the
  * same interval bookkeeping.

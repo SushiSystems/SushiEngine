@@ -35,7 +35,7 @@ namespace
 {
     // A synthetic HRTF: a delayed, level-shaded impulse per ear driven by the azimuth, so a left
     // source energizes the left ear earlier and louder. Needs no external SOFA file.
-    class SyntheticHrtf final : public IHrtfDatabase
+    class SyntheticHRTF final : public IHRTFDatabase
     {
         public:
             int ir_length() const noexcept override { return 64; }
@@ -113,7 +113,7 @@ TEST(Unit_Audio, AuthoringBakeRoundTripsThroughBank)
 
 TEST(Unit_Audio, MaglsDecodePreservesLaterality)
 {
-    SyntheticHrtf hrtf;
+    SyntheticHRTF hrtf;
     MaglsBinauralDecoder magls;
     ASSERT_TRUE(magls.configure(3, hrtf, 48000.0, 256, 200, 1500.0));
     EXPECT_EQ(magls.channel_count(), 16);
@@ -159,7 +159,7 @@ TEST(Unit_Audio, MaglsDecodePreservesLaterality)
 
 TEST(Unit_Audio, AnthropometricWarpLengthensItd)
 {
-    SyntheticHrtf hrtf;
+    SyntheticHRTF hrtf;
     const int n = hrtf.ir_length();
 
     auto arrival = [](const float* ir, int len) {
@@ -178,7 +178,7 @@ TEST(Unit_Audio, AnthropometricWarpLengthensItd)
     hrtf.get_hrir(0.0f, 1.0f, 0.0f, bl.data(), br.data());
     const int base_itd = std::abs(arrival(br.data(), n) - arrival(bl.data(), n));
 
-    AnthropometricHrtfDatabase big(hrtf, 0.11f, 0.0875f);
+    AnthropometricHRTFDatabase big(hrtf, 0.11f, 0.0875f);
     std::vector<float> gl(static_cast<std::size_t>(n)), gr(static_cast<std::size_t>(n));
     big.get_hrir(0.0f, 1.0f, 0.0f, gl.data(), gr.data());
     const int big_itd = std::abs(arrival(gr.data(), n) - arrival(gl.data(), n));

@@ -72,7 +72,7 @@ namespace SushiEngine
                 };
 
                 /** @brief The push block the BRDF LUT shader reads. */
-                struct LutParams
+                struct LUTParams
                 {
                     std::uint32_t resolution;
                     std::uint32_t sample_count;
@@ -166,10 +166,10 @@ namespace SushiEngine
                 }
             } // namespace
 
-            IblPass::IblPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+            IBLPass::IBLPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                              Resources::GraphicsPipelineFactory& pipelines,
                              Resources::SamplerCache& samplers, Scene::SceneLayout& layout,
-                             Textures::CloudNoise& noise, AtmosphereLutPass& atmosphere,
+                             Textures::CloudNoise& noise, AtmosphereLUTPass& atmosphere,
                              VolumetricFogPass& fog)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   noise_(noise), atmosphere_(atmosphere), fog_(fog)
@@ -272,7 +272,7 @@ namespace SushiEngine
 
                 VkPushConstantRange lut_range{};
                 lut_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-                lut_range.size = sizeof(LutParams);
+                lut_range.size = sizeof(LUTParams);
                 VkPipelineLayoutCreateInfo lut_pipeline_info{};
                 lut_pipeline_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
                 lut_pipeline_info.setLayoutCount = 1;
@@ -320,7 +320,7 @@ namespace SushiEngine
                 generate_brdf_lut();
             }
 
-            IblPass::~IblPass()
+            IBLPass::~IBLPass()
             {
                 destroy_pipelines();
                 for (std::uint32_t face = 0; face < 6; ++face)
@@ -355,7 +355,7 @@ namespace SushiEngine
                 destroy_cube(environment_);
             }
 
-            void IblPass::create_cube(Cube& cube, std::uint32_t resolution, std::uint32_t mips,
+            void IBLPass::create_cube(Cube& cube, std::uint32_t resolution, std::uint32_t mips,
                                       VkImageUsageFlags usage, bool face_views)
             {
                 cube.resolution = resolution;
@@ -421,7 +421,7 @@ namespace SushiEngine
                 }
             }
 
-            void IblPass::destroy_cube(Cube& cube)
+            void IBLPass::destroy_cube(Cube& cube)
             {
                 for (VkImageView& view : cube.face_views)
                     if (view != VK_NULL_HANDLE)
@@ -443,7 +443,7 @@ namespace SushiEngine
                 cube.image = VK_NULL_HANDLE;
             }
 
-            void IblPass::create_brdf_lut()
+            void IBLPass::create_brdf_lut()
             {
                 VkImageCreateInfo image_info{};
                 image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -497,7 +497,7 @@ namespace SushiEngine
                               "vkCreateImageView(ibl dummy)");
             }
 
-            void IblPass::create_pipelines()
+            void IBLPass::create_pipelines()
             {
                 sky_pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
@@ -510,7 +510,7 @@ namespace SushiEngine
                     sh_pipeline_layout_, shaders_.module("sh_project.comp"));
             }
 
-            void IblPass::destroy_pipelines()
+            void IBLPass::destroy_pipelines()
             {
                 // The compute pipelines are pass-owned and destroyed here; the sky pipeline
                 // is a graphics handle the factory owns (it swaps in the optimized rebuild),
@@ -525,7 +525,7 @@ namespace SushiEngine
                 sky_pipeline_ = Resources::PipelineHandle{};
             }
 
-            void IblPass::rebuild_pipelines()
+            void IBLPass::rebuild_pipelines()
             {
                 destroy_pipelines();
                 create_pipelines();
@@ -534,7 +534,7 @@ namespace SushiEngine
                 captured_ = false;
             }
 
-            void IblPass::generate_brdf_lut()
+            void IBLPass::generate_brdf_lut()
             {
                 const VkPipeline pipeline = pipelines_.create_compute(
                     lut_pipeline_layout_, shaders_.module("brdf_lut.comp"));
@@ -595,7 +595,7 @@ namespace SushiEngine
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
                 Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                lut_pipeline_layout_, 0, set);
-                LutParams params{BRDF_RESOLUTION, BRDF_SAMPLES};
+                LUTParams params{BRDF_RESOLUTION, BRDF_SAMPLES};
                 vkCmdPushConstants(cmd, lut_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                    sizeof(params), &params);
                 vkCmdDispatch(cmd, groups(BRDF_RESOLUTION, 8), groups(BRDF_RESOLUTION, 8), 1);
@@ -649,7 +649,7 @@ namespace SushiEngine
                 vkDestroyPipeline(device_.device(), pipeline, nullptr);
             }
 
-            bool IblPass::environment_changed(const Frame::FrameContext& frame)
+            bool IBLPass::environment_changed(const Frame::FrameContext& frame)
             {
                 if (frame.environment == nullptr)
                     return false;
@@ -672,7 +672,7 @@ namespace SushiEngine
                 return std::fabs(last_altitude_ - altitude) > 500.0f;
             }
 
-            void IblPass::register_pass(Graph::RenderGraph& graph,
+            void IBLPass::register_pass(Graph::RenderGraph& graph,
                                         const Frame::FrameContext& frame)
             {
                 if (!environment_changed(frame))
@@ -700,7 +700,7 @@ namespace SushiEngine
                     { record_update(cmd, frame, context); });
             }
 
-            void IblPass::record_update(VkCommandBuffer cmd, const Frame::FrameContext& frame,
+            void IBLPass::record_update(VkCommandBuffer cmd, const Frame::FrameContext& frame,
                                         const Graph::PassContext& context)
             {
                 const Scene::SceneUniforms* source = static_cast<const Scene::SceneUniforms*>(
@@ -821,7 +821,7 @@ namespace SushiEngine
                     // VolumetricFogPass has run at least once, which registers after this
                     // capture in the pass list. dummy_depth_view_ is 2D and this binding is
                     // sampler3D, so it can't stand in; the aerial LUT is already a valid,
-                    // GENERAL-layout 3D texture by this point (AtmosphereLutPass registers
+                    // GENERAL-layout 3D texture by this point (AtmosphereLUTPass registers
                     // before this capture), so it does instead.
                     writer.image(Scene::SceneLayout::FOG_LUT_BINDING, atmosphere_.aerial_view(),
                                  sampler_, VK_IMAGE_LAYOUT_GENERAL);

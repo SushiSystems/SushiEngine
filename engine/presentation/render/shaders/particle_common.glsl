@@ -3,7 +3,7 @@
 
 // Shared particle definitions for the VFX compute and draw shaders (design §5).
 // Included by every particle compute and draw shader; the struct layouts mirror
-// Vfx::GpuParticle and Scene::GpuEmitter field for field, read with scalar std430 members so the
+// VFX::GPUParticle and Scene::GPUEmitter field for field, read with scalar std430 members so the
 // byte layout matches the host upload exactly.
 
 // For particle_sdf_collide. sdf_common declares no bindings and no version — it is pure
@@ -11,11 +11,11 @@
 // draw shaders nothing but lets the simulate pass reuse the GI field rather than restate it.
 #include "sdf_common.glsl"
 
-// Force fields one emitter can carry; mirrors Vfx::MAX_FORCE_FIELDS. Declared before the Emitter
+// Force fields one emitter can carry; mirrors VFX::MAX_FORCE_FIELDS. Declared before the Emitter
 // struct because it sizes a member of it.
 #define MAX_FORCE_FIELDS 4u
 
-// One live particle — mirrors Vfx::GpuParticle (five vec4s, 80 bytes).
+// One live particle — mirrors VFX::GPUParticle (five vec4s, 80 bytes).
 struct Particle
 {
     float px, py, pz;
@@ -34,7 +34,7 @@ struct Particle
     float birth_size;
 };
 
-// One active emitter — mirrors Scene::GpuEmitter (mat4 + sixteen vec4s + the force-field table).
+// One active emitter — mirrors Scene::GPUEmitter (mat4 + sixteen vec4s + the force-field table).
 struct Emitter
 {
     mat4  model;
@@ -89,23 +89,23 @@ struct Emitter
     vec4  force_fields[MAX_FORCE_FIELDS * 3];
 };
 
-// Vfx::ForceFieldKind values.
+// VFX::ForceFieldKind values.
 const uint FIELD_POINT = 0u;
 const uint FIELD_VORTEX = 1u;
 const uint FIELD_DRAG = 2u;
 
-// Vfx::BlendMode values.
+// VFX::BlendMode values.
 const uint BLEND_ADDITIVE = 0u;
 const uint BLEND_ALPHA = 1u;
 const uint BLEND_PREMULTIPLIED = 2u;
 
-// Vfx::RenderFlags bits — the particle material, per emitter.
+// VFX::RenderFlags bits — the particle material, per emitter.
 const uint RENDER_SOFT = 1u;
 const uint RENDER_LIT = 2u;
 const uint RENDER_TEXTURED = 4u;
 const uint RENDER_DISTANCE_FIELD_COLLISION = 8u;
 
-// Vfx::RenderAlignment values.
+// VFX::RenderAlignment values.
 const uint ALIGN_FACE_CAMERA = 0u;
 const uint ALIGN_VELOCITY_STRETCHED = 1u;
 const uint ALIGN_RIBBON = 2u;
@@ -123,7 +123,7 @@ const uint NO_MESH_SLOT = 0xFFFFFFFFu;
 const uint TRAIL_POINTS = 8u;
 const uint RIBBON_VERTICES = (TRAIL_POINTS - 1u) * 6u;
 
-// Vfx::UpdateFlags / ShapeFlags bits.
+// VFX::UpdateFlags / ShapeFlags bits.
 const uint UPDATE_GRAVITY = 1u;
 const uint UPDATE_DRAG = 2u;
 const uint UPDATE_TURBULENCE = 4u;
@@ -133,7 +133,7 @@ const uint UPDATE_FORCE_FIELDS = 32u;
 const uint UPDATE_COLLISION = 64u;
 const uint SHAPE_EMIT_FROM_SHELL = 1u;
 
-// Vfx::EmitterShape values.
+// VFX::EmitterShape values.
 const uint SHAPE_POINT = 0u;
 const uint SHAPE_SPHERE = 1u;
 const uint SHAPE_HEMISPHERE = 2u;
@@ -219,7 +219,7 @@ void sample_shape(inout uint seed, Emitter e, out vec3 local_position, out vec3 
 
 // The emitter's placed force fields, evaluated at @p position.
 //
-// The mirror of CpuDeterministicBackend::integrate's field loop — the two backends read the same
+// The mirror of CPUDeterministicBackend::integrate's field loop — the two backends read the same
 // authored record, so they have to agree on what it means. A field's weight is 1 at its centre and
 // 0 at its rim, raised to the authored falloff: nothing outside the radius is touched, and nothing
 // spikes to infinity at the centre the way a raw inverse-square would. Drag fields do not
@@ -486,7 +486,7 @@ vec3 curl_noise(vec3 p)
 // `clipmap` and `cfg` are camera-relative, so `eye` converts the particle's absolute world
 // position into the field's space. The response is deliberately identical to the depth path's,
 // so switching an emitter between the two changes what it collides with and nothing else.
-bool particle_sdf_collide(sampler3D clipmap, SdfClipmapConfig cfg, Emitter e, vec3 eye,
+bool particle_sdf_collide(sampler3D clipmap, SDFClipmapConfig cfg, Emitter e, vec3 eye,
                           inout vec3 position, inout vec3 velocity)
 {
     vec3 local = position - eye;

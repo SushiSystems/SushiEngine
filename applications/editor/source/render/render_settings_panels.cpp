@@ -221,7 +221,7 @@ namespace SushiEngine
             ImGui::Checkbox("Ambient Occlusion (GTAO)", &settings.gtao.enabled);
             if (settings.gtao.enabled)
             {
-                ImGui::PushID("Gtao");
+                ImGui::PushID("GTAO");
                 ImGui::SliderFloat("Radius", &settings.gtao.radius, 0.1f, 4.0f, "%.2f m");
                 hint("World-space radius the occlusion is gathered over, in metres. Large "
                      "values darken broadly; small ones only crease corners.");
@@ -246,7 +246,7 @@ namespace SushiEngine
             ImGui::Checkbox("Screen-Space Reflections", &settings.ssr.enabled);
             if (settings.ssr.enabled)
             {
-                ImGui::PushID("Ssr");
+                ImGui::PushID("SSR");
                 int ssr_steps = static_cast<int>(settings.ssr.max_steps);
                 if (ImGui::SliderInt("Max Steps", &ssr_steps, 8, 128))
                     settings.ssr.max_steps = static_cast<std::uint32_t>(ssr_steps);
@@ -584,7 +584,7 @@ namespace SushiEngine
             }
 
             SushiEngine::Render::RenderSettings& settings = context.render_settings;
-            SushiEngine::Render::GpuCullingSettings& cull = settings.gpu_culling;
+            SushiEngine::Render::GPUCullingSettings& cull = settings.gpu_culling;
 
             // Same exhaustive-memcmp persistence as the Post-Process panel: RenderSettings is
             // trivially-copyable, so a snapshot before the widgets catches any edit below.

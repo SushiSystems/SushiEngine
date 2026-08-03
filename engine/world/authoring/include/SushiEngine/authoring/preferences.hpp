@@ -140,7 +140,7 @@ namespace SushiEngine
          *
          * The Preferences window and the editor loop depend on this interface, not on a
          * concrete JSON file, so the storage backend can change without touching the UI
-         * (dependency inversion). One implementation, @ref JsonPreferencesStore, writes a
+         * (dependency inversion). One implementation, @ref JSONPreferencesStore, writes a
          * JSON file under the per-user config directory.
          */
         class IPreferencesStore

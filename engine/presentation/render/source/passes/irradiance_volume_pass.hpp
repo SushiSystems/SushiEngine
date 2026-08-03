@@ -30,7 +30,7 @@
  * Holds one cascade of diffuse irradiance probes (nine SH coefficients each) in a
  * device-local storage buffer, and a small ring of host-visible config blocks the
  * shading pass reads to locate the lattice. Each frame the pass snaps the lattice to the
- * camera and, when GI is on, hands the buffer to its @ref Gi::IProbeTracer to refill —
+ * camera and, when GI is on, hands the buffer to its @ref GI::IProbeTracer to refill —
  * the tracer is the strategy that decides how a probe's incident radiance is gathered.
  * The probe buffer is pass-owned and hand-barriered to the shading pass's fragment reads,
  * exactly as the IBL SH buffer and the atmosphere LUTs are; the render graph only
@@ -72,7 +72,7 @@ namespace SushiEngine
 
         namespace Passes
         {
-            class IblPass;
+            class IBLPass;
 
             /**
              * @brief Owns the probe SH grid and its per-frame relight.
@@ -94,7 +94,7 @@ namespace SushiEngine
                     IrradianceVolumePass(Vulkan::VulkanDevice& device,
                                          Resources::ShaderLibrary& shaders,
                                          Resources::GraphicsPipelineFactory& pipelines,
-                                         IblPass& ibl, Geometry::MeshRegistry& meshes);
+                                         IBLPass& ibl, Geometry::MeshRegistry& meshes);
                     ~IrradianceVolumePass() override;
 
                     IrradianceVolumePass(const IrradianceVolumePass&) = delete;
@@ -110,7 +110,7 @@ namespace SushiEngine
                     /** @brief Bytes of the probe SH grid. */
                     static VkDeviceSize probe_sh_bytes() noexcept
                     {
-                        return Gi::probe_sh_buffer_bytes();
+                        return GI::probe_sh_buffer_bytes();
                     }
 
                     /**
@@ -126,7 +126,7 @@ namespace SushiEngine
                     /** @brief Bytes of the probe config block. */
                     static VkDeviceSize config_bytes() noexcept
                     {
-                        return sizeof(Gi::ProbeVolumeConfig);
+                        return sizeof(GI::ProbeVolumeConfig);
                     }
 
                     /**
@@ -138,10 +138,10 @@ namespace SushiEngine
                      * @param frame_index The frame counter, selecting the tracer's ring slot.
                      * @return The field, or an empty record when the tracer keeps none.
                      */
-                    Gi::VisibilityField visibility_field(std::uint32_t frame_index) const noexcept
+                    GI::VisibilityField visibility_field(std::uint32_t frame_index) const noexcept
                     {
                         return tracer_ ? tracer_->visibility_field(frame_index)
-                                       : Gi::VisibilityField{};
+                                       : GI::VisibilityField{};
                     }
 
                     /**
@@ -163,7 +163,7 @@ namespace SushiEngine
                     void destroy_buffers();
 
                     Vulkan::VulkanDevice& device_;
-                    IblPass& ibl_;
+                    IBLPass& ibl_;
 
                     VkBuffer probe_sh_ = VK_NULL_HANDLE;
                     VmaAllocation probe_sh_allocation_ = VK_NULL_HANDLE;
@@ -174,7 +174,7 @@ namespace SushiEngine
                                                                VK_NULL_HANDLE};
                     void* config_mapped_[RING] = {nullptr, nullptr, nullptr};
 
-                    std::unique_ptr<Gi::IProbeTracer> tracer_;
+                    std::unique_ptr<GI::IProbeTracer> tracer_;
                     bool probe_buffer_initialized_ = false;
             };
         } // namespace Passes

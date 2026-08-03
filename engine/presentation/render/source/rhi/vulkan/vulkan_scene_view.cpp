@@ -55,7 +55,7 @@ namespace SushiEngine
                  *
                  * Sized to cover the whole graph, not a sample of it. At 16 the profiler ran
                  * out of timers part-way down the pass list and silently stopped measuring —
-                 * `GpuProfiler::begin_pass` returns INVALID_TIMER once the budget is spent, so
+                 * `GPUProfiler::begin_pass` returns INVALID_TIMER once the budget is spent, so
                  * the overflow read as *absence*: at Ultra, where more tier-gated passes are
                  * enabled ahead of them, `sky` and `clouds` simply vanished from the panel and
                  * looked like passes that were not running.
@@ -272,7 +272,7 @@ namespace SushiEngine
                 height_ = new_height;
                 resources_.resize(new_width, new_height);
                 // The cloud buffer's own dedicated history is sized off the output
-                // extent too (see CloudTaaPass's header comment for why it stays fixed
+                // extent too (see CloudTAAPass's header comment for why it stays fixed
                 // across dynamic resolution and tier changes otherwise); resize() is a
                 // no-op when the derived half-extent hasn't actually changed.
                 cloud_taa_pass_.resize(new_width, new_height);
@@ -396,7 +396,7 @@ namespace SushiEngine
                                          const ParticleEmitterView* emitters,
                                          std::size_t emitter_count,
                                          const ParticleBillboard* billboards,
-                                         std::size_t billboard_count, const UiView* ui)
+                                         std::size_t billboard_count, const UIView* ui)
             {
                 // Resolve the quality tier once, here, into the effective settings every
                 // pass reads and the extra per-pass knobs that have no home in
@@ -544,7 +544,7 @@ namespace SushiEngine
                 uniforms.ibl_params[1] = static_cast<float>(ibl_pass_.specular_mip_count());
                 uniforms.ibl_params[2] = environment.image_based_lighting ? 1.0f : 0.0f;
                 // The main sky pass reads the background from the sky-view LUT; the IBL
-                // cube capture clears this so it keeps the per-pixel march (see IblPass).
+                // cube capture clears this so it keeps the per-pixel march (see IBLPass).
                 uniforms.ibl_params[3] = 1.0f;
                 // The jitter enters the projection here and nowhere else, so every pass
                 // that transforms by it inherits the offset and no world-space value
@@ -669,13 +669,13 @@ namespace SushiEngine
                 // reallocated — because the per-frame push set is full and a volume needs a
                 // home every pipeline can reach.
                 std::uint32_t samples = 0;
-                Gi::SdfClipmapConfig field_config{};
+                GI::SDFClipmapConfig field_config{};
                 if (resolved.params.stochastic_light_samples > 0 &&
                     effective.lights.stochastic_shadows && irradiance_volume_pass_.field_live())
                 {
                     if (visibility_field_slot_ == Resources::INVALID_HEAP_INDEX)
                     {
-                        const Gi::VisibilityField field =
+                        const GI::VisibilityField field =
                             irradiance_volume_pass_.visibility_field(frame_counter_);
                         if (field.valid())
                             visibility_field_slot_ = assets_.heap().allocate_volume(
@@ -688,7 +688,7 @@ namespace SushiEngine
                         // Derived from the eye by the same pure function the tracer's own
                         // populate calls, so the block the shading pass marches with and the
                         // field it marches can never describe different cubes.
-                        Gi::configure_sdf_clipmap(frame.eye, 0, field_config);
+                        GI::configure_sdf_clipmap(frame.eye, 0, field_config);
                     }
                 }
                 lights_.set_stochastic_shadows(samples, effective.lights.stochastic_distance,
@@ -790,7 +790,7 @@ namespace SushiEngine
                 if (frame.draws.ui != nullptr)
                     ui_geometry_.prepare(index, *frame.draws.ui, font_);
                 else
-                    ui_geometry_.prepare(index, UiView{}, font_);
+                    ui_geometry_.prepare(index, UIView{}, font_);
 
                 // Flatten this frame's cosmetic emitters and upload their table and LUT atlases;
                 // the particle sim pass emits and integrates into the shared pool and the

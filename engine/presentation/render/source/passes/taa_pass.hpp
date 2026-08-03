@@ -73,7 +73,7 @@ namespace SushiEngine
              *
              * Non-copyable: it owns a Vulkan pipeline.
              */
-            class TaaPass final : public IRenderPass, public Frame::IUpscaler
+            class TAAPass final : public IRenderPass, public Frame::IUpscaler
             {
                 public:
                     /**
@@ -83,13 +83,13 @@ namespace SushiEngine
                      * @param pipelines Factory the pipeline is built through.
                      * @param layout    The shared scene descriptor and pipeline layout.
                      */
-                    TaaPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+                    TAAPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                             Resources::GraphicsPipelineFactory& pipelines,
                             Scene::SceneLayout& layout);
-                    ~TaaPass() override;
+                    ~TAAPass() override;
 
-                    TaaPass(const TaaPass&) = delete;
-                    TaaPass& operator=(const TaaPass&) = delete;
+                    TAAPass(const TAAPass&) = delete;
+                    TAAPass& operator=(const TAAPass&) = delete;
 
                     void register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame) override;

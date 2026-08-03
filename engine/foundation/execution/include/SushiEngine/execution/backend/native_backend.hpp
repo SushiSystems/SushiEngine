@@ -283,7 +283,7 @@ namespace SushiEngine
                     RunReport run() { return compiler_.run(pool_); }
 
                 private:
-                    DagCompiler compiler_;
+                    DAGCompiler compiler_;
                     ThreadPool& pool_;
             };
 
@@ -468,7 +468,7 @@ namespace SushiEngine
 
                 private:
                     std::map<RegionKey, std::vector<NodeRecord>> regions_;
-                    DagCompiler compiled_;
+                    DAGCompiler compiled_;
                     bool dirty_ = true;
                     ThreadPool& pool_;
             };

@@ -50,7 +50,7 @@ namespace
     /** @brief A scene of type-erased shapes with a broadphase over them. */
     struct Scene
     {
-        BvhBroadphase<Real> broadphase;
+        BVHBroadphase<Real> broadphase;
         std::vector<CollisionShape<Real>> shapes;
 
         ProxyId add(const CollisionShape<Real>& shape, std::uint32_t flags = 0,
@@ -345,7 +345,7 @@ TEST(Unit_SceneQuery, QueriesAgreeWhicheverBroadphaseIsBehindThem)
     // The query layer names `IBroadphase`, so the §4.4 substitutability claim has
     // to hold for queries too: the same ray, the same answer, either structure.
     SweepAndPruneBroadphase<Real> sweep;
-    BvhBroadphase<Real> hierarchy;
+    BVHBroadphase<Real> hierarchy;
     std::vector<CollisionShape<Real>> shapes;
     for (int i = 0; i < 40; ++i)
     {

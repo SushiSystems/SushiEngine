@@ -61,7 +61,7 @@ namespace SushiEngine
          * indices and a target. @ref update advances the deterministic `animator_step` tick,
          * runs `AnimatorEvaluator` (host-side; the batched SushiRuntime device path is still
          * open, §12.3), and rebuilds this frame's single-entry `SkinnedInstance`. Mirrors
-         * `Vfx::EffectPreview`'s shape: a state-owning class the viewport reads from every frame.
+         * `VFX::EffectPreview`'s shape: a state-owning class the viewport reads from every frame.
          *
          * Single-instance by design — this closes the missing wire for one live character, it
          * does not add multi-character ECS wiring (§12.4).
@@ -141,7 +141,7 @@ namespace SushiEngine
                  * checkboxes with no save step.
                  *
                  * @param clip_name The glTF animation's name to loop on this layer (matches
-                 *                  `GltfClip::name` from the same file @ref load_gltf used).
+                 *                  `GLTFClip::name` from the same file @ref load_gltf used).
                  * @param mask      The mask gating which joints this layer writes, or nullptr
                  *                  for an unmasked (all-joints) layer.
                  * @param weight    The layer's initial blend weight in [0, 1] (live-adjustable
@@ -212,7 +212,7 @@ namespace SushiEngine
                 const Animation::SkeletonView& skeleton() const noexcept { return skeleton_; }
 
                 /** @brief The source glTF's clips, for the layer-add clip picker. */
-                const std::vector<Animation::GltfClip>& available_clips() const noexcept
+                const std::vector<Animation::GLTFClip>& available_clips() const noexcept
                 {
                     return available_clips_;
                 }
@@ -428,7 +428,7 @@ namespace SushiEngine
                 Animation::AnimatorEvaluator evaluator_;
                 Animation::TwoBoneIk two_bone_ik_; /**< weight defaults to 0 (off); see set_two_bone_ik. */
                 std::string source_path_; /**< The loaded glTF's path, kept for Statistics. */
-                std::vector<Animation::GltfClip> available_clips_; /**< From load_gltf, for add_layer. */
+                std::vector<Animation::GLTFClip> available_clips_; /**< From load_gltf, for add_layer. */
                 // Parallel to controller_desc_.layers: layer_weight_param_index_[i] is that
                 // layer's AnimatorParameterBlock slot (index 0 unused — the base layer has no
                 // weight parameter). Lets set_layer_weight/layer_weight write/read the live

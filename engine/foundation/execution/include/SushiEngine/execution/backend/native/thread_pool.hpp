@@ -39,7 +39,7 @@ namespace SushiEngine
             /**
              * @brief Runs the ready nodes of one dependency wave concurrently.
              *
-             * `DagCompiler::run` is a wave-scheduled Kahn's-algorithm executor: at
+             * `DAGCompiler::run` is a wave-scheduled Kahn's-algorithm executor: at
              * any moment, every node in the current wave has no unfinished
              * predecessor and therefore no declared access overlapping any other
              * node in the same wave (the hazard tracker's ordering guarantees this
@@ -89,7 +89,7 @@ namespace SushiEngine
                      *
                      * Jobs are independent by the caller's own contract (this class
                      * enforces nothing about their access patterns — @ref
-                     * NativeBackend::DagCompiler is the caller that guarantees it).
+                     * NativeBackend::DAGCompiler is the caller that guarantees it).
                      * Blocks the calling thread until every job has finished.
                      *
                      * @param jobs The wave's ready nodes' bound closures.

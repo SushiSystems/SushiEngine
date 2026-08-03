@@ -31,7 +31,7 @@
 
 #include <SushiEngine/audio/dsp/dsp.hpp>
 
-using namespace SushiEngine::Audio::Dsp;
+using namespace SushiEngine::Audio::DSP;
 
 namespace
 {
@@ -194,26 +194,26 @@ TEST(Unit_Audio, StateVariableFilterSplitsBands)
     EXPECT_GT(rms(hp_out, 4096), 0.5);
 }
 
-TEST(Unit_Audio, SimdGainAndMixMatchScalarIncludingRemainder)
+TEST(Unit_Audio, SIMDGainAndMixMatchScalarIncludingRemainder)
 {
     const int n = 13; // deliberately not a multiple of 4 to hit the scalar tail
     std::vector<float> buf(n), ref(n);
     for (int i = 0; i < n; ++i)
         buf[i] = ref[i] = static_cast<float>(i) - 6.0f;
 
-    Simd::apply_gain(buf.data(), n, 0.5f);
+    SIMD::apply_gain(buf.data(), n, 0.5f);
     for (int i = 0; i < n; ++i)
         EXPECT_FLOAT_EQ(buf[i], ref[i] * 0.5f);
 
     std::vector<float> dst(n, 1.0f), src(n);
     for (int i = 0; i < n; ++i)
         src[i] = static_cast<float>(i);
-    Simd::mix_accumulate(dst.data(), src.data(), n, 2.0f);
+    SIMD::mix_accumulate(dst.data(), src.data(), n, 2.0f);
     for (int i = 0; i < n; ++i)
         EXPECT_FLOAT_EQ(dst[i], 1.0f + static_cast<float>(i) * 2.0f);
 
     std::vector<float> ramp(4, 1.0f);
-    Simd::apply_gain_ramp(ramp.data(), 4, 0.0f, 1.0f);
+    SIMD::apply_gain_ramp(ramp.data(), 4, 0.0f, 1.0f);
     EXPECT_FLOAT_EQ(ramp[0], 0.0f);
     EXPECT_FLOAT_EQ(ramp[3], 1.0f);
 }
@@ -221,21 +221,21 @@ TEST(Unit_Audio, SimdGainAndMixMatchScalarIncludingRemainder)
 TEST(Unit_Audio, EqualPowerPanKeepsConstantPower)
 {
     float l = 0.0f, r = 0.0f;
-    Simd::equal_power_pan(0.0f, l, r); // centre
+    SIMD::equal_power_pan(0.0f, l, r); // centre
     EXPECT_NEAR(l, 0.70710678f, 1e-4f);
     EXPECT_NEAR(r, 0.70710678f, 1e-4f);
 
-    Simd::equal_power_pan(-1.0f, l, r); // hard left
+    SIMD::equal_power_pan(-1.0f, l, r); // hard left
     EXPECT_NEAR(l, 1.0f, 1e-4f);
     EXPECT_NEAR(r, 0.0f, 1e-4f);
 
-    Simd::equal_power_pan(1.0f, l, r); // hard right
+    SIMD::equal_power_pan(1.0f, l, r); // hard right
     EXPECT_NEAR(l, 0.0f, 1e-4f);
     EXPECT_NEAR(r, 1.0f, 1e-4f);
 
     for (float p = -1.0f; p <= 1.0f; p += 0.1f)
     {
-        Simd::equal_power_pan(p, l, r);
+        SIMD::equal_power_pan(p, l, r);
         EXPECT_NEAR(l * l + r * r, 1.0f, 1e-4f); // constant power
     }
 }

@@ -64,7 +64,7 @@ namespace SushiEngine
                                  Resources::GraphicsPipelineFactory& pipelines,
                                  Scene::SceneLayout& layout, CloudscapeCompilePass& cloudscape,
                                  CloudLightVolumePass& light_volume, Textures::CloudNoise& noise,
-                                 AtmosphereLutPass& atmosphere)
+                                 AtmosphereLUTPass& atmosphere)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   cloudscape_(cloudscape), light_volume_(light_volume), noise_(noise),
                   atmosphere_(atmosphere)
@@ -194,7 +194,7 @@ namespace SushiEngine
                         // lights every cloud with the top-of-atmosphere beam: identical at
                         // midnight and at noon, which is why the deck stayed white after
                         // sunset while the sky — which does read this LUT — went black.
-                        // Stays in GENERAL across AtmosphereLutPass's own compute build,
+                        // Stays in GENERAL across AtmosphereLUTPass's own compute build,
                         // like the other LUTs this descriptor set samples elsewhere.
                         const VkSampler lut_sampler =
                             frame.samplers->get(Resources::SamplerDesc{});

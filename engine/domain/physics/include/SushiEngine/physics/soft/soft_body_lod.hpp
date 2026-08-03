@@ -34,7 +34,7 @@
  * 2. **Carrying the state across.** @ref coarsen_soft_body_state and
  *    @ref refine_soft_body_state, which move a deformed pose between two of the
  *    asset's lattices through the barycentric mappings the cooker stored.
- * 3. **Owning the tiers and doing both.** @ref SoftBodyLodChain.
+ * 3. **Owning the tiers and doing both.** @ref SoftBodyLODChain.
  *
  * **The transfer is written in displacements, not positions,** and that is the
  * whole reason a body does not pop. Reconstructing a coarse vertex as
@@ -100,7 +100,7 @@ namespace SushiEngine
          * @tparam T The scalar element type.
          */
         template <typename T>
-        struct SoftBodyLodSettings
+        struct SoftBodyLODSettings
         {
             /**
              * @brief Coverage below which the next coarser tier takes over.
@@ -139,7 +139,7 @@ namespace SushiEngine
          * @return The tier it should be in.
          */
         template <typename T>
-        inline std::size_t select_soft_body_tier(const SoftBodyLodSettings<T>& settings,
+        inline std::size_t select_soft_body_tier(const SoftBodyLODSettings<T>& settings,
                                                  std::size_t tier_count, std::size_t current,
                                                  T coverage) noexcept
         {
@@ -372,11 +372,11 @@ namespace SushiEngine
          * @tparam T The scalar element type.
          */
         template <typename T>
-        class SoftBodyLodChain
+        class SoftBodyLODChain
         {
             public:
-                /** @brief Which tier is which coverage; see @ref SoftBodyLodSettings. */
-                SoftBodyLodSettings<T> settings;
+                /** @brief Which tier is which coverage; see @ref SoftBodyLODSettings. */
+                SoftBodyLODSettings<T> settings;
 
                 /**
                  * @brief Adds a tier, coarser than every tier already added.

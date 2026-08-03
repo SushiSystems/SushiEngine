@@ -199,7 +199,7 @@ namespace SushiEngine
                 std::uint32_t surface_indices_offset;/**< uint32[surface_index_count]. */
                 std::uint32_t bindings_offset;      /**< SoftBodyBinding[binding_count]. */
                 std::uint32_t mappings_offset;      /**< SoftBodyBinding[mapping_count]. */
-                std::uint32_t surface_nodes_offset; /**< MeshBvhNode<Scalar>[surface_node_count]. */
+                std::uint32_t surface_nodes_offset; /**< MeshBVHNode<Scalar>[surface_node_count]. */
                 std::uint32_t surface_order_offset; /**< uint32[surface_triangle_count]. */
                 std::uint32_t surface_adjacency_offset; /**< uint32[3 * surface_triangle_count]. */
                 std::uint32_t field_offset;         /**< float[resolution^3]. */
@@ -220,7 +220,7 @@ namespace SushiEngine
                 std::vector<std::uint32_t> surface_indices;
                 std::vector<SoftBodyBinding> bindings;
                 std::vector<SoftBodyBinding> mappings;
-                std::vector<MeshBvhNode<Scalar>> surface_nodes;
+                std::vector<MeshBVHNode<Scalar>> surface_nodes;
                 std::vector<std::uint32_t> surface_order;
                 std::vector<std::uint32_t> surface_adjacency;
                 Geometry::SignedDistanceFieldBrick field;
@@ -252,7 +252,7 @@ namespace SushiEngine
                 const SoftBodyBinding* mappings = nullptr;
                 std::uint32_t mapping_count = 0;
 
-                const MeshBvhNode<Scalar>* surface_nodes = nullptr;
+                const MeshBVHNode<Scalar>* surface_nodes = nullptr;
                 const std::uint32_t* surface_order = nullptr;
                 const std::uint32_t* surface_adjacency = nullptr;
                 std::uint32_t surface_node_count = 0;

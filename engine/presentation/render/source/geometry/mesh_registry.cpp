@@ -445,8 +445,8 @@ namespace SushiEngine
                 // Bake the mesh's signed-distance brick now, from the caller's fast CPU data,
                 // rather than reading it back from the write-combined upload buffer later. The
                 // brick feeds probe GI's scene distance clipmap; it costs nothing when unused.
-                entry.brick = Gi::bake_mesh_sdf(vertices, vertex_count, indices, index_count,
-                                                Gi::SDF_BRICK_RESOLUTION);
+                entry.brick = GI::bake_mesh_sdf(vertices, vertex_count, indices, index_count,
+                                                GI::SDF_BRICK_RESOLUTION);
                 imported_.push_back(std::move(entry));
                 return static_cast<MeshId>(imported_.size() - 1);
             }
@@ -512,11 +512,11 @@ namespace SushiEngine
                 return imported_[mesh_id].morph_targets;
             }
 
-            const Gi::MeshSdfBrick* MeshRegistry::mesh_brick(MeshId mesh_id) const noexcept
+            const GI::MeshSDFBrick* MeshRegistry::mesh_brick(MeshId mesh_id) const noexcept
             {
                 if (mesh_id == INVALID_MESH || mesh_id >= imported_.size())
                     return nullptr;
-                const Gi::MeshSdfBrick& brick = imported_[mesh_id].brick;
+                const GI::MeshSDFBrick& brick = imported_[mesh_id].brick;
                 return brick.resolution > 0 ? &brick : nullptr;
             }
 

@@ -152,7 +152,7 @@ namespace SushiEngine
                 const Decal* decals = nullptr;
                 std::size_t decal_count = 0;
                 /** @brief The frame's 2D UI overlay, composited after tone mapping; null for none. */
-                const UiView* ui = nullptr;
+                const UIView* ui = nullptr;
                 std::uint32_t selected_id = NO_PICK;
             };
 

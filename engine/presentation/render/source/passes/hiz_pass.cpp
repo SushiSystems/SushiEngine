@@ -105,7 +105,7 @@ namespace SushiEngine
                 }
             } // namespace
 
-            HizPass::HizPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+            HiZPass::HiZPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                              Resources::GraphicsPipelineFactory& pipelines)
                 : device_(device), shaders_(shaders), pipelines_(pipelines)
             {
@@ -148,7 +148,7 @@ namespace SushiEngine
                 create_pipeline();
             }
 
-            HizPass::~HizPass()
+            HiZPass::~HiZPass()
             {
                 destroy_image();
                 destroy_pipeline();
@@ -158,25 +158,25 @@ namespace SushiEngine
                     vkDestroyDescriptorSetLayout(device_.device(), set_layout_, nullptr);
             }
 
-            void HizPass::create_pipeline()
+            void HiZPass::create_pipeline()
             {
                 pipeline_ = pipelines_.create_compute(pipeline_layout_, shaders_.module("hiz.comp"));
             }
 
-            void HizPass::destroy_pipeline()
+            void HiZPass::destroy_pipeline()
             {
                 if (pipeline_ != VK_NULL_HANDLE)
                     vkDestroyPipeline(device_.device(), pipeline_, nullptr);
                 pipeline_ = VK_NULL_HANDLE;
             }
 
-            void HizPass::rebuild_pipelines()
+            void HiZPass::rebuild_pipelines()
             {
                 destroy_pipeline();
                 create_pipeline();
             }
 
-            void HizPass::create_image(std::uint32_t width, std::uint32_t height)
+            void HiZPass::create_image(std::uint32_t width, std::uint32_t height)
             {
                 width_ = width;
                 height_ = height;
@@ -224,7 +224,7 @@ namespace SushiEngine
                 }
             }
 
-            void HizPass::destroy_image()
+            void HiZPass::destroy_image()
             {
                 for (VkImageView& view : mip_views_)
                     if (view != VK_NULL_HANDLE)
@@ -243,7 +243,7 @@ namespace SushiEngine
                 mips_ = 0;
             }
 
-            void HizPass::register_pass(Graph::RenderGraph& graph,
+            void HiZPass::register_pass(Graph::RenderGraph& graph,
                                         const Frame::FrameContext& frame)
             {
                 if (!frame.settings.ssr.enabled || frame.camera == nullptr ||

@@ -24,10 +24,10 @@
 // Integration_Rollback: SushiLoop M3's key invariant (docs/slop/SUSHILOOP.md) — a
 // rollback-and-replay must produce exactly the same result as an uninterrupted
 // simulation. One world runs straight through every tick as the baseline. A second
-// world runs the same recorded input stream and the same per-entity seeded RngState,
+// world runs the same recorded input stream and the same per-entity seeded RNGState,
 // but partway through is rolled back to an earlier tick (via RollbackBuffer) and
 // replayed forward from there. If the byte snapshot were lossy, or if any piece of
-// state the step touches (Position *and* the per-entity RngState both live in the
+// state the step touches (Position *and* the per-entity RNGState both live in the
 // same chunk) were not captured, the replayed world would diverge from the baseline
 // after the rollback point; this proves it does not.
 
@@ -46,7 +46,7 @@ using namespace SushiEngine;
 namespace
 {
     struct Position { Vector3 v; };
-    struct Random   { Loop::RngState state; };
+    struct Random   { Loop::RNGState state; };
 
     constexpr Scalar      FIXED_DT               = Scalar(0.02);
     constexpr std::size_t ENTITIES               = 8;
@@ -83,7 +83,7 @@ TEST(Integration_Rollback, RollbackAndReplayMatchesUninterruptedRun)
     auto& execution = Harness::shared_context();
 
     Loop::InputHistory<Scalar> input;
-    Loop::RngState input_rng = Loop::seed_rng(0xABCDEFu);
+    Loop::RNGState input_rng = Loop::seed_rng(0xABCDEFu);
     for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
         input.record(tick, Scalar(Loop::next_unit(input_rng)) - Scalar(0.5));
 

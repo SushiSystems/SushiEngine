@@ -19,7 +19,7 @@
 #define MAX_LIGHTS_PER_CLUSTER 64u
 #define LIGHT_TYPE_SPOT 1.0
 
-// One packed punctual light, matching the GpuLight lanes LightSystem writes. Positions
+// One packed punctual light, matching the GPULight lanes LightSystem writes. Positions
 // are camera-relative (eye already subtracted), the same space the mesh fragment shades
 // in, so a light-to-fragment vector is a plain difference.
 struct PunctualLight

@@ -66,17 +66,17 @@ namespace SushiEngine
          * @param angular_radius_radians Apparent angular radius of the body.
          * @return The representation regime to draw it in.
          */
-        inline Render::BodyLod lod_for_angular_radius(double angular_radius_radians) noexcept
+        inline Render::BodyLOD lod_for_angular_radius(double angular_radius_radians) noexcept
         {
             if (angular_radius_radians > 0.15)
-                return Render::BodyLod::Surface;
+                return Render::BodyLOD::Surface;
             if (angular_radius_radians > 0.02)
-                return Render::BodyLod::Mesh;
+                return Render::BodyLOD::Mesh;
             if (angular_radius_radians > 0.0005)
-                return Render::BodyLod::Impostor;
+                return Render::BodyLOD::Impostor;
             if (angular_radius_radians > 2.0e-6)
-                return Render::BodyLod::Disk;
-            return Render::BodyLod::Point;
+                return Render::BodyLOD::Disk;
+            return Render::BodyLOD::Point;
         }
 
         /**

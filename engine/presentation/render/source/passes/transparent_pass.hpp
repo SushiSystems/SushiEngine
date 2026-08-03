@@ -83,7 +83,7 @@ namespace SushiEngine
         namespace Passes
         {
             class CloudShadowMapPass;
-            class IblPass;
+            class IBLPass;
             class IrradianceVolumePass;
 
             /**
@@ -117,7 +117,7 @@ namespace SushiEngine
                                     Scene::SceneLayout& layout, Geometry::MeshRegistry& meshes,
                                     Assets::MaterialSystem& materials, Scene::MotionSystem& motion,
                                     Scene::SkinningSystem& skinning, CloudShadowMapPass& cloud_shadow,
-                                    IblPass& ibl, IrradianceVolumePass& gi,
+                                    IBLPass& ibl, IrradianceVolumePass& gi,
                                     Lighting::LightSystem& lights);
                     ~TransparentPass() override;
 
@@ -141,7 +141,7 @@ namespace SushiEngine
                     Scene::MotionSystem& motion_;
                     Scene::SkinningSystem& skinning_;
                     CloudShadowMapPass& cloud_shadow_;
-                    IblPass& ibl_;
+                    IBLPass& ibl_;
                     IrradianceVolumePass& gi_;
                     Lighting::LightSystem& lights_;
                     Resources::PipelineHandle mesh_pipeline_;

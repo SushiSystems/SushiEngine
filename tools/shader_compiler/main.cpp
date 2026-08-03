@@ -151,7 +151,7 @@ int main(int argc, char** argv)
     std::string directory = input_path;
     const std::size_t separator = directory.find_last_of("/\\");
     directory = separator == std::string::npos ? std::string(".") : directory.substr(0, separator);
-    SushiEngine::Render::GlslIncluder includer(directory);
+    SushiEngine::Render::GLSLIncluder includer(directory);
 
     if (!shader.parse(GetDefaultResources(), default_version, false, messages, includer))
     {

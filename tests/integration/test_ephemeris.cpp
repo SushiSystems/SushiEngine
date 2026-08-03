@@ -34,20 +34,20 @@
 
 using namespace SushiEngine;
 
-TEST(Integration_Ephemeris, LodLadderIsMonotonicInAngularSize)
+TEST(Integration_Ephemeris, LODLadderIsMonotonicInAngularSize)
 {
     using Astro::lod_for_angular_radius;
     // Bigger apparent size never demotes the regime.
-    EXPECT_EQ(lod_for_angular_radius(0.3), Render::BodyLod::Surface);
-    EXPECT_EQ(lod_for_angular_radius(0.05), Render::BodyLod::Mesh);
-    EXPECT_EQ(lod_for_angular_radius(0.005), Render::BodyLod::Impostor);
-    EXPECT_EQ(lod_for_angular_radius(1e-4), Render::BodyLod::Disk);
-    EXPECT_EQ(lod_for_angular_radius(1e-7), Render::BodyLod::Point);
+    EXPECT_EQ(lod_for_angular_radius(0.3), Render::BodyLOD::Surface);
+    EXPECT_EQ(lod_for_angular_radius(0.05), Render::BodyLOD::Mesh);
+    EXPECT_EQ(lod_for_angular_radius(0.005), Render::BodyLOD::Impostor);
+    EXPECT_EQ(lod_for_angular_radius(1e-4), Render::BodyLOD::Disk);
+    EXPECT_EQ(lod_for_angular_radius(1e-7), Render::BodyLOD::Point);
 
-    Render::BodyLod previous = lod_for_angular_radius(1e-8);
+    Render::BodyLOD previous = lod_for_angular_radius(1e-8);
     for (double a = 1e-7; a < 1.0; a *= 1.7)
     {
-        const Render::BodyLod lod = lod_for_angular_radius(a);
+        const Render::BodyLOD lod = lod_for_angular_radius(a);
         EXPECT_GE(static_cast<int>(lod), static_cast<int>(previous));
         previous = lod;
     }

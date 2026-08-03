@@ -27,16 +27,16 @@
  * @file fem_element.hpp
  * @brief One tetrahedron's rest state and per-tick solver bookkeeping.
  *
- * The FEM analogue of `XpbdDistanceConstraintT` (`physics/constraints/xpbd_constraint.hpp`):
+ * The FEM analogue of `XPBDDistanceConstraintT` (`physics/constraints/xpbd_constraint.hpp`):
  * a trivially-copyable descriptor holding exactly the per-element constants the
  * projection needs. Where a distance constraint names two bodies, an element
  * names four — the tetrahedron's own vertices. `ConstraintStore`,
  * `IncrementalColoring` and `color_constraints` were written for exactly two
  * body indices per constraint end to end; P6-J1 generalized them to N, and this
- * element opts in through @ref FemTetrahedronT::BODY_COUNT, so it can be
+ * element opts in through @ref FEMTetrahedronT::BODY_COUNT, so it can be
  * coloured and stored as the four-body hyperedge it is. §16's P6-A entry runs it
  * through a small host-only reference solver (`finite_element_model.hpp`) — the
- * same relationship `HostXpbdSolver` has to `RuntimeGraphBuilder`.
+ * same relationship `HostXPBDSolver` has to `RuntimeGraphBuilder`.
  */
 
 #include <cstdint>
@@ -64,7 +64,7 @@ namespace SushiEngine
          * @tparam T The scalar element type.
          */
         template <typename T>
-        struct FemTetrahedronT
+        struct FEMTetrahedronT
         {
             using Real = T;
 
@@ -157,7 +157,7 @@ namespace SushiEngine
             T accumulated_plastic_strain = 0;
         };
 
-        /** @brief The boundary FEM element: `FemTetrahedronT` fixed to `Scalar`. */
-        using FemTetrahedron = FemTetrahedronT<Scalar>;
+        /** @brief The boundary FEM element: `FEMTetrahedronT` fixed to `Scalar`. */
+        using FEMTetrahedron = FEMTetrahedronT<Scalar>;
     } // namespace Physics
 } // namespace SushiEngine

@@ -50,7 +50,7 @@ namespace
 // A modal impact rings after the strike and eventually goes silent.
 TEST(Unit_Audio, ModalImpactRingsAndDecays)
 {
-    Dsp::ModalResonatorBank bank;
+    DSP::ModalResonatorBank bank;
     bank.set_material(1, 400.0f); // metal
     bank.prepare(48000.0);
     EXPECT_GT(bank.mode_count(), 0u);

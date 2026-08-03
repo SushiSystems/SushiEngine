@@ -67,10 +67,10 @@ namespace SushiEngine
 
             IrradianceVolumePass::IrradianceVolumePass(
                 Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
-                Resources::GraphicsPipelineFactory& pipelines, IblPass& ibl,
+                Resources::GraphicsPipelineFactory& pipelines, IBLPass& ibl,
                 Geometry::MeshRegistry& meshes)
                 : device_(device), ibl_(ibl),
-                  tracer_(std::make_unique<Gi::SdfProbeTracer>(device, shaders, pipelines, meshes))
+                  tracer_(std::make_unique<GI::SDFProbeTracer>(device, shaders, pipelines, meshes))
             {
                 create_buffers();
             }
@@ -103,7 +103,7 @@ namespace SushiEngine
                 {
                     VkBufferCreateInfo info{};
                     info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-                    info.size = sizeof(Gi::ProbeVolumeConfig);
+                    info.size = sizeof(GI::ProbeVolumeConfig);
                     info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
                     VmaAllocationCreateInfo alloc{};
                     alloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -150,8 +150,8 @@ namespace SushiEngine
                 // The config block is written every frame — enabled or not — so the shading
                 // pass always has a valid binding to read and fall back on.
                 const std::uint32_t ring = frame.index % RING;
-                Gi::ProbeVolumeConfig config{};
-                Gi::configure_probe_volume(frame.eye, enabled, environment.gi.intensity,
+                GI::ProbeVolumeConfig config{};
+                GI::configure_probe_volume(frame.eye, enabled, environment.gi.intensity,
                                            environment.gi.normal_bias, config);
                 std::memcpy(config_mapped_[ring], &config, sizeof(config));
 
@@ -178,13 +178,13 @@ namespace SushiEngine
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 
-                        Gi::ProbeRelightInputs inputs{};
+                        GI::ProbeRelightInputs inputs{};
                         inputs.probe_sh = probe_sh_;
                         inputs.probe_sh_bytes = probe_sh_bytes();
                         inputs.probe_count =
-                            static_cast<std::uint32_t>(Gi::PROBE_COUNT_ALL_CASCADES);
+                            static_cast<std::uint32_t>(GI::PROBE_COUNT_ALL_CASCADES);
                         inputs.environment_sh = ibl_.sh_buffer();
-                        inputs.environment_sh_bytes = IblPass::sh_buffer_bytes();
+                        inputs.environment_sh_bytes = IBLPass::sh_buffer_bytes();
                         inputs.config = &config;
                         inputs.frame = &frame;
                         tracer_->relight(cmd, inputs);

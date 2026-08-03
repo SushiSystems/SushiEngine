@@ -48,7 +48,7 @@ namespace
     double sh_kernel(int order, const float* a, const float* b)
     {
         double sum = 0.0;
-        for (int i = 0; i < Dsp::ambisonic_channel_count(order); ++i)
+        for (int i = 0; i < DSP::ambisonic_channel_count(order); ++i)
             sum += static_cast<double>(a[i]) * b[i];
         return sum;
     }
@@ -80,21 +80,21 @@ namespace
 TEST(Unit_Audio, SphericalHarmonicsAcnSn3dConvention)
 {
     const int order = 3;
-    EXPECT_EQ(Dsp::ambisonic_channel_count(order), 16);
+    EXPECT_EQ(DSP::ambisonic_channel_count(order), 16);
 
     float g[16];
     // W is always 1; first-order channels are the direction's y, z, x.
-    Dsp::ambisonic_encode_gains(order, 1.0f, 0.0f, 0.0f, g); // front
+    DSP::ambisonic_encode_gains(order, 1.0f, 0.0f, 0.0f, g); // front
     EXPECT_NEAR(g[0], 1.0f, 1e-4f);
     EXPECT_NEAR(g[1], 0.0f, 1e-4f); // y
     EXPECT_NEAR(g[2], 0.0f, 1e-4f); // z
     EXPECT_NEAR(g[3], 1.0f, 1e-4f); // x
 
-    Dsp::ambisonic_encode_gains(order, 0.0f, 1.0f, 0.0f, g); // left
+    DSP::ambisonic_encode_gains(order, 0.0f, 1.0f, 0.0f, g); // left
     EXPECT_NEAR(g[1], 1.0f, 1e-4f);
     EXPECT_NEAR(g[3], 0.0f, 1e-4f);
 
-    Dsp::ambisonic_encode_gains(order, 0.0f, 0.0f, 1.0f, g); // up
+    DSP::ambisonic_encode_gains(order, 0.0f, 0.0f, 1.0f, g); // up
     EXPECT_NEAR(g[2], 1.0f, 1e-4f);
 }
 
@@ -103,7 +103,7 @@ TEST(Unit_Audio, SphericalHarmonicsAreOrthogonal)
     // Accumulate the Gram matrix over a near-uniform set of directions; off-diagonals
     // must vanish and the l=1 diagonal must be 1/(2l+1) = 1/3 (SN3D).
     const int order = 3;
-    const int channels = Dsp::ambisonic_channel_count(order);
+    const int channels = DSP::ambisonic_channel_count(order);
     std::vector<double> gram(static_cast<std::size_t>(channels * channels), 0.0);
     const int samples = 4000;
     for (int k = 0; k < samples; ++k)
@@ -112,7 +112,7 @@ TEST(Unit_Audio, SphericalHarmonicsAreOrthogonal)
         const double phi = kTwoPi * ((k * 97) % samples) / samples;
         const double r = std::sqrt(std::max(0.0, 1.0 - z * z));
         float g[16];
-        Dsp::ambisonic_encode_gains(order, static_cast<float>(r * std::cos(phi)),
+        DSP::ambisonic_encode_gains(order, static_cast<float>(r * std::cos(phi)),
                                     static_cast<float>(r * std::sin(phi)), static_cast<float>(z), g);
         for (int i = 0; i < channels; ++i)
             for (int j = 0; j < channels; ++j)
@@ -132,10 +132,10 @@ TEST(Unit_Audio, AmbisonicKernelPeaksAtSourceDirection)
 {
     const int order = 3;
     float source[16], front[16], side[16], back[16];
-    Dsp::ambisonic_encode_gains(order, 1.0f, 0.0f, 0.0f, source);
-    Dsp::ambisonic_encode_gains(order, 1.0f, 0.0f, 0.0f, front);
-    Dsp::ambisonic_encode_gains(order, 0.0f, 1.0f, 0.0f, side);
-    Dsp::ambisonic_encode_gains(order, -1.0f, 0.0f, 0.0f, back);
+    DSP::ambisonic_encode_gains(order, 1.0f, 0.0f, 0.0f, source);
+    DSP::ambisonic_encode_gains(order, 1.0f, 0.0f, 0.0f, front);
+    DSP::ambisonic_encode_gains(order, 0.0f, 1.0f, 0.0f, side);
+    DSP::ambisonic_encode_gains(order, -1.0f, 0.0f, 0.0f, back);
     EXPECT_GT(sh_kernel(order, source, front), sh_kernel(order, source, side));
     EXPECT_GT(sh_kernel(order, source, side), sh_kernel(order, source, back));
 }
@@ -278,7 +278,7 @@ TEST(Unit_Audio, EngineHeadTrackingReaimsSource)
 
 // The direction spectral cue makes a rear source duller than a front one at the same
 // lateral angle — the front/back distinction the ITD alone cannot provide.
-TEST(Unit_Audio, HrtfFrontBackTimbre)
+TEST(Unit_Audio, HRTFFrontBackTimbre)
 {
     const double sr = 48000.0;
     const int block = 512;

@@ -4,7 +4,7 @@
 find_package(glslang CONFIG REQUIRED)
 
 add_executable(sushiengine_shader_compiler main.cpp)
-# It resolves #include inside a shader with the renderer's own GlslIncluder, so that the
+# It resolves #include inside a shader with the renderer's own GLSLIncluder, so that the
 # build-time compile and the renderer's hot-reload path read a shader the same way. That header
 # is renderer internals, and reaching it is what makes this the renderer's tool rather than a
 # general-purpose one.

@@ -51,11 +51,11 @@ int main()
     const Scalar h = Scalar(1.0 / 60.0) / Scalar(SUBSTEPS);
     const Vector3 origin{0, Scalar(3), 0};
 
-    PhysicsWorld<XpbdDistanceConstraint> world(execution);
+    PhysicsWorld<XPBDDistanceConstraint> world(execution);
     // Pin the y == 0 layer (the bottom of the lattice's own frame) so the block hangs.
     const SoftBodyLattice lattice =
         build_soft_body_lattice(world, N, N, N, spacing, origin, Scalar(0), /*pin_bottom=*/true);
-    world.finalize(16, h, XpbdDistanceProjection{});
+    world.finalize(16, h, XPBDDistanceProjection{});
 
     for (int step = 0; step < 120; ++step)
         world.step(Vector3{0, Scalar(-9.8), 0}, SUBSTEPS);

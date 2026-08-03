@@ -696,7 +696,7 @@ namespace SushiEngine
                                               const QueryFilter<T>& filter = {})
         {
             ClosestResult<T> best;
-            const Aabb<T> search = aabb_expand(shape_world_bounds(query), max_distance);
+            const AABB<T> search = aabb_expand(shape_world_bounds(query), max_distance);
             broadphase.query_overlap(
                 search,
                 [&](ProxyId id)
@@ -749,8 +749,8 @@ namespace SushiEngine
 
             // One box covering the whole sweep: the candidates are found once, not
             // once per advancement step.
-            const Aabb<T> start = shape_world_bounds(query);
-            const Aabb<T> finish = shape_world_bounds(translate_shape(query, direction * distance));
+            const AABB<T> start = shape_world_bounds(query);
+            const AABB<T> finish = shape_world_bounds(translate_shape(query, direction * distance));
             broadphase.query_overlap(
                 aabb_union(start, finish),
                 [&](ProxyId id)

@@ -104,10 +104,10 @@ namespace SushiEngine
                  * @return The distance-attenuation gain applied this block (for diagnostics).
                  */
                 float process(const float* input, float* output, int frame_count,
-                              float distance_meters, const Dsp::Atmosphere& atmosphere,
+                              float distance_meters, const DSP::Atmosphere& atmosphere,
                               const VoiceDescriptor& descriptor) noexcept
                 {
-                    const float c = Dsp::speed_of_sound(atmosphere);
+                    const float c = DSP::speed_of_sound(atmosphere);
                     const float physical_now =
                         (distance_meters / c) * static_cast<float>(sample_rate_);
 
@@ -166,7 +166,7 @@ namespace SushiEngine
 
                     // Air absorption: a distance-driven low-pass, its cutoff slewed.
                     const float cutoff_target =
-                        Dsp::air_absorption_cutoff(distance_meters, atmosphere);
+                        DSP::air_absorption_cutoff(distance_meters, atmosphere);
                     cutoff_.set_target(cutoff_target);
                     const float cutoff = cutoff_.advance_block(frame_count);
                     air_.set_low_pass(cutoff, sample_rate_);
@@ -178,7 +178,7 @@ namespace SushiEngine
                         distance_attenuation(descriptor.model, distance_meters,
                                              descriptor.min_distance, descriptor.max_distance,
                                              descriptor.rolloff);
-                    Dsp::Simd::apply_gain_ramp(output, frame_count, gain_prev_, gain_now);
+                    DSP::SIMD::apply_gain_ramp(output, frame_count, gain_prev_, gain_now);
                     gain_prev_ = gain_now;
 
                     // Near-field compensation: a very close source gains a low-frequency
@@ -212,9 +212,9 @@ namespace SushiEngine
                     return block_worth > 480.0f ? block_worth : 480.0f;
                 }
 
-                Dsp::FractionalDelayLine delay_;
-                Dsp::OnePole air_;
-                Dsp::Biquad near_field_;
+                DSP::FractionalDelayLine delay_;
+                DSP::OnePole air_;
+                DSP::Biquad near_field_;
                 SmoothedValue cutoff_;
                 double sample_rate_ = 48000.0;
                 int max_block_ = 0;

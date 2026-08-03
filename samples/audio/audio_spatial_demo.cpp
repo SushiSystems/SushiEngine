@@ -158,7 +158,7 @@ int main()
     // (2) Best-effort audible orbit (headphones recommended).
     engine.voices().set_listener(ListenerState{AudioVec3{0.0f, 0.0f, 0.0f},
                                                AudioVec3{1.0f, 0.0f, 0.0f}, AudioVec3{0.0f, 0.0f, 1.0f}});
-    SdlAudioDevice device;
+    SDLAudioDevice device;
     AudioStreamFormat desired;
     desired.sample_rate = 48000;
     desired.channel_count = 2;

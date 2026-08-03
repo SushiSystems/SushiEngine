@@ -40,9 +40,9 @@ namespace SushiEngine
     {
         namespace Passes
         {
-            UiPass::UiPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+            UIPass::UIPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                            Resources::GraphicsPipelineFactory& pipelines,
-                           Geometry::UiBuffers& geometry, const Assets::FontAtlas& font,
+                           Geometry::UIBuffers& geometry, const Assets::FontAtlas& font,
                            const Assets::TextureLibrary& textures, Resources::DescriptorHeap& heap)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), geometry_(geometry),
                   font_(font), textures_(textures), heap_(heap)
@@ -73,7 +73,7 @@ namespace SushiEngine
                 create_pipeline();
             }
 
-            UiPass::~UiPass()
+            UIPass::~UIPass()
             {
                 destroy_pipeline();
                 if (pipeline_layout_ != VK_NULL_HANDLE)
@@ -82,20 +82,20 @@ namespace SushiEngine
                     vkDestroyDescriptorSetLayout(device_.device(), empty_layout_, nullptr);
             }
 
-            void UiPass::create_pipeline()
+            void UIPass::create_pipeline()
             {
                 Resources::GraphicsPipelineDesc desc;
                 desc.layout = pipeline_layout_;
                 desc.vertex_shader = shaders_.module("ui.vert");
                 desc.fragment_shader = shaders_.module("ui.frag");
-                desc.vertex_stride = sizeof(Geometry::UiVertex);
+                desc.vertex_stride = sizeof(Geometry::UIVertex);
                 desc.attribute_count = 3;
                 desc.attributes[0] = {0, VK_FORMAT_R32G32_SFLOAT,
-                                      offsetof(Geometry::UiVertex, x)};
+                                      offsetof(Geometry::UIVertex, x)};
                 desc.attributes[1] = {1, VK_FORMAT_R32G32_SFLOAT,
-                                      offsetof(Geometry::UiVertex, u)};
+                                      offsetof(Geometry::UIVertex, u)};
                 desc.attributes[2] = {2, VK_FORMAT_R8G8B8A8_UNORM,
-                                      offsetof(Geometry::UiVertex, color)};
+                                      offsetof(Geometry::UIVertex, color)};
                 desc.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
                 // A UI quad has no meaningful facing and no depth: it is painted in list order
                 // over a finished image.
@@ -117,19 +117,19 @@ namespace SushiEngine
                 pipeline_ = pipelines_.create(desc);
             }
 
-            void UiPass::destroy_pipeline()
+            void UIPass::destroy_pipeline()
             {
                 // The factory owns the pipeline; the pass drops only its handle.
                 pipeline_ = Resources::PipelineHandle{};
             }
 
-            void UiPass::rebuild_pipelines()
+            void UIPass::rebuild_pipelines()
             {
                 destroy_pipeline();
                 create_pipeline();
             }
 
-            void UiPass::register_pass(Graph::RenderGraph& graph,
+            void UIPass::register_pass(Graph::RenderGraph& graph,
                                        const Frame::FrameContext& frame)
             {
                 // Nothing authored, nothing packed, or no heap to reach the atlas through: the

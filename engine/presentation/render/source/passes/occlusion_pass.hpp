@@ -27,7 +27,7 @@
  * @brief The farthest-depth pyramid the GPU-driven cull tests occlusion against.
  *
  * A pass-owned, persistent mip chain of the *maximum* linear view depth in each footprint —
- * the conservative twin of the HizPass nearest-depth pyramid, which is right for reflection
+ * the conservative twin of the HiZPass nearest-depth pyramid, which is right for reflection
  * marching and wrong for culling. It is built after the depth prepass each frame and read at
  * the *start* of the next frame by the cull pass, so an instance is tested against the depth
  * the last frame actually rendered (the standard single-phase GPU occlusion; the two-phase

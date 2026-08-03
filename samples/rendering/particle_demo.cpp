@@ -34,7 +34,7 @@
 #include <SushiEngine/vfx/deterministic_backend.hpp>
 
 using namespace SushiEngine;
-using namespace SushiEngine::Vfx;
+using namespace SushiEngine::VFX;
 
 namespace
 {
@@ -97,11 +97,11 @@ namespace
     DeterministicEmitterState run(const CompiledEffect& effect, std::uint32_t seed, int steps)
     {
         DeterministicEmitterState state;
-        CpuDeterministicBackend::reset(state, seed);
+        CPUDeterministicBackend::reset(state, seed);
         const Vector3 position{0, 0.5, 0};
         const Quaternion rotation{};
         for (int i = 0; i < steps; ++i)
-            CpuDeterministicBackend::step(state, effect.emitters[0], effect, DT, position, rotation);
+            CPUDeterministicBackend::step(state, effect.emitters[0], effect, DT, position, rotation);
         return state;
     }
 }
@@ -138,7 +138,7 @@ int main()
 
     // Rollback: snapshot mid-run, restore, replay -> byte-identical to the continuous run.
     DeterministicEmitterState live;
-    CpuDeterministicBackend::reset(live, 555u);
+    CPUDeterministicBackend::reset(live, 555u);
     DeterministicEmitterState snapshot;
     const Vector3 position{0, 0.5, 0};
     const Quaternion rotation{};
@@ -146,11 +146,11 @@ int main()
     {
         if (i == 100)
             snapshot = live;
-        CpuDeterministicBackend::step(live, compiled.emitters[0], compiled, DT, position, rotation);
+        CPUDeterministicBackend::step(live, compiled.emitters[0], compiled, DT, position, rotation);
     }
     DeterministicEmitterState replay = snapshot;
     for (int i = 100; i < 240; ++i)
-        CpuDeterministicBackend::step(replay, compiled.emitters[0], compiled, DT, position, rotation);
+        CPUDeterministicBackend::step(replay, compiled.emitters[0], compiled, DT, position, rotation);
     check(std::memcmp(&replay, &live, sizeof(live)) == 0, "restore + replay reproduces the state");
 
     if (failures != 0)

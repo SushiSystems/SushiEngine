@@ -41,7 +41,7 @@
  * effect rather than a refactor for its own sake:
  *
  * - **A cloth particle is a body.** It has zero inverse inertia and links to its
- *   neighbours through the same `XpbdDistanceConstraint` a rope uses. It was never
+ *   neighbours through the same `XPBDDistanceConstraint` a rope uses. It was never
  *   a different kind of thing; it lived in a different world only because the world
  *   was immutable and a cloth had to be built all at once.
  * - **A contact is a constraint.** Manifolds are generated here, on the host, and
@@ -274,7 +274,7 @@ namespace SushiEngine
                     // shape, rather than from a stored proxy: a proxy is only as fresh as the
                     // last index update, and a debug view whose boxes lag the bodies they
                     // belong to is worse than none — it looks like a broadphase bug.
-                    const Physics::Aabb<T> bounds =
+                    const Physics::AABB<T> bounds =
                         Physics::shape_world_bounds(shape_for_slot(std::uint32_t(slot)));
                     out.bounds_min = from_vector(bounds.min);
                     out.bounds_max = from_vector(bounds.max);
@@ -2393,7 +2393,7 @@ namespace SushiEngine
                 void rebuild_contact_index()
                 {
                     proxies_dirty_ = false;
-                    contact_index_ = Physics::BvhBroadphase<T>{};
+                    contact_index_ = Physics::BVHBroadphase<T>{};
                     contact_proxies_.clear();
 
                     // What each slot collides as, resolved before any proxy is built,
@@ -2907,7 +2907,7 @@ namespace SushiEngine
                         return;
                     refresh_bodies();
                     query_dirty_ = false;
-                    query_index_ = Physics::BvhBroadphase<T>{};
+                    query_index_ = Physics::BVHBroadphase<T>{};
                     query_shapes_.clear();
                     query_entities_.clear();
 
@@ -3002,7 +3002,7 @@ namespace SushiEngine
                 // being dropped (see `continuous_advancement_budget`'s own doc), so
                 // this is not an error count — it is what lets a caller measure
                 // whether the budget actually bound this tick, the same reason
-                // `FemFractureReport::elements_skipped` exists.
+                // `FEMFractureReport::elements_skipped` exists.
                 std::size_t continuous_advancement_skipped_this_tick_ = 0;
 
                 // §16.44's opt-in: a joint whose island is asleep is dropped from the
@@ -3016,7 +3016,7 @@ namespace SushiEngine
                 // hierarchy refreshed in place every tick, and the manifolds keyed by
                 // the pair of proxy numbers so warm starting has something stable to
                 // match against.
-                Physics::BvhBroadphase<T> contact_index_;
+                Physics::BVHBroadphase<T> contact_index_;
                 std::vector<ContactProxy> contact_proxies_;
                 std::vector<T> cloth_radius_;
                 // The scene's vehicles, and the index that finds one by entity. Held behind
@@ -3051,7 +3051,7 @@ namespace SushiEngine
                 // same argument: reading a pose must not require a mutable scene.
                 mutable std::vector<Body> bodies_;
                 mutable bool bodies_dirty_ = true;
-                mutable Physics::BvhBroadphase<T> query_index_;
+                mutable Physics::BVHBroadphase<T> query_index_;
                 mutable std::vector<Physics::CollisionShape<T>> query_shapes_;
                 mutable std::vector<EntityId> query_entities_;
                 mutable bool query_dirty_ = true;

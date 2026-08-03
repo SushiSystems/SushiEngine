@@ -84,7 +84,7 @@ namespace SushiEngine
             VolumetricFogPass::VolumetricFogPass(Vulkan::VulkanDevice& device,
                                                  Resources::ShaderLibrary& shaders,
                                                  Resources::GraphicsPipelineFactory& pipelines,
-                                                 AtmosphereLutPass& atmosphere,
+                                                 AtmosphereLUTPass& atmosphere,
                                                  Lighting::LightSystem& lights)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), atmosphere_(atmosphere),
                   lights_(lights)

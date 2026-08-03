@@ -51,10 +51,10 @@ namespace SushiEngine
          * that running total within the step, not across steps.
          *
          * @tparam Constraint A constraint type exposing body indices `a`/`b`, as
-         * `XpbdDistanceConstraint` does.
+         * `XPBDDistanceConstraint` does.
          */
         template <typename Constraint>
-        class XpbdSolver
+        class XPBDSolver
         {
             public:
                 /** @brief The scalar precision, derived from the constraint type. */
@@ -72,7 +72,7 @@ namespace SushiEngine
                  * @param projection  The per-constraint projection to apply.
                  */
                 template <typename Projection>
-                XpbdSolver(Execution::Context& context,
+                XPBDSolver(Execution::Context& context,
                            Execution::Buffer<RigidBodyT<Real>>& bodies,
                            const std::vector<Constraint>& constraints,
                            std::size_t body_count, std::size_t iterations, Real h,

@@ -43,7 +43,7 @@ namespace SushiEngine
          * graph-colouring is reused unchanged.
          */
         template <typename T>
-        struct XpbdDistanceConstraintT
+        struct XPBDDistanceConstraintT
         {
             /** @brief The scalar element type, so a solver/world can derive its precision. */
             using Real = T;
@@ -67,11 +67,11 @@ namespace SushiEngine
         };
 
         /**
-         * @brief The boundary distance constraint: `XpbdDistanceConstraintT` fixed to `Scalar`.
+         * @brief The boundary distance constraint: `XPBDDistanceConstraintT` fixed to `Scalar`.
          *
          * The default every existing solver, world, and demo uses; a runtime-selected
-         * precision instantiates `XpbdDistanceConstraintT<double>` directly instead.
+         * precision instantiates `XPBDDistanceConstraintT<double>` directly instead.
          */
-        using XpbdDistanceConstraint = XpbdDistanceConstraintT<Scalar>;
+        using XPBDDistanceConstraint = XPBDDistanceConstraintT<Scalar>;
     } // namespace Physics
 } // namespace SushiEngine

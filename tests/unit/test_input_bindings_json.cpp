@@ -17,7 +17,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Unit_InputBindingsJson: binding persistence (docs/design/input_manager.md §2.5). The
+// Unit_InputBindingsJSON: binding persistence (docs/design/input_manager.md §2.5). The
 // (de)serialization round-trips a rebind (the "survives restart" acceptance, proved by
 // re-resolving through the mapper), degrades a stale or partial document to compiled-in
 // defaults without throwing, and preserves unknown actions on round-trip. Reads are
@@ -70,7 +70,7 @@ namespace
     }
 }
 
-TEST(Unit_InputBindingsJson, RebindSurvivesASerializationRoundTrip)
+TEST(Unit_InputBindingsJSON, RebindSurvivesASerializationRoundTrip)
 {
     // Author defaults, rebind Jump from Space to J, and serialize — this is a "save".
     InputContext authored{"Gameplay"};
@@ -91,7 +91,7 @@ TEST(Unit_InputBindingsJson, RebindSurvivesASerializationRoundTrip)
     EXPECT_TRUE(held_after_key(restored, Key::W, "Move")) << "the WASD composite survived";
 }
 
-TEST(Unit_InputBindingsJson, MissingEntryKeepsCompiledInDefaults)
+TEST(Unit_InputBindingsJSON, MissingEntryKeepsCompiledInDefaults)
 {
     InputContext context{"Gameplay"};
     build_gameplay_defaults(context);
@@ -104,7 +104,7 @@ TEST(Unit_InputBindingsJson, MissingEntryKeepsCompiledInDefaults)
     EXPECT_TRUE(held_after_key(context, Key::Space, "Jump")) << "Jump kept its default";
 }
 
-TEST(Unit_InputBindingsJson, StaleOrPartialDocumentLoadsToDefaultsWithoutThrowing)
+TEST(Unit_InputBindingsJSON, StaleOrPartialDocumentLoadsToDefaultsWithoutThrowing)
 {
     InputContext context{"Gameplay"};
     build_gameplay_defaults(context);
@@ -120,7 +120,7 @@ TEST(Unit_InputBindingsJson, StaleOrPartialDocumentLoadsToDefaultsWithoutThrowin
     EXPECT_TRUE(held_after_key(context, Key::Space, "Jump")) << "malformed entry kept defaults";
 }
 
-TEST(Unit_InputBindingsJson, UnknownActionsArePreservedOnRoundTrip)
+TEST(Unit_InputBindingsJSON, UnknownActionsArePreservedOnRoundTrip)
 {
     InputContext context{"Gameplay"};
     build_gameplay_defaults(context);

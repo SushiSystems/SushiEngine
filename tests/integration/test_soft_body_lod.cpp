@@ -172,7 +172,7 @@ namespace
     }
 } // namespace
 
-TEST(Unit_SoftBodyLodSelection, CoverageIsIndependentOfHowFarAwayTheSameAngleIs)
+TEST(Unit_SoftBodyLODSelection, CoverageIsIndependentOfHowFarAwayTheSameAngleIs)
 {
     // Twice the radius at twice the distance is the same on screen, which is the
     // property that makes this a *screen* coverage rather than a distance dial.
@@ -181,9 +181,9 @@ TEST(Unit_SoftBodyLodSelection, CoverageIsIndependentOfHowFarAwayTheSameAngleIs)
     EXPECT_NEAR(double(near_body), double(far_body), 1e-12);
 }
 
-TEST(Unit_SoftBodyLodSelection, DropsToACoarserTierOnlyOnceItIsClearOfTheThreshold)
+TEST(Unit_SoftBodyLODSelection, DropsToACoarserTierOnlyOnceItIsClearOfTheThreshold)
 {
-    SoftBodyLodSettings<Scalar> settings;
+    SoftBodyLODSettings<Scalar> settings;
     settings.thresholds = {Scalar(0.5), Scalar(0.2)};
     settings.hysteresis = Scalar(0.2);
 
@@ -193,9 +193,9 @@ TEST(Unit_SoftBodyLodSelection, DropsToACoarserTierOnlyOnceItIsClearOfTheThresho
     EXPECT_EQ(select_soft_body_tier(settings, 3u, 0u, Scalar(0.35)), 1u);
 }
 
-TEST(Unit_SoftBodyLodSelection, ClimbsBackOnlyOnceItIsClearTheOtherWay)
+TEST(Unit_SoftBodyLODSelection, ClimbsBackOnlyOnceItIsClearTheOtherWay)
 {
-    SoftBodyLodSettings<Scalar> settings;
+    SoftBodyLODSettings<Scalar> settings;
     settings.thresholds = {Scalar(0.5), Scalar(0.2)};
     settings.hysteresis = Scalar(0.2);
 
@@ -203,12 +203,12 @@ TEST(Unit_SoftBodyLodSelection, ClimbsBackOnlyOnceItIsClearTheOtherWay)
     EXPECT_EQ(select_soft_body_tier(settings, 3u, 1u, Scalar(0.65)), 0u);
 }
 
-TEST(Unit_SoftBodyLodSelection, NeverSwapsWhileTheCoverageStaysInsideTheBand)
+TEST(Unit_SoftBodyLODSelection, NeverSwapsWhileTheCoverageStaysInsideTheBand)
 {
     // The case the whole mechanism exists for: a body parked on a boundary while
     // the camera breathes. Without hysteresis this sequence swaps tiers on every
     // sample, and a tier swap is the most expensive thing this system does.
-    SoftBodyLodSettings<Scalar> settings;
+    SoftBodyLODSettings<Scalar> settings;
     settings.thresholds = {Scalar(0.5)};
     settings.hysteresis = Scalar(0.2);
 
@@ -222,11 +222,11 @@ TEST(Unit_SoftBodyLodSelection, NeverSwapsWhileTheCoverageStaysInsideTheBand)
     }
 }
 
-TEST(Unit_SoftBodyLodSelection, SkipsStraightToTheRightTierAfterAJump)
+TEST(Unit_SoftBodyLODSelection, SkipsStraightToTheRightTierAfterAJump)
 {
     // A camera cut, not a walk. The selector must land on the correct tier in one
     // call rather than take one frame per tier to get there.
-    SoftBodyLodSettings<Scalar> settings;
+    SoftBodyLODSettings<Scalar> settings;
     settings.thresholds = {Scalar(0.5), Scalar(0.2), Scalar(0.05)};
     settings.hysteresis = Scalar(0.2);
 
@@ -234,7 +234,7 @@ TEST(Unit_SoftBodyLodSelection, SkipsStraightToTheRightTierAfterAJump)
     EXPECT_EQ(select_soft_body_tier(settings, 4u, 3u, Scalar(10.0)), 0u);
 }
 
-TEST(Unit_SoftBodyLodTransfer, RefiningATranslationIsExact)
+TEST(Unit_SoftBodyLODTransfer, RefiningATranslationIsExact)
 {
     const TwoLevelAsset asset;
     std::vector<RigidBodyT<Scalar>> coarse = asset.particles_at_rest(1);
@@ -252,7 +252,7 @@ TEST(Unit_SoftBodyLodTransfer, RefiningATranslationIsExact)
     EXPECT_LT(double(worst_distance(fine, expected)), 1e-12);
 }
 
-TEST(Unit_SoftBodyLodTransfer, CoarseningATranslationIsExact)
+TEST(Unit_SoftBodyLODTransfer, CoarseningATranslationIsExact)
 {
     // The property the scatter is built for. A body that is merely falling must
     // cross a tier boundary with no motion whatsoever, and a transfer that only
@@ -274,7 +274,7 @@ TEST(Unit_SoftBodyLodTransfer, CoarseningATranslationIsExact)
     EXPECT_LT(double(worst_distance(coarse, expected)), 1e-12);
 }
 
-TEST(Unit_SoftBodyLodTransfer, TheRestPoseCrossesInBothDirectionsWithoutMoving)
+TEST(Unit_SoftBodyLODTransfer, TheRestPoseCrossesInBothDirectionsWithoutMoving)
 {
     // The pop, stated as a test. An undeformed body handed to another tier must
     // come back undeformed — which is true only because the transfer is written
@@ -300,7 +300,7 @@ TEST(Unit_SoftBodyLodTransfer, TheRestPoseCrossesInBothDirectionsWithoutMoving)
     EXPECT_LT(double(worst_distance(fine, fine_expected)), 1e-12);
 }
 
-TEST(Unit_SoftBodyLodTransfer, CarriesVelocityAcrossSoABodyDoesNotStall)
+TEST(Unit_SoftBodyLODTransfer, CarriesVelocityAcrossSoABodyDoesNotStall)
 {
     const TwoLevelAsset asset;
     std::vector<RigidBodyT<Scalar>> fine = asset.particles_at_rest(0);
@@ -316,7 +316,7 @@ TEST(Unit_SoftBodyLodTransfer, CarriesVelocityAcrossSoABodyDoesNotStall)
         EXPECT_LT(double(length(particle.velocity - velocity)), 1e-12);
 }
 
-TEST(Unit_SoftBodyLodTransfer, RefusesALevelTheAssetDoesNotHave)
+TEST(Unit_SoftBodyLODTransfer, RefusesALevelTheAssetDoesNotHave)
 {
     const TwoLevelAsset asset;
     std::vector<RigidBodyT<Scalar>> a = asset.particles_at_rest(0);
@@ -327,7 +327,7 @@ TEST(Unit_SoftBodyLodTransfer, RefusesALevelTheAssetDoesNotHave)
     EXPECT_FALSE(coarsen_soft_body_state(asset.view, 0u, a.data(), a.size(), b.data(), b.size()));
 }
 
-TEST(Integration_SoftBodyLod, SwapsTiersAndKeepsThePoseAcrossTheSwap)
+TEST(Integration_SoftBodyLOD, SwapsTiersAndKeepsThePoseAcrossTheSwap)
 {
     // Both tiers here sit on the *same* lattice — shape matching and rigid, §9.7's
     // two coarsest — so the transfer is a copy and the pose must survive it
@@ -343,7 +343,7 @@ TEST(Integration_SoftBodyLod, SwapsTiersAndKeepsThePoseAcrossTheSwap)
     coarse->particles = asset.particles_at_rest(1);
     coarse->freeze_from_particles();
 
-    SoftBodyLodChain<Scalar> chain;
+    SoftBodyLODChain<Scalar> chain;
     chain.settings.thresholds = {Scalar(0.5)};
     chain.settings.hysteresis = Scalar(0.2);
     chain.add_tier(std::unique_ptr<ISoftBodyModel<Scalar>>(fine.release()), 1u);
@@ -381,7 +381,7 @@ TEST(Integration_SoftBodyLod, SwapsTiersAndKeepsThePoseAcrossTheSwap)
             << "particle " << i << " popped on the way back";
 }
 
-TEST(Integration_SoftBodyLod, StaysOnTheSameTierWhenTheCoverageBarelyMoves)
+TEST(Integration_SoftBodyLOD, StaysOnTheSameTierWhenTheCoverageBarelyMoves)
 {
     const TwoLevelAsset asset;
 
@@ -392,7 +392,7 @@ TEST(Integration_SoftBodyLod, StaysOnTheSameTierWhenTheCoverageBarelyMoves)
     coarse->particles = asset.particles_at_rest(1);
     coarse->freeze_from_particles();
 
-    SoftBodyLodChain<Scalar> chain;
+    SoftBodyLODChain<Scalar> chain;
     chain.settings.thresholds = {Scalar(0.5)};
     chain.settings.hysteresis = Scalar(0.2);
     chain.add_tier(std::unique_ptr<ISoftBodyModel<Scalar>>(fine.release()), 1u);

@@ -156,7 +156,7 @@ namespace SushiEngine
          *
          * The renderer's view of a cosmetic (GPU-simulated) emitter. As with @ref SkinnedInstance
          * it never sees the authoring types: @c compiled points at the emitter's flattened POD
-         * parameters (a `Vfx::CompiledEmitter`), and @c curve_luts / @c gradient_luts at the
+         * parameters (a `VFX::CompiledEmitter`), and @c curve_luts / @c gradient_luts at the
          * effect's baked look-up-table atlases the compiled offsets index into — all opaque
          * bytes to the renderer, which uploads them and lets the compute passes interpret them.
          * @c spawn_count is how many particles the host decided to emit this frame (rate over
@@ -165,7 +165,7 @@ namespace SushiEngine
         struct ParticleEmitterView
         {
             Mat4 model;                            /**< Emitter object-to-world transform. */
-            const void* compiled = nullptr;        /**< `Vfx::CompiledEmitter*`, opaque here. */
+            const void* compiled = nullptr;        /**< `VFX::CompiledEmitter*`, opaque here. */
             const float* curve_luts = nullptr;     /**< The effect's baked scalar-curve atlas. */
             const float* gradient_luts = nullptr;  /**< The effect's baked RGBA gradient atlas. */
             std::uint32_t curve_lut_floats = 0;    /**< Length of @ref curve_luts in floats. */
@@ -209,7 +209,7 @@ namespace SushiEngine
          * the render target because an editor viewport solves its UI against the viewport it
          * is drawn into, not against the window.
          */
-        struct UiView
+        struct UIView
         {
             const UI::UIDrawRect* rects = nullptr;
             std::size_t rect_count = 0;
@@ -408,7 +408,7 @@ namespace SushiEngine
                                     std::size_t emitter_count = 0,
                                     const ParticleBillboard* billboards = nullptr,
                                     std::size_t billboard_count = 0,
-                                    const UiView* ui = nullptr) = 0;
+                                    const UIView* ui = nullptr) = 0;
 
                 /**
                  * @brief The instance id drawn at a pixel of the last rendered frame.

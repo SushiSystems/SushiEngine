@@ -67,7 +67,7 @@ layout(set = 1, binding = 2) uniform sampler3D bindless_volumes[];
 #include "clustered_lighting.glsl"
 #include "gi_common.glsl"
 
-struct GpuMaterial
+struct GPUMaterial
 {
     vec4 base_color;
     vec4 emissive;               // rgb premultiplied by intensity, a = normal scale
@@ -86,7 +86,7 @@ struct GpuMaterial
 
 layout(std430, set = 0, binding = 7) readonly buffer MaterialBlock
 {
-    GpuMaterial materials[];
+    GPUMaterial materials[];
 } material_block;
 
 layout(set = 0, binding = 1) uniform samplerCube irradiance_cube;
@@ -117,14 +117,14 @@ layout(std430, set = 0, binding = 13) readonly buffer IrradianceSh
 // enabled the shading pass gathers the eight probes around a surface instead of the
 // single global set; when it is off, or the surface falls outside the cascade, the
 // global environment SH is the fallback — so nine coefficients still shade every pixel.
-layout(std430, set = 0, binding = 29) readonly buffer GiProbeSh
+layout(std430, set = 0, binding = 29) readonly buffer GIProbeSh
 {
     vec4 coeff[];
 } gi_probe_sh;
 
-layout(set = 0, binding = 30) uniform GiProbeBlock
+layout(set = 0, binding = 30) uniform GIProbeBlock
 {
-    GiProbeVolume volume;
+    GIProbeVolume volume;
 } gi_probe;
 
 vec3 evaluate_sh(vec3 n)
@@ -318,7 +318,7 @@ vec3 decode_normal(uint map, vec2 uv, float scale)
 
 void main()
 {
-    GpuMaterial material = material_block.materials[v_material_index];
+    GPUMaterial material = material_block.materials[v_material_index];
     uint flags = material.maps_c.y;
 
     // Meshes shade in camera-relative space: v_world_position is the fragment's offset

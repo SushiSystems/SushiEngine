@@ -44,7 +44,7 @@ namespace SushiEngine
 {
     namespace Render
     {
-        namespace Gi
+        namespace GI
         {
             namespace
             {
@@ -92,7 +92,7 @@ namespace SushiEngine
                 }
             } // namespace
 
-            SdfProbeTracer::SdfProbeTracer(Vulkan::VulkanDevice& device,
+            SDFProbeTracer::SDFProbeTracer(Vulkan::VulkanDevice& device,
                                            Resources::ShaderLibrary& shaders,
                                            Resources::GraphicsPipelineFactory& pipelines,
                                            Geometry::MeshRegistry& meshes)
@@ -180,7 +180,7 @@ namespace SushiEngine
                 create_pipelines();
             }
 
-            SdfProbeTracer::~SdfProbeTracer()
+            SDFProbeTracer::~SDFProbeTracer()
             {
                 destroy_pipelines();
                 destroy_buffers();
@@ -195,7 +195,7 @@ namespace SushiEngine
                     vkDestroyDescriptorSetLayout(device_.device(), relight_layout_, nullptr);
             }
 
-            void SdfProbeTracer::create_clipmap()
+            void SDFProbeTracer::create_clipmap()
             {
                 const std::uint32_t resolution =
                     static_cast<std::uint32_t>(SDF_CLIPMAP_RESOLUTION);
@@ -236,7 +236,7 @@ namespace SushiEngine
                 make_volume(emissive_, emissive_allocation_, emissive_view_, "sdf emissive clipmap");
             }
 
-            void SdfProbeTracer::destroy_clipmap()
+            void SDFProbeTracer::destroy_clipmap()
             {
                 if (clipmap_view_ != VK_NULL_HANDLE)
                     vkDestroyImageView(device_.device(), clipmap_view_, nullptr);
@@ -252,7 +252,7 @@ namespace SushiEngine
                 emissive_ = VK_NULL_HANDLE;
             }
 
-            void SdfProbeTracer::create_buffers()
+            void SDFProbeTracer::create_buffers()
             {
                 const auto make_mapped = [&](VkDeviceSize size, VkBufferUsageFlags usage,
                                              VkBuffer& buffer, VmaAllocation& allocation,
@@ -276,16 +276,16 @@ namespace SushiEngine
 
                 for (std::uint32_t i = 0; i < RING; ++i)
                 {
-                    make_mapped(sizeof(SdfPrimitive) * MAX_SDF_PRIMITIVES,
+                    make_mapped(sizeof(SDFPrimitive) * MAX_SDF_PRIMITIVES,
                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, primitive_buffers_[i],
                                 primitive_allocations_[i], primitive_mapped_[i]);
-                    make_mapped(sizeof(SdfClipmapConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                    make_mapped(sizeof(SDFClipmapConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                 clip_config_buffers_[i], clip_config_allocations_[i],
                                 clip_config_mapped_[i]);
                     make_mapped(sizeof(ProbeVolumeConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                 probe_config_buffers_[i], probe_config_allocations_[i],
                                 probe_config_mapped_[i]);
-                    make_mapped(sizeof(SdfMeshInstance) * MAX_SDF_MESH_INSTANCES,
+                    make_mapped(sizeof(SDFMeshInstance) * MAX_SDF_MESH_INSTANCES,
                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, mesh_buffers_[i],
                                 mesh_allocations_[i], mesh_mapped_[i]);
                 }
@@ -298,7 +298,7 @@ namespace SushiEngine
                             brick_atlas_allocation_, brick_atlas_mapped_);
             }
 
-            void SdfProbeTracer::destroy_buffers()
+            void SDFProbeTracer::destroy_buffers()
             {
                 for (std::uint32_t i = 0; i < RING; ++i)
                 {
@@ -320,7 +320,7 @@ namespace SushiEngine
                 brick_atlas_ = VK_NULL_HANDLE;
             }
 
-            void SdfProbeTracer::create_pipelines()
+            void SDFProbeTracer::create_pipelines()
             {
                 populate_pipeline_ = pipelines_.create_compute(
                     populate_pipeline_layout_, shaders_.module("sdf_populate.comp"));
@@ -328,7 +328,7 @@ namespace SushiEngine
                     relight_pipeline_layout_, shaders_.module("sdf_probe_relight.comp"));
             }
 
-            void SdfProbeTracer::destroy_pipelines()
+            void SDFProbeTracer::destroy_pipelines()
             {
                 if (populate_pipeline_ != VK_NULL_HANDLE)
                     vkDestroyPipeline(device_.device(), populate_pipeline_, nullptr);
@@ -338,27 +338,27 @@ namespace SushiEngine
                 relight_pipeline_ = VK_NULL_HANDLE;
             }
 
-            VisibilityField SdfProbeTracer::visibility_field(
+            VisibilityField SDFProbeTracer::visibility_field(
                 std::uint32_t frame_index) const noexcept
             {
                 VisibilityField field;
                 field.distance_field = clipmap_view_;
                 field.config = clip_config_buffers_[frame_index % RING];
-                field.config_bytes = sizeof(SdfClipmapConfig);
+                field.config_bytes = sizeof(SDFClipmapConfig);
                 return field;
             }
 
-            void SdfProbeTracer::rebuild_pipelines()
+            void SDFProbeTracer::rebuild_pipelines()
             {
                 destroy_pipelines();
                 create_pipelines();
             }
 
-            std::int32_t SdfProbeTracer::build_mesh_instances(const ProbeRelightInputs& inputs,
+            std::int32_t SDFProbeTracer::build_mesh_instances(const ProbeRelightInputs& inputs,
                                                               std::uint32_t ring)
             {
                 const Frame::SceneDrawList& draws = inputs.frame->draws;
-                SdfMeshInstance* out = static_cast<SdfMeshInstance*>(mesh_mapped_[ring]);
+                SDFMeshInstance* out = static_cast<SDFMeshInstance*>(mesh_mapped_[ring]);
                 std::int32_t count = 0;
                 for (std::size_t i = 0;
                      i < draws.instance_count && count < MAX_SDF_MESH_INSTANCES; ++i)
@@ -369,7 +369,7 @@ namespace SushiEngine
                     const std::int32_t slot = static_cast<std::int32_t>(instance.mesh);
                     if (slot < 0 || slot >= MAX_SDF_BRICKS)
                         continue;
-                    const MeshSdfBrick* brick = meshes_.mesh_brick(instance.mesh);
+                    const MeshSDFBrick* brick = meshes_.mesh_brick(instance.mesh);
                     if (brick == nullptr ||
                         brick->distances.size() < static_cast<std::size_t>(SDF_BRICK_VOXELS))
                         continue;
@@ -408,7 +408,7 @@ namespace SushiEngine
                 return count;
             }
 
-            void SdfProbeTracer::relight(VkCommandBuffer cmd, const ProbeRelightInputs& inputs)
+            void SDFProbeTracer::relight(VkCommandBuffer cmd, const ProbeRelightInputs& inputs)
             {
                 if (inputs.frame == nullptr || inputs.config == nullptr || inputs.probe_count == 0)
                     return;
@@ -417,12 +417,12 @@ namespace SushiEngine
 
                 // Extract the frame's analytic primitives and imported-mesh instances, and size
                 // the clipmap around them.
-                SdfPrimitive* primitives = static_cast<SdfPrimitive*>(primitive_mapped_[ring]);
+                SDFPrimitive* primitives = static_cast<SDFPrimitive*>(primitive_mapped_[ring]);
                 const std::int32_t primitive_count = build_sdf_primitives(
                     inputs.frame->draws, inputs.frame->eye, primitives, MAX_SDF_PRIMITIVES);
                 const std::int32_t mesh_count = build_mesh_instances(inputs, ring);
 
-                SdfClipmapConfig clip_config{};
+                SDFClipmapConfig clip_config{};
                 configure_sdf_clipmap(inputs.frame->eye, primitive_count, clip_config);
                 clip_config.extra[0] = mesh_count;
                 std::memcpy(clip_config_mapped_[ring], &clip_config, sizeof(clip_config));
@@ -507,10 +507,10 @@ namespace SushiEngine
                     Resources::DescriptorWriter writer;
                     writer.storage_image(0, clipmap_view_);
                     writer.storage_buffer(1, primitive_buffers_[ring],
-                                          sizeof(SdfPrimitive) * MAX_SDF_PRIMITIVES);
-                    writer.uniform_buffer(2, clip_config_buffers_[ring], sizeof(SdfClipmapConfig));
+                                          sizeof(SDFPrimitive) * MAX_SDF_PRIMITIVES);
+                    writer.uniform_buffer(2, clip_config_buffers_[ring], sizeof(SDFClipmapConfig));
                     writer.storage_buffer(3, mesh_buffers_[ring],
-                                          sizeof(SdfMeshInstance) * MAX_SDF_MESH_INSTANCES);
+                                          sizeof(SDFMeshInstance) * MAX_SDF_MESH_INSTANCES);
                     writer.storage_buffer(4, brick_atlas_,
                                           sizeof(float) *
                                               static_cast<VkDeviceSize>(SDF_BRICK_VOXELS) *
@@ -544,7 +544,7 @@ namespace SushiEngine
                     writer.storage_buffer(1, inputs.environment_sh, inputs.environment_sh_bytes);
                     writer.sampled_image(2, clipmap_view_, sampler);
                     writer.uniform_buffer(3, probe_config_buffers_[ring], sizeof(ProbeVolumeConfig));
-                    writer.uniform_buffer(4, clip_config_buffers_[ring], sizeof(SdfClipmapConfig));
+                    writer.uniform_buffer(4, clip_config_buffers_[ring], sizeof(SDFClipmapConfig));
                     writer.sampled_image(5, emissive_view_, sampler);
                     writer.update(device_.device(), set);
 
@@ -559,6 +559,6 @@ namespace SushiEngine
                                   1, 1);
                 }
             }
-        } // namespace Gi
+        } // namespace GI
     } // namespace Render
 } // namespace SushiEngine

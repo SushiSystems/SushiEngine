@@ -310,7 +310,7 @@ namespace SushiEngine
              * A skipped pair is not dropped — it keeps tier 1's speculative
              * manifold (§7.5) rather than tier 2's exact sweep, which is safe in
              * the over-generation direction and simply less exact. Non-zero is not
-             * an error, the same reading `FemFractureReport::elements_skipped`
+             * an error, the same reading `FEMFractureReport::elements_skipped`
              * gets; it is how a caller measures whether
              * `PhysicsConfiguration::continuous_advancement_budget` actually bound
              * this tick.

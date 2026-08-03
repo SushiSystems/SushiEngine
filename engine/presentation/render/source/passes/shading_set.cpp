@@ -98,7 +98,7 @@ namespace SushiEngine
                                context.buffer(frame.targets.shadow),
                                sizeof(Scene::ShadowUniforms));
                 writer.storage(Scene::SceneLayout::IBL_SH_BINDING, sources.ibl.sh_buffer(),
-                               IblPass::sh_buffer_bytes());
+                               IBLPass::sh_buffer_bytes());
                 // The clustered light engine's four bindings: the light array and config
                 // block are host-written and bound directly (like the material array); the
                 // count grid and index list are the graph transients the cull pass wrote

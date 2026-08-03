@@ -572,10 +572,10 @@ namespace SushiEngine
              * fall back to the default value rather than throwing, so a partial or older
              * file still loads.
              */
-            class JsonPreferencesStore final : public IPreferencesStore
+            class JSONPreferencesStore final : public IPreferencesStore
             {
                 public:
-                    explicit JsonPreferencesStore(fs::path path) : path_(std::move(path)) {}
+                    explicit JSONPreferencesStore(fs::path path) : path_(std::move(path)) {}
 
                     Preferences load() override
                     {
@@ -704,12 +704,12 @@ namespace SushiEngine
 
         std::unique_ptr<IPreferencesStore> create_preferences_store()
         {
-            return std::make_unique<JsonPreferencesStore>(user_config_dir() / "preferences.json");
+            return std::make_unique<JSONPreferencesStore>(user_config_dir() / "preferences.json");
         }
 
         std::unique_ptr<IPreferencesStore> create_preferences_store(const std::string& path)
         {
-            return std::make_unique<JsonPreferencesStore>(fs::path(path));
+            return std::make_unique<JSONPreferencesStore>(fs::path(path));
         }
     } // namespace Editor
 } // namespace SushiEngine

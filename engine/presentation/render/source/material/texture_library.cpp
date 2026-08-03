@@ -340,7 +340,7 @@ namespace SushiEngine
             bool TextureLibrary::upload(Entry& entry, const std::uint8_t* pixels,
                                         std::uint32_t width, std::uint32_t height)
             {
-                const VkFormat format = entry.color_space == TextureColorSpace::Srgb
+                const VkFormat format = entry.color_space == TextureColorSpace::SRGB
                                             ? VK_FORMAT_R8G8B8A8_SRGB
                                             : VK_FORMAT_R8G8B8A8_UNORM;
                 const std::uint32_t levels = mip_count(width, height);

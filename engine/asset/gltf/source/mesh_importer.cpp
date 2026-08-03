@@ -97,13 +97,13 @@ namespace SushiEngine
             }
         } // namespace
 
-        bool import_gltf_mesh(const char* path, TriangleMesh& out, GltfMeshImportReport* report)
+        bool import_gltf_mesh(const char* path, TriangleMesh& out, GLTFMeshImportReport* report)
         {
             out.positions.clear();
             out.indices.clear();
             out.normals.clear();
             if (report != nullptr)
-                *report = GltfMeshImportReport{};
+                *report = GLTFMeshImportReport{};
             if (path == nullptr)
                 return false;
 
@@ -117,7 +117,7 @@ namespace SushiEngine
                 return false;
             }
 
-            GltfMeshImportReport local;
+            GLTFMeshImportReport local;
             local.meshes_in_file = std::uint32_t(data->meshes_count);
             if (data->meshes_count > 0 && data->meshes[0].name != nullptr)
                 local.first_mesh_name = data->meshes[0].name;

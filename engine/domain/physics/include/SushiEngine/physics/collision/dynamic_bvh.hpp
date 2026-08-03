@@ -88,13 +88,13 @@ namespace SushiEngine
          * @brief One node: a box, its family, and either children or a payload.
          *
          * Internal nodes and leaves share a slot so the pool is one array. A leaf
-         * is a node with no first child, which is also why @ref DynamicBvhNode::height
+         * is a node with no first child, which is also why @ref DynamicBVHNode::height
          * is zero for a leaf and one more than its taller child otherwise.
          */
         template <typename T>
-        struct DynamicBvhNode
+        struct DynamicBVHNode
         {
-            Aabb<T> bounds{};
+            AABB<T> bounds{};
             std::uint32_t parent = null_bvh_node;
             std::uint32_t child_a = null_bvh_node;
             std::uint32_t child_b = null_bvh_node;
@@ -115,7 +115,7 @@ namespace SushiEngine
          * @tparam T The scalar element type.
          */
         template <typename T>
-        class DynamicBvh
+        class DynamicBVH
         {
             public:
                 /** @brief Drops every node; capacity is kept for the next fill. */
@@ -140,7 +140,7 @@ namespace SushiEngine
                 }
 
                 /** @brief The stored (fattened) box of a node. */
-                const Aabb<T>& bounds(std::uint32_t node) const noexcept
+                const AABB<T>& bounds(std::uint32_t node) const noexcept
                 {
                     return nodes_[node].bounds;
                 }
@@ -162,7 +162,7 @@ namespace SushiEngine
                  * @param payload The caller's identifier.
                  * @return The new node's index, stable until it is removed.
                  */
-                std::uint32_t insert(const Aabb<T>& box, std::uint32_t payload)
+                std::uint32_t insert(const AABB<T>& box, std::uint32_t payload)
                 {
                     const std::uint32_t leaf = allocate_node();
                     nodes_[leaf].bounds = box;
@@ -196,8 +196,8 @@ namespace SushiEngine
                  *                   the caller has already fattened.
                  * @return True when the tree was restructured.
                  */
-                bool move_proxy(std::uint32_t leaf, const Aabb<T>& tight_box,
-                                const Aabb<T>& stored_box)
+                bool move_proxy(std::uint32_t leaf, const AABB<T>& tight_box,
+                                const AABB<T>& stored_box)
                 {
                     if (aabb_contains(nodes_[leaf].bounds, tight_box))
                         return false;
@@ -214,7 +214,7 @@ namespace SushiEngine
                  * not only on where it is, so containment is the wrong question to
                  * ask about it. The leaf's index and payload survive.
                  */
-                void replace(std::uint32_t leaf, const Aabb<T>& stored_box)
+                void replace(std::uint32_t leaf, const AABB<T>& stored_box)
                 {
                     const std::uint32_t payload_value = nodes_[leaf].payload;
                     remove_leaf(leaf);
@@ -233,7 +233,7 @@ namespace SushiEngine
                  * @param visit Called as `visit(payload, node_index)`.
                  */
                 template <typename Visit>
-                void query(const Aabb<T>& box, Visit&& visit) const
+                void query(const AABB<T>& box, Visit&& visit) const
                 {
                     if (root_ == null_bvh_node)
                         return;
@@ -243,7 +243,7 @@ namespace SushiEngine
                     while (depth > 0)
                     {
                         const std::uint32_t index = stack[--depth];
-                        const DynamicBvhNode<T>& node = nodes_[index];
+                        const DynamicBVHNode<T>& node = nodes_[index];
                         if (!aabb_overlap(node.bounds, box))
                             continue;
                         if (node.is_leaf())
@@ -286,7 +286,7 @@ namespace SushiEngine
                     while (depth > 0)
                     {
                         const std::uint32_t index = stack[--depth];
-                        const DynamicBvhNode<T>& node = nodes_[index];
+                        const DynamicBVHNode<T>& node = nodes_[index];
                         if (!ray_hits_aabb(node.bounds, origin, inverse, max_distance))
                             continue;
                         if (node.is_leaf())
@@ -326,10 +326,10 @@ namespace SushiEngine
                     {
                         const std::uint32_t index = free_list_;
                         free_list_ = nodes_[index].parent;
-                        nodes_[index] = DynamicBvhNode<T>{};
+                        nodes_[index] = DynamicBVHNode<T>{};
                         return index;
                     }
-                    nodes_.push_back(DynamicBvhNode<T>{});
+                    nodes_.push_back(DynamicBVHNode<T>{});
                     return static_cast<std::uint32_t>(nodes_.size() - 1);
                 }
 
@@ -346,9 +346,9 @@ namespace SushiEngine
                 }
 
                 /** @brief The surface-area cost of adding @p box under @p node. */
-                T descent_cost(std::uint32_t node, const Aabb<T>& box, T inheritance) const noexcept
+                T descent_cost(std::uint32_t node, const AABB<T>& box, T inheritance) const noexcept
                 {
-                    const Aabb<T> combined = aabb_union(nodes_[node].bounds, box);
+                    const AABB<T> combined = aabb_union(nodes_[node].bounds, box);
                     const T area = aabb_surface_area(combined);
                     if (nodes_[node].is_leaf())
                         return area + inheritance;
@@ -368,12 +368,12 @@ namespace SushiEngine
                     // between stopping here — paying for a new parent box around this
                     // whole subtree — and going down, paying for the growth this leaf
                     // forces on every box on the way.
-                    const Aabb<T> box = nodes_[leaf].bounds;
+                    const AABB<T> box = nodes_[leaf].bounds;
                     std::uint32_t index = root_;
                     while (!nodes_[index].is_leaf())
                     {
                         const T area = aabb_surface_area(nodes_[index].bounds);
-                        const Aabb<T> combined = aabb_union(nodes_[index].bounds, box);
+                        const AABB<T> combined = aabb_union(nodes_[index].bounds, box);
                         const T combined_area = aabb_surface_area(combined);
                         const T cost_here = T(2) * combined_area;
                         const T inheritance = T(2) * (combined_area - area);
@@ -522,7 +522,7 @@ namespace SushiEngine
 
                 bool validate_subtree(std::uint32_t index) const
                 {
-                    const DynamicBvhNode<T>& node = nodes_[index];
+                    const DynamicBVHNode<T>& node = nodes_[index];
                     if (node.is_leaf())
                         return node.height == 0 && node.child_b == null_bvh_node;
 
@@ -543,7 +543,7 @@ namespace SushiEngine
                     return validate_subtree(a) && validate_subtree(b);
                 }
 
-                std::vector<DynamicBvhNode<T>> nodes_;
+                std::vector<DynamicBVHNode<T>> nodes_;
                 std::uint32_t root_ = null_bvh_node;
                 std::uint32_t free_list_ = null_bvh_node;
                 std::size_t leaf_count_ = 0;

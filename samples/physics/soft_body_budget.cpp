@@ -113,19 +113,19 @@ namespace
     }
 
     /** @brief One element, cooked from its own rest corners (see the conformance suite). */
-    FemTetrahedron cook(const std::uint32_t vertex[4], const Vector3 rest[4],
+    FEMTetrahedron cook(const std::uint32_t vertex[4], const Vector3 rest[4],
                         const LameParameters<Scalar>& lame)
     {
-        FemTetrahedron element;
+        FEMTetrahedron element;
         for (int i = 0; i < 4; ++i)
             element.vertex[i] = vertex[i];
 
-        FemMatrix3<Scalar> rest_shape;
+        FEMMatrix3<Scalar> rest_shape;
         rest_shape.column0 = rest[1] - rest[0];
         rest_shape.column1 = rest[2] - rest[0];
         rest_shape.column2 = rest[3] - rest[0];
 
-        FemMatrix3<Scalar> inverse;
+        FEMMatrix3<Scalar> inverse;
         invert_fem_matrix3(rest_shape, inverse);
         element.rest_inverse_column_0 = inverse.column0;
         element.rest_inverse_column_1 = inverse.column1;

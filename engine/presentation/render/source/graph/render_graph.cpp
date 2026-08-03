@@ -198,7 +198,7 @@ namespace SushiEngine
                 graph_.passes_[pass_].side_effect = true;
             }
 
-            RenderGraph::RenderGraph(Vulkan::VulkanDevice& device, GpuProfiler* profiler)
+            RenderGraph::RenderGraph(Vulkan::VulkanDevice& device, GPUProfiler* profiler)
                 : device_(device), profiler_(profiler)
             {
             }
@@ -961,7 +961,7 @@ namespace SushiEngine
                     PassNode& node = passes_[order_[submission.first + offset]];
                     const std::uint32_t timer =
                         profiler_ != nullptr ? profiler_->begin_pass(cmd, node.name.c_str())
-                                             : GpuProfiler::INVALID_TIMER;
+                                             : GPUProfiler::INVALID_TIMER;
 
                     emit_barriers(cmd, node);
 

@@ -24,7 +24,7 @@
  * @file ma_audio_device.hpp
  * @brief A miniaudio-backed @ref IAudioDevice — the low-latency platform backend.
  *
- * The alternative to @ref SdlAudioDevice behind the same @ref IAudioDevice seam (§12.1):
+ * The alternative to @ref SDLAudioDevice behind the same @ref IAudioDevice seam (§12.1):
  * miniaudio drives the native low-latency API on each platform (WASAPI on Windows,
  * CoreAudio on macOS, ALSA/PulseAudio/PipeWire/JACK on Linux) with a single vendored
  * header and no extra linked dependency, and supports exclusive-mode/shared-mode and

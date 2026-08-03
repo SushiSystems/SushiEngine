@@ -42,7 +42,7 @@ target_link_libraries(audio_reverb_demo PRIVATE sushiengine_audio_backend)
 # audio_scene_demo, the S6 slice: the ECS→audio control-plane bridge (AudioScene)
 # reconciling per-frame world snapshots into live voices — an emitter flyby (Doppler +
 # L/R), a second emitter appearing, and one being dropped. The real ECS read is covered
-# by Integration_AudioEcs.
+# by Integration_AudioECS.
 sushiengine_add_sample(audio_scene_demo audio_scene_demo.cpp)
 target_link_libraries(audio_scene_demo PRIVATE sushiengine_audio_backend)
 

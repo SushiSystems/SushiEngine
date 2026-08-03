@@ -226,7 +226,7 @@ namespace
     };
 
     /** @brief One whole tick, in the order `VehicleInstanceT` documents. */
-    NodeBeamTickReport drive(HostXpbdSolver<Scalar>& solver, VehicleInstance& vehicle, int ticks)
+    NodeBeamTickReport drive(HostXPBDSolver<Scalar>& solver, VehicleInstance& vehicle, int ticks)
     {
         StepParameters<Scalar> parameters;
         parameters.delta_time = TICK;
@@ -254,7 +254,7 @@ namespace
      * *relative* velocity, and this is the smallest one that is: the door keeps going and
      * the car does not.
      */
-    void tear_off_the_door(HostXpbdSolver<Scalar>& solver, VehicleInstance& vehicle,
+    void tear_off_the_door(HostXPBDSolver<Scalar>& solver, VehicleInstance& vehicle,
                            Scalar speed)
     {
         for (std::size_t i = 6; i < 8; ++i)
@@ -271,7 +271,7 @@ namespace
 /** @brief Drivable: the throttle reaches the driven wheels and the steering the front ones. */
 TEST(Integration_VehicleAcceptance, ItIsDrivable)
 {
-    HostXpbdSolver<Scalar> solver(vehicle_scene(64, 64, 16));
+    HostXPBDSolver<Scalar> solver(vehicle_scene(64, 64, 16));
     Blob blob(chassis_asset());
     VehicleInstance vehicle;
     NodeBeamStructureSettings<Scalar> settings;
@@ -315,7 +315,7 @@ TEST(Integration_VehicleAcceptance, ItIsDrivable)
  */
 TEST(Integration_VehicleAcceptance, ItDeformsPermanently)
 {
-    HostXpbdSolver<Scalar> solver(vehicle_scene(64, 64, 16));
+    HostXPBDSolver<Scalar> solver(vehicle_scene(64, 64, 16));
     Blob blob(chassis_asset());
     VehicleInstance vehicle;
     NodeBeamStructureSettings<Scalar> settings;
@@ -354,7 +354,7 @@ TEST(Integration_VehicleAcceptance, ItDeformsPermanently)
 /** @brief Loses parts: a door that has lost its last tie is reported detached, once. */
 TEST(Integration_VehicleAcceptance, ItLosesParts)
 {
-    HostXpbdSolver<Scalar> solver(vehicle_scene(64, 64, 16));
+    HostXPBDSolver<Scalar> solver(vehicle_scene(64, 64, 16));
     Blob blob(chassis_asset());
     VehicleInstance vehicle;
     NodeBeamStructureSettings<Scalar> settings;
@@ -385,7 +385,7 @@ TEST(Integration_VehicleAcceptance, ReplayIsIdentical)
 
     for (int pass = 0; pass < 2; ++pass)
     {
-        HostXpbdSolver<Scalar> solver(vehicle_scene(64, 64, 16));
+        HostXPBDSolver<Scalar> solver(vehicle_scene(64, 64, 16));
         Blob blob(chassis_asset());
         VehicleInstance vehicle;
         NodeBeamStructureSettings<Scalar> settings;
@@ -480,7 +480,7 @@ TEST(Integration_VehicleAcceptance, TheHybridVehicleSceneIsTheOne13Point1Names)
     asset.summary.part_count = 1;
 
     // Nodes, the core, and two bodies per corner, with room to spare for the joints.
-    HostXpbdSolver<Scalar> solver(vehicle_scene(NODES + 16, BEAMS * 3, 128));
+    HostXPBDSolver<Scalar> solver(vehicle_scene(NODES + 16, BEAMS * 3, 128));
     Blob blob(asset);
     VehicleInstance vehicle;
     NodeBeamStructureSettings<Scalar> settings;

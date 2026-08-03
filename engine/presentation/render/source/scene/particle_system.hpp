@@ -27,7 +27,7 @@
  * each frame and the compute/draw passes consume. It holds one **shared** particle pool
  * (double-buffered so a frame reads last frame's state and writes this frame's, which keeps
  * the ping-pong safe across frames in flight), a per-slot table of the frame's active
- * emitters flattened to `GpuEmitter`, and the two baked LUT atlases the sim samples. The host
+ * emitters flattened to `GPUEmitter`, and the two baked LUT atlases the sim samples. The host
  * advances each emitter's ring cursor and decides its spawn count; the emit shader stays a
  * pure allocator writing into the ring.
  *
@@ -76,17 +76,17 @@ namespace SushiEngine
             /**
              * @brief One active emitter flattened for the GPU, packed to std430 vec4 groups.
              *
-             * The compute-visible subset of a `Vfx::CompiledEmitter` plus this frame's world
+             * The compute-visible subset of a `VFX::CompiledEmitter` plus this frame's world
              * transform, ring cursor, and spawn count. Laid out as a 4x4 matrix followed by
              * ten vec4s so the GLSL mirror in `particle_common.glsl` needs no padding guesswork.
              */
-            struct GpuEmitter
+            struct GPUEmitter
             {
                 float model[16];                 /**< Emitter object-to-world (column-major). */
 
-                std::uint32_t shape;             /**< Vfx::EmitterShape. */
-                std::uint32_t shape_flags;       /**< Vfx::ShapeFlags. */
-                std::uint32_t update_flags;      /**< Vfx::UpdateFlags. */
+                std::uint32_t shape;             /**< VFX::EmitterShape. */
+                std::uint32_t shape_flags;       /**< VFX::ShapeFlags. */
+                std::uint32_t update_flags;      /**< VFX::UpdateFlags. */
                 std::uint32_t capacity;          /**< Shared pool capacity (all emitters). */
 
                 float shape_radius;
@@ -117,9 +117,9 @@ namespace SushiEngine
                 std::uint32_t flipbook_rows;
                 std::uint32_t flipbook_columns;
 
-                std::uint32_t blend;     /**< Vfx::BlendMode: buckets the particle (additive vs alpha). */
-                std::uint32_t sort;      /**< Vfx::SortMode: whether the alpha segment is depth-sorted. */
-                std::uint32_t alignment; /**< Vfx::RenderAlignment: how the vertex stage orients the quad. */
+                std::uint32_t blend;     /**< VFX::BlendMode: buckets the particle (additive vs alpha). */
+                std::uint32_t sort;      /**< VFX::SortMode: whether the alpha segment is depth-sorted. */
+                std::uint32_t alignment; /**< VFX::RenderAlignment: how the vertex stage orients the quad. */
                 std::uint32_t mesh_slot; /**< Mesh-draw slice this emitter fills, or NO_MESH_SLOT. */
 
                 std::uint32_t force_field_count; /**< Active entries in @ref force_fields. */
@@ -128,7 +128,7 @@ namespace SushiEngine
                 float collision_thickness;       /**< Depth behind a surface still counted as contact. */
 
                 /**
-                 * @brief The particle material: @ref Vfx::RenderFlags bits.
+                 * @brief The particle material: @ref VFX::RenderFlags bits.
                  *
                  * Carried per emitter rather than per draw because a bucket mixes emitters — the
                  * additive list holds every non-alpha sprite whatever its author asked for — so
@@ -163,7 +163,7 @@ namespace SushiEngine
                  * transform is applied here, once per frame, so the shader evaluates them in the
                  * absolute space its particles live in.
                  */
-                float force_fields[Vfx::MAX_FORCE_FIELDS][12];
+                float force_fields[VFX::MAX_FORCE_FIELDS][12];
             };
 
             /**
@@ -221,7 +221,7 @@ namespace SushiEngine
                     /**
                      * @brief Flattens the frame's emitters and uploads the table plus LUT atlases.
                      *
-                     * Builds one @ref GpuEmitter per view (baking in its world transform, spawn
+                     * Builds one @ref GPUEmitter per view (baking in its world transform, spawn
                      * cursor, and spawn count), copies the effect's curve/gradient atlases into
                      * this slot's host buffers, and advances each emitter's ring cursor by its
                      * spawn count. Records nothing on the GPU.
@@ -252,7 +252,7 @@ namespace SushiEngine
                     /**
                      * @brief Uploads the frame's already-simulated deterministic billboards.
                      *
-                     * Packs each into a host-visible @ref GpuParticle record (position, size,
+                     * Packs each into a host-visible @ref GPUParticle record (position, size,
                      * colour, alpha, rotation) the billboard pass draws directly — no GPU
                      * simulation. Independent of the emitter pool.
                      *
@@ -296,7 +296,7 @@ namespace SushiEngine
                     }
 
                     /** @brief The active emitters flattened for the GPU this frame. */
-                    const std::vector<GpuEmitter>& emitters() const noexcept { return emitters_; }
+                    const std::vector<GPUEmitter>& emitters() const noexcept { return emitters_; }
 
                     /** @brief The shared pool's particle capacity. */
                     std::uint32_t capacity() const noexcept { return capacity_; }
@@ -361,12 +361,12 @@ namespace SushiEngine
                     std::uint32_t capacity_ = 0;
                     Allocation pool_;                         /**< Shared persistent particle pool. */
                     Allocation trails_;                       /**< Persistent per-slot trail history. */
-                    std::vector<Allocation> emitter_tables_;  /**< Host-visible GpuEmitter[], per slot. */
+                    std::vector<Allocation> emitter_tables_;  /**< Host-visible GPUEmitter[], per slot. */
                     std::vector<Allocation> curve_luts_;      /**< Host-visible curve atlas, per slot. */
                     std::vector<Allocation> gradient_luts_;   /**< Host-visible gradient atlas, per slot. */
-                    std::vector<Allocation> billboards_;      /**< Host-visible GpuParticle[], per slot. */
+                    std::vector<Allocation> billboards_;      /**< Host-visible GPUParticle[], per slot. */
                     std::uint32_t billboard_count_ = 0;       /**< This frame's deterministic billboards. */
-                    std::vector<GpuEmitter> emitters_;        /**< This frame's flattened emitters. */
+                    std::vector<GPUEmitter> emitters_;        /**< This frame's flattened emitters. */
                     std::vector<MeshDraw> mesh_draws_;        /**< This frame's mesh-particle draws. */
                     std::uint32_t ring_cursor_ = 0;           /**< Shared pool ring write cursor. */
                     bool needs_clear_ = true;                 /**< Pool awaits its one-time zero clear. */

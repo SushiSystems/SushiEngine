@@ -49,7 +49,7 @@ namespace SushiEngine
             struct SceneDrawList;
         }
 
-        namespace Gi
+        namespace GI
         {
             /** @brief Per-axis voxel resolution of the scene distance clipmap. */
             constexpr std::int32_t SDF_CLIPMAP_RESOLUTION = 64;
@@ -73,8 +73,8 @@ namespace SushiEngine
             /** @brief Maximum imported-mesh instances folded into the clipmap per frame. */
             constexpr std::int32_t MAX_SDF_MESH_INSTANCES = 128;
 
-            /** @brief The primitive a @ref SdfPrimitive evaluates, matching MeshKind. */
-            enum class SdfPrimitiveKind : std::int32_t
+            /** @brief The primitive a @ref SDFPrimitive evaluates, matching MeshKind. */
+            enum class SDFPrimitiveKind : std::int32_t
             {
                 Box = 0,
                 Sphere = 1,
@@ -87,16 +87,16 @@ namespace SushiEngine
              * Axis-aligned: rotation is dropped, which a low-frequency distance field for GI
              * tolerates and which imported-mesh bricks later cover for arbitrary geometry.
              */
-            struct SdfPrimitive
+            struct SDFPrimitive
             {
-                float center_kind[4]; /**< xyz camera-relative centre; w = SdfPrimitiveKind. */
+                float center_kind[4]; /**< xyz camera-relative centre; w = SDFPrimitiveKind. */
                 float extent[4];      /**< xyz half-extents (box) or radius (x) + half-height (y). */
                 float albedo[4];      /**< rgb surface albedo for the bounce; w spare. */
                 float emissive[4];    /**< rgb emitted radiance (HDR) injected into probes; w spare. */
             };
 
-            static_assert(sizeof(SdfPrimitive) == 64,
-                          "SdfPrimitive must match its std140 GLSL mirror");
+            static_assert(sizeof(SDFPrimitive) == 64,
+                          "SDFPrimitive must match its std140 GLSL mirror");
 
             /**
              * @brief One imported-mesh instance's placement into the clipmap, camera-relative.
@@ -107,7 +107,7 @@ namespace SushiEngine
              * distance back to world by @c world_scale. Rotation is honoured here (unlike the
              * analytic primitives) because the brick lives in the mesh's own frame.
              */
-            struct SdfMeshInstance
+            struct SDFMeshInstance
             {
                 float inv_model[16];  /**< Camera-relative world -> mesh local. */
                 float aabb_min[4];    /**< xyz local AABB min; w = brick slot. */
@@ -116,21 +116,21 @@ namespace SushiEngine
                 float emissive[4];    /**< rgb emitted radiance (HDR) injected into probes; w spare. */
             };
 
-            static_assert(sizeof(SdfMeshInstance) == 128,
-                          "SdfMeshInstance must match its std140 GLSL mirror");
+            static_assert(sizeof(SDFMeshInstance) == 128,
+                          "SDFMeshInstance must match its std140 GLSL mirror");
 
             /**
-             * @brief The block locating the clipmap in space, mirroring @c SdfClipmapConfig.
+             * @brief The block locating the clipmap in space, mirroring @c SDFClipmapConfig.
              */
-            struct SdfClipmapConfig
+            struct SDFClipmapConfig
             {
                 float origin_voxel[4];      /**< xyz camera-relative min corner; w = voxel size, metres. */
                 std::int32_t resolution[4]; /**< xyz voxel counts; w = live primitive count. */
                 std::int32_t extra[4];      /**< x = mesh-instance count; yzw spare. */
             };
 
-            static_assert(sizeof(SdfClipmapConfig) == 48,
-                          "SdfClipmapConfig must match its std140 GLSL mirror");
+            static_assert(sizeof(SDFClipmapConfig) == 48,
+                          "SDFClipmapConfig must match its std140 GLSL mirror");
 
             /**
              * @brief Fills the clipmap config, snapping the cube to a voxel lattice.
@@ -144,7 +144,7 @@ namespace SushiEngine
              * @param out             Receives the filled block.
              */
             void configure_sdf_clipmap(const double eye[3], std::int32_t primitive_count,
-                                       SdfClipmapConfig& out) noexcept;
+                                       SDFClipmapConfig& out) noexcept;
 
             /**
              * @brief Extracts the frame's axis-aligned analytic primitives, camera-relative.
@@ -160,7 +160,7 @@ namespace SushiEngine
              * @return The number of primitives written.
              */
             std::int32_t build_sdf_primitives(const Frame::SceneDrawList& draws, const double eye[3],
-                                              SdfPrimitive* out, std::int32_t max) noexcept;
+                                              SDFPrimitive* out, std::int32_t max) noexcept;
 
             /**
              * @brief Fills one mesh instance from its transform and its cached brick placement.
@@ -181,7 +181,7 @@ namespace SushiEngine
             void fill_sdf_mesh_instance(const Mat4& model, const double eye[3],
                                         const float aabb_min[3], const float aabb_max[3],
                                         std::int32_t slot, const float albedo[3],
-                                        const float emissive[3], SdfMeshInstance& out) noexcept;
-        } // namespace Gi
+                                        const float emissive[3], SDFMeshInstance& out) noexcept;
+        } // namespace GI
     } // namespace Render
 } // namespace SushiEngine

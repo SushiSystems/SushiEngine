@@ -27,7 +27,7 @@
  * @file physics_world.hpp
  * @brief A self-contained XPBD scene: bodies, constraints, and the sub-stepped loop.
  *
- * `PhysicsWorld` is the layer above `XpbdSolver` that turns a one-shot constraint
+ * `PhysicsWorld` is the layer above `XPBDSolver` that turns a one-shot constraint
  * solve into a physics loop: it owns the body buffer, runs predict / solve / derive-
  * velocity for each sub-step, and hands out `RigidBody` state by index. It knows
  * nothing about the ECS on purpose — `physics/` sits below `ecs/` in the engine's
@@ -60,13 +60,13 @@ namespace SushiEngine
          * Usage has two phases: register bodies (`add_body`) and constraints
          * (`add_constraint`), call `finalize()` once to upload them and compile the
          * solve graph, then call `step()` every frame. This mirrors how
-         * `ConstraintSolver`/`XpbdSolver` themselves are built once and replayed —
+         * `ConstraintSolver`/`XPBDSolver` themselves are built once and replayed —
          * `finalize()` is that one-time build, `step()` is the replay. Not copyable or
-         * movable: `XpbdSolver` keeps a reference to this object's body buffer, so
+         * movable: `XPBDSolver` keeps a reference to this object's body buffer, so
          * relocating either would leave it dangling.
          *
          * @tparam Constraint A constraint type exposing body indices `a`/`b`, as
-         * `XpbdDistanceConstraint` does.
+         * `XPBDDistanceConstraint` does.
          */
         template <typename Constraint>
         class PhysicsWorld
@@ -112,7 +112,7 @@ namespace SushiEngine
                  *
                  * Call once, after every `add_body`/`add_constraint` call and before
                  * the first `step()`. Bodies and constraints cannot be added afterward
-                 * — this mirrors `XpbdSolver`'s own compile-once-replay-every-frame
+                 * — this mirrors `XPBDSolver`'s own compile-once-replay-every-frame
                  * structure, which recompiles only if its inputs change.
                  *
                  * @tparam Projection A device-callable projection for @p Constraint.
@@ -273,7 +273,7 @@ namespace SushiEngine
                 std::vector<Constraint> constraints_;
                 Real h_ = 0;
                 std::optional<Execution::Buffer<RigidBodyT<Real>>> bodies_;
-                std::optional<XpbdSolver<Constraint>> solver_;
+                std::optional<XPBDSolver<Constraint>> solver_;
         };
     } // namespace Physics
 } // namespace SushiEngine

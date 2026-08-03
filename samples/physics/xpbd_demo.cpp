@@ -27,7 +27,7 @@
 // own centre, so no angular coupling is possible and the chain's linear behaviour
 // is the rigid-body solver's `compliance == 0` case of the original constraint —
 // the device result is checked against a byte-for-byte host mirror of
-// XpbdDistanceProjection, exactly as pgs_demo checks DistanceProjection.
+// XPBDDistanceProjection, exactly as pgs_demo checks DistanceProjection.
 
 #include <algorithm>
 #include <cmath>
@@ -50,8 +50,8 @@ namespace
     constexpr Scalar      GY         = Scalar(-9.8); // gravity
     constexpr Scalar      DT         = Scalar(0.016);
 
-    // Host mirror of XpbdDistanceProjection, byte-for-byte the same arithmetic.
-    void project_host(const XpbdDistanceConstraint& c, std::vector<RigidBody>& bodies,
+    // Host mirror of XPBDDistanceProjection, byte-for-byte the same arithmetic.
+    void project_host(const XPBDDistanceConstraint& c, std::vector<RigidBody>& bodies,
                       Scalar& lambda, Scalar h)
     {
         RigidBody& body_a = bodies[c.a];
@@ -105,7 +105,7 @@ int main()
     auto bodies = execution.allocate<RigidBody>(N);
 
     std::vector<RigidBody> ref_bodies(N);
-    std::vector<XpbdDistanceConstraint> constraints;
+    std::vector<XPBDDistanceConstraint> constraints;
 
     // A horizontal chain; the first body is pinned (inverse mass zero).
     for (std::uint32_t i = 0; i < N; ++i)
@@ -119,12 +119,12 @@ int main()
     }
     for (std::uint32_t i = 0; i + 1 < N; ++i)
         constraints.push_back(
-            XpbdDistanceConstraint{i, i + 1, Vector3{0, 0, 0}, Vector3{0, 0, 0}, SPACING, Scalar(0)});
+            XPBDDistanceConstraint{i, i + 1, Vector3{0, 0, 0}, Vector3{0, 0, 0}, SPACING, Scalar(0)});
 
     std::vector<Scalar> ref_lambda(constraints.size(), Scalar(0));
 
-    XpbdSolver<XpbdDistanceConstraint> solver(
-        execution, bodies, constraints, N, ITERATIONS, DT, XpbdDistanceProjection{});
+    XPBDSolver<XPBDDistanceConstraint> solver(
+        execution, bodies, constraints, N, ITERATIONS, DT, XPBDDistanceProjection{});
 
     double solve_ms = 0.0;
     for (std::size_t frame = 0; frame < FRAMES; ++frame)
@@ -162,7 +162,7 @@ int main()
     }
 
     Scalar max_residual = Scalar(0);
-    for (const XpbdDistanceConstraint& c : constraints)
+    for (const XPBDDistanceConstraint& c : constraints)
     {
         const Vector3 d = bodies[c.a].position - bodies[c.b].position;
         const Scalar dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);

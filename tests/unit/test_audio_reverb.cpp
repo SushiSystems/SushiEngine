@@ -152,7 +152,7 @@ TEST(Unit_Audio, HouseholderMatrixIsLossless)
     for (int i = 0; i < 16; ++i)
         v[i] = std::sin(0.3f * i) + 0.5f * std::cos(1.1f * i);
     const double before = norm(v, 16);
-    Dsp::apply_householder(v, 16);
+    DSP::apply_householder(v, 16);
     EXPECT_NEAR(norm(v, 16), before, 1e-4);
 }
 
@@ -162,8 +162,8 @@ TEST(Unit_Audio, HouseholderMatrixIsAnInvolution)
     float original[8];
     for (int i = 0; i < 8; ++i)
         original[i] = v[i];
-    Dsp::apply_householder(v, 8);
-    Dsp::apply_householder(v, 8); // H is symmetric orthogonal → H² = I
+    DSP::apply_householder(v, 8);
+    DSP::apply_householder(v, 8); // H is symmetric orthogonal → H² = I
     for (int i = 0; i < 8; ++i)
         EXPECT_NEAR(v[i], original[i], 1e-4f);
 }
@@ -174,18 +174,18 @@ TEST(Unit_Audio, HadamardMatrixIsLossless)
     for (int i = 0; i < 16; ++i)
         v[i] = static_cast<float>((i * 7 % 11) - 5);
     const double before = norm(v, 16);
-    Dsp::apply_hadamard(v, 16);
+    DSP::apply_hadamard(v, 16);
     EXPECT_NEAR(norm(v, 16), before, 1e-4);
 }
 
 // --- The FDN reverb ------------------------------------------------------------------
 
-TEST(Unit_Audio, FdnDelayLinesHaveDistinctCoprimeLengths)
+TEST(Unit_Audio, FDNDelayLinesHaveDistinctCoprimeLengths)
 {
-    Dsp::FdnReverb fdn;
+    DSP::FDNReverb fdn;
     fdn.prepare(48000.0, 256);
-    for (int i = 0; i < Dsp::FdnReverb::kLines; ++i)
-        for (int j = i + 1; j < Dsp::FdnReverb::kLines; ++j)
+    for (int i = 0; i < DSP::FDNReverb::kLines; ++i)
+        for (int j = i + 1; j < DSP::FDNReverb::kLines; ++j)
         {
             // Distinct primes ⇒ pairwise coprime (gcd == 1).
             int a = fdn.line_length(i), b = fdn.line_length(j);
@@ -195,11 +195,11 @@ TEST(Unit_Audio, FdnDelayLinesHaveDistinctCoprimeLengths)
         }
 }
 
-TEST(Unit_Audio, FdnTailIsBoundedAndDecays)
+TEST(Unit_Audio, FDNTailIsBoundedAndDecays)
 {
-    Dsp::FdnReverb fdn;
+    DSP::FDNReverb fdn;
     fdn.prepare(48000.0, 256);
-    Dsp::FdnTuning t;
+    DSP::FDNTuning t;
     t.decay_time_s = 1.0;
     fdn.set_tuning(t);
 
@@ -226,11 +226,11 @@ TEST(Unit_Audio, FdnTailIsBoundedAndDecays)
     EXPECT_LT(late_energy, early_energy);  // and it decayed
 }
 
-TEST(Unit_Audio, FdnMeasuredRt60TracksRequestedDecay)
+TEST(Unit_Audio, FDNMeasuredRt60TracksRequestedDecay)
 {
     for (double target : {0.8, 2.0})
     {
-        FdnReverbEffect reverb;
+        FDNReverbEffect reverb;
         reverb.prepare(48000.0, 256);
         I3DL2Reverb p = I3DL2Reverb::generic();
         p.decay_time = static_cast<float>(target);
@@ -249,9 +249,9 @@ TEST(Unit_Audio, FdnMeasuredRt60TracksRequestedDecay)
     }
 }
 
-TEST(Unit_Audio, FdnDarkerHfRatioProducesDarkerTail)
+TEST(Unit_Audio, FDNDarkerHfRatioProducesDarkerTail)
 {
-    FdnReverbEffect bright, dark;
+    FDNReverbEffect bright, dark;
     bright.prepare(48000.0, 256);
     dark.prepare(48000.0, 256);
 
@@ -269,9 +269,9 @@ TEST(Unit_Audio, FdnDarkerHfRatioProducesDarkerTail)
     EXPECT_LT(hf_dark, hf_bright); // the fast-HF-decay tail is measurably darker late
 }
 
-TEST(Unit_Audio, FdnPredelayDelaysTheOnset)
+TEST(Unit_Audio, FDNPredelayDelaysTheOnset)
 {
-    FdnReverbEffect reverb;
+    FDNReverbEffect reverb;
     reverb.prepare(48000.0, 512);
     I3DL2Reverb p = I3DL2Reverb::generic();
     p.reverb_delay = 0.05f; // 50 ms → 2400 samples at 48 kHz
@@ -318,7 +318,7 @@ TEST(Unit_Audio, ShoeboxFactoryProducesSaneParameters)
     EXPECT_GT(r.reverb_delay, 0.0f);
     EXPECT_LT(r.reverb_delay, 0.24f);
 
-    FdnReverbEffect reverb;
+    FDNReverbEffect reverb;
     reverb.prepare(48000.0, 256);
     reverb.set_params(r);
     const double measured = measure_rt60(reverb, 48000.0, 256);
@@ -328,7 +328,7 @@ TEST(Unit_Audio, ShoeboxFactoryProducesSaneParameters)
 
 TEST(Unit_Audio, ReverbBusEffectDrivesReverbThroughTheMixerSeam)
 {
-    // The full seam: FdnReverbEffect (IReverb) behind ReverbBusEffect (IBusEffect) on a
+    // The full seam: FDNReverbEffect (IReverb) behind ReverbBusEffect (IBusEffect) on a
     // per-zone aux bus. A dry sfx bus sends into it; the master should carry the wet.
     MixerGraph mixer;
     const int master = mixer.add_bus(NO_BUS);
@@ -337,7 +337,7 @@ TEST(Unit_Audio, ReverbBusEffectDrivesReverbThroughTheMixerSeam)
     mixer.set_master(master);
     mixer.add_aux_send(sfx, reverb_bus, 0.5f);
 
-    std::unique_ptr<FdnReverbEffect> fx(new FdnReverbEffect());
+    std::unique_ptr<FDNReverbEffect> fx(new FDNReverbEffect());
     fx->set_params(I3DL2Reverb::concert_hall());
     mixer.add_insert(reverb_bus, std::unique_ptr<IBusEffect>(new ReverbBusEffect(std::move(fx))));
     mixer.prepare(48000.0, 256);

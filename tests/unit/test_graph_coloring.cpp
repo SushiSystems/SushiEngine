@@ -381,9 +381,9 @@ TEST(Unit_IncrementalColoring, RemovingAConstraintReleasesItsColourForReuse)
 
 namespace
 {
-    FemTetrahedron tet(std::uint32_t v0, std::uint32_t v1, std::uint32_t v2, std::uint32_t v3)
+    FEMTetrahedron tet(std::uint32_t v0, std::uint32_t v1, std::uint32_t v2, std::uint32_t v3)
     {
-        FemTetrahedron element;
+        FEMTetrahedron element;
         element.vertex[0] = v0;
         element.vertex[1] = v1;
         element.vertex[2] = v2;
@@ -397,7 +397,7 @@ TEST(Unit_GraphColoring, TetrahedraSharingOnlyALateVertexStillConflict)
     // The regression the whole task is about. These two share particle 7, and they
     // share it in slots 2 and 3 — the ones an `a`/`b` reading never looks at. Given
     // the same colour they would be projected in parallel and both write particle 7.
-    std::vector<FemTetrahedron> elements;
+    std::vector<FEMTetrahedron> elements;
     elements.push_back(tet(0, 1, 7, 2));
     elements.push_back(tet(3, 4, 5, 7));
 
@@ -413,7 +413,7 @@ TEST(Unit_GraphColoring, DisjointTetrahedraStillShareAColour)
     // The other half of the claim, and the one that stops the fix from being "give
     // everything its own colour": elements that genuinely share nothing must still
     // batch together, or the sweep's depth becomes the element count.
-    std::vector<FemTetrahedron> elements;
+    std::vector<FEMTetrahedron> elements;
     for (std::uint32_t i = 0; i < 5; ++i)
         elements.push_back(tet(i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 3));
 
@@ -427,7 +427,7 @@ TEST(Unit_GraphColoring, EveryColourOfATetrahedralLatticeIsConflictFree)
 {
     // A lattice, where sharing is the rule rather than the exception: check the
     // property directly over all four vertices instead of trusting a count.
-    std::vector<FemTetrahedron> elements;
+    std::vector<FEMTetrahedron> elements;
     const std::uint32_t body_count = 64;
     for (std::uint32_t i = 0; i + 3 < body_count; i += 2)
         elements.push_back(tet(i, i + 1, i + 2, i + 3));

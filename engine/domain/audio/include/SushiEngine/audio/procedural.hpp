@@ -63,7 +63,7 @@ namespace SushiEngine
             public:
                 /**
                  * @brief Builds an impact source.
-                 * @param material 0 wood, 1 metal, 2 glass, 3 membrane (see @ref Dsp::ModalResonatorBank::set_material).
+                 * @param material 0 wood, 1 metal, 2 glass, 3 membrane (see @ref DSP::ModalResonatorBank::set_material).
                  * @param base_hz  The fundamental the material's partials scale from.
                  * @param energy   The strike strength (linear).
                  */
@@ -91,7 +91,7 @@ namespace SushiEngine
                 void restrike(float energy) noexcept { bank_.strike(energy); }
 
                 /** @brief The modal bank, e.g. to author its modes directly. */
-                Dsp::ModalResonatorBank& bank() noexcept { return bank_; }
+                DSP::ModalResonatorBank& bank() noexcept { return bank_; }
 
                 bool render(float* out, int frame_count) noexcept override
                 {
@@ -115,7 +115,7 @@ namespace SushiEngine
                 }
 
             private:
-                Dsp::ModalResonatorBank bank_;
+                DSP::ModalResonatorBank bank_;
                 int material_;
                 float base_hz_;
                 float energy_;
@@ -228,8 +228,8 @@ namespace SushiEngine
                     whistle_.set_band_pass(f, whistle_q, sample_rate_);
                 }
 
-                Dsp::Biquad body_;
-                Dsp::Biquad whistle_;
+                DSP::Biquad body_;
+                DSP::Biquad whistle_;
                 std::uint32_t rng_;
                 float edge_size_;
                 float speed_ = 0.0f;

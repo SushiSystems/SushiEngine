@@ -40,7 +40,7 @@
  * constraint function `C = |v|` whose gradient acts along `+v̂` on body **b** and
  * `-v̂` on body **a**. Written that way the correction is always
  * `Δλ = -C / (w + α̃)`, the impulse is always `v̂ Δλ`, and it is always applied to `a`
- * with sign −1 and to `b` with sign +1 — identical to `XpbdDistanceProjectionT`,
+ * with sign −1 and to `b` with sign +1 — identical to `XPBDDistanceProjectionT`,
  * which is the point: a joint row and a distance constraint that disagreed about the
  * sense of a correction would be two formulations of the same thing, and §1.3 already
  * records what that costs.

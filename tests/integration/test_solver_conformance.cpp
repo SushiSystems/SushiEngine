@@ -26,7 +26,7 @@
 // replace a host one without silently changing behaviour -- the Liskov rule of
 // section 4.4, made executable.
 //
-// The two implementations differ in exactly one respect: HostXpbdSolver projects a
+// The two implementations differ in exactly one respect: HostXPBDSolver projects a
 // colour's constraints one after another, RuntimeGraphBuilder projects them in
 // parallel on the runtime. Everything else -- which colour each constraint takes,
 // where in that colour's band it sits, and the arithmetic itself -- is shared code.
@@ -98,10 +98,10 @@ namespace
 
     struct HostBackedSolver
     {
-        std::unique_ptr<HostXpbdSolver<Scalar>> solver;
+        std::unique_ptr<HostXPBDSolver<Scalar>> solver;
 
         explicit HostBackedSolver(const PhysicsConfiguration& configuration)
-            : solver(new HostXpbdSolver<Scalar>(configuration))
+            : solver(new HostXPBDSolver<Scalar>(configuration))
         {
         }
 
@@ -126,11 +126,11 @@ namespace
     }
 
     /** @brief A rigid link of @p rest between two body slots, anchored off-centre. */
-    XpbdDistanceConstraint link(std::size_t a, std::size_t b, Scalar rest,
+    XPBDDistanceConstraint link(std::size_t a, std::size_t b, Scalar rest,
                                 const Vector3& anchor_a = Vector3{},
                                 const Vector3& anchor_b = Vector3{})
     {
-        XpbdDistanceConstraint constraint;
+        XPBDDistanceConstraint constraint;
         constraint.a = std::uint32_t(a);
         constraint.b = std::uint32_t(b);
         constraint.rest_length = rest;
@@ -150,19 +150,19 @@ namespace
      * @param rest     Those four bodies' rest positions.
      * @param material The constitutive parameters; its Lame pair is carried per element.
      */
-    FemTetrahedron tetrahedron(const std::uint32_t v[4], const Vector3 rest[4],
+    FEMTetrahedron tetrahedron(const std::uint32_t v[4], const Vector3 rest[4],
                                const SoftBodyMaterial& material)
     {
-        FemTetrahedron element;
+        FEMTetrahedron element;
         for (int i = 0; i < 4; ++i)
             element.vertex[i] = v[i];
 
-        FemMatrix3<Scalar> rest_shape;
+        FEMMatrix3<Scalar> rest_shape;
         rest_shape.column0 = rest[1] - rest[0];
         rest_shape.column1 = rest[2] - rest[0];
         rest_shape.column2 = rest[3] - rest[0];
 
-        FemMatrix3<Scalar> inverse;
+        FEMMatrix3<Scalar> inverse;
         invert_fem_matrix3(rest_shape, inverse);
         element.rest_inverse_column_0 = inverse.column0;
         element.rest_inverse_column_1 = inverse.column1;
@@ -1226,8 +1226,8 @@ TEST(Integration_SolverConformance, AnElementReportsTheSameMultipliersOnBoth)
         (*runtime).step(parameters);
     }
 
-    FemTetrahedron from_host;
-    FemTetrahedron from_runtime;
+    FEMTetrahedron from_host;
+    FEMTetrahedron from_runtime;
     ASSERT_TRUE((*host).read_element(host_handle, from_host));
     ASSERT_TRUE((*runtime).read_element(runtime_handle, from_runtime));
 

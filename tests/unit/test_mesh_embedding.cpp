@@ -289,10 +289,10 @@ namespace
      * "the binding was preserved" means once there are two vertices to preserve
      * it onto.
      */
-    FemTetrahedron tetrahedron(std::uint32_t a, std::uint32_t b, std::uint32_t c,
+    FEMTetrahedron tetrahedron(std::uint32_t a, std::uint32_t b, std::uint32_t c,
                                std::uint32_t d, Scalar stress)
     {
-        FemTetrahedron element;
+        FEMTetrahedron element;
         element.vertex[0] = a;
         element.vertex[1] = b;
         element.vertex[2] = c;
@@ -328,11 +328,11 @@ TEST(Unit_MeshEmbedding, ADuplicatedVertexTakesItsParentsBindingWithIt)
         }
     }
 
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     budget.minimum_fragment_element_count = 1;
     std::uint32_t total = 0;
-    FemFractureRemap remap;
-    const FemFractureReport report = apply_fem_fracture<Scalar>(model, budget, total, &remap);
+    FEMFractureRemap remap;
+    const FEMFractureReport report = apply_fem_fracture<Scalar>(model, budget, total, &remap);
     ASSERT_EQ(report.vertices_duplicated, 1u);
 
     embedding.follow_fracture(model, remap);
@@ -391,10 +391,10 @@ TEST(Unit_MeshEmbedding, TheSplitItselfMovesNothing)
     std::vector<Vector3> before(2);
     embedding.deform(model.particles.data(), model.particles.size(), before.data());
 
-    FemFractureBudget budget;
+    FEMFractureBudget budget;
     budget.minimum_fragment_element_count = 1;
     std::uint32_t total = 0;
-    FemFractureRemap remap;
+    FEMFractureRemap remap;
     ASSERT_EQ(apply_fem_fracture<Scalar>(model, budget, total, &remap).vertices_duplicated, 1u);
     embedding.follow_fracture(model, remap);
 

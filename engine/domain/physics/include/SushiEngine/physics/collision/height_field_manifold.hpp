@@ -160,7 +160,7 @@ namespace SushiEngine
             if (field.cell_size_x <= T(0) || field.cell_size_z <= T(0))
                 return;
 
-            const Aabb<T> world = aabb_expand(world_bounds(shape), contact_offset);
+            const AABB<T> world = aabb_expand(world_bounds(shape), contact_offset);
 
             // Into field space, conservatively: the same reasoning as the mesh
             // hierarchy's query. One transform of the box, not a transform of the

@@ -36,33 +36,33 @@ namespace SushiEngine
     {
         namespace Passes
         {
-            SsrPass::SsrPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
+            SSRPass::SSRPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                              Resources::GraphicsPipelineFactory& pipelines,
-                             Scene::SceneLayout& layout, HizPass& hiz)
+                             Scene::SceneLayout& layout, HiZPass& hiz)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   hiz_(hiz)
             {
                 create_pipeline();
             }
 
-            SsrPass::~SsrPass() { destroy_pipeline(); }
+            SSRPass::~SSRPass() { destroy_pipeline(); }
 
-            void SsrPass::create_pipeline()
+            void SSRPass::create_pipeline()
             {
                 pipeline_ = pipelines_.create(fullscreen_pipeline_desc(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("ssr.frag"), Frame::HDR_FORMAT));
             }
 
-            void SsrPass::destroy_pipeline() { pipeline_ = Resources::PipelineHandle{}; }
+            void SSRPass::destroy_pipeline() { pipeline_ = Resources::PipelineHandle{}; }
 
-            void SsrPass::rebuild_pipelines()
+            void SSRPass::rebuild_pipelines()
             {
                 destroy_pipeline();
                 create_pipeline();
             }
 
-            void SsrPass::register_pass(Graph::RenderGraph& graph,
+            void SSRPass::register_pass(Graph::RenderGraph& graph,
                                         const Frame::FrameContext& frame)
             {
                 if (!frame.settings.ssr.enabled || !frame.targets.scene_reflected.valid())

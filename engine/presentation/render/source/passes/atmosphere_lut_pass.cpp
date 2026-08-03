@@ -86,7 +86,7 @@ namespace SushiEngine
                 }
             } // namespace
 
-            AtmosphereLutPass::AtmosphereLutPass(Vulkan::VulkanDevice& device,
+            AtmosphereLUTPass::AtmosphereLUTPass(Vulkan::VulkanDevice& device,
                                                  Resources::ShaderLibrary& shaders,
                                                  Resources::GraphicsPipelineFactory& pipelines)
                 : device_(device), shaders_(shaders), pipelines_(pipelines)
@@ -226,7 +226,7 @@ namespace SushiEngine
                 create_pipelines();
             }
 
-            AtmosphereLutPass::~AtmosphereLutPass()
+            AtmosphereLUTPass::~AtmosphereLUTPass()
             {
                 destroy_pipelines();
                 destroy_image(transmittance_);
@@ -253,7 +253,7 @@ namespace SushiEngine
                     vkDestroyDescriptorSetLayout(device_.device(), aerial_layout_, nullptr);
             }
 
-            void AtmosphereLutPass::create_pipelines()
+            void AtmosphereLUTPass::create_pipelines()
             {
                 transmittance_pipeline_ = pipelines_.create_compute(
                     transmittance_pipeline_layout_, shaders_.module("transmittance_lut.comp"));
@@ -265,7 +265,7 @@ namespace SushiEngine
                     aerial_pipeline_layout_, shaders_.module("aerial_perspective.comp"));
             }
 
-            void AtmosphereLutPass::destroy_pipelines()
+            void AtmosphereLUTPass::destroy_pipelines()
             {
                 if (transmittance_pipeline_ != VK_NULL_HANDLE)
                     vkDestroyPipeline(device_.device(), transmittance_pipeline_, nullptr);
@@ -281,7 +281,7 @@ namespace SushiEngine
                 aerial_pipeline_ = VK_NULL_HANDLE;
             }
 
-            void AtmosphereLutPass::rebuild_pipelines()
+            void AtmosphereLUTPass::rebuild_pipelines()
             {
                 destroy_pipelines();
                 create_pipelines();
@@ -289,7 +289,7 @@ namespace SushiEngine
                 built_ = false;
             }
 
-            void AtmosphereLutPass::create_image(Lut& lut, std::uint32_t width,
+            void AtmosphereLUTPass::create_image(LUT& lut, std::uint32_t width,
                                                  std::uint32_t height)
             {
                 lut.width = width;
@@ -324,7 +324,7 @@ namespace SushiEngine
                               "vkCreateImageView(atmosphere lut)");
             }
 
-            void AtmosphereLutPass::create_volume(Lut& lut, std::uint32_t width,
+            void AtmosphereLUTPass::create_volume(LUT& lut, std::uint32_t width,
                                                   std::uint32_t height, std::uint32_t depth)
             {
                 lut.width = width;
@@ -360,7 +360,7 @@ namespace SushiEngine
                               "vkCreateImageView(atmosphere volume)");
             }
 
-            void AtmosphereLutPass::destroy_image(Lut& lut)
+            void AtmosphereLUTPass::destroy_image(LUT& lut)
             {
                 if (lut.view != VK_NULL_HANDLE)
                     vkDestroyImageView(device_.device(), lut.view, nullptr);
@@ -371,7 +371,7 @@ namespace SushiEngine
                 lut.allocation = VK_NULL_HANDLE;
             }
 
-            bool AtmosphereLutPass::medium_changed(const Push& push)
+            bool AtmosphereLUTPass::medium_changed(const Push& push)
             {
                 if (!built_ || std::memcmp(&push, &last_push_, sizeof(Push)) != 0)
                 {
@@ -381,7 +381,7 @@ namespace SushiEngine
                 return false;
             }
 
-            void AtmosphereLutPass::register_pass(Graph::RenderGraph& graph,
+            void AtmosphereLUTPass::register_pass(Graph::RenderGraph& graph,
                                                   const Frame::FrameContext& frame)
             {
                 if (frame.environment == nullptr)
@@ -392,7 +392,7 @@ namespace SushiEngine
                 // Hillaire model" -- precipitation/low-cloud saturation adds Mie scattering on
                 // top of the author's own coefficient. Zero whenever procedural weather is off,
                 // so a scene with no dynamic weather is byte-for-byte unaffected. Folding it in
-                // here rather than at the Environment level means AtmosphereLutPass's existing
+                // here rather than at the Environment level means AtmosphereLUTPass's existing
                 // medium_changed() memcmp gate already rebuilds the static LUTs exactly when the
                 // weather-adjusted value actually changes tick to tick, with no extra plumbing.
                 const float mie_coefficient =

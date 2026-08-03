@@ -114,7 +114,7 @@ namespace SushiEngine
             void draw_add_layer_form(AnimatedMeshPreview& preview,
                                      const Animation::SkeletonView& skeleton)
             {
-                const std::vector<Animation::GltfClip>& clips = preview.available_clips();
+                const std::vector<Animation::GLTFClip>& clips = preview.available_clips();
                 if (clips.empty())
                 {
                     ImGui::TextDisabled("No other clips in the source file");

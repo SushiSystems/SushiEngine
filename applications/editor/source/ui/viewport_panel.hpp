@@ -432,7 +432,7 @@ namespace SushiEngine
                 /**
                  * @brief The frame's UI geometry, kept alive across the render call.
                  *
-                 * `Render::UiView` is non-owning, so the list it points at has to outlive the
+                 * `Render::UIView` is non-owning, so the list it points at has to outlive the
                  * call. Holding it here rather than on the stack also keeps its capacity between
                  * frames, which matters because it is rebuilt from scratch every one.
                  */

@@ -25,17 +25,17 @@
 
 /**
  * @file cloth.hpp
- * @brief SushiLoop M5: cloth as a grid of `XpbdDistanceConstraint`s (no new solver).
+ * @brief SushiLoop M5: cloth as a grid of `XPBDDistanceConstraint`s (no new solver).
  *
  * A cloth (or a rope, degenerately at one row) is not a new physics primitive —
  * it is a mass-spring topology expressed entirely in terms of the constraint type
  * `xpbd_demo.cpp`'s hanging chain already uses, per `docs/slop/SUSHILOOP.md`.
  * `build_cloth_grid` registers one `RigidBody` per grid point (zero inverse
  * inertia, anchors implicitly at each body's own origin, so no angular coupling —
- * the same linear-only degeneration `XpbdDistanceConstraint` already supports) and
+ * the same linear-only degeneration `XPBDDistanceConstraint` already supports) and
  * wires structural constraints (horizontal/vertical neighbours) plus shear
  * constraints (diagonal neighbours, which resist the grid collapsing into a
- * parallelogram under shear) into the caller's `PhysicsWorld<XpbdDistanceConstraint>`.
+ * parallelogram under shear) into the caller's `PhysicsWorld<XPBDDistanceConstraint>`.
  * The whole grid's first row is pinned (`inv_mass == 0`) so it hangs, mirroring the
  * existing hanging-chain demos.
  *
@@ -222,7 +222,7 @@ namespace SushiEngine
 
             const auto link = [&](BodyHandle a, BodyHandle b, T rest_length)
             {
-                XpbdDistanceConstraintT<T> constraint;
+                XPBDDistanceConstraintT<T> constraint;
                 constraint.a = std::uint32_t(solver.body_slot(a));
                 constraint.b = std::uint32_t(solver.body_slot(b));
                 constraint.rest_length = rest_length;

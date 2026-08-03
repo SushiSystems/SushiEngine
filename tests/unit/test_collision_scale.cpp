@@ -61,7 +61,7 @@ namespace
         std::vector<Body> bodies;
         std::vector<CollisionShape<Real>> shapes;
         std::vector<ProxyId> proxies;
-        BvhBroadphase<Real> broadphase;
+        BVHBroadphase<Real> broadphase;
         IslandBuilder<Real> islands;
         IslandSet partition;
     };

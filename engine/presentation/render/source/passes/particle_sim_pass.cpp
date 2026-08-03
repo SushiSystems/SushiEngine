@@ -75,7 +75,7 @@ namespace SushiEngine
             ParticleSimPass::ParticleSimPass(Vulkan::VulkanDevice& device,
                                              Resources::ShaderLibrary& shaders,
                                              Resources::GraphicsPipelineFactory& pipelines,
-                                             Scene::ParticleSystem& particles, HizPass& hiz,
+                                             Scene::ParticleSystem& particles, HiZPass& hiz,
                                              IrradianceVolumePass& volumes)
                 : device_(device), shaders_(shaders), pipelines_(pipelines), particles_(particles),
                   hiz_(hiz), volumes_(volumes)
@@ -216,7 +216,7 @@ namespace SushiEngine
                 // nothing rather than bounce off a phantom surface.
                 VkBufferCreateInfo buffer_info{};
                 buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-                buffer_info.size = sizeof(Gi::SdfClipmapConfig);
+                buffer_info.size = sizeof(GI::SDFClipmapConfig);
                 buffer_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
                 buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -230,7 +230,7 @@ namespace SushiEngine
                                               &mapped),
                               "vmaCreateBuffer(particle sim fallback config)");
                 if (mapped.pMappedData != nullptr)
-                    std::memset(mapped.pMappedData, 0, sizeof(Gi::SdfClipmapConfig));
+                    std::memset(mapped.pMappedData, 0, sizeof(GI::SDFClipmapConfig));
             }
 
             void ParticleSimPass::destroy_fallback_field()
@@ -408,7 +408,7 @@ namespace SushiEngine
                         // The GI distance field, or the stand-in when the GI tier is off. Its
                         // config comes from the same record, so the field and the parameterization
                         // locating it can never come from different frames.
-                        const Gi::VisibilityField field = volumes_.visibility_field(frame.index);
+                        const GI::VisibilityField field = volumes_.visibility_field(frame.index);
                         const bool field_usable = field.valid();
                         // The clipmap stays in GENERAL across its own build (see
                         // sdf_probe_tracer.cpp); the fallback stand-in is SHADER_READ_ONLY_OPTIMAL.
@@ -421,7 +421,7 @@ namespace SushiEngine
                         writer.uniform_buffer(SDF_CONFIG_BINDING,
                                               field_usable ? field.config : fallback_config_,
                                               field_usable ? field.config_bytes
-                                                           : sizeof(Gi::SdfClipmapConfig));
+                                                           : sizeof(GI::SDFClipmapConfig));
                         writer.update(device_.device(), set);
                         Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
@@ -482,7 +482,7 @@ namespace SushiEngine
 
                         // Then spawn each emitter's new particles into the ring.
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, emit_pipeline_);
-                        const std::vector<Scene::GpuEmitter>& emitters = particles_.emitters();
+                        const std::vector<Scene::GPUEmitter>& emitters = particles_.emitters();
                         for (std::uint32_t e = 0; e < emitters.size(); ++e)
                         {
                             if (emitters[e].spawn_count == 0)

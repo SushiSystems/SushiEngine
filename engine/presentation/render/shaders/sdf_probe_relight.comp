@@ -28,12 +28,12 @@ layout(set = 0, binding = 2) uniform sampler3D clipmap;
 
 layout(set = 0, binding = 3) uniform ProbeBlock
 {
-    GiProbeVolume volume;
+    GIProbeVolume volume;
 } probe;
 
 layout(set = 0, binding = 4) uniform ClipmapBlock
 {
-    SdfClipmapConfig cfg;
+    SDFClipmapConfig cfg;
 } clip;
 
 layout(set = 0, binding = 5) uniform sampler3D emissive_clipmap;

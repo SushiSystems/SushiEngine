@@ -29,8 +29,8 @@
  *
  * The GPU-driven geometry path replaces the CPU's one-draw-per-instance loop with two
  * device buffers and a cull dispatch. This system builds those buffers each frame: it
- * groups every mesh instance by the geometry it draws with into @ref GpuDrawBucket
- * ranges, packs a @ref GpuInstance record for each (camera-relative transform, bounding
+ * groups every mesh instance by the geometry it draws with into @ref GPUDrawBucket
+ * ranges, packs a @ref GPUInstance record for each (camera-relative transform, bounding
  * sphere, and the material/motion/pick indices the draw used to push), and lays out the
  * per-bucket metadata the cull shader reads. It is the exact analogue of MotionSystem
  * and MaterialSystem — one host-mapped buffer per frame slot, grown on demand — and the
@@ -121,7 +121,7 @@ namespace SushiEngine
                     void upload();
 
                     /** @brief The buckets this frame draws, one per distinct mesh. */
-                    const std::vector<GpuDrawBucket>& buckets() const noexcept { return buckets_; }
+                    const std::vector<GPUDrawBucket>& buckets() const noexcept { return buckets_; }
 
                     /** @brief Total instances packed this frame, across every bucket. */
                     std::uint32_t instance_count() const noexcept
@@ -170,9 +170,9 @@ namespace SushiEngine
 
                     Vulkan::VulkanDevice& device_;
                     std::vector<Slot> slots_;
-                    std::vector<GpuInstance> instances_;
-                    std::vector<GpuBucketMeta> bucket_meta_;
-                    std::vector<GpuDrawBucket> buckets_;
+                    std::vector<GPUInstance> instances_;
+                    std::vector<GPUBucketMeta> bucket_meta_;
+                    std::vector<GPUDrawBucket> buckets_;
                     std::unordered_map<VkBuffer, std::uint32_t> bucket_lookup_;
                     std::uint32_t current_slot_ = 0;
             };

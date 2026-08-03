@@ -937,7 +937,7 @@ namespace SushiEngine
                         // emitter then keeps the default it was seeded with rather than failing.
                         if (p.contains("source"))
                         {
-                            SushiEngine::Vfx::ParticleEffect source;
+                            SushiEngine::VFX::ParticleEffect source;
                             if (apply_effect(p["source"], source))
                                 world.set_particle_effect_source(id, source);
                         }
@@ -1242,7 +1242,7 @@ namespace SushiEngine
                 {
                     if (world.has_particle_emitter(id))
                     {
-                        SushiEngine::Vfx::ParticleEffect effect = world.particle_effect_source(id);
+                        SushiEngine::VFX::ParticleEffect effect = world.particle_effect_source(id);
                         resolve_effect_textures(effect, assets);
                         world.set_particle_effect_source(id, effect);
                     }
@@ -1263,7 +1263,7 @@ namespace SushiEngine
                     if (any_handle || !material_paths_empty(paths))
                     {
                         material.albedo_map =
-                            resolve(paths.albedo_map, TextureColorSpace::Srgb);
+                            resolve(paths.albedo_map, TextureColorSpace::SRGB);
                         material.metallic_roughness_map =
                             resolve(paths.metallic_roughness_map, TextureColorSpace::Linear);
                         material.normal_map =
@@ -1273,9 +1273,9 @@ namespace SushiEngine
                         material.occlusion_map =
                             resolve(paths.occlusion_map, TextureColorSpace::Linear);
                         material.emissive_map =
-                            resolve(paths.emissive_map, TextureColorSpace::Srgb);
+                            resolve(paths.emissive_map, TextureColorSpace::SRGB);
                         material.detail_albedo_map =
-                            resolve(paths.detail_albedo_map, TextureColorSpace::Srgb);
+                            resolve(paths.detail_albedo_map, TextureColorSpace::SRGB);
                         material.detail_normal_map =
                             resolve(paths.detail_normal_map, TextureColorSpace::Linear);
                         material.detail_mask_map =
@@ -1291,7 +1291,7 @@ namespace SushiEngine
                             !decal.albedo_map_path.empty() || !decal.orm_map_path.empty())
                         {
                             decal.albedo_map =
-                                resolve(decal.albedo_map_path, TextureColorSpace::Srgb);
+                                resolve(decal.albedo_map_path, TextureColorSpace::SRGB);
                             decal.orm_map =
                                 resolve(decal.orm_map_path, TextureColorSpace::Linear);
                             world.set_decal_params(id, decal);

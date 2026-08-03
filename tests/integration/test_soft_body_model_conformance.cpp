@@ -208,7 +208,7 @@ namespace
 
         const Vector3 centre_a = centroid_of(a);
         const Vector3 centre_b = centroid_of(b);
-        FemMatrix3<Scalar> covariance;
+        FEMMatrix3<Scalar> covariance;
         for (std::size_t i = 0; i < a.size(); ++i)
         {
             const Vector3 current = b[i] - centre_b;
@@ -218,7 +218,7 @@ namespace
             covariance.column2 = covariance.column2 + current * rest.z;
         }
 
-        FemMatrix3<Scalar> rotation;
+        FEMMatrix3<Scalar> rotation;
         if (!polar_rotation(covariance, rotation))
             return Scalar(1e9); // collapsed or inverted: no shape left to compare
 
@@ -445,12 +445,12 @@ TEST(Unit_PolarRotation, RecoversAPureRotationExactly)
     const Scalar c = Scalar(std::cos(double(angle)));
     const Scalar s = Scalar(std::sin(double(angle)));
 
-    FemMatrix3<Scalar> rotation;
+    FEMMatrix3<Scalar> rotation;
     rotation.column0 = Vector3{c, s, 0};
     rotation.column1 = Vector3{-s, c, 0};
     rotation.column2 = Vector3{0, 0, 1};
 
-    FemMatrix3<Scalar> recovered;
+    FEMMatrix3<Scalar> recovered;
     ASSERT_TRUE(polar_rotation(rotation, recovered));
     EXPECT_NEAR(double(length(recovered.column0 - rotation.column0)), 0.0, 1e-12);
     EXPECT_NEAR(double(length(recovered.column1 - rotation.column1)), 0.0, 1e-12);
@@ -459,12 +459,12 @@ TEST(Unit_PolarRotation, RecoversAPureRotationExactly)
 
 TEST(Unit_PolarRotation, StripsAUniformScaleAndKeepsTheRotation)
 {
-    FemMatrix3<Scalar> scaled;
+    FEMMatrix3<Scalar> scaled;
     scaled.column0 = Vector3{Scalar(3), 0, 0};
     scaled.column1 = Vector3{0, Scalar(3), 0};
     scaled.column2 = Vector3{0, 0, Scalar(3)};
 
-    FemMatrix3<Scalar> recovered;
+    FEMMatrix3<Scalar> recovered;
     ASSERT_TRUE(polar_rotation(scaled, recovered));
     EXPECT_NEAR(double(recovered.column0.x), 1.0, 1e-12);
     EXPECT_NEAR(double(recovered.column1.y), 1.0, 1e-12);
@@ -476,11 +476,11 @@ TEST(Unit_PolarRotation, RefusesAnInvertedMatrix)
     // A body turned inside out has no nearest rotation worth the name, and a
     // routine that invented one would hand shape matching a fit that pulls every
     // particle through the body's centre.
-    FemMatrix3<Scalar> inverted;
+    FEMMatrix3<Scalar> inverted;
     inverted.column0 = Vector3{Scalar(-1), 0, 0};
     inverted.column1 = Vector3{0, Scalar(1), 0};
     inverted.column2 = Vector3{0, 0, Scalar(1)};
 
-    FemMatrix3<Scalar> recovered;
+    FEMMatrix3<Scalar> recovered;
     EXPECT_FALSE(polar_rotation(inverted, recovered));
 }

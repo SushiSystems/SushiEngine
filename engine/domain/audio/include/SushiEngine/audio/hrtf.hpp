@@ -25,7 +25,7 @@
 
 /**
  * @file hrtf.hpp
- * @brief The measured-HRTF seam — an `IHrtfDatabase` and the per-ear HRIR convolver.
+ * @brief The measured-HRTF seam — an `IHRTFDatabase` and the per-ear HRIR convolver.
  *
  * The fidelity upgrade the analytic head model of `spatializer.hpp` was written to accept:
  * instead of synthesising each virtual speaker's ear signal from a Woodworth ITD and a
@@ -33,7 +33,7 @@
  * left/right response of a real head to a source in a given direction — is convolved in.
  * This captures the pinna, torso, and ear-canal cues the analytic model only approximates.
  *
- * @ref IHrtfDatabase is the dependency-free seam: any provider (a baked table, a synthetic
+ * @ref IHRTFDatabase is the dependency-free seam: any provider (a baked table, a synthetic
  * set, or the SOFA/HDF5 loader in `sofa_hrtf.hpp`) hands the spatializer an HRIR pair for a
  * head-relative direction. @ref HrirConvolver is the direct-form FIR that applies it. This
  * header carries no third-party dependency and rides the `audio.hpp` umbrella.
@@ -54,10 +54,10 @@ namespace SushiEngine
          * convolves them. All impulse responses in one database share @ref ir_length and
          * @ref sample_rate.
          */
-        class IHrtfDatabase
+        class IHRTFDatabase
         {
             public:
-                virtual ~IHrtfDatabase() = default;
+                virtual ~IHRTFDatabase() = default;
 
                 /** @brief The number of taps in each ear's impulse response. */
                 virtual int ir_length() const noexcept = 0;

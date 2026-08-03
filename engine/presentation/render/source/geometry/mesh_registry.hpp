@@ -253,7 +253,7 @@ namespace SushiEngine
                      * @param mesh The id returned by add_mesh().
                      * @return Its brick, or nullptr if the id is unknown or the mesh degenerate.
                      */
-                    const Gi::MeshSdfBrick* mesh_brick(MeshId mesh) const noexcept;
+                    const GI::MeshSDFBrick* mesh_brick(MeshId mesh) const noexcept;
 
                 private:
                     /** @brief A VMA-backed buffer and the capacity it was allocated at. */
@@ -274,7 +274,7 @@ namespace SushiEngine
                         Allocation morph; /**< Target-major morph deltas; unset if no morph targets. */
                         std::uint32_t morph_targets = 0; /**< Targets in @c morph, 0 if none. */
                         Mesh mesh;
-                        Gi::MeshSdfBrick brick; /**< Signed-distance brick baked at import for GI. */
+                        GI::MeshSDFBrick brick; /**< Signed-distance brick baked at import for GI. */
                     };
 
                     Allocation upload(const void* data, VkDeviceSize bytes,

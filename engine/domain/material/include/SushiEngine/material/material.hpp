@@ -216,7 +216,7 @@ namespace SushiEngine
         enum class TextureColorSpace : std::uint32_t
         {
             Linear, /**< Data maps: normal, metallic-roughness, occlusion, height, masks. */
-            Srgb,   /**< Colour maps: base colour, emissive, detail albedo. */
+            SRGB,   /**< Colour maps: base colour, emissive, detail albedo. */
         };
     } // namespace Render
 } // namespace SushiEngine

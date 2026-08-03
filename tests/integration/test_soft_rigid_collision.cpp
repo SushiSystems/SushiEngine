@@ -53,15 +53,15 @@ using namespace SushiEngine::Harness;
 
 namespace
 {
-    /** @brief A baked field and the storage behind it, since `SdfCollider` only borrows. */
+    /** @brief A baked field and the storage behind it, since `SDFCollider` only borrows. */
     struct BakedField
     {
         std::vector<float> distances;
-        SdfCollider<Scalar> field;
+        SDFCollider<Scalar> field;
     };
 
     /** @brief The world position of voxel (x, y, z)'s centre, in the field's local frame. */
-    Vector3 voxel_center(const SdfCollider<Scalar>& field, std::int32_t x, std::int32_t y,
+    Vector3 voxel_center(const SDFCollider<Scalar>& field, std::int32_t x, std::int32_t y,
                          std::int32_t z)
     {
         const Vector3 span = field.field_max - field.field_min;
@@ -161,7 +161,7 @@ namespace
     }
 } // namespace
 
-TEST(Unit_ParticleSdfManifold, ReportsTheDistanceAndANormalIntoTheSolid)
+TEST(Unit_ParticleSDFManifold, ReportsTheDistanceAndANormalIntoTheSolid)
 {
     const BakedField baked = make_half_space_field(Scalar(0), Scalar(1), 32);
 
@@ -177,7 +177,7 @@ TEST(Unit_ParticleSdfManifold, ReportsTheDistanceAndANormalIntoTheSolid)
     EXPECT_NEAR(double(manifold.normal.y), 0.0, 1e-6);
 }
 
-TEST(Unit_ParticleSdfManifold, IsStillCorrectDeepInsideTheSolid)
+TEST(Unit_ParticleSDFManifold, IsStillCorrectDeepInsideTheSolid)
 {
     const BakedField baked = make_half_space_field(Scalar(0), Scalar(1), 32);
 
@@ -191,7 +191,7 @@ TEST(Unit_ParticleSdfManifold, IsStillCorrectDeepInsideTheSolid)
     EXPECT_NEAR(double(manifold.normal.z), -1.0, 1e-6);
 }
 
-TEST(Unit_ParticleSdfManifold, GeneratesNothingBeyondTheContactOffset)
+TEST(Unit_ParticleSDFManifold, GeneratesNothingBeyondTheContactOffset)
 {
     const BakedField baked = make_half_space_field(Scalar(0), Scalar(1), 32);
 

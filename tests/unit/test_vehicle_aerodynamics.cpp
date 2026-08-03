@@ -239,7 +239,7 @@ TEST(Unit_VehicleAerodynamics, AerodynamicForceIsQuadraticInSpeed)
 /** @brief The cooker's per-node area finally reaches a body (§11.6). */
 TEST(Unit_VehicleAerodynamics, ShellNodesCarryTheCookersDragArea)
 {
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     Blob blob(chassis_asset());
     VehicleInstance vehicle;
     NodeBeamStructureSettings<Scalar> settings;
@@ -257,7 +257,7 @@ TEST(Unit_VehicleAerodynamics, ShellNodesCarryTheCookersDragArea)
 /** @brief The body's Cd and area become the core's own drag constant. */
 TEST(Unit_VehicleAerodynamics, TheCoreCarriesTheBodysDrag)
 {
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     Blob blob(chassis_asset());
     VehicleInstance vehicle;
     NodeBeamStructureSettings<Scalar> settings;
@@ -274,7 +274,7 @@ TEST(Unit_VehicleAerodynamics, TheCoreCarriesTheBodysDrag)
 /** @brief Downforce presses the car onto the road by `½ρClAv²` and no more. */
 TEST(Unit_VehicleAerodynamics, DownforcePressesTheCarOntoTheRoad)
 {
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     Blob blob(chassis_asset());
     VehicleInstance vehicle;
     NodeBeamStructureSettings<Scalar> settings;
@@ -304,7 +304,7 @@ TEST(Unit_VehicleAerodynamics, DownforceOffTheCentreOfMassPitchesTheCar)
     NodeBeamStructureSettings<Scalar> settings;
     settings.velocity = Vector3{0, 0, 60};
 
-    HostXpbdSolver<Scalar> winged_solver(vehicle_scene());
+    HostXPBDSolver<Scalar> winged_solver(vehicle_scene());
     Blob winged_blob(chassis_asset());
     VehicleInstance winged;
     ASSERT_TRUE(winged.create(winged_solver, winged_blob.view,
@@ -317,7 +317,7 @@ TEST(Unit_VehicleAerodynamics, DownforceOffTheCentreOfMassPitchesTheCar)
     ASSERT_TRUE(winged_solver.read_body(winged.structure().core(), after));
     EXPECT_GT(std::fabs(double(after.angular_velocity.x - before.angular_velocity.x)), 1e-6);
 
-    HostXpbdSolver<Scalar> centred_solver(vehicle_scene());
+    HostXPBDSolver<Scalar> centred_solver(vehicle_scene());
     Blob centred_blob(chassis_asset());
     VehicleInstance centred;
     ASSERT_TRUE(centred.create(centred_solver, centred_blob.view, a_car(Scalar(1.8), 0),
@@ -335,7 +335,7 @@ TEST(Unit_VehicleAerodynamics, DownforceOffTheCentreOfMassPitchesTheCar)
 /** @brief A road car generates no downforce, which is the honest default. */
 TEST(Unit_VehicleAerodynamics, ARoadCarGeneratesNoDownforce)
 {
-    HostXpbdSolver<Scalar> solver(vehicle_scene());
+    HostXPBDSolver<Scalar> solver(vehicle_scene());
     Blob blob(chassis_asset());
     VehicleInstance vehicle;
     NodeBeamStructureSettings<Scalar> settings;

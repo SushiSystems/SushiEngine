@@ -66,7 +66,7 @@ namespace SushiEngine
 
         namespace Passes
         {
-            class IblPass;
+            class IBLPass;
 
             /** @brief Billboards the frame's alive particles into the HDR scene. */
             class ParticlePass : public IRenderPass
@@ -86,7 +86,7 @@ namespace SushiEngine
                     ParticlePass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                  Resources::GraphicsPipelineFactory& pipelines,
                                  Scene::ParticleSystem& particles, Lighting::LightSystem& lights,
-                                 IblPass& ibl, Resources::DescriptorHeap& heap);
+                                 IBLPass& ibl, Resources::DescriptorHeap& heap);
                     ~ParticlePass() override;
 
                     ParticlePass(const ParticlePass&) = delete;
@@ -150,7 +150,7 @@ namespace SushiEngine
                     Resources::GraphicsPipelineFactory& pipelines_;
                     Scene::ParticleSystem& particles_;
                     Lighting::LightSystem& lights_;
-                    IblPass& ibl_;
+                    IBLPass& ibl_;
                     Resources::DescriptorHeap& heap_;
 
                     VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
