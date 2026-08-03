@@ -48,10 +48,10 @@ namespace SushiEngine
                  * @param name   Debug name reported by the graph.
                  * @return The description to create the transient with.
                  */
-                Graph::TextureDesc color_target(std::uint32_t width, std::uint32_t height,
-                                                VkFormat format, const char* name)
+                Graph::TextureDescription color_target(std::uint32_t width, std::uint32_t height,
+                                                       VkFormat format, const char* name)
                 {
-                    Graph::TextureDesc desc;
+                    Graph::TextureDescription desc;
                     desc.width = width;
                     desc.height = height;
                     desc.format = format;
@@ -529,7 +529,7 @@ namespace SushiEngine
             {
                 Frame::FrameTargets targets;
 
-                Graph::TextureDesc depth_desc =
+                Graph::TextureDescription depth_desc =
                     color_target(frame.width, frame.height, Frame::DEPTH_FORMAT, "depth");
                 depth_desc.aspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
 
@@ -575,7 +575,7 @@ namespace SushiEngine
                 // created even when shadows are off, at one texel a tile: the shading
                 // pass reads the descriptor unconditionally, and a valid tiny image is
                 // cheaper than a shader permutation that avoids it.
-                Graph::TextureDesc shadow_desc =
+                Graph::TextureDescription shadow_desc =
                     color_target(frame.shadow_resolution * 2, frame.shadow_resolution * 2,
                                  Frame::SHADOW_FORMAT, "shadow atlas");
                 shadow_desc.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -588,7 +588,7 @@ namespace SushiEngine
                     frame.settings.lights.shadow_atlas_size < 4u
                         ? 4u
                         : frame.settings.lights.shadow_atlas_size;
-                Graph::TextureDesc light_shadow_desc = color_target(
+                Graph::TextureDescription light_shadow_desc = color_target(
                     light_atlas_size, light_atlas_size, Frame::SHADOW_FORMAT, "light shadow atlas");
                 light_shadow_desc.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
                 targets.light_shadow_atlas = graph.create_texture(light_shadow_desc);
@@ -605,7 +605,7 @@ namespace SushiEngine
                 targets.ao = graph.create_texture(
                     color_target(frame.width, frame.height, Frame::HDR_FORMAT, "ao"));
                 // The cloud march runs at the tier's own resolution scale (design doc
-                // §4.7's "Cloud buffer" row, QualityParams::cloud_buffer_scale) rather
+                // §4.7's "Cloud buffer" row, QualityParameters::cloud_buffer_scale) rather
                 // than a hard-coded half; the graph derives the reduced viewport from
                 // this extent, so no pass carries a resolution of its own.
                 const float cloud_scale =
@@ -626,7 +626,7 @@ namespace SushiEngine
 
                 if (shading_rate_enabled)
                 {
-                    Graph::TextureDesc rate_desc = color_target(
+                    Graph::TextureDescription rate_desc = color_target(
                         tile_count(frame.width, rate_texel_width),
                         tile_count(frame.height, rate_texel_height),
                         Frame::SHADING_RATE_FORMAT, "shading rate");
@@ -786,25 +786,25 @@ namespace SushiEngine
                 // them and the opaque pass reads them within the same frame, so they are
                 // graph-owned and the compute→fragment barrier is derived, not imported
                 // per-slot state like the uniform blocks above.
-                Graph::BufferDesc grid_desc;
+                Graph::BufferDescription grid_desc;
                 grid_desc.size = Lighting::CLUSTER_COUNT * sizeof(std::uint32_t);
                 grid_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                 grid_desc.name = "cluster grid";
                 targets.cluster_grid = graph.create_buffer(grid_desc);
 
-                Graph::BufferDesc index_desc;
+                Graph::BufferDescription index_desc;
                 index_desc.size = Lighting::LIGHT_INDEX_COUNT * sizeof(std::uint32_t);
                 index_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                 index_desc.name = "light index list";
                 targets.light_index = graph.create_buffer(index_desc);
 
-                Graph::BufferDesc decal_grid_desc;
+                Graph::BufferDescription decal_grid_desc;
                 decal_grid_desc.size = Lighting::CLUSTER_COUNT * sizeof(std::uint32_t);
                 decal_grid_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                 decal_grid_desc.name = "decal grid";
                 targets.decal_grid = graph.create_buffer(decal_grid_desc);
 
-                Graph::BufferDesc decal_index_desc;
+                Graph::BufferDescription decal_index_desc;
                 decal_index_desc.size = Lighting::DECAL_INDEX_COUNT * sizeof(std::uint32_t);
                 decal_index_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                 decal_index_desc.name = "decal index list";
@@ -818,7 +818,7 @@ namespace SushiEngine
                 if (frame.quality.gpu_driven && frame.gpu_instance_count > 0 &&
                     frame.gpu_bucket_count > 0)
                 {
-                    Graph::BufferDesc commands_desc;
+                    Graph::BufferDescription commands_desc;
                     commands_desc.size = static_cast<VkDeviceSize>(frame.gpu_bucket_count) *
                                          sizeof(VkDrawIndexedIndirectCommand);
                     commands_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
@@ -826,7 +826,7 @@ namespace SushiEngine
                     commands_desc.name = "gpu draw commands";
                     targets.draw_commands = graph.create_buffer(commands_desc);
 
-                    Graph::BufferDesc compacted_desc;
+                    Graph::BufferDescription compacted_desc;
                     compacted_desc.size = static_cast<VkDeviceSize>(frame.gpu_instance_count) *
                                           sizeof(std::uint32_t);
                     compacted_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -840,26 +840,26 @@ namespace SushiEngine
                 // barriers. Only declared when the frame has cosmetic emitters.
                 if (frame.draws.emitter_count > 0 && frame.particle_capacity > 0)
                 {
-                    Graph::BufferDesc draw_desc;
+                    Graph::BufferDescription draw_desc;
                     draw_desc.size = static_cast<VkDeviceSize>(frame.particle_capacity) *
                                      sizeof(VFX::GPUParticle);
                     draw_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                     draw_desc.name = "particle draw list";
                     targets.particle_draw = graph.create_buffer(draw_desc);
 
-                    Graph::BufferDesc alpha_desc = draw_desc;
+                    Graph::BufferDescription alpha_desc = draw_desc;
                     alpha_desc.name = "particle alpha list";
                     targets.particle_alpha = graph.create_buffer(alpha_desc);
 
-                    Graph::BufferDesc ribbon_desc = draw_desc;
+                    Graph::BufferDescription ribbon_desc = draw_desc;
                     ribbon_desc.name = "particle ribbon list";
                     targets.particle_ribbon = graph.create_buffer(ribbon_desc);
 
-                    Graph::BufferDesc mesh_desc = draw_desc;
+                    Graph::BufferDescription mesh_desc = draw_desc;
                     mesh_desc.name = "particle mesh list";
                     targets.particle_mesh = graph.create_buffer(mesh_desc);
 
-                    Graph::BufferDesc mesh_args_desc;
+                    Graph::BufferDescription mesh_args_desc;
                     // One VkDrawIndexedIndirectCommand (five uints) per mesh-draw slice.
                     mesh_args_desc.size = sizeof(std::uint32_t) * 5 *
                                           Scene::ParticleSystem::MAX_MESH_EMITTERS;
@@ -869,7 +869,7 @@ namespace SushiEngine
                     mesh_args_desc.name = "particle mesh draw args";
                     targets.particle_mesh_args = graph.create_buffer(mesh_args_desc);
 
-                    Graph::BufferDesc sort_desc;
+                    Graph::BufferDescription sort_desc;
                     // One {float distance, uint index} entry per pool slot (8 bytes).
                     sort_desc.size =
                         static_cast<VkDeviceSize>(frame.particle_capacity) * 2 * sizeof(std::uint32_t);
@@ -877,7 +877,7 @@ namespace SushiEngine
                     sort_desc.name = "particle sort keys";
                     targets.particle_sort_keys = graph.create_buffer(sort_desc);
 
-                    Graph::BufferDesc args_desc;
+                    Graph::BufferDescription args_desc;
                     // Three VkDrawIndirectCommand: additive at 0, alpha at 16, ribbons at 32.
                     args_desc.size = sizeof(std::uint32_t) * 12;
                     args_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |

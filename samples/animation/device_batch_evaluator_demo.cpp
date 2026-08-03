@@ -79,11 +79,11 @@ namespace
 int main()
 {
     // --- Same rig and clip as clip_demo.cpp -------------------------------------------
-    SkeletonDesc skeleton_desc;
-    JointDesc root;
+    SkeletonDescription skeleton_desc;
+    JointDescription root;
     root.name = "root";
     root.parent = -1;
-    JointDesc child;
+    JointDescription child;
     child.name = "child";
     child.parent = 0;
     child.bind_translation = Vector3f{1.0f, 0.0f, 0.0f};
@@ -95,7 +95,7 @@ int main()
     const Quaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
     const QuaternionT<float> turn =
         quaternion_axis_angle(Vector3T<float>{0, 0, 1}, static_cast<float>(PI * 0.5));
-    ClipDesc clip_desc;
+    ClipDescription clip_desc;
     clip_desc.joint_count = 2;
     clip_desc.frame_count = 2;
     clip_desc.sample_rate = 1.0f;
@@ -128,7 +128,7 @@ int main()
     // clamped — enough to exercise both branches of the sampling algorithm and to be a
     // real "batch", not a single-instance edge case.
     constexpr std::size_t COUNT = 37;
-    std::vector<DeviceInstanceDesc> instances(COUNT);
+    std::vector<DeviceInstanceDescription> instances(COUNT);
     for (std::size_t i = 0; i < COUNT; ++i)
     {
         instances[i].clip_handle = clip_handle;

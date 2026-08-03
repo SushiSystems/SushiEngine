@@ -63,9 +63,9 @@ int main()
     AnimationDatabase database;
 
     // --- Skeleton: root + child ------------------------------------------------------
-    SkeletonDesc skeleton_desc;
-    JointDesc root; root.name = "root"; root.parent = -1;
-    JointDesc child; child.name = "child"; child.parent = 0;
+    SkeletonDescription skeleton_desc;
+    JointDescription root; root.name = "root"; root.parent = -1;
+    JointDescription child; child.name = "child"; child.parent = 0;
     child.bind_translation = Vector3f{0, 1, 0};
     skeleton_desc.joints = {root, child};
     std::vector<std::byte> skeleton_blob;
@@ -75,7 +75,7 @@ int main()
     // --- Clips: idle (root still) and walk (root advances +2 in z per loop) ----------
     const auto make_clip = [&](bool walking) -> AssetId
     {
-        ClipDesc clip;
+        ClipDescription clip;
         clip.joint_count = 2;
         clip.frame_count = 31; // 1 s at 30 Hz
         clip.sample_rate = 30.0f;
@@ -96,30 +96,30 @@ int main()
     const AssetId walk_clip = make_clip(true);
 
     // --- Controller: Idle <-> Walk over a "moving" bool ------------------------------
-    ControllerDesc controller_desc;
-    controller_desc.parameters.push_back(ParameterDesc{"moving", ParameterType::Bool, 0.0f});
+    ControllerDescription controller_desc;
+    controller_desc.parameters.push_back(ParameterDescription{"moving", ParameterType::Bool, 0.0f});
 
-    LayerDesc layer;
+    LayerDescription layer;
     layer.name = "base";
     layer.default_state = "Idle";
 
-    StateDesc idle;
+    StateDescription idle;
     idle.name = "Idle";
     idle.clip = idle_clip;
-    TransitionDesc to_walk;
+    TransitionDescription to_walk;
     to_walk.destination = "Walk";
     to_walk.duration = 0.1f; // a crossfade into Walk
-    to_walk.conditions.push_back(ConditionDesc{"moving", Comparator::If, 0.0f});
+    to_walk.conditions.push_back(ConditionDescription{"moving", Comparator::If, 0.0f});
     idle.transitions.push_back(to_walk);
 
-    StateDesc walk;
+    StateDescription walk;
     walk.name = "Walk";
     walk.clip = walk_clip;
-    walk.events.push_back(StateEventDesc{0.5f, "footstep", 0});
-    TransitionDesc to_idle;
+    walk.events.push_back(StateEventDescription{0.5f, "footstep", 0});
+    TransitionDescription to_idle;
     to_idle.destination = "Idle";
     to_idle.duration = 0.0f; // instant back to Idle
-    to_idle.conditions.push_back(ConditionDesc{"moving", Comparator::IfNot, 0.0f});
+    to_idle.conditions.push_back(ConditionDescription{"moving", Comparator::IfNot, 0.0f});
     walk.transitions.push_back(to_idle);
 
     layer.states = {idle, walk};

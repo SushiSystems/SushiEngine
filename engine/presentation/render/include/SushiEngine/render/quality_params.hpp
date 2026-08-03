@@ -67,7 +67,7 @@ namespace SushiEngine
          * settings instead — see @c ResolvedQuality — so there is exactly one source of
          * truth per quantity.
          */
-        struct QualityParams
+        struct QualityParameters
         {
             /**
              * @brief Percentage-closer soft-shadow filter taps, per shaded pixel.
@@ -177,7 +177,7 @@ namespace SushiEngine
              *
              * The fog froxel volume is cheap, but its in-scatter is the least essential
              * atmosphere term, so the lowest tier drops it; every other tier keeps the
-             * author's @c FogParams::enabled decision.
+             * author's @c FogParameters::enabled decision.
              */
             bool volumetric_fog = true;
 
@@ -185,7 +185,7 @@ namespace SushiEngine
              * @brief Whether probe-volume GI is relit at this tier.
              *
              * Global illumination is a High/Ultra feature: the lower tiers keep the flat
-             * environment ambient. Gated with the author's @c GIParams::enabled, so this
+             * environment ambient. Gated with the author's @c GIParameters::enabled, so this
              * only permits GI — it never forces it on.
              */
             bool probe_gi = false;
@@ -298,7 +298,7 @@ namespace SushiEngine
         struct ResolvedQuality
         {
             RenderSettings settings;
-            QualityParams params;
+            QualityParameters params;
         };
 
         /**

@@ -81,7 +81,7 @@ namespace SushiEngine
          * (element `frame * joint_count + joint`). The optional morph and generic track vectors
          * are frame-major over their own track counts (`frame * track_count + track`).
          */
-        struct ClipDesc
+        struct ClipDescription
         {
             std::uint32_t joint_count = 0;
             std::uint32_t frame_count = 0;
@@ -103,7 +103,7 @@ namespace SushiEngine
          * @return True on success; false if the counts are out of range or the track
          *         vectors are the wrong length.
          */
-        inline bool build_clip_blob(const ClipDesc& desc, std::vector<std::byte>& out)
+        inline bool build_clip_blob(const ClipDescription& desc, std::vector<std::byte>& out)
         {
             out.clear();
             if (desc.joint_count == 0 || desc.joint_count > MAX_JOINTS)

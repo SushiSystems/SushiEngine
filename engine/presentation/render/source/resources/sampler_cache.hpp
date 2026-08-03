@@ -53,7 +53,7 @@ namespace SushiEngine
              *
              * Value-initialised so padding is zero and equality is a byte comparison.
              */
-            struct SamplerDesc
+            struct SamplerDescription
             {
                 VkFilter filter = VK_FILTER_LINEAR;
                 VkSamplerMipmapMode mipmap_mode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
@@ -103,13 +103,13 @@ namespace SushiEngine
                      * @param desc What the sampler must be.
                      * @return The shared sampler; never destroyed by the caller.
                      */
-                    VkSampler get(const SamplerDesc& desc);
+                    VkSampler get(const SamplerDescription& desc);
 
                 private:
                     /** @brief One cached sampler and the description that keyed it. */
                     struct Entry
                     {
-                        SamplerDesc desc{};
+                        SamplerDescription desc{};
                         VkSampler sampler = VK_NULL_HANDLE;
                     };
 

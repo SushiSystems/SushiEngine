@@ -126,7 +126,7 @@ namespace SushiEngine
                     /** @brief Bytes of the probe config block. */
                     static VkDeviceSize config_bytes() noexcept
                     {
-                        return sizeof(GI::ProbeVolumeConfig);
+                        return sizeof(GI::ProbeVolumeConfiguration);
                     }
 
                     /**

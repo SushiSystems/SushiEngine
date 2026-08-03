@@ -53,7 +53,7 @@ namespace SushiEngine
          * Always double. The engine simulates planet- and solar-scale worlds, where the
          * ~1 m float32 quantisation at 1e7 m makes single precision unusable for camera
          * and transform math; double is the engine's one and only boundary/render
-         * `Scalar`. It picks the element of the `Vector3`/`Quaternion`/`Mat4` aliases
+         * `Scalar`. It picks the element of the `Vector3`/`Quaternion`/`Matrix4` aliases
          * below — the precision that crosses the `ISimulation` seam and reaches the
          * renderer (which then casts to float per draw, camera-relative). The physics
          * solve's own compute precision is chosen separately at runtime (see the
@@ -345,15 +345,15 @@ namespace SushiEngine
          * `Float`: matrices are render-side (projection, view, model), never part of
          * the simulation's compute precision.
          */
-        struct Mat4
+        struct Matrix4
         {
             Float m[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
         };
 
         /** @brief Matrix product a * b (column-major). */
-        inline Mat4 mul(const Mat4& a, const Mat4& b) noexcept
+        inline Matrix4 mul(const Matrix4& a, const Matrix4& b) noexcept
         {
-            Mat4 r{};
+            Matrix4 r{};
             for (int c = 0; c < 4; ++c)
                 for (int row = 0; row < 4; ++row)
                 {
@@ -366,9 +366,9 @@ namespace SushiEngine
         }
 
         /** @brief A translation matrix by @p t. */
-        inline Mat4 translation(const Vector3& t) noexcept
+        inline Matrix4 translation(const Vector3& t) noexcept
         {
-            Mat4 r{};
+            Matrix4 r{};
             r.m[12] = t.x;
             r.m[13] = t.y;
             r.m[14] = t.z;
@@ -376,9 +376,9 @@ namespace SushiEngine
         }
 
         /** @brief A non-uniform scale matrix by @p s. */
-        inline Mat4 scaling(const Vector3& s) noexcept
+        inline Matrix4 scaling(const Vector3& s) noexcept
         {
-            Mat4 r{};
+            Matrix4 r{};
             r.m[0] = s.x;
             r.m[5] = s.y;
             r.m[10] = s.z;
@@ -403,12 +403,12 @@ namespace SushiEngine
          * @param far_plane    Ignored (the far plane is at infinity).
          * @return The projection matrix.
          */
-        inline Mat4 perspective(Float fovy_radians, Float aspect, Float near_plane,
-                                Float far_plane) noexcept
+        inline Matrix4 perspective(Float fovy_radians, Float aspect, Float near_plane,
+                                   Float far_plane) noexcept
         {
             (void)far_plane;
             const Float f = Float(1) / std::tan(fovy_radians * Float(0.5));
-            Mat4 r{};
+            Matrix4 r{};
             for (Float& value : r.m)
                 value = 0;
             r.m[0] = f / aspect;
@@ -428,12 +428,13 @@ namespace SushiEngine
          * @param up     The world up direction.
          * @return The view (world-to-camera) matrix.
          */
-        inline Mat4 look_at(const Vector3& eye, const Vector3& center, const Vector3& up) noexcept
+        inline Matrix4 look_at(const Vector3& eye, const Vector3& center,
+                               const Vector3& up) noexcept
         {
             const Vector3 f = normalize(center - eye);
             const Vector3 s = normalize(cross(f, up));
             const Vector3 u = cross(s, f);
-            Mat4 r{};
+            Matrix4 r{};
             r.m[0] = s.x;  r.m[4] = s.y;  r.m[8] = s.z;
             r.m[1] = u.x;  r.m[5] = u.y;  r.m[9] = u.z;
             r.m[2] = -f.x; r.m[6] = -f.y; r.m[10] = -f.z;
@@ -444,12 +445,12 @@ namespace SushiEngine
         }
 
         /** @brief The rotation matrix equivalent to unit quaternion @p q. */
-        inline Mat4 mat4_from_quaternion(const Quaternion& q) noexcept
+        inline Matrix4 matrix4_from_quaternion(const Quaternion& q) noexcept
         {
             const Float xx = q.x * q.x, yy = q.y * q.y, zz = q.z * q.z;
             const Float xy = q.x * q.y, xz = q.x * q.z, yz = q.y * q.z;
             const Float wx = q.w * q.x, wy = q.w * q.y, wz = q.w * q.z;
-            Mat4 r{};
+            Matrix4 r{};
             r.m[0] = 1 - 2 * (yy + zz); r.m[1] = 2 * (xy + wz);     r.m[2] = 2 * (xz - wy);
             r.m[4] = 2 * (xy - wz);     r.m[5] = 1 - 2 * (xx + zz); r.m[6] = 2 * (yz + wx);
             r.m[8] = 2 * (xz + wy);     r.m[9] = 2 * (yz - wx);     r.m[10] = 1 - 2 * (xx + yy);
@@ -463,10 +464,11 @@ namespace SushiEngine
          * @param scale    Per-axis scale.
          * @return translation * rotation * scale.
          */
-        inline Mat4 compose_transform(const Vector3& position, const Quaternion& rotation,
-                                      const Vector3& scale) noexcept
+        inline Matrix4 compose_transform(const Vector3& position, const Quaternion& rotation,
+                                         const Vector3& scale) noexcept
         {
-            return mul(translation(position), mul(mat4_from_quaternion(rotation), scaling(scale)));
+            return mul(translation(position),
+                       mul(matrix4_from_quaternion(rotation), scaling(scale)));
         }
 
         /** @brief Dot product of two quaternions (their 4-vectors). */
@@ -643,7 +645,7 @@ namespace SushiEngine
         /**
          * @brief The unit quaternion equivalent of a rotation matrix.
          *
-         * Inverse of @ref mat4_from_quaternion. Reads only the upper-left 3x3 basis, which
+         * Inverse of @ref matrix4_from_quaternion. Reads only the upper-left 3x3 basis, which
          * is assumed orthonormal (scale removed — see @ref decompose_transform); the
          * translation and projective rows are ignored. Uses the trace-partitioned form
          * (Shepperd's method) for numerical stability across all four sign branches.
@@ -651,7 +653,7 @@ namespace SushiEngine
          * @param matrix A column-major affine matrix with an orthonormal linear part.
          * @return The equivalent unit quaternion.
          */
-        inline Quaternion quaternion_from_matrix(const Mat4& matrix) noexcept
+        inline Quaternion quaternion_from_matrix(const Matrix4& matrix) noexcept
         {
             // r(row, col) reads the column-major element at m[col * 4 + row].
             const Float m00 = matrix.m[0], m10 = matrix.m[1], m20 = matrix.m[2];
@@ -705,16 +707,16 @@ namespace SushiEngine
          * @param matrix A column-major affine matrix.
          * @return Its inverse, or the identity if @p matrix is degenerate.
          */
-        inline Mat4 affine_inverse(const Mat4& matrix) noexcept
+        inline Matrix4 affine_inverse(const Matrix4& matrix) noexcept
         {
             const Float a = matrix.m[0], b = matrix.m[4], c = matrix.m[8];
             const Float d = matrix.m[1], e = matrix.m[5], f = matrix.m[9];
             const Float g = matrix.m[2], h = matrix.m[6], i = matrix.m[10];
             const Float det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
             if (det == Float(0))
-                return Mat4{};
+                return Matrix4{};
             const Float inv_det = Float(1) / det;
-            Mat4 r{};
+            Matrix4 r{};
             // Inverse of the linear 3x3 (adjugate / det), written column-major:
             // r.m[col * 4 + row] holds inverse-element (row, col).
             r.m[0] = (e * i - f * h) * inv_det;
@@ -749,7 +751,7 @@ namespace SushiEngine
          * @param out_rotation Receives the unit-quaternion rotation.
          * @param out_scale    Receives the per-axis scale.
          */
-        inline void decompose_transform(const Mat4& matrix, Vector3& out_position,
+        inline void decompose_transform(const Matrix4& matrix, Vector3& out_position,
                                         Quaternion& out_rotation, Vector3& out_scale) noexcept
         {
             out_position = Vector3{matrix.m[12], matrix.m[13], matrix.m[14]};
@@ -762,7 +764,7 @@ namespace SushiEngine
             if (det < Float(0))
                 sx = -sx;
             out_scale = Vector3{sx, sy, sz};
-            Mat4 rotation{};
+            Matrix4 rotation{};
             if (sx != Float(0)) { rotation.m[0] = col0.x / sx; rotation.m[1] = col0.y / sx; rotation.m[2] = col0.z / sx; }
             if (sy != Float(0)) { rotation.m[4] = col1.x / sy; rotation.m[5] = col1.y / sy; rotation.m[6] = col1.z / sy; }
             if (sz != Float(0)) { rotation.m[8] = col2.x / sz; rotation.m[9] = col2.y / sz; rotation.m[10] = col2.z / sz; }

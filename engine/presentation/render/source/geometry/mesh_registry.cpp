@@ -94,7 +94,7 @@ namespace SushiEngine
                 }
             } // namespace
 
-            Mat4 shape_scale(MeshKind kind, const Vector3& params) noexcept
+            Matrix4 shape_scale(MeshKind kind, const Vector3& params) noexcept
             {
                 switch (kind)
                 {

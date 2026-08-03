@@ -62,7 +62,7 @@ namespace
         // the flat skeleton whose local pose is its model pose.
         void build_skeleton(const std::vector<std::string>& names, const std::vector<int>& parents)
         {
-            SkeletonDesc description;
+            SkeletonDescription description;
             description.joints.resize(names.size());
             for (std::size_t i = 0; i < names.size(); ++i)
             {
@@ -79,7 +79,7 @@ namespace
         // A single-frame clip parking each joint at its given local translation.
         AssetId pose_clip(const std::vector<float>& z_per_joint)
         {
-            ClipDesc clip;
+            ClipDescription clip;
             clip.joint_count = joint_count;
             clip.frame_count = 1;
             clip.sample_rate = 30.0f;
@@ -95,10 +95,10 @@ namespace
 
         AssetId mask(const std::vector<std::pair<std::string, float>>& entries, float default_weight)
         {
-            MaskDesc description;
+            MaskDescription description;
             description.default_weight = default_weight;
             for (const auto& entry : entries)
-                description.entries.push_back(MaskDesc::Entry{entry.first, entry.second});
+                description.entries.push_back(MaskDescription::Entry{entry.first, entry.second});
             std::vector<std::byte> blob;
             if (!build_mask_blob(description, blob))
                 return INVALID_ASSET;
@@ -106,7 +106,7 @@ namespace
         }
 
         // A base layer plus zero or more extra layers, each one clip looping forever.
-        struct LayerSpec
+        struct LayerSpecification
         {
             AssetId clip = INVALID_ASSET;
             float weight = 1.0f;
@@ -114,18 +114,18 @@ namespace
             bool additive = false;
         };
 
-        bool compile(const std::vector<LayerSpec>& layers)
+        bool compile(const std::vector<LayerSpecification>& layers)
         {
-            ControllerDesc description;
+            ControllerDescription description;
             for (std::size_t i = 0; i < layers.size(); ++i)
             {
-                LayerDesc layer;
+                LayerDescription layer;
                 layer.name = "layer" + std::to_string(i);
                 layer.weight = layers[i].weight;
                 layer.mask = layers[i].mask;
                 layer.blend_mode =
                     layers[i].additive ? LayerBlendMode::Additive : LayerBlendMode::Override;
-                StateDesc state;
+                StateDescription state;
                 state.name = "State";
                 state.clip = layers[i].clip;
                 layer.states = {state};
@@ -345,7 +345,7 @@ TEST(Unit_AnimationLayers, EveryLayerSlotTheControllerAllowsActuallyFolds)
     world.build_skeleton(FLAT_NAMES, ALL_ROOTS);
     const AssetId base = world.pose_clip({0.0f, 0.0f, 0.0f});
 
-    std::vector<Fixture::LayerSpec> layers;
+    std::vector<Fixture::LayerSpecification> layers;
     layers.push_back({base, 1.0f, INVALID_ASSET, false});
     for (std::uint32_t i = 1; i < MAX_LAYERS; ++i)
         layers.push_back({world.pose_clip({1.0f, 1.0f, 1.0f}), 1.0f, INVALID_ASSET, true});
@@ -354,12 +354,12 @@ TEST(Unit_AnimationLayers, EveryLayerSlotTheControllerAllowsActuallyFolds)
     EXPECT_NEAR(world.evaluate_z()[0], static_cast<float>(MAX_LAYERS - 1), 1e-4f);
 
     layers.push_back({world.pose_clip({1.0f, 1.0f, 1.0f}), 1.0f, INVALID_ASSET, true});
-    ControllerDesc too_many;
+    ControllerDescription too_many;
     for (std::size_t i = 0; i < layers.size(); ++i)
     {
-        LayerDesc layer;
+        LayerDescription layer;
         layer.name = "extra" + std::to_string(i);
-        StateDesc state;
+        StateDescription state;
         state.name = "State";
         state.clip = layers[i].clip;
         layer.states = {state};
@@ -374,7 +374,7 @@ TEST(Unit_AnimationLayers, AdditiveBakingProducesADeltaAgainstTheReferencePose)
     // The asset half of additive blending: an authored clip becomes a delta from a reference
     // pose at import (§4.2), so playing the baked clip additively over that same reference
     // reproduces the original — the round trip the format has to satisfy.
-    ClipDesc reference;
+    ClipDescription reference;
     reference.joint_count = 2;
     reference.frame_count = 1;
     reference.sample_rate = 30.0f;
@@ -382,14 +382,14 @@ TEST(Unit_AnimationLayers, AdditiveBakingProducesADeltaAgainstTheReferencePose)
     reference.rotations.assign(2, IDENTITY);
     reference.scales.assign(2, Vector3f{1, 1, 1});
 
-    ClipDesc source = reference;
+    ClipDescription source = reference;
     source.frame_count = 2;
     source.translations = {Vector3f{0, 1, 0}, Vector3f{0, 2, 0},
                            Vector3f{0, 4, 0}, Vector3f{0, 2, 0}};
     source.rotations.assign(4, IDENTITY);
     source.scales.assign(4, Vector3f{1, 1, 1});
 
-    ClipDesc additive;
+    ClipDescription additive;
     ASSERT_TRUE(bake_additive_clip(source, reference, 0, additive));
     ASSERT_EQ(additive.frame_count, source.frame_count);
     ASSERT_EQ(additive.translations.size(), source.translations.size());
@@ -402,9 +402,9 @@ TEST(Unit_AnimationLayers, AdditiveBakingProducesADeltaAgainstTheReferencePose)
         << "a joint that did not move must bake to no delta";
 
     // And the refusals: a reference frame that does not exist, and a mis-sized source.
-    ClipDesc unused;
+    ClipDescription unused;
     EXPECT_FALSE(bake_additive_clip(source, reference, 5, unused));
-    ClipDesc broken = source;
+    ClipDescription broken = source;
     broken.rotations.pop_back();
     EXPECT_FALSE(bake_additive_clip(broken, reference, 0, unused));
 }

@@ -77,7 +77,7 @@ namespace SushiEngine
         constexpr std::uint32_t INVALID_CLIP_HANDLE = 0xFFFFFFFFu;
 
         /** @brief One instance's playback state for a device-batched evaluate. */
-        struct DeviceInstanceDesc
+        struct DeviceInstanceDescription
         {
             std::uint32_t clip_handle = INVALID_CLIP_HANDLE; /**< From @ref DeviceBatchEvaluator::bind_clip. */
             float time_seconds = 0.0f;                       /**< Playback time. */
@@ -169,7 +169,7 @@ namespace SushiEngine
                  *
                  * @param clip The clip to register; must be `ClipFormat::Raw` and share this
                  *             evaluator's bound skeleton's joint count.
-                 * @return The handle to pass in a `DeviceInstanceDesc::clip_handle`, or
+                 * @return The handle to pass in a `DeviceInstanceDescription::clip_handle`, or
                  *         @ref INVALID_CLIP_HANDLE if the clip is invalid, compressed, or its
                  *         joint count does not match the bound skeleton.
                  */
@@ -204,7 +204,7 @@ namespace SushiEngine
                  * the instance count changed since the last call.
                  * @param instances This frame's per-instance clip/time/loop state.
                  */
-                void set_instances(const std::vector<DeviceInstanceDesc>& instances)
+                void set_instances(const std::vector<DeviceInstanceDescription>& instances)
                 {
                     host_instances_ = instances;
                     const bool needs_recompile =
@@ -220,7 +220,7 @@ namespace SushiEngine
                     if (!instances_buffer_.has_value() ||
                         instances_buffer_->size() != instance_count_)
                         instances_buffer_.emplace(
-                            context_.allocate<DeviceInstanceDesc>(instance_count_));
+                            context_.allocate<DeviceInstanceDescription>(instance_count_));
                     for (std::size_t i = 0; i < instance_count_; ++i)
                         (*instances_buffer_)[i] = host_instances_[i];
 
@@ -300,16 +300,17 @@ namespace SushiEngine
                  * instance's time (bracketing frame lerp/nlerp, `ClipView::sample`'s exact
                  * loop-wrap algorithm — design §5.2/§9), forward-scans model space
                  * (`parents[j] < j`, the topological-sort invariant every skeleton cook
-                 * guarantees), and writes the object-space skin palette. `Mat4 model[MAX_JOINTS]`
-                 * is per-thread private scratch, the same "sequential 256-max inner loop" the
-                 * host `AnimatorEvaluator` already assumes in its own compose step.
+                 * guarantees), and writes the object-space skin palette. `Matrix4
+                 * model[MAX_JOINTS]` is per-thread private scratch, the same "sequential 256-max
+                 * inner loop" the host `AnimatorEvaluator` already assumes in its own compose
+                 * step.
                  */
                 void rebuild_graph()
                 {
                     graph_.emplace(context_.create_graph());
                     const std::uint32_t joint_count = joint_count_;
 
-                    const DeviceInstanceDesc* instances = instances_buffer_->data();
+                    const DeviceInstanceDescription* instances = instances_buffer_->data();
                     const std::uint16_t* parents = parents_->data();
                     const Vector3f* bind_t = bind_t_->data();
                     const Quaternionf* bind_r = bind_r_->data();
@@ -349,7 +350,7 @@ namespace SushiEngine
                          translations, rotations, scales, clip_meta, palette](std::size_t index)
                         {
                             const std::size_t instance = index;
-                            const DeviceInstanceDesc& desc = instances[instance];
+                            const DeviceInstanceDescription& desc = instances[instance];
                             JointMatrix* out = palette + instance * joint_count;
 
                             if (desc.clip_handle == INVALID_CLIP_HANDLE)
@@ -357,10 +358,10 @@ namespace SushiEngine
                                 // No clip bound: hold the bind pose (mirrors ClipEvaluator's
                                 // fallback for a joint a clip does not animate, applied here to
                                 // every joint).
-                                Mat4 model[MAX_JOINTS];
+                                Matrix4 model[MAX_JOINTS];
                                 for (std::uint32_t j = 0; j < joint_count; ++j)
                                 {
-                                    const Mat4 local = compose_transform(
+                                    const Matrix4 local = compose_transform(
                                         Vector3{bind_t[j].x, bind_t[j].y, bind_t[j].z},
                                         Quaternion{bind_r[j].x, bind_r[j].y, bind_r[j].z,
                                                   bind_r[j].w},
@@ -417,7 +418,7 @@ namespace SushiEngine
                                 static_cast<std::size_t>(meta.base_offset) +
                                 static_cast<std::size_t>(frame1) * joint_count;
 
-                            Mat4 model[MAX_JOINTS];
+                            Matrix4 model[MAX_JOINTS];
                             for (std::uint32_t j = 0; j < joint_count; ++j)
                             {
                                 const Vector3f lt = lerp(translations[base0 + j],
@@ -427,7 +428,7 @@ namespace SushiEngine
                                 const Vector3f ls =
                                     lerp(scales[base0 + j], scales[base1 + j], alpha);
 
-                                const Mat4 local = compose_transform(
+                                const Matrix4 local = compose_transform(
                                     Vector3{lt.x, lt.y, lt.z},
                                     Quaternion{lr.x, lr.y, lr.z, lr.w}, Vector3{ls.x, ls.y, ls.z});
                                 model[j] = parents[j] == NO_PARENT ? local
@@ -455,8 +456,8 @@ namespace SushiEngine
                 std::optional<Execution::Buffer<Vector3f>> scales_;
                 std::optional<Execution::Buffer<ClipMeta>> clip_meta_;
 
-                std::vector<DeviceInstanceDesc> host_instances_;
-                std::optional<Execution::Buffer<DeviceInstanceDesc>> instances_buffer_;
+                std::vector<DeviceInstanceDescription> host_instances_;
+                std::optional<Execution::Buffer<DeviceInstanceDescription>> instances_buffer_;
                 std::optional<Execution::Buffer<JointMatrix>> palette_buffer_;
                 std::vector<JointMatrix> host_palettes_;
                 std::size_t instance_count_ = 0;

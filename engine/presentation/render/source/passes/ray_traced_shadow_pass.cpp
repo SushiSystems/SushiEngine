@@ -160,8 +160,8 @@ namespace SushiEngine
                     });
 
                 Push push{};
-                const Mat4& view = frame.camera->view;
-                const Mat4& projection = frame.camera->projection;
+                const Matrix4& view = frame.camera->view;
+                const Matrix4& projection = frame.camera->projection;
                 // The camera basis straight out of the view matrix's rows, with the field
                 // of view folded into the two lateral axes — exactly the parameterisation
                 // the sky pass builds its rays from, so the two agree on where a pixel is.
@@ -208,7 +208,7 @@ namespace SushiEngine
                         Resources::DescriptorWriter writer;
                         writer.acceleration_structure(0, structure);
                         writer.sampled_image(1, context.sampled_view(frame.targets.depth),
-                                             frame.samplers->get(Resources::SamplerDesc{}));
+                                             frame.samplers->get(Resources::SamplerDescription{}));
                         writer.update(device_.device(), set);
 
                         Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,

@@ -83,7 +83,7 @@ namespace SushiEngine
             shutdown();
         }
 
-        void PlayerApp::start(const Desc& desc)
+        void PlayerApp::start(const Description& desc)
         {
             desc_ = desc;
 
@@ -115,7 +115,7 @@ namespace SushiEngine
 
         void PlayerApp::create_render_resources()
         {
-            Render::WindowRendererDesc render_desc;
+            Render::WindowRendererDescription render_desc;
             render_desc.enable_validation = desc_.enable_validation;
             render_desc.width = desc_.width;
             render_desc.height = desc_.height;

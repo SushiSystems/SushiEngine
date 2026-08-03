@@ -51,7 +51,7 @@ namespace
         PhysicsSourceEntity entity = bare_entity(id);
         entity.has_physics_body = true;
         entity.has_collider = true;
-        entity.collider_params = ColliderParams{kind, params};
+        entity.collider_params = ColliderParameters{kind, params};
         return entity;
     }
 }
@@ -63,7 +63,7 @@ TEST(Unit_PhysicsExtract, OnlyEntitiesWithABodyBecomeBodies)
     entities.push_back(body_with_collider(2, PrimitiveKind::Box, Vector3{1, 1, 1}));
     entities.push_back(bare_entity(3));
 
-    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies(entities);
+    const std::vector<RigidBodyDescription> bodies = extract_rigid_bodies(entities);
     ASSERT_EQ(bodies.size(), 1u);
     EXPECT_EQ(bodies[0].id, 2u);
 }
@@ -76,7 +76,7 @@ TEST(Unit_PhysicsExtract, TheDescriptorOrderFollowsTheEntityOrder)
     for (EntityId id : {EntityId(7), EntityId(3), EntityId(9)})
         entities.push_back(body_with_collider(id, PrimitiveKind::Sphere, Vector3{1, 1, 1}));
 
-    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies(entities);
+    const std::vector<RigidBodyDescription> bodies = extract_rigid_bodies(entities);
     ASSERT_EQ(bodies.size(), 3u);
     EXPECT_EQ(bodies[0].id, 7u);
     EXPECT_EQ(bodies[1].id, 3u);
@@ -85,7 +85,7 @@ TEST(Unit_PhysicsExtract, TheDescriptorOrderFollowsTheEntityOrder)
 
 TEST(Unit_PhysicsExtract, OnlyABoxCollidesAsABox)
 {
-    const std::vector<RigidBodyDesc> boxes =
+    const std::vector<RigidBodyDescription> boxes =
         extract_rigid_bodies({body_with_collider(1, PrimitiveKind::Box, Vector3{2, 3, 4})});
     ASSERT_EQ(boxes.size(), 1u);
     EXPECT_EQ(boxes[0].collider.shape, ColliderShape::Box);
@@ -96,7 +96,7 @@ TEST(Unit_PhysicsExtract, OnlyABoxCollidesAsABox)
     // the right axis, which the bounding sphere did neither of. There is no longer a
     // second, flattened description of the shape beside the collider: the live tick
     // generates manifolds from the collider itself, so a capsule collides as one.
-    const std::vector<RigidBodyDesc> cylinders = extract_rigid_bodies(
+    const std::vector<RigidBodyDescription> cylinders = extract_rigid_bodies(
         {body_with_collider(1, PrimitiveKind::Cylinder, Vector3{2, 3, 4})});
     ASSERT_EQ(cylinders.size(), 1u);
     EXPECT_EQ(cylinders[0].collider.shape, ColliderShape::Capsule);
@@ -117,11 +117,11 @@ TEST(Unit_PhysicsExtract, AColliderOverridesTheVisualShape)
     PhysicsSourceEntity entity = bare_entity(1);
     entity.has_physics_body = true;
     entity.has_shape = true;
-    entity.shape_params = ShapeParams{PrimitiveKind::Box, Vector3{5, 5, 5}};
+    entity.shape_params = ShapeParameters{PrimitiveKind::Box, Vector3{5, 5, 5}};
     entity.has_collider = true;
-    entity.collider_params = ColliderParams{PrimitiveKind::Sphere, Vector3{1, 1, 1}};
+    entity.collider_params = ColliderParameters{PrimitiveKind::Sphere, Vector3{1, 1, 1}};
 
-    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    const std::vector<RigidBodyDescription> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
     EXPECT_EQ(bodies[0].collider.shape, ColliderShape::Sphere)
         << "the collider decides, not the visual";
@@ -133,9 +133,9 @@ TEST(Unit_PhysicsExtract, TheVisualShapeIsUsedWhenThereIsNoCollider)
     PhysicsSourceEntity entity = bare_entity(1);
     entity.has_physics_body = true;
     entity.has_shape = true;
-    entity.shape_params = ShapeParams{PrimitiveKind::Box, Vector3{4, 4, 4}};
+    entity.shape_params = ShapeParameters{PrimitiveKind::Box, Vector3{4, 4, 4}};
 
-    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    const std::vector<RigidBodyDescription> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
     EXPECT_EQ(bodies[0].collider.shape, ColliderShape::Box);
     EXPECT_DOUBLE_EQ(double(bodies[0].collider.half_extents.x), 4.0);
@@ -145,11 +145,11 @@ TEST(Unit_PhysicsExtract, APlaneColliderBecomesAStaticHalfSpaceAtItsWorldTransfo
 {
     PhysicsSourceEntity ground = bare_entity(1);
     ground.has_collider = true;
-    ground.collider_params = ColliderParams{PrimitiveKind::Plane, Vector3{0, 1, 0}};
+    ground.collider_params = ColliderParameters{PrimitiveKind::Plane, Vector3{0, 1, 0}};
     ground.world_position = Vector3{0, Scalar(3), 0};
     ground.local_position = Vector3{0, Scalar(-99), 0}; // the world transform wins
 
-    const std::vector<PlaneDesc> planes = extract_static_planes({ground});
+    const std::vector<PlaneDescription> planes = extract_static_planes({ground});
     ASSERT_EQ(planes.size(), 1u);
     EXPECT_DOUBLE_EQ(double(planes[0].point.y), 3.0);
     EXPECT_DOUBLE_EQ(double(planes[0].normal.y), 1.0);
@@ -162,7 +162,7 @@ TEST(Unit_PhysicsExtract, AMovingPlaneIsNotAStaticSurface)
     // disagree.
     PhysicsSourceEntity moving = bare_entity(1);
     moving.has_collider = true;
-    moving.collider_params = ColliderParams{PrimitiveKind::Plane, Vector3{0, 1, 0}};
+    moving.collider_params = ColliderParameters{PrimitiveKind::Plane, Vector3{0, 1, 0}};
     moving.has_physics_body = true;
 
     EXPECT_TRUE(extract_static_planes({moving}).empty());
@@ -177,7 +177,7 @@ TEST(Unit_PhysicsExtract, ARigidBodySeedsFromItsLocalTransform)
     entity.local_position = Vector3{Scalar(1), Scalar(2), Scalar(3)};
     entity.world_position = Vector3{Scalar(90), Scalar(90), Scalar(90)};
 
-    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    const std::vector<RigidBodyDescription> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
     EXPECT_DOUBLE_EQ(double(bodies[0].position.x), 1.0);
     EXPECT_DOUBLE_EQ(double(bodies[0].position.z), 3.0);
@@ -194,7 +194,7 @@ TEST(Unit_PhysicsExtract, ScalingAnEntityScalesWhatItCollidesAs)
     PhysicsSourceEntity entity = body_with_collider(1, PrimitiveKind::Box, Vector3{1, 1, 1});
     entity.local_scale = Vector3{Scalar(2), Scalar(3), Scalar(0.5)};
 
-    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    const std::vector<RigidBodyDescription> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
     EXPECT_DOUBLE_EQ(double(bodies[0].collider.half_extents.x), 2.0);
     EXPECT_DOUBLE_EQ(double(bodies[0].collider.half_extents.y), 3.0);
@@ -211,7 +211,7 @@ TEST(Unit_PhysicsExtract, ANonUniformlyScaledSphereTakesItsLargestAxis)
     PhysicsSourceEntity entity = body_with_collider(1, PrimitiveKind::Sphere, Vector3{1, 1, 1});
     entity.local_scale = Vector3{Scalar(2), Scalar(5), Scalar(3)};
 
-    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    const std::vector<RigidBodyDescription> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
     EXPECT_DOUBLE_EQ(double(bodies[0].collider.radius), 5.0);
 }
@@ -221,7 +221,7 @@ TEST(Unit_PhysicsExtract, AMirroredEntityCollidesAsItsMirrorImage)
     PhysicsSourceEntity entity = body_with_collider(1, PrimitiveKind::Box, Vector3{1, 2, 3});
     entity.local_scale = Vector3{Scalar(-1), Scalar(-1), Scalar(-1)};
 
-    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    const std::vector<RigidBodyDescription> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
     EXPECT_DOUBLE_EQ(double(bodies[0].collider.half_extents.x), 1.0);
     EXPECT_DOUBLE_EQ(double(bodies[0].collider.half_extents.z), 3.0);
@@ -233,7 +233,7 @@ TEST(Unit_PhysicsExtract, WithoutADensityTheAuthoredMassIsKeptExactly)
     entity.physics_params.inv_mass = Scalar(0.25);
     entity.physics_params.inv_inertia = Vector3{Scalar(7), Scalar(8), Scalar(9)};
 
-    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    const std::vector<RigidBodyDescription> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
     EXPECT_DOUBLE_EQ(double(bodies[0].inv_mass), 0.25);
     EXPECT_DOUBLE_EQ(double(bodies[0].inv_inertia.y), 8.0);
@@ -250,7 +250,7 @@ TEST(Unit_PhysicsExtract, ADensityDerivesMassFromTheScaledShape)
     entity.physics_params.density = Scalar(1000);
     entity.physics_params.inv_mass = Scalar(1); // ignored
 
-    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    const std::vector<RigidBodyDescription> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
     const double mass = 4.0 * 4.0 * 4.0 * 1000.0;
     EXPECT_NEAR(double(bodies[0].inv_mass), 1.0 / mass, 1e-12);
@@ -263,7 +263,7 @@ TEST(Unit_PhysicsExtract, ADensityOnASphereMatchesTheClosedForm)
     PhysicsSourceEntity entity = body_with_collider(1, PrimitiveKind::Sphere, Vector3{2, 2, 2});
     entity.physics_params.density = Scalar(500);
 
-    const std::vector<RigidBodyDesc> bodies = extract_rigid_bodies({entity});
+    const std::vector<RigidBodyDescription> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
     const double pi = 3.14159265358979323846;
     const double mass = (4.0 / 3.0) * pi * 8.0 * 500.0;

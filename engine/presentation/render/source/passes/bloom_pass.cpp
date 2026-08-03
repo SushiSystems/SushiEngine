@@ -96,9 +96,9 @@ namespace SushiEngine
                     vkCmdPipelineBarrier2(cmd, &dependency);
                 }
 
-                Resources::SamplerDesc linear_sampler() noexcept
+                Resources::SamplerDescription linear_sampler() noexcept
                 {
-                    Resources::SamplerDesc desc;
+                    Resources::SamplerDescription desc;
                     desc.filter = VK_FILTER_LINEAR;
                     desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
                     desc.max_lod = static_cast<float>(MAX_MIPS);

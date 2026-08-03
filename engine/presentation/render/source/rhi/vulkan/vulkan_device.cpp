@@ -36,7 +36,7 @@ namespace SushiEngine
             namespace
             {
                 /**
-                 * @brief Reads the physical device's identity into a DeviceInfo.
+                 * @brief Reads the physical device's identity into a DeviceInformation.
                  *
                  * Uses VkPhysicalDeviceIDProperties for the UUID (the interop match
                  * key) and the base properties for the name and device type.
@@ -44,7 +44,7 @@ namespace SushiEngine
                  * @param physical The selected physical device.
                  * @return The filled identity record.
                  */
-                DeviceInfo read_device_info(VkPhysicalDevice physical)
+                DeviceInformation read_device_info(VkPhysicalDevice physical)
                 {
                     VkPhysicalDeviceIDProperties id_properties{};
                     id_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
@@ -54,7 +54,7 @@ namespace SushiEngine
                     properties.pNext = &id_properties;
                     vkGetPhysicalDeviceProperties2(physical, &properties);
 
-                    DeviceInfo info;
+                    DeviceInformation info;
                     info.name = properties.properties.deviceName;
                     info.api_version = properties.properties.apiVersion;
                     info.is_discrete =
@@ -64,7 +64,7 @@ namespace SushiEngine
                 }
             } // namespace
 
-            VulkanDevice::VulkanDevice(const RenderDeviceDesc& desc)
+            VulkanDevice::VulkanDevice(const RenderDeviceDescription& desc)
             {
                 vkb::InstanceBuilder instance_builder;
                 instance_builder.set_app_name("SushiEngine")
@@ -463,7 +463,7 @@ namespace SushiEngine
             }
         } // namespace Vulkan
 
-        std::unique_ptr<IRenderDevice> create_render_device(const RenderDeviceDesc& desc)
+        std::unique_ptr<IRenderDevice> create_render_device(const RenderDeviceDescription& desc)
         {
             return std::unique_ptr<IRenderDevice>(new Vulkan::VulkanDevice(desc));
         }

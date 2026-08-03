@@ -86,7 +86,7 @@ namespace SushiEngine
                     target_translations_.assign(count, Vector3f{});
                     target_rotations_.assign(count, Quaternionf{});
                     target_scales_.assign(count, Vector3f{1.0f, 1.0f, 1.0f});
-                    model_.assign(count, Mat4{});
+                    model_.assign(count, Matrix4{});
                     palette_.assign(count, JointMatrix{});
                     for (std::uint32_t j = 0; j < count; ++j)
                         target_scales_[j] = target_skeleton.bind_scales[j];
@@ -125,7 +125,7 @@ namespace SushiEngine
                 }
 
                 /** @brief The object-space model matrix per joint (target rig, post-compose). */
-                const std::vector<Mat4>& model() const noexcept { return model_; }
+                const std::vector<Matrix4>& model() const noexcept { return model_; }
 
                 /** @brief The object-space skin palette per joint (target rig), ready to upload. */
                 const std::vector<JointMatrix>& palette() const noexcept { return palette_; }
@@ -139,7 +139,7 @@ namespace SushiEngine
                 std::vector<Vector3f> target_translations_;
                 std::vector<Quaternionf> target_rotations_;
                 std::vector<Vector3f> target_scales_;
-                std::vector<Mat4> model_;
+                std::vector<Matrix4> model_;
                 std::vector<JointMatrix> palette_;
         };
     } // namespace Animation

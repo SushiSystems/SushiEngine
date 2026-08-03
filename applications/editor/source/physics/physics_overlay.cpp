@@ -82,7 +82,7 @@ namespace SushiEngine
              */
             struct Projector
             {
-                Mat4 view_projection;
+                Matrix4 view_projection;
                 ImVec2 origin;
                 float width = 0;
                 float height = 0;
@@ -143,7 +143,7 @@ namespace SushiEngine
              * @param params    Its authoring.
              */
             void draw_joint_gizmo(const Projector& projector, IWorldEditor& world, EntityId owner,
-                                  const Simulation::PhysicsJointParams& params)
+                                  const Simulation::PhysicsJointParameters& params)
             {
                 const Simulation::EntityTransform owner_transform = world.world_transform(owner);
                 const Vector3 anchor_a =

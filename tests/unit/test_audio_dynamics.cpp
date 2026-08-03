@@ -59,7 +59,7 @@ TEST(Unit_Audio, CompressorReducesLoudSignal)
 {
     const double sr = 48000.0;
     const int block = 512;
-    CompressorParams p;
+    CompressorParameters p;
     p.threshold_db = -18.0f;
     p.ratio = 4.0f;
     p.attack_seconds = 0.002f;
@@ -94,7 +94,7 @@ TEST(Unit_Audio, CompressorSidechainDucks)
 {
     const double sr = 48000.0;
     const int block = 512;
-    CompressorParams p;
+    CompressorParameters p;
     p.threshold_db = -24.0f;
     p.ratio = 8.0f;
     p.attack_seconds = 0.002f;
@@ -157,7 +157,7 @@ TEST(Unit_Audio, GateSilencesQuiet)
 {
     const double sr = 48000.0;
     const int block = 512;
-    GateParams gp;
+    GateParameters gp;
     gp.threshold_db = -40.0f;
     GateBusEffect gate(gp);
     gate.prepare(sr, block);

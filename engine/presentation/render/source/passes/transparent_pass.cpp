@@ -82,7 +82,7 @@ namespace SushiEngine
                  * @param motion_index  Index into the frame's previous-transform array.
                  * @return The filled push constant.
                  */
-                MeshPushConstants make_push(const Mat4& model, const double eye[3],
+                MeshPushConstants make_push(const Matrix4& model, const double eye[3],
                                             const Render::Material& material,
                                             std::uint32_t entity_id, std::uint32_t selected_id,
                                             std::uint32_t material_index,
@@ -112,9 +112,9 @@ namespace SushiEngine
                 }
 
                 /** @brief The description shared by this pass's pipeline. */
-                Resources::GraphicsPipelineDesc base_desc(VkPipelineLayout layout)
+                Resources::GraphicsPipelineDescription base_desc(VkPipelineLayout layout)
                 {
-                    Resources::GraphicsPipelineDesc desc;
+                    Resources::GraphicsPipelineDescription desc;
                     desc.layout = layout;
                     desc.vertex_stride = sizeof(Geometry::MeshVertex);
                     desc.attribute_count = 6;
@@ -198,14 +198,15 @@ namespace SushiEngine
 
             void TransparentPass::create_pipelines()
             {
-                Resources::GraphicsPipelineDesc mesh = base_desc(layout_.pipeline_layout());
+                Resources::GraphicsPipelineDescription mesh = base_desc(layout_.pipeline_layout());
                 mesh.vertex_shader = shaders_.module("mesh.vert");
                 mesh.fragment_shader = shaders_.module("pbr.frag");
                 mesh_pipeline_ = pipelines_.create(mesh);
 
                 // Matches OpaquePass's skinned pipeline: the SkinningPass output is the
                 // MeshVertex layout plus a previous-frame position at offset 60, stride 72.
-                Resources::GraphicsPipelineDesc skinned = base_desc(layout_.pipeline_layout());
+                Resources::GraphicsPipelineDescription skinned =
+                    base_desc(layout_.pipeline_layout());
                 skinned.vertex_stride = static_cast<std::uint32_t>(Scene::SKINNED_VERTEX_SIZE);
                 skinned.attribute_count = 7;
                 skinned.attributes[6] = {6, VK_FORMAT_R32G32B32_SFLOAT, 60};
@@ -271,7 +272,7 @@ namespace SushiEngine
                     {
                         const MeshInstance& instance = frame.draws.instances[item.index];
                         instance_materials[item.index] = materials_.push(instance.material);
-                        const Mat4 model =
+                        const Matrix4 model =
                             instance.mesh != INVALID_MESH
                                 ? instance.model
                                 : mul(instance.model, Geometry::shape_scale(
@@ -364,7 +365,7 @@ namespace SushiEngine
                                     bound_vertices = mesh.vertices;
                                 }
 
-                                const Mat4 model =
+                                const Matrix4 model =
                                     imported ? instance.model
                                              : mul(instance.model,
                                                    Geometry::shape_scale(instance.kind,

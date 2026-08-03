@@ -92,8 +92,8 @@ namespace SushiEngine
         } // namespace
 
         bool draw_joint_limit(EditorContext& context, Simulation::IWorldEditor& world,
-                              const char* label, Simulation::JointLimitDesc& limit, bool degrees,
-                              const char* tooltip, bool upper_only)
+                              const char* label, Simulation::JointLimitDescription& limit,
+                              bool degrees, const char* tooltip, bool upper_only)
         {
             ImGui::PushID(label);
             bool changed = ImGui::Checkbox(label, &limit.enabled);
@@ -141,7 +141,7 @@ namespace SushiEngine
         }
 
         bool draw_joint_params(EditorContext& context, Simulation::IWorldEditor& world,
-                               Simulation::JointParams& params)
+                               Simulation::JointParameters& params)
         {
             using Simulation::JointMotorType;
             using Simulation::JointType;

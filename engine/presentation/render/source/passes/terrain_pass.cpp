@@ -121,7 +121,7 @@ namespace SushiEngine
 
             void TerrainPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDesc desc{};
+                Resources::GraphicsPipelineDescription desc{};
                 desc.layout = layout_.pipeline_layout();
                 desc.vertex_shader = shaders_.module("terrain.vert");
                 // The shared shading path, unchanged: terrain.vert's output signature is
@@ -188,14 +188,14 @@ namespace SushiEngine
                 // The node array and the body block as host-visible transients: both are
                 // rewritten every frame and read once, so a device-local copy would buy a
                 // transfer and nothing else.
-                Graph::BufferDesc node_desc{};
+                Graph::BufferDescription node_desc{};
                 node_desc.size = terrain_.node_bytes();
                 node_desc.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                 node_desc.host_visible = true;
                 node_desc.name = "terrain nodes";
                 const Graph::BufferHandle nodes = graph.create_buffer(node_desc);
 
-                Graph::BufferDesc body_desc{};
+                Graph::BufferDescription body_desc{};
                 body_desc.size = sizeof(Terrain::TerrainBodyRecord);
                 body_desc.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
                 body_desc.host_visible = true;
@@ -264,9 +264,9 @@ namespace SushiEngine
                         Resources::DescriptorWriter terrain_set;
                         terrain_set.storage_buffer(Terrain::TerrainLayout::NODE_BINDING,
                                                    context.buffer(nodes), terrain_.node_bytes());
-                        terrain_set.sampled_image(Terrain::TerrainLayout::HEIGHT_BINDING,
-                                                  context.sampled_view(slots),
-                                                  frame.samplers->get(Resources::SamplerDesc{}));
+                        terrain_set.sampled_image(
+                            Terrain::TerrainLayout::HEIGHT_BINDING, context.sampled_view(slots),
+                            frame.samplers->get(Resources::SamplerDescription{}));
                         terrain_set.uniform_buffer(Terrain::TerrainLayout::BODY_BINDING,
                                                    context.buffer(body),
                                                    sizeof(Terrain::TerrainBodyRecord));

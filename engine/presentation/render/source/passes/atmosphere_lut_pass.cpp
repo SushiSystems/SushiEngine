@@ -461,7 +461,7 @@ namespace SushiEngine
                         VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
                         const VkSampler sampler =
-                            frame.samplers->get(Resources::SamplerDesc{});
+                            frame.samplers->get(Resources::SamplerDescription{});
 
                         if (build_static)
                         {

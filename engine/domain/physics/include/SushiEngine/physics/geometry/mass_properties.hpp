@@ -113,7 +113,7 @@ namespace SushiEngine
         /**
          * @brief Mass properties of a solid cylinder about its local Y axis.
          *
-         * Included because `ColliderParams` already authors a cylinder, and today the
+         * Included because `ColliderParameters` already authors a cylinder, and today the
          * extract collapses it to a sphere. Getting its inertia right is what makes a
          * barrel roll about its axis differently from how it topples.
          *

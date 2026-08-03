@@ -50,10 +50,10 @@ namespace SushiEngine
                 entries_.clear();
             }
 
-            VkSampler SamplerCache::get(const SamplerDesc& desc)
+            VkSampler SamplerCache::get(const SamplerDescription& desc)
             {
                 for (const Entry& entry : entries_)
-                    if (std::memcmp(&entry.desc, &desc, sizeof(SamplerDesc)) == 0)
+                    if (std::memcmp(&entry.desc, &desc, sizeof(SamplerDescription)) == 0)
                         return entry.sampler;
 
                 const float anisotropy = std::min(desc.max_anisotropy, max_anisotropy_);

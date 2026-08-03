@@ -60,7 +60,7 @@ namespace SushiEngine
     using Vector3 = placeholder::Vector3;
 
     /** @brief Column-major 4x4 matrix for transforms and camera projections. */
-    using Mat4 = placeholder::Mat4;
+    using Matrix4 = placeholder::Matrix4;
 
     /** @brief Unit-quaternion rotation. */
     using Quaternion = placeholder::Quaternion;
@@ -113,7 +113,7 @@ namespace SushiEngine
     using placeholder::length;
     using placeholder::lerp;
     using placeholder::look_at;
-    using placeholder::mat4_from_quaternion;
+    using placeholder::matrix4_from_quaternion;
     using placeholder::mul;
     using placeholder::nlerp;
     using placeholder::normalize;

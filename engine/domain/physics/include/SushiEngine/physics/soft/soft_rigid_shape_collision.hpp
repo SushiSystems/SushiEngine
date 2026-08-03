@@ -287,7 +287,7 @@ namespace SushiEngine
                 std::size_t surface_vertex_count = 0;
 
                 /** @brief The combined coefficients; `rest_offset` is the surface's thickness. */
-                ContactSolveParams<T> params{};
+                ContactSolveParameters<T> params{};
 
                 /** @brief How far beyond the rest offset a contact is still generated (§7.5). */
                 T contact_offset = 0;

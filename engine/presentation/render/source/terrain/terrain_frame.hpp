@@ -163,7 +163,7 @@ namespace SushiEngine
                 // cascade fit reads it (`scene/shadow_uniforms.cpp`), and the two half-angles
                 // out of the projection's diagonal. The projection is Y-flipped, hence the
                 // sign on the second.
-                const Mat4& matrix = camera.view;
+                const Matrix4& matrix = camera.view;
                 const Vector3 right{matrix.m[0], matrix.m[4], matrix.m[8]};
                 const Vector3 up{matrix.m[1], matrix.m[5], matrix.m[9]};
                 const Vector3 forward{-matrix.m[2], -matrix.m[6], -matrix.m[10]};

@@ -92,7 +92,7 @@ int main(int argc, char** argv)
                 manifest.scene_path = arg; // a bare positional path
         }
 
-        SushiEngine::Player::PlayerApp::Desc desc;
+        SushiEngine::Player::PlayerApp::Description desc;
         desc.scene_path = manifest.scene_path;
         desc.window_title = manifest.window_title;
         desc.width = manifest.width;

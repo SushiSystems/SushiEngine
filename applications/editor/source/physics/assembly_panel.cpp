@@ -81,15 +81,15 @@ namespace SushiEngine
              * the forward mapping turns into a capsule, and a cooked asset has no primitive
              * at all and falls back to a box of its own half-extents. An assembly of cooked
              * hulls instanced into the scene therefore collides as boxes until the Collider
-             * component can name an asset — which is a gap in `ColliderParams`, stated here
+             * component can name an asset — which is a gap in `ColliderParameters`, stated here
              * rather than silently approximated.
              *
              * @param collider The part's collider.
              * @return The authoring parameters that reproduce it.
              */
-            Simulation::ColliderParams to_collider_params(const Simulation::Collider& collider)
+            Simulation::ColliderParameters to_collider_params(const Simulation::Collider& collider)
             {
-                Simulation::ColliderParams params;
+                Simulation::ColliderParameters params;
                 switch (collider.shape)
                 {
                     case ColliderShape::Sphere:
@@ -207,7 +207,7 @@ namespace SushiEngine
                 hinge.params.axis_a = Vector3{0, 1, 0};
                 hinge.params.axis_b = Vector3{0, 1, 0};
                 hinge.params.twist_limit =
-                    Simulation::JointLimitDesc{Scalar(0), Scalar(1.7), Scalar(0), true};
+                    Simulation::JointLimitDescription{Scalar(0), Scalar(1.7), Scalar(0), true};
                 hinge.params.break_force = Scalar(9000);
 
                 asset.parts = {chassis, door};
@@ -223,7 +223,7 @@ namespace SushiEngine
              *
              * One entity per part with a Transform, a Collider and a Rigid Body, then one
              * Physics Joint per assembly joint on the entity its first part became. The
-             * joint's parameters cross unchanged, which is the whole reason `JointParams` is
+             * joint's parameters cross unchanged, which is the whole reason `JointParameters` is
              * a shared value: an assembly joint and an authored joint are the same joint.
              *
              * @param context Editor state; the undo step is recorded once, around the lot.
@@ -253,7 +253,7 @@ namespace SushiEngine
                     transform.rotation = part.local_orientation;
                     world.set_transform(id, transform);
 
-                    Simulation::ColliderParams collider = to_collider_params(part.collider);
+                    Simulation::ColliderParameters collider = to_collider_params(part.collider);
                     collider.layer = part.group & 31u;
                     // The matrix decides what a group touches, and it decides it here rather
                     // than at each part, so a filter change is one edit instead of one per
@@ -269,10 +269,10 @@ namespace SushiEngine
                     // panel knows they should agree.
                     world.set_has_shape(id, true);
                     world.set_shape_params(id,
-                                           Simulation::ShapeParams{collider.kind,
-                                                                   collider.params});
+                                           Simulation::ShapeParameters{collider.kind,
+                                                                       collider.params});
 
-                    Simulation::PhysicsBodyParams body;
+                    Simulation::PhysicsBodyParameters body;
                     body.density = part.density;
                     body.inv_mass = part.inv_mass;
                     body.inv_inertia = part.inv_inertia;
@@ -287,7 +287,7 @@ namespace SushiEngine
                 {
                     if (joint.part_a >= created.size() || joint.part_b >= created.size())
                         continue;
-                    Simulation::PhysicsJointParams params;
+                    Simulation::PhysicsJointParameters params;
                     params.connected_body = created[joint.part_b];
                     params.joint = joint.params;
                     world.set_has_joint(created[joint.part_a], true);
@@ -632,7 +632,7 @@ namespace SushiEngine
                     if (!world.has_joint(id))
                         continue;
                     ++shown;
-                    const Simulation::PhysicsJointParams params = world.joint_params(id);
+                    const Simulation::PhysicsJointParameters params = world.joint_params(id);
                     JointState load;
                     if (world.joint_broken(id))
                     {

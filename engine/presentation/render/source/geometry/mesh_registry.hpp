@@ -119,7 +119,7 @@ namespace SushiEngine
              * @param params The instance's authored shape parameters.
              * @return The scale matrix to pre-multiply the model transform by.
              */
-            Mat4 shape_scale(MeshKind kind, const Vector3& params) noexcept;
+            Matrix4 shape_scale(MeshKind kind, const Vector3& params) noexcept;
 
             /**
              * @brief Generates per-vertex tangents from positions, normals, and UV0.

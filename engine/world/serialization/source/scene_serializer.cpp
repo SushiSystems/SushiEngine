@@ -69,7 +69,7 @@ namespace SushiEngine
                 return json{{"x", q.x}, {"y", q.y}, {"z", q.z}, {"w", q.w}};
             }
 
-            json joint_limit_to_json(const SushiEngine::Simulation::JointLimitDesc& limit)
+            json joint_limit_to_json(const SushiEngine::Simulation::JointLimitDescription& limit)
             {
                 return json{{"lower", limit.lower},
                             {"upper", limit.upper},
@@ -81,11 +81,11 @@ namespace SushiEngine
              * @brief Reads a joint limit, keeping @p limit's values for absent fields.
              *
              * The defaults come from the caller's own value rather than from a fresh
-             * `JointLimitDesc`, which is the convention `sky_from_json` follows: a file
+             * `JointLimitDescription`, which is the convention `sky_from_json` follows: a file
              * written by an older build is missing fields, not asserting zeros for them.
              */
-            SushiEngine::Simulation::JointLimitDesc joint_limit_from_json(
-                const json& j, SushiEngine::Simulation::JointLimitDesc limit)
+            SushiEngine::Simulation::JointLimitDescription joint_limit_from_json(
+                const json& j, SushiEngine::Simulation::JointLimitDescription limit)
             {
                 if (!j.is_object())
                     return limit;
@@ -96,7 +96,7 @@ namespace SushiEngine
                 return limit;
             }
 
-            json joint_motor_to_json(const SushiEngine::Simulation::JointMotorDesc& motor)
+            json joint_motor_to_json(const SushiEngine::Simulation::JointMotorDescription& motor)
             {
                 return json{{"type", static_cast<std::uint32_t>(motor.type)},
                             {"target", motor.target},
@@ -105,8 +105,8 @@ namespace SushiEngine
                             {"damping", motor.damping}};
             }
 
-            SushiEngine::Simulation::JointMotorDesc joint_motor_from_json(
-                const json& j, SushiEngine::Simulation::JointMotorDesc motor)
+            SushiEngine::Simulation::JointMotorDescription joint_motor_from_json(
+                const json& j, SushiEngine::Simulation::JointMotorDescription motor)
             {
                 if (!j.is_object())
                     return motor;
@@ -270,7 +270,7 @@ namespace SushiEngine
                 return q;
             }
 
-            json ui_to_json(const SushiEngine::Simulation::UIElementParams& p)
+            json ui_to_json(const SushiEngine::Simulation::UIElementParameters& p)
             {
                 return json{{"kind", static_cast<std::uint32_t>(p.kind)},
                             {"anchor_min", json{{"x", p.anchor_min_x}, {"y", p.anchor_min_y}}},
@@ -284,9 +284,9 @@ namespace SushiEngine
                             {"text", std::string(p.text)}};
             }
 
-            SushiEngine::Simulation::UIElementParams ui_from_json(const json& j)
+            SushiEngine::Simulation::UIElementParameters ui_from_json(const json& j)
             {
-                SushiEngine::Simulation::UIElementParams p;
+                SushiEngine::Simulation::UIElementParameters p;
                 p.kind = static_cast<SushiEngine::Simulation::UIElementKind>(
                     j.value("kind", static_cast<std::uint32_t>(p.kind)));
                 if (j.contains("anchor_min"))
@@ -866,7 +866,7 @@ namespace SushiEngine
                 if (is_camera && entry.contains("camera"))
                 {
                     const json& c = entry["camera"];
-                    SushiEngine::Simulation::CameraParams params;
+                    SushiEngine::Simulation::CameraParameters params;
                     params.vertical_fov_radians =
                         c.value("vertical_fov_radians", params.vertical_fov_radians);
                     params.near_plane = c.value("near_plane", params.near_plane);
@@ -896,7 +896,7 @@ namespace SushiEngine
                     if (entry.contains("physics_body"))
                     {
                         const json& p = entry["physics_body"];
-                        SushiEngine::Simulation::PhysicsBodyParams params;
+                        SushiEngine::Simulation::PhysicsBodyParameters params;
                         params.inv_mass = p.value("inv_mass", params.inv_mass);
                         if (p.contains("inv_inertia"))
                             params.inv_inertia = vec3_from_json(p["inv_inertia"]);
@@ -912,7 +912,7 @@ namespace SushiEngine
                     if (entry.contains("cloth"))
                     {
                         const json& c = entry["cloth"];
-                        SushiEngine::Simulation::ClothParams params;
+                        SushiEngine::Simulation::ClothParameters params;
                         params.rows = c.value("rows", params.rows);
                         params.cols = c.value("cols", params.cols);
                         params.spacing = c.value("spacing", params.spacing);
@@ -927,7 +927,7 @@ namespace SushiEngine
                     if (entry.contains("particle_emitter"))
                     {
                         const json& p = entry["particle_emitter"];
-                        SushiEngine::Simulation::ParticleEmitterParams params;
+                        SushiEngine::Simulation::ParticleEmitterParameters params;
                         // An older file's "effect" index is ignored: the effect it named was a
                         // library entry that no longer exists, and "source" carries the real thing.
                         params.seed = p.value("seed", params.seed);
@@ -950,7 +950,7 @@ namespace SushiEngine
                     if (entry.contains("audio_emitter"))
                     {
                         const json& a = entry["audio_emitter"];
-                        SushiEngine::Simulation::AudioEmitterParams p;
+                        SushiEngine::Simulation::AudioEmitterParameters p;
                         p.sound = a.value("sound", p.sound);
                         p.gain = a.value("gain", p.gain);
                         p.priority = a.value("priority", p.priority);
@@ -974,7 +974,7 @@ namespace SushiEngine
                     if (entry.contains("reverb_zone"))
                     {
                         const json& z = entry["reverb_zone"];
-                        SushiEngine::Simulation::ReverbZoneParams p;
+                        SushiEngine::Simulation::ReverbZoneParameters p;
                         if (z.contains("half_extents"))
                             p.half_extents = vec3_from_json(z["half_extents"]);
                         p.room = z.value("room", p.room);
@@ -998,7 +998,7 @@ namespace SushiEngine
                     if (entry.contains("audio_listener"))
                     {
                         const json& l = entry["audio_listener"];
-                        SushiEngine::Simulation::AudioListenerParams p;
+                        SushiEngine::Simulation::AudioListenerParameters p;
                         p.gain = l.value("gain", p.gain);
                         p.active = l.value("active", p.active);
                         world.set_audio_listener_params(id, p);
@@ -1011,7 +1011,7 @@ namespace SushiEngine
                     if (entry.contains("shape"))
                     {
                         const json& s = entry["shape"];
-                        SushiEngine::Simulation::ShapeParams params;
+                        SushiEngine::Simulation::ShapeParameters params;
                         params.kind = static_cast<SushiEngine::Simulation::PrimitiveKind>(
                             s.value("kind", static_cast<std::uint32_t>(params.kind)));
                         if (s.contains("params"))
@@ -1025,7 +1025,7 @@ namespace SushiEngine
                     world.set_has_vehicle(id, true);
                     if (entry.contains("vehicle"))
                     {
-                        SushiEngine::Simulation::VehicleInstanceParams params =
+                        SushiEngine::Simulation::VehicleInstanceParameters params =
                             world.vehicle_params(id);
                         params.asset_path = entry["vehicle"].value("asset_path", std::string());
                         world.set_vehicle_params(id, params);
@@ -1038,7 +1038,7 @@ namespace SushiEngine
                     if (entry.contains("collider"))
                     {
                         const json& c = entry["collider"];
-                        SushiEngine::Simulation::ColliderParams params;
+                        SushiEngine::Simulation::ColliderParameters params;
                         params.kind = static_cast<SushiEngine::Simulation::PrimitiveKind>(
                             c.value("kind", static_cast<std::uint32_t>(params.kind)));
                         if (c.contains("params"))
@@ -1067,7 +1067,7 @@ namespace SushiEngine
                     if (entry.contains("light"))
                     {
                         const json& l = entry["light"];
-                        SushiEngine::Simulation::LightParams p;
+                        SushiEngine::Simulation::LightParameters p;
                         if (l.contains("color"))
                             p.color = vec3_from_json(l["color"]);
                         p.intensity = l.value("intensity", p.intensity);
@@ -1086,7 +1086,7 @@ namespace SushiEngine
                     if (entry.contains("decal"))
                     {
                         const json& d = entry["decal"];
-                        SushiEngine::Simulation::DecalParams p;
+                        SushiEngine::Simulation::DecalParameters p;
                         if (d.contains("color"))
                             p.color = vec3_from_json(d["color"]);
                         if (d.contains("half_extents"))
@@ -1161,7 +1161,7 @@ namespace SushiEngine
                     continue;
 
                 const json& j = entry["joint"];
-                SushiEngine::Simulation::PhysicsJointParams params;
+                SushiEngine::Simulation::PhysicsJointParameters params;
                 const int connected = j.value("connected", -1);
                 if (connected >= 0 && static_cast<std::size_t>(connected) < created.size())
                     params.connected_body = created[static_cast<std::size_t>(connected)];
@@ -1285,7 +1285,7 @@ namespace SushiEngine
 
                     if (world.has_decal(id))
                     {
-                        SushiEngine::Simulation::DecalParams decal = world.decal_params(id);
+                        SushiEngine::Simulation::DecalParameters decal = world.decal_params(id);
                         if (decal.albedo_map != INVALID_TEXTURE ||
                             decal.orm_map != INVALID_TEXTURE ||
                             !decal.albedo_map_path.empty() || !decal.orm_map_path.empty())

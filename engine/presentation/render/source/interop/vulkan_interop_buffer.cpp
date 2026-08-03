@@ -87,7 +87,7 @@ namespace SushiEngine
                      * @param desc   Size and usage the buffer must satisfy.
                      */
                     VulkanInteropBuffer(Vulkan::VulkanDevice& device,
-                                        const InteropBufferDesc& desc)
+                                        const InteropBufferDescription& desc)
                         : device_(device), size_(desc.size_bytes)
                     {
                         // The buffer must be told at creation that its memory will be
@@ -247,7 +247,7 @@ namespace SushiEngine
         } // namespace
 
         std::unique_ptr<IInteropBuffer> create_interop_buffer(IRenderDevice& device,
-                                                              const InteropBufferDesc& desc)
+                                                              const InteropBufferDescription& desc)
         {
             Vulkan::VulkanDevice& vulkan = static_cast<Vulkan::VulkanDevice&>(device);
             if (!vulkan.supports_external_memory() || desc.size_bytes == 0)

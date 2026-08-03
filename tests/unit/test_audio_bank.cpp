@@ -134,7 +134,7 @@ TEST(Unit_Audio, BankBuildLoadRoundTrip)
     ASSERT_TRUE(bank.load(bytes));
     EXPECT_EQ(bank.media_count(), 1u);
 
-    BankMediaInfo info;
+    BankMediaInformation info;
     ASSERT_TRUE(bank.find_media(42, info));
     EXPECT_EQ(info.channels, 1u);
     EXPECT_EQ(info.sample_rate, 48000u);

@@ -232,7 +232,7 @@ namespace SushiEngine
                 static Vector3 model_position(const ClipEvaluator& evaluator,
                                               std::uint32_t joint) noexcept
                 {
-                    const Mat4& m = evaluator.model()[joint];
+                    const Matrix4& m = evaluator.model()[joint];
                     return Vector3{m.m[12], m.m[13], m.m[14]};
                 }
 

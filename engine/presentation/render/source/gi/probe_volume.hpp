@@ -37,7 +37,7 @@
  * trilinear gather of eight neighbours in the chosen cascade. Every grid snaps to its own
  * world lattice so the probes sit at fixed world points and never swim as the camera moves;
  * only their camera-relative origin shifts, which is what @ref configure_probe_volume
- * computes. @ref ProbeVolumeConfig is the std140 block the shader reads to locate the
+ * computes. @ref ProbeVolumeConfiguration is the std140 block the shader reads to locate the
  * cascades, kept as flat arrays so the C++ and GLSL packings can never disagree.
  */
 
@@ -79,15 +79,15 @@ namespace SushiEngine
              * rebases with the camera at planetary distances. The per-cascade origin and
              * spacing are packed one @c vec4 each: xyz origin, w spacing.
              */
-            struct ProbeVolumeConfig
+            struct ProbeVolumeConfiguration
             {
                 float params[4];          /**< x enabled; y indirect intensity; z normal bias metres; w cascade count. */
                 std::int32_t counts[4];   /**< xyz probe counts per axis; w probes per cascade. */
                 float cascade_origin[GI_NUM_CASCADES][4]; /**< Per cascade: xyz camera-relative origin, w spacing metres. */
             };
 
-            static_assert(sizeof(ProbeVolumeConfig) == 32 + GI_NUM_CASCADES * 16,
-                          "ProbeVolumeConfig must match its std140 GLSL mirror");
+            static_assert(sizeof(ProbeVolumeConfiguration) == 32 + GI_NUM_CASCADES * 16,
+                          "ProbeVolumeConfiguration must match its std140 GLSL mirror");
 
             /** @brief Spacing of cascade @p cascade, doubling outward from the finest. */
             constexpr float probe_cascade_spacing(std::int32_t cascade) noexcept
@@ -117,7 +117,7 @@ namespace SushiEngine
              * @param out         Receives the filled block.
              */
             void configure_probe_volume(const double eye[3], bool enabled, float intensity,
-                                        float normal_bias, ProbeVolumeConfig& out) noexcept;
+                                        float normal_bias, ProbeVolumeConfiguration& out) noexcept;
         } // namespace GI
     } // namespace Render
 } // namespace SushiEngine

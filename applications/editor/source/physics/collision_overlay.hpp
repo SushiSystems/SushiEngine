@@ -62,7 +62,7 @@ namespace SushiEngine
          * @return How many segments were drawn; fewer than were passed when some fell behind
          *         the camera.
          */
-        std::size_t draw_collision_overlay(const std::vector<float>& segments, const Mat4& world,
+        std::size_t draw_collision_overlay(const std::vector<float>& segments, const Matrix4& world,
                                            const SushiEngine::Render::CameraView& camera_view,
                                            const ImVec2& image_origin, float width, float height,
                                            ImDrawList* draw_list);

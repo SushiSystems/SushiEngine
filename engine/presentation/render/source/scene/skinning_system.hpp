@@ -96,7 +96,7 @@ namespace SushiEngine
                 std::uint32_t joint_count = 0;   /**< Joints in this instance's palette. */
                 std::uint32_t prev_valid = 0;    /**< 1 if a previous palette was provided. */
                 std::uint32_t id = 0;            /**< Picking id. */
-                Mat4 model{};                    /**< Absolute object-to-world transform. */
+                Matrix4 model{};                    /**< Absolute object-to-world transform. */
                 Material material{};             /**< Surface to shade with. */
                 std::uint32_t morph_weight_base = 0;  /**< First slot of this instance's weights. */
                 std::uint32_t morph_target_count = 0; /**< Active morph targets (0 = mesh unmorphed). */

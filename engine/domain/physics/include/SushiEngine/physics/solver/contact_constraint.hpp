@@ -40,7 +40,7 @@
  * `XPBDDistanceConstraintT` sits in `constraints/` with its projection. A contact's
  * projection is `contact_projection.hpp`, here in `solver/`, because it names
  * `ContactManifold` — and a descriptor is the pair *(what is constrained, under what
- * coefficients)*, where the coefficients are `ContactSolveParams`, defined by the
+ * coefficients)*, where the coefficients are `ContactSolveParameters`, defined by the
  * projection that consumes them. Splitting the two across modules to satisfy a folder
  * name would mean `constraints/` including `solver/`, which is the dependency running
  * backwards.
@@ -132,7 +132,7 @@ namespace SushiEngine
             ContactManifold<T> manifold;
 
             /** @brief The combined coefficients, resolved once from the two materials. */
-            ContactSolveParams<T> params;
+            ContactSolveParameters<T> params;
         };
 
         /**

@@ -50,10 +50,10 @@ namespace
     // Builds a joint chain: joint i is the child of i-1, offset from its parent by `bone`.
     AssetId build_chain(AnimationDatabase& database, std::uint32_t count, Vector3f bone)
     {
-        SkeletonDesc desc;
+        SkeletonDescription desc;
         for (std::uint32_t i = 0; i < count; ++i)
         {
-            JointDesc joint;
+            JointDescription joint;
             joint.name = std::string("j") + std::to_string(i);
             joint.parent = static_cast<int>(i) - 1;
             joint.bind_translation = i == 0 ? Vector3f{0, 0, 0} : bone;
@@ -70,7 +70,7 @@ namespace
         std::vector<Vector3f> translations;
         std::vector<Quaternionf> rotations;
         std::vector<Vector3f> scales;
-        std::vector<Mat4> model;
+        std::vector<Matrix4> model;
         SkeletonView skeleton;
 
         explicit PoseScratch(const SkeletonView& view) : skeleton(view)
@@ -223,10 +223,13 @@ int main()
     // --- Foot placement: ray to the ground and plant the ankle ------------------------
     {
         // Leg down the -y axis: hip at (0,2,0), knee (0,1,0), ankle (0,0,0).
-        SkeletonDesc desc;
-        JointDesc hip; hip.name = "hip"; hip.parent = -1; hip.bind_translation = Vector3f{0, 2, 0};
-        JointDesc knee; knee.name = "knee"; knee.parent = 0; knee.bind_translation = Vector3f{0, -1, 0};
-        JointDesc ankle; ankle.name = "ankle"; ankle.parent = 1; ankle.bind_translation = Vector3f{0, -1, 0};
+        SkeletonDescription desc;
+        JointDescription hip;
+        hip.name = "hip"; hip.parent = -1; hip.bind_translation = Vector3f{0, 2, 0};
+        JointDescription knee;
+        knee.name = "knee"; knee.parent = 0; knee.bind_translation = Vector3f{0, -1, 0};
+        JointDescription ankle;
+        ankle.name = "ankle"; ankle.parent = 1; ankle.bind_translation = Vector3f{0, -1, 0};
         desc.joints = {hip, knee, ankle};
         std::vector<std::byte> blob;
         build_skeleton_blob(desc, blob);
@@ -258,7 +261,7 @@ int main()
         const SkeletonView skeleton = database.skeleton(id);
 
         // A trivial controller: one layer, one state, one bind-pose clip.
-        ClipDesc clip;
+        ClipDescription clip;
         clip.joint_count = 3;
         clip.frame_count = 1;
         clip.sample_rate = 30.0f;
@@ -270,11 +273,11 @@ int main()
         build_clip_blob(clip, clip_blob);
         const AssetId clip_id = database.add_clip(std::move(clip_blob));
 
-        ControllerDesc controller_desc;
-        LayerDesc layer;
+        ControllerDescription controller_desc;
+        LayerDescription layer;
         layer.name = "base";
         layer.default_state = "Rest";
-        StateDesc state;
+        StateDescription state;
         state.name = "Rest";
         state.clip = clip_id;
         layer.states = {state};
@@ -299,7 +302,7 @@ int main()
 
         AnimatorEvaluator evaluator;
         evaluator.evaluate(controller, database, animator, skeleton, stack, 1);
-        const Mat4& hand = evaluator.model()[2];
+        const Matrix4& hand = evaluator.model()[2];
         const Vector3 hand_position{hand.m[12], hand.m[13], hand.m[14]};
         check(length(hand_position - solver.target) < 1e-3,
               "evaluator pose-modifier stack reaches the target");

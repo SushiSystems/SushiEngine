@@ -48,9 +48,9 @@ int main()
 {
     try
     {
-        SushiEngine::Render::RenderDeviceDesc desc;
+        SushiEngine::Render::RenderDeviceDescription desc;
         SushiEngine::Render::Vulkan::VulkanDevice device(desc);
-        const SushiEngine::Render::DeviceInfo& info = device.info();
+        const SushiEngine::Render::DeviceInformation& info = device.info();
 
         const std::uint32_t version = info.api_version;
         std::printf("device: %s\n", info.name.c_str());

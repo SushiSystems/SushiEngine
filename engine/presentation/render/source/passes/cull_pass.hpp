@@ -117,7 +117,7 @@ namespace SushiEngine
                     };
 
                     /** @brief The std140 cull parameters, mirrored by cull.comp's CullParams. */
-                    struct Params
+                    struct Parameters
                     {
                         float previous_view_projection[16];
                         float delta_eye[4];

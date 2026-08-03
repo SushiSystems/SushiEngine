@@ -52,7 +52,7 @@ namespace SushiEngine
          * @param editor The section's editor, already scoped to the light being edited: the
          *               Inspector's follows the selection, this panel's addresses one row.
          */
-        void draw_light_fields(ComponentEditor<Simulation::LightParams>& editor);
+        void draw_light_fields(ComponentEditor<Simulation::LightParameters>& editor);
 
         /**
          * @brief Draws the Lighting window: every light-bearing entity, plus IBL and shadows.

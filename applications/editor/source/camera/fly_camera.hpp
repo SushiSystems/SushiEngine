@@ -88,7 +88,7 @@ namespace SushiEngine
             }
 
             /** @brief The world-to-camera view matrix. */
-            SushiEngine::Mat4 view_matrix() const noexcept
+            SushiEngine::Matrix4 view_matrix() const noexcept
             {
                 return SushiEngine::look_at(position, position + forward(), up());
             }
@@ -98,7 +98,7 @@ namespace SushiEngine
              * @param aspect Width / height of the target; treated as 1 if not positive.
              * @return The Vulkan-space perspective projection.
              */
-            SushiEngine::Mat4 projection(float aspect) const noexcept
+            SushiEngine::Matrix4 projection(float aspect) const noexcept
             {
                 const SushiEngine::Scalar a = static_cast<SushiEngine::Scalar>(aspect);
                 return SushiEngine::perspective(fov_radians, a > SushiEngine::Scalar(0) ? a : SushiEngine::Scalar(1),

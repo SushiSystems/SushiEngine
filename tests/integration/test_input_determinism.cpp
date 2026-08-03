@@ -104,7 +104,7 @@ namespace
         gameplay.add_button("Jump").bind(Input::Key::Space);
         input.push_context(gameplay);
 
-        Loop::AppConfig config;
+        Loop::AppConfiguration config;
         config.fixed_dt_seconds = FIXED_DT;
         config.rollback_capacity = 0;
         Loop::App<MoveCommand> app(runtime, config);

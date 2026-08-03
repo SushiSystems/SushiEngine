@@ -55,9 +55,9 @@ namespace SushiEngine
                     return (extent + GROUP_SIZE - 1) / GROUP_SIZE;
                 }
 
-                Resources::SamplerDesc linear_sampler() noexcept
+                Resources::SamplerDescription linear_sampler() noexcept
                 {
-                    Resources::SamplerDesc desc;
+                    Resources::SamplerDescription desc;
                     desc.filter = VK_FILTER_LINEAR;
                     desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
                     return desc;

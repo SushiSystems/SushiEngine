@@ -29,12 +29,12 @@ namespace SushiEngine
     {
         namespace Passes
         {
-            Resources::GraphicsPipelineDesc fullscreen_pipeline_desc(VkPipelineLayout layout,
-                                                                     VkShaderModule vertex,
-                                                                     VkShaderModule fragment,
-                                                                     VkFormat color_format)
+            Resources::GraphicsPipelineDescription fullscreen_pipeline_desc(VkPipelineLayout layout,
+                                                                            VkShaderModule vertex,
+                                                                            VkShaderModule fragment,
+                                                                            VkFormat color_format)
             {
-                Resources::GraphicsPipelineDesc desc;
+                Resources::GraphicsPipelineDescription desc;
                 desc.layout = layout;
                 desc.vertex_shader = vertex;
                 desc.fragment_shader = fragment;

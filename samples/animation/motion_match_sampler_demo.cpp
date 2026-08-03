@@ -60,7 +60,7 @@ namespace
     std::vector<std::byte> make_linear_clip(Vector3f end_translation)
     {
         const Quaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
-        ClipDesc desc;
+        ClipDescription desc;
         desc.joint_count = 1;
         desc.frame_count = 2;
         desc.sample_rate = 0.5f; // (frame_count - 1) / sample_rate == 2s duration
@@ -76,8 +76,8 @@ namespace
 
 int main()
 {
-    SkeletonDesc skeleton_desc;
-    JointDesc root;
+    SkeletonDescription skeleton_desc;
+    JointDescription root;
     root.name = "root";
     root.parent = -1;
     skeleton_desc.joints = {root};
@@ -111,7 +111,7 @@ int main()
          "reset onto idle leaves the root at z == 0");
     check(!sampler.crossfading(), "no crossfade in progress right after reset");
 
-    MotionMatchSamplerConfig config;
+    MotionMatchSamplerConfiguration config;
     config.resample_interval_seconds = 0.05f;
     config.crossfade_seconds = 0.2f;
 

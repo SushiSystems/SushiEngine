@@ -67,7 +67,7 @@ namespace SushiEngine
                     local_translations_.assign(joint_count, Vector3f{});
                     local_rotations_.assign(joint_count, Quaternionf{});
                     local_scales_.assign(joint_count, Vector3f{1.0f, 1.0f, 1.0f});
-                    model_.assign(joint_count, Mat4{});
+                    model_.assign(joint_count, Matrix4{});
                     palette_.assign(joint_count, JointMatrix{});
                 }
 
@@ -130,7 +130,7 @@ namespace SushiEngine
                 const std::vector<JointMatrix>& palette() const noexcept { return palette_; }
 
                 /** @brief The model-space matrix per joint (bind space, post-compose). */
-                const std::vector<Mat4>& model() const noexcept { return model_; }
+                const std::vector<Matrix4>& model() const noexcept { return model_; }
 
                 /** @brief The local-space translation per joint, valid after @ref evaluate. */
                 const std::vector<Vector3f>& local_translations() const noexcept
@@ -157,9 +157,9 @@ namespace SushiEngine
                         const Vector3f& t = local_translations_[i];
                         const Quaternionf& r = local_rotations_[i];
                         const Vector3f& s = local_scales_[i];
-                        const Mat4 local = compose_transform(Vector3{t.x, t.y, t.z},
-                                                             Quaternion{r.x, r.y, r.z, r.w},
-                                                             Vector3{s.x, s.y, s.z});
+                        const Matrix4 local = compose_transform(Vector3{t.x, t.y, t.z},
+                                                                Quaternion{r.x, r.y, r.z, r.w},
+                                                                Vector3{s.x, s.y, s.z});
                         model_[i] = skeleton.parents[i] == NO_PARENT
                                         ? local
                                         : mul(model_[skeleton.parents[i]], local);
@@ -170,7 +170,7 @@ namespace SushiEngine
                 std::vector<Vector3f> local_translations_;
                 std::vector<Quaternionf> local_rotations_;
                 std::vector<Vector3f> local_scales_;
-                std::vector<Mat4> model_;
+                std::vector<Matrix4> model_;
                 std::vector<JointMatrix> palette_;
         };
     } // namespace Animation

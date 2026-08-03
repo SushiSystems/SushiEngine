@@ -59,7 +59,7 @@ namespace SushiEngine
                 positions.empty())
                 return 0;
 
-            const Mat4 view_projection = mul(camera_view.projection, camera_view.view);
+            const Matrix4 view_projection = mul(camera_view.projection, camera_view.view);
             // Pale blue-grey for the plain wireframe: it is a structural view drawn over
             // a shaded body, so it has to read as a scaffold rather than compete with the
             // surface. The heat views set their own colour per element.

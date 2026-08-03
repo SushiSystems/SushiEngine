@@ -319,7 +319,7 @@ namespace SushiEngine
             draw_tier_readout(settings, [](const SushiEngine::Render::ResolvedQuality& resolved)
             {
                 const SushiEngine::Render::RenderSettings& effective = resolved.settings;
-                const SushiEngine::Render::QualityParams& knobs = resolved.params;
+                const SushiEngine::Render::QualityParameters& knobs = resolved.params;
 
                 if (effective.shadows.enabled)
                 {
@@ -561,7 +561,7 @@ namespace SushiEngine
 
             draw_tier_readout(settings, [](const SushiEngine::Render::ResolvedQuality& resolved)
             {
-                const SushiEngine::Render::QualityParams& knobs = resolved.params;
+                const SushiEngine::Render::QualityParameters& knobs = resolved.params;
                 ImGui::Text("Bloom: %s", knobs.bloom ? "on" : "off (tier)");
                 ImGui::Text("Depth of field: %s", knobs.depth_of_field ? "permitted" : "off (tier)");
                 ImGui::Text("Motion blur: %s", knobs.motion_blur ? "permitted" : "off (tier)");

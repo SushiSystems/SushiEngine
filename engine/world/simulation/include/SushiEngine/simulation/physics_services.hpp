@@ -59,7 +59,7 @@ namespace SushiEngine
     namespace Simulation
     {
         /** @brief A rigid body to (re)build, addressed by its owning entity. */
-        struct RigidBodyDesc
+        struct RigidBodyDescription
         {
             EntityId id = NULL_ENTITY;   /**< The entity that owns this body. */
             Vector3 position;            /**< Seed position (used only for a newly added body). */
@@ -83,7 +83,7 @@ namespace SushiEngine
             /**
              * @brief The surface this body contacts as (§5.3).
              *
-             * Carried by value, exactly as `SoftBodyDesc` carries its constitutive material,
+             * Carried by value, exactly as `SoftBodyDescription` carries its constitutive material,
              * rather than as an index into a scene material table. There is no such table,
              * and the reason there is none is worth stating: `RigidBodyT::material_index`
              * exists so a *device* kernel can reach a material without following a pointer,
@@ -95,7 +95,7 @@ namespace SushiEngine
         };
 
         /** @brief A cloth grid to (re)build, addressed by its owning entity. */
-        struct ClothDesc
+        struct ClothDescription
         {
             EntityId id = NULL_ENTITY;     /**< The entity that owns this grid. */
             std::size_t rows = 0;          /**< Grid rows (row 0 is pinned). */
@@ -107,7 +107,7 @@ namespace SushiEngine
         };
 
         /** @brief A static half-space plane the physics collides bodies against. */
-        struct PlaneDesc
+        struct PlaneDescription
         {
             Vector3 point;                            /**< A point on the plane, in world space. */
             Vector3 normal{Vector3{0, 1, 0}};         /**< Unit plane normal (solid side is below it). */
@@ -186,7 +186,7 @@ namespace SushiEngine
                  *                   controlling one quantity.
                  * @param substep_dt The fixed sub-step duration, in seconds.
                  */
-                virtual void set_rigid_bodies(const std::vector<RigidBodyDesc>& bodies,
+                virtual void set_rigid_bodies(const std::vector<RigidBodyDescription>& bodies,
                                               std::size_t iterations, Scalar substep_dt) = 0;
 
                 /**
@@ -249,7 +249,7 @@ namespace SushiEngine
                  * @param iterations Gauss-Seidel sweeps per sub-step.
                  * @param substep_dt The fixed sub-step duration, in seconds.
                  */
-                virtual void set_cloth_grids(const std::vector<ClothDesc>& grids,
+                virtual void set_cloth_grids(const std::vector<ClothDescription>& grids,
                                              std::size_t iterations, Scalar substep_dt) = 0;
 
                 /**
@@ -280,7 +280,7 @@ namespace SushiEngine
          * not retained — instantiation copies out everything the solve needs, so the
          * caller may free the bytes the moment the call returns.
          */
-        struct SoftBodyDesc
+        struct SoftBodyDescription
         {
             EntityId id = NULL_ENTITY;        /**< The entity that owns this body. */
             const std::byte* asset = nullptr; /**< A `.sushisoft` blob; not retained past the call. */
@@ -321,7 +321,7 @@ namespace SushiEngine
                  *
                  * @param bodies The full set of soft bodies after the change.
                  */
-                virtual void set_soft_bodies(const std::vector<SoftBodyDesc>& bodies) = 0;
+                virtual void set_soft_bodies(const std::vector<SoftBodyDescription>& bodies) = 0;
 
                 /**
                  * @brief A soft body's deformed surface, as of the last completed tick.
@@ -376,7 +376,7 @@ namespace SushiEngine
                  *
                  * @param planes The static collision planes, in world space.
                  */
-                virtual void set_static_planes(const std::vector<PlaneDesc>& planes) = 0;
+                virtual void set_static_planes(const std::vector<PlaneDescription>& planes) = 0;
         };
 
         /**
@@ -444,13 +444,13 @@ namespace SushiEngine
          * mass, not a missing one — which keeps every joint two-sided and stops a
          * one-sided projection existing to disagree with the two-sided one.
          */
-        struct JointDesc
+        struct JointDescription
         {
             EntityId body_a = NULL_ENTITY;
             EntityId body_b = NULL_ENTITY;
 
             /** @brief What is held between them. */
-            JointParams params;
+            JointParameters params;
         };
 
         /** @brief An opaque identity for a live joint; zero names none. */
@@ -480,7 +480,7 @@ namespace SushiEngine
         /**
          * @brief A hybrid vehicle to (re)build, addressed by its owning entity.
          *
-         * The asset is bytes for the same reason `SoftBodyDesc`'s is: this header names no
+         * The asset is bytes for the same reason `SoftBodyDescription`'s is: this header names no
          * file system and no cache, and where a `.sushinodebeam` blob came from is the
          * caller's business. Read during the `set_vehicles` call and not retained —
          * instancing copies out everything the solve needs.
@@ -489,7 +489,7 @@ namespace SushiEngine
          * corners, the tyres, the drivetrain and the aerodynamics are authored numbers, and
          * §11's whole split is that the structure is cooked and the setup is not.
          */
-        struct VehicleDesc
+        struct VehicleDescription
         {
             EntityId id = NULL_ENTITY;        /**< The entity that owns this vehicle. */
             const std::byte* asset = nullptr; /**< A `.sushinodebeam` blob; not retained. */
@@ -527,7 +527,7 @@ namespace SushiEngine
                  *
                  * @param vehicles The full set of vehicles after the change.
                  */
-                virtual void set_vehicles(const std::vector<VehicleDesc>& vehicles) = 0;
+                virtual void set_vehicles(const std::vector<VehicleDescription>& vehicles) = 0;
 
                 /**
                  * @brief Records what the driver is asking for; spent by the next step.
@@ -618,7 +618,7 @@ namespace SushiEngine
                  *         body or the joint budget is exhausted — a budget being
                  *         exceeded, counted in the statistics, not an error.
                  */
-                virtual JointId create_joint(const JointDesc& desc) = 0;
+                virtual JointId create_joint(const JointDescription& desc) = 0;
 
                 /**
                  * @brief Destroys a joint. What breaking one actually does.
@@ -641,7 +641,7 @@ namespace SushiEngine
                  * @param motor The drive to install.
                  * @return True when @p joint named a live joint.
                  */
-                virtual bool set_joint_motor(JointId joint, const JointMotorDesc& motor) = 0;
+                virtual bool set_joint_motor(JointId joint, const JointMotorDescription& motor) = 0;
 
                 /**
                  * @brief Replaces a joint's three limits, live.
@@ -656,9 +656,9 @@ namespace SushiEngine
                  * @param swing  The cone limit off the primary axis.
                  * @return True when @p joint named a live joint.
                  */
-                virtual bool set_joint_limits(JointId joint, const JointLimitDesc& linear,
-                                              const JointLimitDesc& twist,
-                                              const JointLimitDesc& swing) = 0;
+                virtual bool set_joint_limits(JointId joint, const JointLimitDescription& linear,
+                                              const JointLimitDescription& twist,
+                                              const JointLimitDescription& swing) = 0;
 
                 /**
                  * @brief The joints that broke during the last step.

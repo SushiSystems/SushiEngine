@@ -53,7 +53,7 @@ int main()
                  AudioVec3{lx * 0.5f, ly * 0.5f, lz * 0.5f}, mat);
 
     RayTracedAcoustics tracer;
-    RayTraceParams params;
+    RayTraceParameters params;
     params.rays = 12000;
     params.max_order = 80;
     params.receiver_radius = 0.6f;

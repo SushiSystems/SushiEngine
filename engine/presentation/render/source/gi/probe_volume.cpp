@@ -31,7 +31,7 @@ namespace SushiEngine
         namespace GI
         {
             void configure_probe_volume(const double eye[3], bool enabled, float intensity,
-                                        float normal_bias, ProbeVolumeConfig& out) noexcept
+                                        float normal_bias, ProbeVolumeConfiguration& out) noexcept
             {
                 const std::int32_t counts[3] = {PROBE_COUNT_HORIZONTAL, PROBE_COUNT_VERTICAL,
                                                 PROBE_COUNT_HORIZONTAL};

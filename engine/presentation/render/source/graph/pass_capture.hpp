@@ -77,7 +77,7 @@ namespace SushiEngine
             struct CapturedPass
             {
                 std::string pass;     /**< The pass name the graph registered. */
-                std::string resource; /**< TextureDesc::name of the written texture. */
+                std::string resource; /**< TextureDescription::name of the written texture. */
                 std::uint32_t width = 0;
                 std::uint32_t height = 0;
                 std::uint32_t depth = 0;
@@ -149,7 +149,7 @@ namespace SushiEngine
                      * @param desc The written texture's description.
                      * @return true if a following record() would copy it.
                      */
-                    bool wants(const TextureDesc& desc);
+                    bool wants(const TextureDescription& desc);
 
                     /**
                      * @brief Records the copy of one pass output into the active slot.
@@ -169,8 +169,8 @@ namespace SushiEngine
                      * @param desc  The written texture's description.
                      * @param image The physical image to copy from.
                      */
-                    void record(VkCommandBuffer cmd, const char* pass, const TextureDesc& desc,
-                                VkImage image);
+                    void record(VkCommandBuffer cmd, const char* pass,
+                                const TextureDescription& desc, VkImage image);
 
                     /**
                      * @brief Hashes a completed slot's captured bytes.
@@ -217,7 +217,7 @@ namespace SushiEngine
                     {
                         std::string pass;
                         std::string resource;
-                        TextureDesc desc{};
+                        TextureDescription desc{};
                         VkDeviceSize offset = 0;
                         VkDeviceSize size = 0;
                     };

@@ -57,11 +57,11 @@ namespace SushiEngine
              * @param capacity Maximum number of entities this chunk can hold.
              */
             Chunk(Execution::Context& context,
-                  const std::vector<ComponentInfo>& comps, std::size_t capacity)
+                  const std::vector<ComponentInformation>& comps, std::size_t capacity)
                 : capacity_(capacity), entities_(capacity)
             {
                 columns_.reserve(comps.size());
-                for (const ComponentInfo& info : comps)
+                for (const ComponentInformation& info : comps)
                 {
                     Column col;
                     col.id = info.id;

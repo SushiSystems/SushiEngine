@@ -51,7 +51,7 @@ namespace SushiEngine
 
         namespace GI
         {
-            struct ProbeVolumeConfig;
+            struct ProbeVolumeConfiguration;
 
             /**
              * @brief Everything a tracer needs to relight the probe volume this frame.
@@ -68,7 +68,8 @@ namespace SushiEngine
                 std::uint32_t probe_count = 0;           /**< Probes to relight. */
                 VkBuffer environment_sh = VK_NULL_HANDLE; /**< Distant environment SH (144 B). */
                 VkDeviceSize environment_sh_bytes = 0;   /**< Size of the environment SH buffer. */
-                const ProbeVolumeConfig* config = nullptr; /**< The probe lattice this frame. */
+                /** @brief The probe lattice this frame. */
+                const ProbeVolumeConfiguration* config = nullptr;
                 const Frame::FrameContext* frame = nullptr; /**< This frame's inputs and allocators. */
             };
 

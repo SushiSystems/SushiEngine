@@ -80,11 +80,11 @@ namespace
 
         Fixture()
         {
-            SkeletonDesc description;
-            JointDesc root;
+            SkeletonDescription description;
+            JointDescription root;
             root.name = "root";
             root.parent = -1;
-            JointDesc child;
+            JointDescription child;
             child.name = "child";
             child.parent = 0;
             child.bind_translation = Vector3f{0.0f, 1.0f, 0.0f};
@@ -98,7 +98,7 @@ namespace
         // `turn` radians about Y over its length. The child never moves.
         AssetId add_clip(float forward, float turn)
         {
-            ClipDesc clip;
+            ClipDescription clip;
             clip.joint_count = 2;
             clip.frame_count = 31;
             clip.sample_rate = 30.0f;
@@ -117,7 +117,7 @@ namespace
             return database.add_clip(std::move(blob));
         }
 
-        ControllerView compile(const ControllerDesc& description)
+        ControllerView compile(const ControllerDescription& description)
         {
             std::vector<std::byte> blob;
             if (!compile_controller_blob(description, blob))
@@ -138,9 +138,9 @@ namespace
         AssetId controller_id = INVALID_ASSET;
     };
 
-    StateDesc state_with(const char* name, AssetId clip)
+    StateDescription state_with(const char* name, AssetId clip)
     {
-        StateDesc state;
+        StateDescription state;
         state.name = name;
         state.clip = clip;
         return state;
@@ -148,28 +148,28 @@ namespace
 
     // Idle <-> Walk over a "moving" bool: a crossfade in, an instant transition back, and a
     // footstep event halfway through Walk. The shape almost every locomotion graph starts as.
-    ControllerDesc locomotion(AssetId idle_clip, AssetId walk_clip, float crossfade = 0.1f)
+    ControllerDescription locomotion(AssetId idle_clip, AssetId walk_clip, float crossfade = 0.1f)
     {
-        ControllerDesc description;
-        description.parameters.push_back(ParameterDesc{"moving", ParameterType::Bool, 0.0f});
+        ControllerDescription description;
+        description.parameters.push_back(ParameterDescription{"moving", ParameterType::Bool, 0.0f});
 
-        LayerDesc layer;
+        LayerDescription layer;
         layer.name = "base";
         layer.default_state = "Idle";
 
-        StateDesc idle = state_with("Idle", idle_clip);
-        TransitionDesc to_walk;
+        StateDescription idle = state_with("Idle", idle_clip);
+        TransitionDescription to_walk;
         to_walk.destination = "Walk";
         to_walk.duration = crossfade;
-        to_walk.conditions.push_back(ConditionDesc{"moving", Comparator::If, 0.0f});
+        to_walk.conditions.push_back(ConditionDescription{"moving", Comparator::If, 0.0f});
         idle.transitions.push_back(to_walk);
 
-        StateDesc walk = state_with("Walk", walk_clip);
-        walk.events.push_back(StateEventDesc{0.5f, "footstep", 7});
-        TransitionDesc to_idle;
+        StateDescription walk = state_with("Walk", walk_clip);
+        walk.events.push_back(StateEventDescription{0.5f, "footstep", 7});
+        TransitionDescription to_idle;
         to_idle.destination = "Idle";
         to_idle.duration = 0.0f;
-        to_idle.conditions.push_back(ConditionDesc{"moving", Comparator::IfNot, 0.0f});
+        to_idle.conditions.push_back(ConditionDescription{"moving", Comparator::IfNot, 0.0f});
         walk.transitions.push_back(to_idle);
 
         layer.states = {idle, walk};
@@ -239,12 +239,12 @@ TEST(Unit_AnimatorStep, ExitTimeHoldsATransitionUntilTheClipReachesIt)
     // mid-stride and one that waits for the foot to land.
     Fixture world;
     const AssetId clip = world.add_clip(0.0f, 0.0f);
-    ControllerDesc description;
-    LayerDesc layer;
+    ControllerDescription description;
+    LayerDescription layer;
     layer.name = "base";
     layer.default_state = "A";
-    StateDesc a = state_with("A", clip);
-    TransitionDesc timed;
+    StateDescription a = state_with("A", clip);
+    TransitionDescription timed;
     timed.destination = "B";
     timed.has_exit_time = true;
     timed.exit_time = 0.75f;
@@ -277,22 +277,22 @@ TEST(Unit_AnimatorStep, ATriggerIsConsumedByExactlyOneTransition)
     // trigger is the arrangement that exposes it.
     Fixture world;
     const AssetId clip = world.add_clip(0.0f, 0.0f);
-    ControllerDesc description;
-    description.parameters.push_back(ParameterDesc{"fire", ParameterType::Trigger, 0.0f});
-    LayerDesc layer;
+    ControllerDescription description;
+    description.parameters.push_back(ParameterDescription{"fire", ParameterType::Trigger, 0.0f});
+    LayerDescription layer;
     layer.name = "base";
     layer.default_state = "A";
 
-    StateDesc a = state_with("A", clip);
-    TransitionDesc a_to_b;
+    StateDescription a = state_with("A", clip);
+    TransitionDescription a_to_b;
     a_to_b.destination = "B";
-    a_to_b.conditions.push_back(ConditionDesc{"fire", Comparator::If, 0.0f});
+    a_to_b.conditions.push_back(ConditionDescription{"fire", Comparator::If, 0.0f});
     a.transitions.push_back(a_to_b);
 
-    StateDesc b = state_with("B", clip);
-    TransitionDesc b_to_a;
+    StateDescription b = state_with("B", clip);
+    TransitionDescription b_to_a;
     b_to_a.destination = "A";
-    b_to_a.conditions.push_back(ConditionDesc{"fire", Comparator::If, 0.0f});
+    b_to_a.conditions.push_back(ConditionDescription{"fire", Comparator::If, 0.0f});
     b.transitions.push_back(b_to_a);
 
     layer.states = {a, b};
@@ -325,20 +325,20 @@ TEST(Unit_AnimatorStep, TypedConditionsCompareAgainstTheirThreshold)
 {
     Fixture world;
     const AssetId clip = world.add_clip(0.0f, 0.0f);
-    ControllerDesc description;
-    description.parameters.push_back(ParameterDesc{"speed", ParameterType::Float, 0.0f});
-    description.parameters.push_back(ParameterDesc{"stance", ParameterType::Int, 0.0f});
-    LayerDesc layer;
+    ControllerDescription description;
+    description.parameters.push_back(ParameterDescription{"speed", ParameterType::Float, 0.0f});
+    description.parameters.push_back(ParameterDescription{"stance", ParameterType::Int, 0.0f});
+    LayerDescription layer;
     layer.name = "base";
     layer.default_state = "A";
 
     // Both conditions on one transition, so it fires only when they agree — the AND
     // semantics a Mecanim transition has.
-    StateDesc a = state_with("A", clip);
-    TransitionDesc guarded;
+    StateDescription a = state_with("A", clip);
+    TransitionDescription guarded;
     guarded.destination = "B";
-    guarded.conditions.push_back(ConditionDesc{"speed", Comparator::Greater, 1.5f});
-    guarded.conditions.push_back(ConditionDesc{"stance", Comparator::Equals, 2.0f});
+    guarded.conditions.push_back(ConditionDescription{"speed", Comparator::Greater, 1.5f});
+    guarded.conditions.push_back(ConditionDescription{"stance", Comparator::Equals, 2.0f});
     a.transitions.push_back(guarded);
     layer.states = {a, state_with("B", clip)};
     description.layers.push_back(layer);
@@ -459,8 +459,8 @@ TEST(Unit_AnimatorStep, RootMotionTurnsTheEntityAndKeepsTurningAcrossTheLoopSeam
     // loop, including at the wrap — the seam a per-frame difference silently drops.
     Fixture world;
     const AssetId turning = world.add_clip(0.0f, PI * 0.5f);
-    ControllerDesc description;
-    LayerDesc layer;
+    ControllerDescription description;
+    LayerDescription layer;
     layer.name = "base";
     layer.default_state = "Turn";
     layer.states = {state_with("Turn", turning)};
@@ -495,8 +495,8 @@ TEST(Unit_AnimatorStep, RootMotionTurnsTheEntityAndKeepsTurningAcrossTheLoopSeam
     // A clip whose root does not turn must leave the orientation exactly alone, rather than
     // drifting by an accumulated near-identity delta.
     const AssetId straight = world.add_clip(1.0f, 0.0f);
-    ControllerDesc straight_description;
-    LayerDesc straight_layer;
+    ControllerDescription straight_description;
+    LayerDescription straight_layer;
     straight_layer.name = "base";
     straight_layer.default_state = "Walk";
     straight_layer.states = {state_with("Walk", straight)};

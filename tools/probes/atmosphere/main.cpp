@@ -89,7 +89,7 @@ namespace
         std::string series_path;    /**< CSV of one line per sample; empty = none. */
         bool validation = false;    /**< Turn the Vulkan validation layers on. */
 
-        // Overrides on `AtmosphereParameters`, so a hypothesis about one term can be separated
+        // Overrides on `AtmosphereNestParameters`, so a hypothesis about one term can be separated
         // from the rest by running with it turned off rather than by arguing about it. NaN means
         // "leave the authored default alone", which keeps a default run identical to the scene's.
         float albedo = std::nanf("");
@@ -463,7 +463,7 @@ namespace
     };
 
     WaterBudget water_budget(const SushiEngine::Render::AtmosphereMirror& mirror,
-                             const SushiEngine::Render::AtmosphereParameters& parameters,
+                             const SushiEngine::Render::AtmosphereNestParameters& parameters,
                              const SushiEngine::Render::AtmosphereNestSize& size)
     {
         WaterBudget budget;
@@ -641,7 +641,7 @@ int main(int argc, char** argv)
 
     try
     {
-        SushiEngine::Render::RenderDeviceDesc desc;
+        SushiEngine::Render::RenderDeviceDescription desc;
         desc.enable_validation = options.validation;
         SushiEngine::Render::Vulkan::VulkanDevice device(desc);
         std::printf("device: %s\n", device.info().name.c_str());
@@ -673,7 +673,7 @@ int main(int argc, char** argv)
         std::printf("nest: %ux%ux%u at %.0f m, top %.0f m\n", size.cells_x, size.cells_z,
                     size.levels, double(size.spacing_m), double(size.top_m));
 
-        SushiEngine::Render::AtmosphereParameters parameters;
+        SushiEngine::Render::AtmosphereNestParameters parameters;
         const auto override_float = [](float& target, float value)
         {
             if (!std::isnan(value))

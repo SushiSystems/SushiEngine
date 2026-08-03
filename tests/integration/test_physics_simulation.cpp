@@ -90,9 +90,9 @@ namespace
     }
 
     /** @brief The ground plane at y = 0, solid below. */
-    std::vector<PlaneDesc> ground()
+    std::vector<PlaneDescription> ground()
     {
-        PlaneDesc plane;
+        PlaneDescription plane;
         plane.point = Vector3{0, 0, 0};
         plane.normal = Vector3{0, 1, 0};
         return {plane};
@@ -103,7 +103,7 @@ TEST(Integration_PhysicsSimulation, BoxSettlesOnItsFaceNotItsBoundingRadius)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
 
-    RigidBodyDesc desc;
+    RigidBodyDescription desc;
     desc.id = 1;
     desc.position = Vector3{0, Scalar(4), 0};
     desc.inv_mass = Scalar(1);
@@ -126,7 +126,7 @@ TEST(Integration_PhysicsSimulation, TiltedBoxSettlesOnItsEdge)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
 
-    RigidBodyDesc desc;
+    RigidBodyDescription desc;
     desc.id = 1;
     desc.position = Vector3{0, Scalar(4), 0};
     desc.orientation = quaternion_axis_angle(Vector3{0, 0, 1}, Scalar(PI / 4.0));
@@ -154,7 +154,7 @@ TEST(Integration_PhysicsSimulation, ClothAndRigidBodyPushOnEachOther)
     // body exactly where it started.
     auto physics = create_physics_simulation(Harness::shared_context());
 
-    ClothDesc cloth;
+    ClothDescription cloth;
     cloth.id = 10;
     cloth.rows = 3;
     cloth.cols = 3;
@@ -162,7 +162,7 @@ TEST(Integration_PhysicsSimulation, ClothAndRigidBodyPushOnEachOther)
     cloth.origin = Vector3{0, 0, 0};
     cloth.thickness = Scalar(0.1);
 
-    RigidBodyDesc body;
+    RigidBodyDescription body;
     body.id = 20;
     // Just above the centre particle, which sits at (0.5, 0, 0.5) and is not pinned.
     // The overlap is deliberately shallow (0.05 m against a 0.4 m contact distance):
@@ -208,7 +208,7 @@ TEST(Integration_PhysicsSimulation, ClothDimensionsAndPoseRoundTrip)
 {
     auto physics = create_physics_simulation(Harness::shared_context());
 
-    ClothDesc cloth;
+    ClothDescription cloth;
     cloth.id = 10;
     cloth.rows = 4;
     cloth.cols = 5;
@@ -222,7 +222,7 @@ TEST(Integration_PhysicsSimulation, ClothDimensionsAndPoseRoundTrip)
     EXPECT_EQ(cols, 5u);
     EXPECT_FALSE(physics->cloth_dimensions(999, rows, cols));
 
-    RigidBodyDesc body;
+    RigidBodyDescription body;
     body.id = 20;
     body.inv_mass = Scalar(1);
     physics->set_rigid_bodies({body}, ITERATIONS, SUBSTEP_DT);
@@ -245,10 +245,10 @@ TEST(Integration_PhysicsSimulation, StackedBoxesSettleWithoutInterpenetrating)
     // pair every sub-step, or the upper box sinks through the lower one.
     auto physics = create_physics_simulation(Harness::shared_context());
 
-    std::vector<RigidBodyDesc> bodies;
+    std::vector<RigidBodyDescription> bodies;
     for (int i = 0; i < 2; ++i)
     {
-        RigidBodyDesc desc;
+        RigidBodyDescription desc;
         desc.id = static_cast<EntityId>(i + 1);
         desc.position = Vector3{0, Scalar(1.0 + i * 1.2), 0};
         desc.inv_mass = Scalar(1);
@@ -282,13 +282,13 @@ TEST(Integration_PhysicsSimulation, AFastBodyIsStillFoundByTheOncePerTickBroadph
     Execution::Context execution(runtime);
     std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
-    RigidBodyDesc bullet;
+    RigidBodyDescription bullet;
     bullet.id = 1;
     bullet.position = Vector3{Scalar(-3), Scalar(1), 0};
     bullet.inv_mass = Scalar(1);
     bullet.collider = sphere_collider(Scalar(0.5));
 
-    RigidBodyDesc wall;
+    RigidBodyDescription wall;
     wall.id = 2;
     wall.position = Vector3{0, Scalar(1), 0};
     wall.inv_mass = Scalar(0); // immovable, so any motion it causes is the contact
@@ -323,11 +323,11 @@ TEST(Integration_PhysicsSimulation, TheStepReportsWhatItContained)
     Execution::Context execution(runtime);
     std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
-    RigidBodyDesc first;
+    RigidBodyDescription first;
     first.id = 1;
     first.position = Vector3{0, Scalar(4), 0};
     first.inv_mass = Scalar(1);
-    RigidBodyDesc second = first;
+    RigidBodyDescription second = first;
     second.id = 2;
     second.position = Vector3{Scalar(0.4), Scalar(4.4), 0};
 
@@ -379,7 +379,7 @@ TEST(Integration_PhysicsSimulation, ALandingBoxBeginsOnceAndThenPersists)
     Execution::Context execution(runtime);
     std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
-    RigidBodyDesc desc;
+    RigidBodyDescription desc;
     desc.id = 1;
     desc.position = Vector3{0, Scalar(1.2), 0};
     desc.inv_mass = Scalar(1);
@@ -422,7 +422,7 @@ TEST(Integration_PhysicsSimulation, TakingABodyAwayEndsItsContact)
     Execution::Context execution(runtime);
     std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
-    RigidBodyDesc desc;
+    RigidBodyDescription desc;
     desc.id = 1;
     desc.position = Vector3{0, Scalar(0.6), 0};
     desc.inv_mass = Scalar(1);
@@ -459,13 +459,13 @@ TEST(Integration_PhysicsSimulation, ATriggerIsReportedAndNotResolved)
     Execution::Context execution(runtime);
     std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
-    RigidBodyDesc falling;
+    RigidBodyDescription falling;
     falling.id = 1;
     falling.position = Vector3{0, Scalar(3), 0};
     falling.inv_mass = Scalar(1);
     falling.collider = unit_box_collider();
 
-    RigidBodyDesc volume;
+    RigidBodyDescription volume;
     volume.id = 2;
     volume.position = Vector3{0, Scalar(1), 0};
     volume.inv_mass = Scalar(0); // immovable, so any motion is the contact's doing
@@ -505,10 +505,10 @@ TEST(Integration_PhysicsSimulation, EventsComeInASceneOrderNotATraversalOrder)
     Execution::Context execution(runtime);
     std::unique_ptr<IPhysicsScene> physics = create_physics_simulation(execution);
 
-    std::vector<RigidBodyDesc> bodies;
+    std::vector<RigidBodyDescription> bodies;
     for (int i = 0; i < 5; ++i)
     {
-        RigidBodyDesc desc;
+        RigidBodyDescription desc;
         desc.id = static_cast<EntityId>(i + 1);
         // Spread apart so each lands on the ground alone, and at descending heights
         // so they arrive in an order that is not the order they were added in.

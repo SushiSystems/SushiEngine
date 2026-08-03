@@ -265,7 +265,7 @@ namespace SushiEngine
             {
                 if (frame.environment == nullptr)
                     return;
-                const FogParams& fog = frame.environment->fog;
+                const FogParameters& fog = frame.environment->fog;
 
                 Push push{};
                 push.color_density[0] = static_cast<float>(fog.scattering_color.x);
@@ -352,7 +352,8 @@ namespace SushiEngine
                     [this, &frame, push, uniforms, volume_buffer](
                         VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
+                        const VkSampler sampler =
+                            frame.samplers->get(Resources::SamplerDescription{});
 
                         transition(cmd, volume_.image, VK_IMAGE_LAYOUT_UNDEFINED,
                                    VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,

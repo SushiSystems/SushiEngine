@@ -221,7 +221,7 @@ namespace SushiEngine
             if (!ImGui::CollapsingHeader("Audio Emitter", ImGuiTreeNodeFlags_DefaultOpen))
                 return;
 
-            Simulation::AudioEmitterParams p = world.audio_emitter_params(id);
+            Simulation::AudioEmitterParameters p = world.audio_emitter_params(id);
 
             auto slider = [&](const char* label, float* v, float lo, float hi, const char* fmt) {
                 const bool ch = ImGui::SliderFloat(label, v, lo, hi, fmt);
@@ -325,7 +325,7 @@ namespace SushiEngine
             if (!ImGui::CollapsingHeader("Reverb Zone", ImGuiTreeNodeFlags_DefaultOpen))
                 return;
 
-            Simulation::ReverbZoneParams p = world.reverb_zone_params(id);
+            Simulation::ReverbZoneParameters p = world.reverb_zone_params(id);
 
             auto apply = [&]() { world.set_reverb_zone_params(id, p); };
             auto slider = [&](const char* label, float* v, float lo, float hi, const char* fmt) {
@@ -397,7 +397,7 @@ namespace SushiEngine
             if (!ImGui::CollapsingHeader("Audio Listener", ImGuiTreeNodeFlags_DefaultOpen))
                 return;
 
-            Simulation::AudioListenerParams p = world.audio_listener_params(id);
+            Simulation::AudioListenerParameters p = world.audio_listener_params(id);
 
             bool changed = false;
             const bool ch = ImGui::SliderFloat("Master gain", &p.gain, 0.0f, 2.0f, "%.2f");

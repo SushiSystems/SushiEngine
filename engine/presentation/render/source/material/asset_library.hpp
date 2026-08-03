@@ -154,11 +154,11 @@ namespace SushiEngine
                      * @param parameters The authored physics.
                      * @param forcing    The parent solution, the observer, and the clock.
                      * @param size       The tier-resolved discretization
-                     *                   (@ref QualityParams::atmosphere_nest). A change here
+                     *                   (@ref QualityParameters::atmosphere_nest). A change here
                      *                   rebuilds the nest at the next flush, which loses the
                      *                   running weather — see @ref flush_atmosphere.
                      */
-                    void stage_atmosphere(const AtmosphereParameters& parameters,
+                    void stage_atmosphere(const AtmosphereNestParameters& parameters,
                                           const AtmosphereForcing& forcing,
                                           const AtmosphereNestSize& size);
 
@@ -213,7 +213,7 @@ namespace SushiEngine
                     /** @brief What the frame's views asked the atmosphere to be stepped with. */
                     struct StagedAtmosphere
                     {
-                        AtmosphereParameters parameters;
+                        AtmosphereNestParameters parameters;
                         AtmosphereForcing forcing;
                         AtmosphereNestSize size;
                         bool pending = false;

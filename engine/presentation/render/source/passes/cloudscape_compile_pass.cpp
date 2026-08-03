@@ -228,7 +228,7 @@ namespace SushiEngine
                 // which is exactly the property the near/far cross-fade and the sun marches rely
                 // on. Linear filtering smooths the block boundaries the bake's discrete texels
                 // leave, as before.
-                Resources::SamplerDesc sampler_desc{};
+                Resources::SamplerDescription sampler_desc{};
                 sampler_desc.filter = VK_FILTER_LINEAR;
                 sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
                 sampler_ = samplers.get(sampler_desc);
@@ -528,7 +528,7 @@ namespace SushiEngine
                     uniforms.atmosphere_nest_params[2] = 1.0f;
                     // The extinction of the authored "fully overcast" water content, from the
                     // authored droplet radius: the scale the baked density states sigma against.
-                    const AtmosphereParameters& physics = environment.atmosphere_nest;
+                    const AtmosphereNestParameters& physics = environment.atmosphere_nest;
                     uniforms.atmosphere_nest_params[3] =
                         3.0f * std::max(physics.coverage_reference_lwc, 1.0e-6f) /
                         (2.0f * physics.water_density *

@@ -62,7 +62,7 @@ namespace SushiEngine
 
             void DepthPrepass::create_pipelines()
             {
-                Resources::GraphicsPipelineDesc mesh =
+                Resources::GraphicsPipelineDescription mesh =
                     depth_only_pipeline_desc(layout_.pipeline_layout(),
                                              shaders_.module("mesh.vert"), Frame::DEPTH_FORMAT);
                 // Reverse-Z, matching the camera the opaque pass will test EQUAL against.
@@ -74,7 +74,7 @@ namespace SushiEngine
                 // when the layout exists (the bindless heap is present).
                 if (layout_.gpu_pipeline_layout() != VK_NULL_HANDLE)
                 {
-                    Resources::GraphicsPipelineDesc gpu = depth_only_pipeline_desc(
+                    Resources::GraphicsPipelineDescription gpu = depth_only_pipeline_desc(
                         layout_.gpu_pipeline_layout(), shaders_.module("mesh_gpu.vert"),
                         Frame::DEPTH_FORMAT);
                     gpu.depth_compare = VK_COMPARE_OP_GREATER;
@@ -87,7 +87,7 @@ namespace SushiEngine
                 // meshlet layout exists (the device offers mesh shaders).
                 if (layout_.meshlet_pipeline_layout() != VK_NULL_HANDLE)
                 {
-                    Resources::GraphicsPipelineDesc meshlet = depth_only_pipeline_desc(
+                    Resources::GraphicsPipelineDescription meshlet = depth_only_pipeline_desc(
                         layout_.meshlet_pipeline_layout(), VK_NULL_HANDLE, Frame::DEPTH_FORMAT);
                     meshlet.depth_compare = VK_COMPARE_OP_GREATER;
                     meshlet.task_shader = shaders_.module("meshlet.task");
@@ -223,7 +223,7 @@ namespace SushiEngine
                                     cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, meshlet_layout,
                                     Scene::SceneLayout::INSTANCE_SET, meshlet_set);
 
-                                const Mat4 model =
+                                const Matrix4 model =
                                     imported ? instance.model
                                              : mul(instance.model,
                                                    Geometry::shape_scale(instance.kind,
@@ -314,7 +314,7 @@ namespace SushiEngine
                                 vkCmdBindIndexBuffer(cmd, mesh.indices, 0, VK_INDEX_TYPE_UINT32);
                                 bound_vertices = mesh.vertices;
                             }
-                            const Mat4 model =
+                            const Matrix4 model =
                                 imported ? instance.model
                                          : mul(instance.model,
                                                Geometry::shape_scale(instance.kind,

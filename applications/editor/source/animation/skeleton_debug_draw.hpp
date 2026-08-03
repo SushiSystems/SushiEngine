@@ -74,10 +74,10 @@ namespace SushiEngine
                 }
 
                 /** @brief The world placement of the skeleton (identity = at the origin). */
-                const SushiEngine::Mat4& world() const noexcept { return world_; }
+                const SushiEngine::Matrix4& world() const noexcept { return world_; }
 
                 /** @brief Sets where in the world the skeleton is drawn. */
-                void set_world(const SushiEngine::Mat4& world) { world_ = world; }
+                void set_world(const SushiEngine::Matrix4& world) { world_ = world; }
 
                 /**
                  * @brief Overrides the drawn joint positions with a posed set (model space).
@@ -102,7 +102,7 @@ namespace SushiEngine
                 SushiEngine::Animation::SkeletonView skeleton_{};
                 std::vector<SushiEngine::Vector3> joint_positions_;
                 std::vector<SushiEngine::Vector3> bind_positions_;
-                SushiEngine::Mat4 world_{};
+                SushiEngine::Matrix4 world_{};
         };
 
         /**

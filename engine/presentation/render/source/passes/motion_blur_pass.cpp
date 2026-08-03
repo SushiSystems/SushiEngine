@@ -86,7 +86,8 @@ namespace SushiEngine
                     [this, &frame, source, velocity](VkCommandBuffer cmd,
                                                      const Graph::PassContext& context)
                     {
-                        const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
+                        const VkSampler sampler =
+                            frame.samplers->get(Resources::SamplerDescription{});
                         Scene::SceneSetWriter writer;
                         writer.image(1, context.sampled_view(source), sampler);
                         writer.image(2, context.sampled_view(velocity), sampler);

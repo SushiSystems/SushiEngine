@@ -40,9 +40,9 @@ namespace SushiEngine
         using SushiEngine::Simulation::EntityId;
         using SushiEngine::Simulation::IWorldEditor;
 
-        void draw_light_fields(ComponentEditor<SushiEngine::Simulation::LightParams>& editor)
+        void draw_light_fields(ComponentEditor<SushiEngine::Simulation::LightParameters>& editor)
         {
-            using Values = SushiEngine::Simulation::LightParams;
+            using Values = SushiEngine::Simulation::LightParameters;
             editor.toggle("Spot", &Values::is_spot,
                           "A cone aimed along the entity's local -Z, rather than an "
                           "omnidirectional point.");
@@ -199,10 +199,10 @@ namespace SushiEngine
                     // Scoped to this row, not to the selection: a list is a list of
                     // individual things, and editing the row you clicked must not reach the
                     // three lights the Hierarchy happens to have selected.
-                    const ComponentAccess<SushiEngine::Simulation::LightParams> access{
+                    const ComponentAccess<SushiEngine::Simulation::LightParameters> access{
                         &IWorldEditor::has_light, &IWorldEditor::light_params,
                         &IWorldEditor::set_light_params};
-                    ComponentEditor<SushiEngine::Simulation::LightParams> editor(
+                    ComponentEditor<SushiEngine::Simulation::LightParameters> editor(
                         context, *world, access, id, OneEntity{});
                     draw_light_fields(editor);
                 }

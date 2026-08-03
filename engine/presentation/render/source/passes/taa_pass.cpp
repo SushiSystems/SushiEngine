@@ -126,7 +126,8 @@ namespace SushiEngine
                         // Clamped addressing everywhere: a reprojection that lands just
                         // outside the image must read its edge, never wrap to the far
                         // side and paint a streak across the screen.
-                        const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
+                        const VkSampler sampler =
+                            frame.samplers->get(Resources::SamplerDescription{});
                         Scene::SceneSetWriter writer;
                         writer.uniform(Scene::SceneLayout::SCENE_BINDING,
                                        context.buffer(inputs.scene),

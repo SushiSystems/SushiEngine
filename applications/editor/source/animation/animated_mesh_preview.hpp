@@ -95,7 +95,7 @@ namespace SushiEngine
                  * @brief Replaces the preview's controller with an externally authored one.
                  *
                  * The Animator Graph panel's bridge: the authored @ref
-                 * Animation::ControllerDesc compiles against the loaded character's clip
+                 * Animation::ControllerDescription compiles against the loaded character's clip
                  * set and drives this preview instance. On a failed compile (a state
                  * naming a clip the loaded glTF does not carry, an empty graph) the
                  * previous, known-good controller is restored — the preview never goes
@@ -104,7 +104,7 @@ namespace SushiEngine
                  * @param desc The authored controller to compile and bind.
                  * @return True if the controller compiled and now drives the preview.
                  */
-                bool apply_controller(const Animation::ControllerDesc& desc);
+                bool apply_controller(const Animation::ControllerDescription& desc);
 
                 /** @brief Drops the loaded character, if any, and every added layer. */
                 void clear();
@@ -122,10 +122,10 @@ namespace SushiEngine
                 void restart() noexcept { animator_instance_.initialized = 0; }
 
                 /** @brief The character's world placement. */
-                const Mat4& world() const noexcept { return world_; }
+                const Matrix4& world() const noexcept { return world_; }
 
                 /** @brief Sets where in the world the character is drawn. */
-                void set_world(const Mat4& world) noexcept { world_ = world; }
+                void set_world(const Matrix4& world) noexcept { world_ = world; }
 
                 /**
                  * @brief Adds a mask-gated layer over the base, looping another clip from the
@@ -149,7 +149,7 @@ namespace SushiEngine
                  * @param additive  False = override blend, true = additive (design §5.2).
                  * @return True if the clip was found in the source file and the layer compiled.
                  */
-                bool add_layer(const char* clip_name, const Animation::MaskDesc* mask,
+                bool add_layer(const char* clip_name, const Animation::MaskDescription* mask,
                                float weight, bool additive);
 
                 /**
@@ -421,7 +421,7 @@ namespace SushiEngine
                 Animation::AssetId clip_id_ = Animation::INVALID_ASSET; /**< The base layer's clip. */
                 Animation::SkeletonView skeleton_{};
                 Animation::ClipView clip_{}; /**< The base layer's clip view, for Statistics only. */
-                Animation::ControllerDesc controller_desc_; /**< Authored form; recompiled on add_layer. */
+                Animation::ControllerDescription controller_desc_; /**< Authored form; recompiled on add_layer. */
                 Animation::AssetId controller_id_ = Animation::INVALID_ASSET;
                 Animation::ControllerView controller_{};
                 Animation::AnimatorInstance animator_instance_;
@@ -440,7 +440,7 @@ namespace SushiEngine
                 std::vector<Animation::JointMatrix> pose_scratch_;
                 Render::MeshId mesh_ = Render::INVALID_MESH;
                 Render::Material material_{};
-                Mat4 world_{};
+                Matrix4 world_{};
                 bool playing_ = true;
                 bool use_dual_quaternion_skinning_ = false; /**< See set_dual_quaternion_skinning. */
                 // Sized to the loaded mesh's morph target count by load_gltf (zero-filled), then

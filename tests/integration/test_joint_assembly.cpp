@@ -109,9 +109,9 @@ namespace
     }
 
     /** @brief The chassis: heavy, pinned, and the thing the door hangs off. */
-    RigidBodyDesc chassis_desc()
+    RigidBodyDescription chassis_desc()
     {
-        RigidBodyDesc desc;
+        RigidBodyDescription desc;
         desc.id = CHASSIS;
         desc.position = Vector3{0, Scalar(2), 0};
         // Pinned rather than merely heavy: the acceptance is about the door and the
@@ -124,9 +124,9 @@ namespace
     }
 
     /** @brief The door: 35 kg, hung off the chassis's right edge. */
-    RigidBodyDesc door_desc()
+    RigidBodyDescription door_desc()
     {
-        RigidBodyDesc desc;
+        RigidBodyDescription desc;
         desc.id = DOOR;
         // Its centre of mass sits half a metre out from the hinge line, which is what
         // gives the hinge a moment to carry.
@@ -140,9 +140,9 @@ namespace
     }
 
     /** @brief The hinge of sec. 10.2: axis local +Y, limits [0, 68 deg], 4 N.m friction. */
-    JointDesc door_hinge(Scalar break_force)
+    JointDescription door_hinge(Scalar break_force)
     {
-        JointDesc joint;
+        JointDescription joint;
         joint.body_a = CHASSIS;
         joint.body_b = DOOR;
         joint.params.type = JointType::Hinge;
@@ -224,7 +224,7 @@ TEST(Integration_JointAssembly, TheDoorSwingsOnlyWithinItsLimits)
 
     // Drive the door open with the motor rather than by kicking it, so the test is
     // about the *limit* rather than about how hard something was thrown.
-    JointMotorDesc opening;
+    JointMotorDescription opening;
     opening.type = JointMotorType::Velocity;
     opening.target = Scalar(2);
     opening.max_force = Scalar(200);
@@ -261,7 +261,7 @@ TEST(Integration_JointAssembly, HingeFrictionStopsTheDoorSwingingFree)
         auto physics = create_physics_simulation(Harness::shared_context());
         physics->set_rigid_bodies({chassis_desc(), door_desc()}, ITERATIONS, SUBSTEP_DT);
 
-        JointDesc joint = door_hinge(0);
+        JointDescription joint = door_hinge(0);
         // No stop, so the measurement is of the swing and not of a collision with a limit.
         joint.params.twist_limit.enabled = false;
         if (with_friction == 0)
@@ -270,7 +270,7 @@ TEST(Integration_JointAssembly, HingeFrictionStopsTheDoorSwingingFree)
         ASSERT_NE(hinge, NULL_JOINT);
 
         // One shove, then let go.
-        JointMotorDesc shove;
+        JointMotorDescription shove;
         shove.type = JointMotorType::Velocity;
         shove.target = Scalar(2);
         shove.max_force = Scalar(200);
@@ -278,7 +278,7 @@ TEST(Integration_JointAssembly, HingeFrictionStopsTheDoorSwingingFree)
         for (int tick = 0; tick < 20; ++tick)
             physics->step(no_gravity(), still_air(), SUBSTEPS);
 
-        JointMotorDesc released;
+        JointMotorDescription released;
         if (with_friction != 0)
         {
             released.type = JointMotorType::Velocity;
@@ -444,18 +444,18 @@ namespace
     }
 
     /** @brief A five-joint chain, enough to be a limb and short enough to reason about. */
-    Animation::SkeletonDesc chain_desc()
+    Animation::SkeletonDescription chain_desc()
     {
         const auto joint = [](const char* name, int parent, Scalar y)
         {
-            Animation::JointDesc desc;
+            Animation::JointDescription desc;
             desc.name = name;
             desc.parent = parent;
             desc.bind_translation = Animation::Vector3f{0.0f, float(y), 0.0f};
             return desc;
         };
 
-        Animation::SkeletonDesc desc;
+        Animation::SkeletonDescription desc;
         desc.joints.push_back(joint("root", -1, Scalar(3)));
         desc.joints.push_back(joint("a", 0, Scalar(-0.4)));
         desc.joints.push_back(joint("b", 1, Scalar(-0.4)));
@@ -479,7 +479,7 @@ namespace
         // the sense that matters, which is that its joints are created against a body set
         // that already holds all of them.
         physics.set_rigid_bodies(plan.bodies, ITERATIONS, SUBSTEP_DT);
-        for (const JointDesc& joint : plan.joints)
+        for (const JointDescription& joint : plan.joints)
             joints_out.push_back(physics.create_joint(joint));
         return entities;
     }
@@ -579,7 +579,7 @@ TEST(Integration_JointAssembly, ARagdollBuiltFromASkeletonHangsTogetherAndFalls)
     // The targets a pose modifier consumes: one per part, in the character's own object
     // space, and every one of them somewhere the character actually is.
     std::vector<Animation::RagdollJointTarget> targets;
-    ASSERT_EQ(resolve_ragdoll_targets(rig, *physics, parts.data(), parts.size(), Mat4{},
+    ASSERT_EQ(resolve_ragdoll_targets(rig, *physics, parts.data(), parts.size(), Matrix4{},
                                       Scalar(1), targets),
               rig.assembly.parts.size());
     for (const Animation::RagdollJointTarget& target : targets)

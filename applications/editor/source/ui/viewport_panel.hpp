@@ -62,7 +62,8 @@ namespace SushiEngine
         {
             int parent = -1;                            /**< Index of the UI parent, or -1 for viewport-anchored. */
             std::uint32_t id = 0;                       /**< The owning entity id (for picking; 0 = none). */
-            SushiEngine::Simulation::UIElementParams params; /**< The authored rect and paint. */
+            /** @brief The authored rect and paint. */
+            SushiEngine::Simulation::UIElementParameters params;
             bool selected = false;                      /**< Whether to draw a selection outline and handles. */
         };
 

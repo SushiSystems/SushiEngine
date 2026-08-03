@@ -521,9 +521,9 @@ namespace
     }
 
     /** @brief Frictional, slightly bouncy contacts: every branch of the solve engaged. */
-    ContactSolveParams<Scalar> lively_params()
+    ContactSolveParameters<Scalar> lively_params()
     {
-        ContactSolveParams<Scalar> params;
+        ContactSolveParameters<Scalar> params;
         params.static_friction = Scalar(0.6);
         params.dynamic_friction = Scalar(0.5);
         params.restitution = Scalar(0.3);
@@ -549,7 +549,7 @@ namespace
         const PlaneCollider<Scalar> ground{Vector3{0, 1, 0}, Scalar(0)};
         const Vector3 half{Scalar(0.5), Scalar(0.5), Scalar(0.5)};
         const Scalar offset = Scalar(0.03);
-        const ContactSolveParams<Scalar> params = lively_params();
+        const ContactSolveParameters<Scalar> params = lively_params();
 
         std::vector<RigidBody> bodies(handles.size());
         for (std::size_t i = 0; i < handles.size(); ++i)

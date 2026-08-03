@@ -113,7 +113,7 @@ namespace SushiEngine
                  * present: a depth regression is what a renderer's passes actually produce,
                  * and a combined format cannot copy both in one region anyway.
                  */
-                VkImageAspectFlags capture_aspect(const TextureDesc& desc) noexcept
+                VkImageAspectFlags capture_aspect(const TextureDescription& desc) noexcept
                 {
                     if ((desc.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0)
                         return VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -123,7 +123,7 @@ namespace SushiEngine
                 }
 
                 /** @brief Bytes mip 0 of @p desc occupies, across every layer and slice. */
-                VkDeviceSize capture_size(const TextureDesc& desc) noexcept
+                VkDeviceSize capture_size(const TextureDescription& desc) noexcept
                 {
                     // A combined depth/stencil image copies its depth aspect only, and for
                     // the two such formats this renderer can meet, that aspect packs
@@ -214,7 +214,7 @@ namespace SushiEngine
                 store.entries.clear();
             }
 
-            bool PassCapture::wants(const TextureDesc& desc)
+            bool PassCapture::wants(const TextureDescription& desc)
             {
                 pending_size_ = 0;
                 if (active_ >= stores_.size())
@@ -251,7 +251,7 @@ namespace SushiEngine
             }
 
             void PassCapture::record(VkCommandBuffer cmd, const char* pass,
-                                     const TextureDesc& desc, VkImage image)
+                                     const TextureDescription& desc, VkImage image)
             {
                 if (active_ >= stores_.size() || pending_size_ == 0 || image == VK_NULL_HANDLE)
                     return;

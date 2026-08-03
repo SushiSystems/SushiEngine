@@ -63,7 +63,7 @@ namespace SushiEngine
     namespace Audio
     {
         /** @brief One sound's entry in a bank's media table. */
-        struct BankMediaInfo
+        struct BankMediaInformation
         {
             std::uint32_t id = 0;
             AudioCodecKind codec = AudioCodecKind::PcmFloat;
@@ -267,7 +267,7 @@ namespace SushiEngine
          * @brief A loaded bank: media lookups, event resolution, and resident decode.
          *
          * @ref load parses a bank binary into an owned copy (so the source buffer may be
-         * freed). @ref find_media resolves an id to its @ref BankMediaInfo (its bytes point
+         * freed). @ref find_media resolves an id to its @ref BankMediaInformation (its bytes point
          * into the owned blob); @ref decode_media decodes one to interleaved float; and
          * @ref events returns the baked @ref EventDatabase.
          */
@@ -310,7 +310,7 @@ namespace SushiEngine
                     for (std::uint32_t i = 0; i < media_count; ++i)
                     {
                         const std::uint8_t* p = data + off + static_cast<std::size_t>(i) * 28;
-                        BankMediaInfo m;
+                        BankMediaInformation m;
                         m.id = Detail::read_u32(p);
                         m.codec = static_cast<AudioCodecKind>(Detail::read_u32(p + 4));
                         m.channels = Detail::read_u32(p + 8);
@@ -363,7 +363,7 @@ namespace SushiEngine
                  * @param out Filled on success.
                  * @return True if found.
                  */
-                bool find_media(std::uint32_t id, BankMediaInfo& out) const
+                bool find_media(std::uint32_t id, BankMediaInformation& out) const
                 {
                     auto it = index_.find(id);
                     if (it == index_.end())
@@ -381,7 +381,7 @@ namespace SushiEngine
                 bool decode_media(std::uint32_t id, std::vector<float>& out) const
                 {
                     out.clear();
-                    BankMediaInfo m;
+                    BankMediaInformation m;
                     if (!find_media(id, m))
                         return false;
                     std::unique_ptr<IAudioCodec> codec = make_codec(
@@ -396,7 +396,7 @@ namespace SushiEngine
                 const EventDatabase& events() const noexcept { return events_; }
 
             private:
-                std::vector<BankMediaInfo> media_;
+                std::vector<BankMediaInformation> media_;
                 std::unordered_map<std::uint32_t, std::size_t> index_;
                 std::vector<std::uint8_t> blob_;
                 EventDatabase events_;
@@ -469,7 +469,7 @@ namespace SushiEngine
                     if (buffer == nullptr || buffer->empty())
                         return nullptr;
                     double source_rate = 0.0;
-                    BankMediaInfo info;
+                    BankMediaInformation info;
                     if (bank_.find_media(media_id, info))
                         source_rate = static_cast<double>(info.sample_rate);
                     return std::unique_ptr<VoiceSource>(new BufferSource(

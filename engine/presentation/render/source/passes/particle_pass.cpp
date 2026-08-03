@@ -146,7 +146,7 @@ namespace SushiEngine
 
             void ParticlePass::create_pipeline()
             {
-                Resources::GraphicsPipelineDesc desc;
+                Resources::GraphicsPipelineDescription desc;
                 desc.layout = pipeline_layout_;
                 desc.vertex_shader = shaders_.module("particle.vert");
                 desc.fragment_shader = shaders_.module("particle.frag");
@@ -256,11 +256,12 @@ namespace SushiEngine
                     [this, &frame, slot, draw_emitters, draw_billboards](
                         VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
+                        const VkSampler sampler =
+                            frame.samplers->get(Resources::SamplerDescription{});
                         const VkImageView depth_view = context.sampled_view(frame.targets.depth);
 
                         Push push{};
-                        const Mat4 view_projection =
+                        const Matrix4 view_projection =
                             mul(frame.camera->projection, frame.camera->view);
                         for (int i = 0; i < 16; ++i)
                             push.view_projection[i] = static_cast<float>(view_projection.m[i]);
@@ -269,7 +270,7 @@ namespace SushiEngine
                         // space the clustered lights live in without spending another vec4. Cast to
                         // float here, so the shading position inherits the pool's float32 precision —
                         // acceptable for the near-camera cosmetic particles this path serves.
-                        const Mat4& view = frame.camera->view;
+                        const Matrix4& view = frame.camera->view;
                         push.camera_right[0] = static_cast<float>(view.m[0]);
                         push.camera_right[1] = static_cast<float>(view.m[4]);
                         push.camera_right[2] = static_cast<float>(view.m[8]);

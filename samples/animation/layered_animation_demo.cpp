@@ -56,7 +56,7 @@ namespace
     // arm about z, so a folded pose reads back per joint as a plain number.
     AssetId make_pose_clip(AnimationDatabase& database, float base_z, float arm_angle_degrees = 0.0f)
     {
-        ClipDesc clip;
+        ClipDescription clip;
         clip.joint_count = JOINTS;
         clip.frame_count = 1;
         clip.sample_rate = 30.0f;
@@ -86,10 +86,10 @@ int main()
     AnimationDatabase database;
 
     // A flat rig — every joint a root — so model == local and poses read back directly.
-    SkeletonDesc skeleton_desc;
+    SkeletonDescription skeleton_desc;
     for (std::uint32_t j = 0; j < JOINTS; ++j)
     {
-        JointDesc joint;
+        JointDescription joint;
         joint.name = JOINT_NAMES[j];
         joint.parent = -1;
         skeleton_desc.joints.push_back(joint);
@@ -103,7 +103,7 @@ int main()
     const AssetId aim_clip = make_pose_clip(database, 100.0f);        // aim:  z = 100 + index
 
     // Upper-body mask: admit spine/chest/arm at full weight, exclude everything else.
-    MaskDesc mask_desc;
+    MaskDescription mask_desc;
     mask_desc.default_weight = 0.0f;
     mask_desc.entries = {{"spine", 1.0f}, {"chest", 1.0f}, {"arm", 1.0f}};
     std::vector<std::byte> mask_blob;
@@ -124,26 +124,27 @@ int main()
     const auto build_layered = [&](AssetId second_clip, LayerBlendMode mode,
                                    const std::string& weight_parameter) -> AssetId
     {
-        ControllerDesc desc;
+        ControllerDescription desc;
         if (!weight_parameter.empty())
-            desc.parameters.push_back(ParameterDesc{weight_parameter, ParameterType::Float, 1.0f});
+            desc.parameters.push_back(
+                ParameterDescription{weight_parameter, ParameterType::Float, 1.0f});
 
-        LayerDesc base;
+        LayerDescription base;
         base.name = "base";
         base.default_state = "Loco";
-        StateDesc loco;
+        StateDescription loco;
         loco.name = "Loco";
         loco.clip = loco_clip;
         base.states = {loco};
 
-        LayerDesc upper;
+        LayerDescription upper;
         upper.name = "upper";
         upper.default_state = "Aim";
         upper.mask = mask_id;
         upper.blend_mode = mode;
         upper.weight = 1.0f;
         upper.weight_parameter = weight_parameter;
-        StateDesc aim;
+        StateDescription aim;
         aim.name = "Aim";
         aim.clip = second_clip;
         upper.states = {aim};
@@ -198,7 +199,7 @@ int main()
     // --- 3) Additive: an import-baked delta adds onto the base at the masked joint -----
     {
         // Source arm pose: shifted +5 in z and rotated 90 deg about z; reference is the rest pose.
-        ClipDesc source;
+        ClipDescription source;
         source.joint_count = JOINTS;
         source.frame_count = 1;
         source.sample_rate = 30.0f;
@@ -211,7 +212,7 @@ int main()
             source.rotations[3] = Quaternionf{0, 0, std::sin(half), std::cos(half)};
         }
 
-        ClipDesc reference;
+        ClipDescription reference;
         reference.joint_count = JOINTS;
         reference.frame_count = 1;
         reference.sample_rate = 30.0f;
@@ -219,7 +220,7 @@ int main()
         reference.rotations.assign(JOINTS, Quaternionf{0, 0, 0, 1});
         reference.scales.assign(JOINTS, Vector3f{1, 1, 1});
 
-        ClipDesc additive;
+        ClipDescription additive;
         check(bake_additive_clip(source, reference, 0, additive), "additive clip bakes");
         std::vector<std::byte> additive_blob;
         build_clip_blob(additive, additive_blob);
@@ -241,7 +242,7 @@ int main()
 
         // The arm's rotation is base(identity) composed with the +90 deg-about-z delta, so its
         // model matrix is a pure z-rotation: column-major m[0]=cos(90)=0, m[1]=sin(90)=1.
-        const Mat4& arm = evaluator.model()[3];
+        const Matrix4& arm = evaluator.model()[3];
         check(nearly(static_cast<float>(arm.m[1]), 1.0f, 2e-3f) &&
                   nearly(static_cast<float>(arm.m[0]), 0.0f, 2e-3f),
               "additive rotates the arm 90 deg about z");

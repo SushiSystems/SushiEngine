@@ -72,7 +72,8 @@ namespace SushiEngine
                  * @param desc  The pipeline description.
                  * @param state Receives the filled structs.
                  */
-                void fill_vertex_input(const GraphicsPipelineDesc& desc, VertexInputState& state)
+                void fill_vertex_input(const GraphicsPipelineDescription& desc,
+                                       VertexInputState& state)
                 {
                     state.binding.binding = 0;
                     state.binding.stride = desc.vertex_stride;
@@ -107,7 +108,7 @@ namespace SushiEngine
                  * @return The filled struct.
                  */
                 VkPipelineRasterizationStateCreateInfo fill_rasterization(
-                    const GraphicsPipelineDesc& desc)
+                    const GraphicsPipelineDescription& desc)
                 {
                     VkPipelineRasterizationStateCreateInfo raster{};
                     raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
@@ -127,7 +128,7 @@ namespace SushiEngine
                  * @return The filled struct.
                  */
                 VkPipelineDepthStencilStateCreateInfo fill_depth_stencil(
-                    const GraphicsPipelineDesc& desc)
+                    const GraphicsPipelineDescription& desc)
                 {
                     VkPipelineDepthStencilStateCreateInfo depth{};
                     depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -145,7 +146,8 @@ namespace SushiEngine
                  * @param desc  The pipeline description.
                  * @param state Receives the filled structs.
                  */
-                void fill_color_blend(const GraphicsPipelineDesc& desc, ColorBlendState& state)
+                void fill_color_blend(const GraphicsPipelineDescription& desc,
+                                      ColorBlendState& state)
                 {
                     for (std::uint32_t i = 0; i < desc.color_count; ++i)
                     {
@@ -172,7 +174,8 @@ namespace SushiEngine
                  * @param desc The pipeline description.
                  * @return The filled struct, pointing into @p desc.
                  */
-                VkPipelineRenderingCreateInfo fill_rendering(const GraphicsPipelineDesc& desc)
+                VkPipelineRenderingCreateInfo fill_rendering(
+                    const GraphicsPipelineDescription& desc)
                 {
                     VkPipelineRenderingCreateInfo rendering{};
                     rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
@@ -202,9 +205,10 @@ namespace SushiEngine
                 }
 
                 /** @brief The description subset that identifies a vertex-input library. */
-                GraphicsPipelineDesc vertex_input_key(const GraphicsPipelineDesc& desc)
+                GraphicsPipelineDescription vertex_input_key(
+                    const GraphicsPipelineDescription& desc)
                 {
-                    GraphicsPipelineDesc key{};
+                    GraphicsPipelineDescription key{};
                     // Zeroed whole, padding included, so a byte comparison of two keys
                     // built the same way is a correct equality test.
                     std::memset(&key, 0, sizeof(key));
@@ -217,9 +221,10 @@ namespace SushiEngine
                 }
 
                 /** @brief The description subset that identifies a pre-rasterisation library. */
-                GraphicsPipelineDesc pre_rasterization_key(const GraphicsPipelineDesc& desc)
+                GraphicsPipelineDescription pre_rasterization_key(
+                    const GraphicsPipelineDescription& desc)
                 {
-                    GraphicsPipelineDesc key{};
+                    GraphicsPipelineDescription key{};
                     // Zeroed whole, padding included, so a byte comparison of two keys
                     // built the same way is a correct equality test.
                     std::memset(&key, 0, sizeof(key));
@@ -236,9 +241,10 @@ namespace SushiEngine
                 }
 
                 /** @brief The description subset that identifies a fragment-shader library. */
-                GraphicsPipelineDesc fragment_shader_key(const GraphicsPipelineDesc& desc)
+                GraphicsPipelineDescription fragment_shader_key(
+                    const GraphicsPipelineDescription& desc)
                 {
-                    GraphicsPipelineDesc key{};
+                    GraphicsPipelineDescription key{};
                     // Zeroed whole, padding included, so a byte comparison of two keys
                     // built the same way is a correct equality test.
                     std::memset(&key, 0, sizeof(key));
@@ -256,9 +262,10 @@ namespace SushiEngine
                 }
 
                 /** @brief The description subset that identifies a fragment-output library. */
-                GraphicsPipelineDesc fragment_output_key(const GraphicsPipelineDesc& desc)
+                GraphicsPipelineDescription fragment_output_key(
+                    const GraphicsPipelineDescription& desc)
                 {
-                    GraphicsPipelineDesc key{};
+                    GraphicsPipelineDescription key{};
                     // Zeroed whole, padding included, so a byte comparison of two keys
                     // built the same way is a correct equality test.
                     std::memset(&key, 0, sizeof(key));
@@ -372,7 +379,7 @@ namespace SushiEngine
                 }
             }
 
-            PipelineHandle GraphicsPipelineFactory::create(const GraphicsPipelineDesc& desc)
+            PipelineHandle GraphicsPipelineFactory::create(const GraphicsPipelineDescription& desc)
             {
                 // A depth-only pipeline has no fragment stage, so three of the four
                 // libraries would be empty or absent; building it whole is both simpler
@@ -516,7 +523,8 @@ namespace SushiEngine
                 return pipeline;
             }
 
-            VkPipeline GraphicsPipelineFactory::create_monolithic(const GraphicsPipelineDesc& desc)
+            VkPipeline GraphicsPipelineFactory::create_monolithic(
+                const GraphicsPipelineDescription& desc)
             {
                 VertexInputState vertex_input;
                 fill_vertex_input(desc, vertex_input);
@@ -575,7 +583,8 @@ namespace SushiEngine
                 return pipeline;
             }
 
-            PipelineHandle GraphicsPipelineFactory::create_mesh(const GraphicsPipelineDesc& desc)
+            PipelineHandle GraphicsPipelineFactory::create_mesh(
+                const GraphicsPipelineDescription& desc)
             {
                 // A mesh pipeline is always monolithic — the library path builds a vertex-input
                 // library a mesh pipeline has no use for — so there is nothing to optimize in a
@@ -592,7 +601,7 @@ namespace SushiEngine
             }
 
             VkPipeline GraphicsPipelineFactory::create_mesh_monolithic(
-                const GraphicsPipelineDesc& desc)
+                const GraphicsPipelineDescription& desc)
             {
                 ColorBlendState blend;
                 fill_color_blend(desc, blend);
@@ -658,9 +667,9 @@ namespace SushiEngine
             }
 
             VkPipeline GraphicsPipelineFactory::vertex_input_library(
-                const GraphicsPipelineDesc& desc)
+                const GraphicsPipelineDescription& desc)
             {
-                const GraphicsPipelineDesc key = vertex_input_key(desc);
+                const GraphicsPipelineDescription key = vertex_input_key(desc);
                 for (const Library& library : vertex_input_)
                     if (std::memcmp(&library.key, &key, sizeof(key)) == 0)
                         return library.pipeline;
@@ -692,9 +701,9 @@ namespace SushiEngine
             }
 
             VkPipeline GraphicsPipelineFactory::pre_rasterization_library(
-                const GraphicsPipelineDesc& desc)
+                const GraphicsPipelineDescription& desc)
             {
-                const GraphicsPipelineDesc key = pre_rasterization_key(desc);
+                const GraphicsPipelineDescription key = pre_rasterization_key(desc);
                 for (const Library& library : pre_rasterization_)
                     if (std::memcmp(&library.key, &key, sizeof(key)) == 0)
                         return library.pipeline;
@@ -743,9 +752,9 @@ namespace SushiEngine
             }
 
             VkPipeline GraphicsPipelineFactory::fragment_shader_library(
-                const GraphicsPipelineDesc& desc)
+                const GraphicsPipelineDescription& desc)
             {
-                const GraphicsPipelineDesc key = fragment_shader_key(desc);
+                const GraphicsPipelineDescription key = fragment_shader_key(desc);
                 for (const Library& library : fragment_shader_)
                     if (std::memcmp(&library.key, &key, sizeof(key)) == 0)
                         return library.pipeline;
@@ -793,9 +802,9 @@ namespace SushiEngine
             }
 
             VkPipeline GraphicsPipelineFactory::fragment_output_library(
-                const GraphicsPipelineDesc& desc)
+                const GraphicsPipelineDescription& desc)
             {
-                const GraphicsPipelineDesc key = fragment_output_key(desc);
+                const GraphicsPipelineDescription key = fragment_output_key(desc);
                 for (const Library& library : fragment_output_)
                     if (std::memcmp(&library.key, &key, sizeof(key)) == 0)
                         return library.pipeline;
@@ -831,7 +840,8 @@ namespace SushiEngine
                 return pipeline;
             }
 
-            VkPipeline GraphicsPipelineFactory::create_linked(const GraphicsPipelineDesc& desc)
+            VkPipeline GraphicsPipelineFactory::create_linked(
+                const GraphicsPipelineDescription& desc)
             {
                 // Four independently cached halves: two pipelines that differ only in their
                 // fragment shader reuse the vertex input, pre-rasterisation, and output

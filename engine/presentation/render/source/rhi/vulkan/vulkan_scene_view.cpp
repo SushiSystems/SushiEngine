@@ -80,7 +80,7 @@ namespace SushiEngine
                   lights_(device, SLOTS),
                   accelerator_(device, assets.meshes(), SLOTS),
                   terrain_layout_(device, assets.layout(), assets.heap()),
-                  terrain_(device, Terrain::PlanetTerrainDesc{}),
+                  terrain_(device, Terrain::PlanetTerrainDescription{}),
                   profiler_(device, SLOTS, MAX_TIMED_PASSES),
                   graph_(device, &profiler_),
                   atmosphere_lut_pass_(device, assets.shaders(), assets.pipelines()),
@@ -168,7 +168,8 @@ namespace SushiEngine
                   fxaa_pass_(device, assets.shaders(), assets.pipelines(), assets.layout()),
                   ui_pass_(device, assets.shaders(), assets.pipelines(), ui_geometry_, font_,
                            assets.textures(), assets.heap()),
-                  resources_(device, assets.samplers().get(Resources::SamplerDesc{}), 16u, 16u)
+                  resources_(device, assets.samplers().get(Resources::SamplerDescription{}), 16u,
+                             16u)
             {
                 // Bake the overlay font once, here, because it is a device upload and the
                 // overlay pass must never rasterize a glyph mid-frame. A failure is not fatal:
@@ -669,7 +670,7 @@ namespace SushiEngine
                 // reallocated — because the per-frame push set is full and a volume needs a
                 // home every pipeline can reach.
                 std::uint32_t samples = 0;
-                GI::SDFClipmapConfig field_config{};
+                GI::SDFClipmapConfiguration field_config{};
                 if (resolved.params.stochastic_light_samples > 0 &&
                     effective.lights.stochastic_shadows && irradiance_volume_pass_.field_live())
                 {
@@ -680,7 +681,7 @@ namespace SushiEngine
                         if (field.valid())
                             visibility_field_slot_ = assets_.heap().allocate_volume(
                                 field.distance_field,
-                                assets_.samplers().get(Resources::SamplerDesc{}));
+                                assets_.samplers().get(Resources::SamplerDescription{}));
                     }
                     if (visibility_field_slot_ != Resources::INVALID_HEAP_INDEX)
                     {
@@ -723,11 +724,11 @@ namespace SushiEngine
                 // for the cull's occlusion reprojection onto last frame's depth pyramid. The
                 // view's translation is zeroed to make it camera-relative, matching how the
                 // geometry that built the pyramid was uploaded.
-                Mat4 previous_view = previous_camera_.view;
+                Matrix4 previous_view = previous_camera_.view;
                 previous_view.m[12] = 0.0;
                 previous_view.m[13] = 0.0;
                 previous_view.m[14] = 0.0;
-                const Mat4 previous_view_projection =
+                const Matrix4 previous_view_projection =
                     mul(previous_camera_.projection, previous_view);
                 for (int i = 0; i < 16; ++i)
                     frame.previous_view_projection[i] =
@@ -762,7 +763,7 @@ namespace SushiEngine
                     {
                         const MeshInstance& instance = instances[i];
                         instance_materials.push_back(materials_.push(instance.material));
-                        const Mat4 model =
+                        const Matrix4 model =
                             instance.mesh != INVALID_MESH
                                 ? instance.model
                                 : mul(instance.model, Geometry::shape_scale(instance.kind,

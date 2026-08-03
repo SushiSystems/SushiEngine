@@ -92,7 +92,7 @@ namespace SushiEngine
                 return graph_.texture_resources_[handle.index].sample_view;
             }
 
-            const TextureDesc& PassContext::texture_desc(TextureHandle handle) const
+            const TextureDescription& PassContext::texture_desc(TextureHandle handle) const
             {
                 return graph_.texture_resources_[handle.index].desc;
             }
@@ -225,7 +225,7 @@ namespace SushiEngine
                 capture_ = capture;
             }
 
-            TextureHandle RenderGraph::create_texture(const TextureDesc& desc)
+            TextureHandle RenderGraph::create_texture(const TextureDescription& desc)
             {
                 TextureResource resource;
                 resource.desc = desc;
@@ -235,7 +235,7 @@ namespace SushiEngine
                 return handle;
             }
 
-            BufferHandle RenderGraph::create_buffer(const BufferDesc& desc)
+            BufferHandle RenderGraph::create_buffer(const BufferDescription& desc)
             {
                 BufferResource resource;
                 resource.desc = desc;
@@ -796,13 +796,14 @@ namespace SushiEngine
                 {
                     if (!node.color[i].bound)
                         continue;
-                    const TextureDesc& desc =
+                    const TextureDescription& desc =
                         texture_resources_[node.color[i].handle.index].desc;
                     return VkExtent2D{desc.width, desc.height};
                 }
                 if (node.depth.bound)
                 {
-                    const TextureDesc& desc = texture_resources_[node.depth.handle.index].desc;
+                    const TextureDescription& desc =
+                        texture_resources_[node.depth.handle.index].desc;
                     return VkExtent2D{desc.width, desc.height};
                 }
                 return VkExtent2D{0, 0};

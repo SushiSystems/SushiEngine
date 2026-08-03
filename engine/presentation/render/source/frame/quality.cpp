@@ -64,7 +64,7 @@ namespace SushiEngine
             ResolvedQuality out;
             out.settings = authored;
             RenderSettings& s = out.settings;
-            QualityParams& q = out.params;
+            QualityParameters& q = out.params;
 
             switch (authored.quality)
             {

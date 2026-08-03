@@ -49,7 +49,7 @@ namespace SushiEngine
     namespace Render
     {
         /** @brief Bring-up request for a windowed renderer. */
-        struct WindowRendererDesc
+        struct WindowRendererDescription
         {
             bool enable_validation = false;
             DevicePreference preference = DevicePreference::HighPerformance;
@@ -97,7 +97,7 @@ namespace SushiEngine
                 virtual ~IWindowRenderer() = default;
 
                 /** @brief Identity of the selected physical device. */
-                virtual const DeviceInfo& device_info() const noexcept = 0;
+                virtual const DeviceInformation& device_info() const noexcept = 0;
 
                 /** @brief Raw handles the ImGui Vulkan adapter needs to initialize. */
                 virtual NativeDeviceHandles native_handles() const noexcept = 0;
@@ -197,6 +197,7 @@ namespace SushiEngine
          * @param desc Surface hooks, device preference, and initial size.
          * @return An owning handle to the live windowed renderer.
          */
-        std::unique_ptr<IWindowRenderer> create_window_renderer(const WindowRendererDesc& desc);
+        std::unique_ptr<IWindowRenderer> create_window_renderer(
+            const WindowRendererDescription& desc);
     } // namespace Render
 } // namespace SushiEngine

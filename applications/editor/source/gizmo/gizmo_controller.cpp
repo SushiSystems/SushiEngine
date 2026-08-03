@@ -74,15 +74,16 @@ namespace SushiEngine
 
             // A world-space ray from the camera through a screen pixel, built from the view
             // matrix's orthonormal basis (right/up/forward) and the projection's x/y scale
-            // terms — the inverse of project_to_screen without needing a general Mat4 inverse.
+            // terms — the inverse of project_to_screen without needing a general Matrix4 inverse.
             struct Ray
             {
                 Vector3 origin;
                 Vector3 direction;
             };
 
-            Ray screen_to_ray(const SushiEngine::Mat4& view, const SushiEngine::Mat4& projection,
-                              const ImVec2& screen, const ImVec2& origin, float width, float height)
+            Ray screen_to_ray(const SushiEngine::Matrix4& view,
+                              const SushiEngine::Matrix4& projection, const ImVec2& screen,
+                              const ImVec2& origin, float width, float height)
             {
                 using Scalar = SushiEngine::Scalar;
                 const Vector3 right{view.m[0], view.m[4], view.m[8]};
@@ -124,7 +125,7 @@ namespace SushiEngine
         {
             Result result;
 
-            const SushiEngine::Mat4 view_projection =
+            const SushiEngine::Matrix4 view_projection =
                 SushiEngine::mul(camera_view.projection, camera_view.view);
             const Vector3 pivot = transform.position;
 

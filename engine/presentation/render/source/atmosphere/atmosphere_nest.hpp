@@ -126,7 +126,7 @@ namespace SushiEngine
                      *                   (the headless probe) passes none.
                      * @param reader_count Entries in @p readers.
                      */
-                    void step(const AtmosphereParameters& parameters,
+                    void step(const AtmosphereNestParameters& parameters,
                               const AtmosphereForcing& forcing,
                               const VkSemaphoreSubmitInfo* readers = nullptr,
                               std::uint32_t reader_count = 0);
@@ -215,11 +215,12 @@ namespace SushiEngine
                     /**
                      * @brief The parameter block, laid out to match `atmosphere_nest_common.glsl`.
                      *
-                     * A separate type from `AtmosphereParameters` on purpose: that one is what an
-                     * author edits and the scene serializes, this one is what std140 wants, and
-                     * conflating them would put a `bool` and a step counter into a file format.
+                     * A separate type from `AtmosphereNestParameters` on purpose: that one
+                     * is what an author edits and the scene serializes, this one is what
+                     * std140 wants, and conflating them would put a `bool` and a step
+                     * counter into a file format.
                      */
-                    struct NestParams
+                    struct NestParameters
                     {
                         float gas_constant_dry;
                         float gas_constant_vapour;
@@ -291,9 +292,9 @@ namespace SushiEngine
                         // 58 scalars is 232 bytes, which std140 rounds a block up to 240 — so the
                         // two floats below are that rounding, written down rather than left to
                         // the compiler to imply. Keep the total a multiple of four scalars: the
-                        // host binds `sizeof(NestParams)` as the range, and a struct short of the
-                        // block the shader declares binds less than it reads. Neither side is
-                        // edited without the other.
+                        // host binds `sizeof(NestParameters)` as the range, and a struct short
+                        // of the block the shader declares binds less than it reads. Neither
+                        // side is edited without the other.
                         float padding[2];
                     };
 
@@ -338,7 +339,7 @@ namespace SushiEngine
                      *
                      * A frame records a shift, an extinction and a readback, plus every stage of
                      * every step it takes and two sets per pressure sweep. This is therefore
-                     * what caps @ref AtmosphereParameters::max_steps_per_frame in practice, and
+                     * what caps @ref AtmosphereNestParameters::max_steps_per_frame in practice, and
                      * `step()` reads it to clamp the step count rather than trusting the pool to
                      * be big enough — 512 sets is a few tens of kilobytes and covers four steps
                      * at twice the default sweep count.
@@ -358,9 +359,9 @@ namespace SushiEngine
                     void create_commands();
                     void destroy_commands();
 
-                    float choose_step(const AtmosphereParameters& parameters,
+                    float choose_step(const AtmosphereNestParameters& parameters,
                                       const AtmosphereForcing& forcing) const;
-                    void upload_parameters(const AtmosphereParameters& parameters, float dt);
+                    void upload_parameters(const AtmosphereNestParameters& parameters, float dt);
                     void upload_forcing(VkCommandBuffer cmd, const AtmosphereForcing& forcing);
                     void record_shift(VkCommandBuffer cmd, std::int32_t shift_x,
                                       std::int32_t shift_z, const AtmosphereForcing& forcing);

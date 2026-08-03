@@ -63,7 +63,7 @@ namespace SushiEngine
             return std::unique_ptr<Audio::VoiceSource>(new Audio::ToneSource(tone_frequency(sound_id), 0.5f));
         }
 
-        Audio::I3DL2Reverb AudioEditorSystem::to_i3dl2(const Simulation::ReverbZoneParams& p) noexcept
+        Audio::I3DL2Reverb AudioEditorSystem::to_i3dl2(const Simulation::ReverbZoneParameters& p) noexcept
         {
             Audio::I3DL2Reverb r;
             r.room = p.room;
@@ -160,7 +160,7 @@ namespace SushiEngine
             {
                 if (!world.has_reverb_zone(id))
                     continue;
-                const Simulation::ReverbZoneParams z = world.reverb_zone_params(id);
+                const Simulation::ReverbZoneParameters z = world.reverb_zone_params(id);
                 const Vector3 c = world.world_transform(id).position;
                 const double dx = std::fabs(listener_position.x - c.x);
                 const double dy = std::fabs(listener_position.y - c.y);
@@ -180,7 +180,7 @@ namespace SushiEngine
             {
                 if (!world.has_audio_emitter(id))
                     continue;
-                const Simulation::AudioEmitterParams e = world.audio_emitter_params(id);
+                const Simulation::AudioEmitterParameters e = world.audio_emitter_params(id);
                 const Vector3 pos = world.world_transform(id).position;
 
                 Audio::EmitterSnapshot es;

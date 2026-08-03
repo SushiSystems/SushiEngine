@@ -84,14 +84,14 @@ namespace SushiEngine
                 return false;
             }
 
-            SkeletonDesc desc;
+            SkeletonDescription desc;
             desc.joints.resize(skin.joints_count);
             desc.has_inverse_bind = skin.inverse_bind_matrices != nullptr;
 
             for (cgltf_size j = 0; j < skin.joints_count; ++j)
             {
                 const cgltf_node* node = skin.joints[j];
-                JointDesc& joint = desc.joints[j];
+                JointDescription& joint = desc.joints[j];
                 joint.name = node->name != nullptr ? std::string(node->name)
                                                    : "joint_" + std::to_string(j);
                 joint.parent = joint_index_of(skin, node->parent);
@@ -100,7 +100,7 @@ namespace SushiEngine
                 // local matrix handles matrix-form and TRS-form nodes the same way.
                 float local[16];
                 cgltf_node_transform_local(node, local);
-                Mat4 local_matrix{};
+                Matrix4 local_matrix{};
                 for (int i = 0; i < 16; ++i)
                     local_matrix.m[i] = static_cast<Scalar>(local[i]);
                 Vector3 translation{};

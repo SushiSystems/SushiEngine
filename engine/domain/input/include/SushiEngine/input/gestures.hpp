@@ -70,7 +70,7 @@ namespace SushiEngine
         };
 
         /** @brief Thresholds tuning the recognizer, in pixels and seconds. */
-        struct GestureConfig
+        struct GestureConfiguration
         {
             float tap_max_movement = 10.0f; /**< A tap may not move more than this. */
             float tap_max_time = 0.30f;     /**< A tap must release within this. */
@@ -93,7 +93,7 @@ namespace SushiEngine
                  * @param registry The pointer state to recognize over.
                  * @param config   The thresholds; defaults suit a touchscreen.
                  */
-                explicit GestureRecognizer(const DeviceRegistry& registry, GestureConfig config = {}) noexcept
+                explicit GestureRecognizer(const DeviceRegistry& registry, GestureConfiguration config = {}) noexcept
                     : registry_(&registry), config_(config)
                 {
                 }
@@ -255,7 +255,7 @@ namespace SushiEngine
                 }
 
                 const DeviceRegistry* registry_;
-                GestureConfig config_;
+                GestureConfiguration config_;
                 std::array<PointerState, MAX_TOUCH_POINTS> states_{};
                 bool pinch_active_ = false;
                 float pinch_initial_ = 1.0f;

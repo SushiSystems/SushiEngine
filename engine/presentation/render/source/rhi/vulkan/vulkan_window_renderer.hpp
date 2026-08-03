@@ -65,7 +65,7 @@ namespace SushiEngine
              * semaphore per swapchain image so present never waits on a semaphore
              * still in use. Non-copyable: it owns Vulkan handles.
              *
-             * Also the headless case (PLATFORM0 S6): a @ref WindowRendererDesc with no
+             * Also the headless case (PLATFORM0 S6): a @ref WindowRendererDescription with no
              * @c surface_factory builds no swapchain and no per-frame sync objects at
              * all — @ref VulkanDevice already supports this (it is exactly how
              * `render_probe`/`render_golden` construct a device), so the only thing
@@ -81,13 +81,13 @@ namespace SushiEngine
             class VulkanWindowRenderer final : public IWindowRenderer
             {
                 public:
-                    explicit VulkanWindowRenderer(const WindowRendererDesc& desc);
+                    explicit VulkanWindowRenderer(const WindowRendererDescription& desc);
                     ~VulkanWindowRenderer() override;
 
                     VulkanWindowRenderer(const VulkanWindowRenderer&) = delete;
                     VulkanWindowRenderer& operator=(const VulkanWindowRenderer&) = delete;
 
-                    const DeviceInfo& device_info() const noexcept override { return device_.info(); }
+                    const DeviceInformation& device_info() const noexcept override { return device_.info(); }
                     NativeDeviceHandles native_handles() const noexcept override { return device_.native_handles(); }
                     std::uint32_t color_format() const noexcept override { return format_; }
                     std::uint32_t image_count() const noexcept override

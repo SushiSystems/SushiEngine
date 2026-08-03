@@ -97,7 +97,7 @@ namespace SushiEngine
                  * @param outline_shift Screen-space outline expansion, 0 for the lit pass.
                  * @return The filled push constant.
                  */
-                MeshPushConstants make_push(const Mat4& model, const double eye[3],
+                MeshPushConstants make_push(const Matrix4& model, const double eye[3],
                                             const Render::Material& material,
                                             std::uint32_t entity_id, std::uint32_t selected_id,
                                             std::uint32_t material_index,
@@ -138,9 +138,9 @@ namespace SushiEngine
                 }
 
                 /** @brief The description shared by all three of this pass's pipelines. */
-                Resources::GraphicsPipelineDesc base_desc(VkPipelineLayout layout)
+                Resources::GraphicsPipelineDescription base_desc(VkPipelineLayout layout)
                 {
-                    Resources::GraphicsPipelineDesc desc;
+                    Resources::GraphicsPipelineDescription desc;
                     desc.layout = layout;
                     desc.vertex_stride = sizeof(Geometry::MeshVertex);
                     desc.attribute_count = 6;
@@ -208,7 +208,7 @@ namespace SushiEngine
                 const VkShaderModule vertex = shaders_.module("mesh.vert");
                 const VkShaderModule outline_vertex = shaders_.module("outline.vert");
 
-                Resources::GraphicsPipelineDesc mesh = base_desc(layout_.pipeline_layout());
+                Resources::GraphicsPipelineDescription mesh = base_desc(layout_.pipeline_layout());
                 mesh.vertex_shader = vertex;
                 mesh.fragment_shader = shaders_.module("pbr.frag");
                 mesh_pipeline_ = pipelines_.create(mesh);
@@ -217,7 +217,8 @@ namespace SushiEngine
                 // (the MeshVertex layout plus a previous-frame skinned position at offset 60),
                 // so the stride grows to 72 and a seventh attribute feeds mesh_skinned.vert the
                 // previous position for a deformation-correct motion vector.
-                Resources::GraphicsPipelineDesc skinned = base_desc(layout_.pipeline_layout());
+                Resources::GraphicsPipelineDescription skinned =
+                    base_desc(layout_.pipeline_layout());
                 skinned.vertex_stride = static_cast<std::uint32_t>(Scene::SKINNED_VERTEX_SIZE);
                 skinned.attribute_count = 7;
                 skinned.attributes[6] = {6, VK_FORMAT_R32G32B32_SFLOAT, 60};
@@ -228,7 +229,7 @@ namespace SushiEngine
                 // The outline draws the selected shape as a thick wireframe, masked to the
                 // texels the object did not already cover. Reverse-Z makes the bias that
                 // pulls it in front of its object positive.
-                Resources::GraphicsPipelineDesc outline = mesh;
+                Resources::GraphicsPipelineDescription outline = mesh;
                 outline.vertex_shader = outline_vertex;
                 outline.fragment_shader = shaders_.module("outline.frag");
                 outline.polygon_mode = VK_POLYGON_MODE_LINE;
@@ -246,7 +247,8 @@ namespace SushiEngine
                 // reading mesh_gpu.vert's instance record. Only when the layout exists.
                 if (layout_.gpu_pipeline_layout() != VK_NULL_HANDLE)
                 {
-                    Resources::GraphicsPipelineDesc gpu = base_desc(layout_.gpu_pipeline_layout());
+                    Resources::GraphicsPipelineDescription gpu =
+                        base_desc(layout_.gpu_pipeline_layout());
                     gpu.vertex_shader = shaders_.module("mesh_gpu.vert");
                     gpu.fragment_shader = shaders_.module("pbr.frag");
                     gpu_mesh_pipeline_ = pipelines_.create(gpu);
@@ -257,7 +259,7 @@ namespace SushiEngine
                 // device offers mesh shaders).
                 if (layout_.meshlet_pipeline_layout() != VK_NULL_HANDLE)
                 {
-                    Resources::GraphicsPipelineDesc meshlet =
+                    Resources::GraphicsPipelineDescription meshlet =
                         base_desc(layout_.meshlet_pipeline_layout());
                     meshlet.vertex_shader = VK_NULL_HANDLE;
                     meshlet.task_shader = shaders_.module("meshlet.task");
@@ -349,7 +351,7 @@ namespace SushiEngine
                     for (std::size_t i = 0; i < frame.draws.instance_count; ++i)
                     {
                         const MeshInstance& instance = frame.draws.instances[i];
-                        const Mat4 model =
+                        const Matrix4 model =
                             instance.mesh != INVALID_MESH
                                 ? instance.model
                                 : mul(instance.model, Geometry::shape_scale(instance.kind,
@@ -482,7 +484,7 @@ namespace SushiEngine
 
                                 // An imported mesh carries its own geometry and scale; only
                                 // a primitive needs its unit mesh mapped onto shape params.
-                                const Mat4 model =
+                                const Matrix4 model =
                                     imported ? instance.model
                                              : mul(instance.model,
                                                    Geometry::shape_scale(instance.kind,
@@ -549,7 +551,7 @@ namespace SushiEngine
                                     cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, meshlet_layout,
                                     Scene::SceneLayout::INSTANCE_SET, meshlet_set);
 
-                                const Mat4 model =
+                                const Matrix4 model =
                                     imported ? instance.model
                                              : mul(instance.model,
                                                    Geometry::shape_scale(instance.kind,
@@ -711,7 +713,7 @@ namespace SushiEngine
                                         cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
                                         view.id == frame.draws.selected_id ? 1 : 0);
                                 const MeshPushConstants push =
-                                    make_push(Mat4{}, no_eye, flat_material(view.color), view.id,
+                                    make_push(Matrix4{}, no_eye, flat_material(view.color), view.id,
                                               frame.draws.selected_id, deformable_materials[s],
                                               deformable_motions[s], outline ? 0.006f : 0.0f);
                                 vkCmdPushConstants(cmd, pipeline_layout, PUSH_STAGES, 0,

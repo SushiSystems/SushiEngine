@@ -89,9 +89,9 @@ int main()
     // --- Record a moving pose, bake, and read it back through the runtime clip --------
     {
         AnimationDatabase database;
-        SkeletonDesc skeleton_desc;
-        JointDesc root; root.name = "root"; root.parent = -1;
-        JointDesc child; child.name = "child"; child.parent = 0; child.bind_translation = Vector3f{0, 1, 0};
+        SkeletonDescription skeleton_desc;
+        JointDescription root; root.name = "root"; root.parent = -1;
+        JointDescription child; child.name = "child"; child.parent = 0; child.bind_translation = Vector3f{0, 1, 0};
         skeleton_desc.joints = {root, child};
         std::vector<std::byte> skeleton_blob;
         build_skeleton_blob(skeleton_desc, skeleton_blob);
@@ -115,7 +115,7 @@ int main()
         }
         check(nearly(authoring.duration(), 1.0f), "authoring duration is the last key time");
 
-        ClipDesc dense;
+        ClipDescription dense;
         check(authoring.bake(30.0f, dense), "authoring bakes to a dense clip");
         check(dense.frame_count == 31, "bake resamples 1 s at 30 Hz to 31 frames");
         std::vector<std::byte> clip_blob;
@@ -143,7 +143,7 @@ int main()
         smile.curve.insert(1.0f, 1.0f);
         authoring.morphs.push_back(smile);
 
-        ClipDesc dense;
+        ClipDescription dense;
         check(authoring.bake(30.0f, dense), "authoring with a morph bakes");
         check(dense.morph_names.size() == 1 && dense.morph_names[0] == "smile",
               "bake carries the morph track name");

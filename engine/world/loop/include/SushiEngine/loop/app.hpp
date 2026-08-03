@@ -86,7 +86,7 @@ namespace SushiEngine
          * seed, and how many past ticks the rollback ring retains (0 disables
          * rollback entirely, the right default for a game that never rewinds).
          */
-        struct AppConfig
+        struct AppConfiguration
         {
             Scalar fixed_dt_seconds = Scalar(1.0 / 60.0); /**< Duration of one fixed tick, in seconds (> 0). */
             std::size_t chunk_capacity = 1024;            /**< Entities per chunk for every archetype. */
@@ -169,7 +169,7 @@ namespace SushiEngine
                  *
                  * @param config The fixed step, chunk capacity, RNG seed, and rollback depth.
                  */
-                explicit App(const AppConfig& config = AppConfig{})
+                explicit App(const AppConfiguration& config = AppConfiguration{})
                     : owned_runtime_(Execution::Runtime::create()),
                       context_(owned_runtime_->context()),
                       world_(context_, config.chunk_capacity),
@@ -198,7 +198,7 @@ namespace SushiEngine
                  * @param runtime A runtime that outlives this App; borrowed, not owned.
                  * @param config  The fixed step, chunk capacity, RNG seed, and rollback depth.
                  */
-                App(SushiRuntime::API::Runtime& runtime, const AppConfig& config)
+                App(SushiRuntime::API::Runtime& runtime, const AppConfiguration& config)
                     : owned_runtime_(),
                       borrowed_runtime_(&runtime),
                       context_(runtime),

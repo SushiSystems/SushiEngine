@@ -61,16 +61,16 @@ namespace
     // bind translation length, so the whole chain scales together.
     std::vector<std::byte> make_arm_skeleton(float hip_height, float arm_length)
     {
-        SkeletonDesc desc;
-        JointDesc hips;
+        SkeletonDescription desc;
+        JointDescription hips;
         hips.name = "Hips";
         hips.parent = -1;
         hips.bind_translation = Vector3f{0.0f, hip_height, 0.0f};
-        JointDesc arm;
+        JointDescription arm;
         arm.name = "LeftUpperArm";
         arm.parent = 0;
         arm.bind_translation = Vector3f{arm_length, 0.0f, 0.0f};
-        JointDesc tip;
+        JointDescription tip;
         tip.name = "ArmTip";
         tip.parent = 1;
         tip.bind_translation = Vector3f{arm_length, 0.0f, 0.0f};
@@ -89,7 +89,7 @@ namespace
                                          Vector3f hip_delta, Quaternionf arm_rotation)
     {
         const Quaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
-        ClipDesc desc;
+        ClipDescription desc;
         desc.joint_count = 3;
         desc.frame_count = 2;
         desc.sample_rate = 1.0f;
@@ -108,7 +108,7 @@ namespace
         return blob;
     }
 
-    Vector3 model_position(const std::vector<Mat4>& model, std::uint32_t joint)
+    Vector3 model_position(const std::vector<Matrix4>& model, std::uint32_t joint)
     {
         return Vector3{model[joint].m[12], model[joint].m[13], model[joint].m[14]};
     }

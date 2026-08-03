@@ -158,7 +158,7 @@ namespace SushiEngine
                  *
                  * @param iterations Ignored; the substep schedule subsumes it (§0.2).
                  */
-                void set_rigid_bodies(const std::vector<RigidBodyDesc>& bodies,
+                void set_rigid_bodies(const std::vector<RigidBodyDescription>& bodies,
                                       std::size_t iterations, Scalar substep_dt) override
                 {
                     (void)iterations;
@@ -169,7 +169,7 @@ namespace SushiEngine
 
                     refresh_bodies();
                     seen_.clear();
-                    for (const RigidBodyDesc& desc : bodies)
+                    for (const RigidBodyDescription& desc : bodies)
                         seen_.insert(desc.id);
 
                     // Removals first, so a scene that swaps one body for another does
@@ -187,7 +187,7 @@ namespace SushiEngine
                     // be read back or destroyed twice.
                     prune_joints();
 
-                    for (const RigidBodyDesc& desc : bodies)
+                    for (const RigidBodyDescription& desc : bodies)
                     {
                         const auto it = rigid_index_.find(desc.id);
                         if (it != rigid_index_.end())
@@ -327,7 +327,7 @@ namespace SushiEngine
                  *
                  * @param iterations Ignored; the substep schedule subsumes it (§0.2).
                  */
-                void set_cloth_grids(const std::vector<ClothDesc>& grids,
+                void set_cloth_grids(const std::vector<ClothDescription>& grids,
                                      std::size_t iterations, Scalar substep_dt) override
                 {
                     (void)iterations;
@@ -344,7 +344,7 @@ namespace SushiEngine
                     cloth_.clear();
                     cloth_index_.clear();
 
-                    for (const ClothDesc& desc : grids)
+                    for (const ClothDescription& desc : grids)
                     {
                         if (desc.rows == 0 || desc.cols == 0)
                             continue;
@@ -399,7 +399,7 @@ namespace SushiEngine
                 // -- ISoftBodyService (§9) -----------------------------------------
 
                 /** @copydoc ISoftBodyService::set_soft_bodies */
-                void set_soft_bodies(const std::vector<SoftBodyDesc>& bodies) override
+                void set_soft_bodies(const std::vector<SoftBodyDescription>& bodies) override
                 {
                     if (bodies.empty() && soft_.empty())
                         return;
@@ -415,7 +415,7 @@ namespace SushiEngine
                     // leave the scene holding addresses of moved-from instances.
                     soft_.reserve(bodies.size());
 
-                    for (const SoftBodyDesc& desc : bodies)
+                    for (const SoftBodyDescription& desc : bodies)
                     {
                         const Physics::Cooking::SoftBodyAssetView view =
                             Physics::Cooking::load_soft_body_blob(desc.asset, desc.asset_size);
@@ -499,11 +499,11 @@ namespace SushiEngine
 
                 // -- IStaticGeometryService ----------------------------------------
 
-                void set_static_planes(const std::vector<PlaneDesc>& planes) override
+                void set_static_planes(const std::vector<PlaneDescription>& planes) override
                 {
                     planes_.clear();
                     planes_.reserve(planes.size());
-                    for (const PlaneDesc& desc : planes)
+                    for (const PlaneDescription& desc : planes)
                     {
                         const Vector3T<T> normal = normalize(to_vector(desc.normal));
                         Physics::PlaneCollider<T> plane;
@@ -525,7 +525,7 @@ namespace SushiEngine
                  * removed later takes its joints with it inside the solver, and the
                  * record here is pruned in the same pass.
                  */
-                JointId create_joint(const JointDesc& desc) override
+                JointId create_joint(const JointDescription& desc) override
                 {
                     ensure_solver();
                     const auto a = rigid_index_.find(desc.body_a);
@@ -539,7 +539,7 @@ namespace SushiEngine
                     if (joint.a >= solver_->body_capacity() || joint.b >= solver_->body_capacity())
                         return NULL_JOINT;
 
-                    const JointParams& params = desc.params;
+                    const JointParameters& params = desc.params;
                     joint.kind = to_joint_kind(params.type);
                     joint.flags = Physics::JointFlags::enabled;
                     joint.local_anchor_a = to_vector(params.anchor_a);
@@ -620,7 +620,7 @@ namespace SushiEngine
                 }
 
                 /** @copydoc IJointService::set_joint_motor */
-                bool set_joint_motor(JointId joint, const JointMotorDesc& motor) override
+                bool set_joint_motor(JointId joint, const JointMotorDescription& motor) override
                 {
                     JointEntry* entry = find_joint_mutable(joint);
                     if (entry == nullptr || !solver_)
@@ -640,9 +640,9 @@ namespace SushiEngine
                 }
 
                 /** @copydoc IJointService::set_joint_limits */
-                bool set_joint_limits(JointId joint, const JointLimitDesc& linear,
-                                      const JointLimitDesc& twist,
-                                      const JointLimitDesc& swing) override
+                bool set_joint_limits(JointId joint, const JointLimitDescription& linear,
+                                      const JointLimitDescription& twist,
+                                      const JointLimitDescription& swing) override
                 {
                     JointEntry* entry = find_joint_mutable(joint);
                     if (entry == nullptr || !solver_)
@@ -669,7 +669,7 @@ namespace SushiEngine
                 // -- IVehicleService -----------------------------------------------
 
                 /** @copydoc IVehicleService::set_vehicles */
-                void set_vehicles(const std::vector<VehicleDesc>& vehicles) override
+                void set_vehicles(const std::vector<VehicleDescription>& vehicles) override
                 {
                     if (vehicles.empty() && vehicles_.empty())
                         return;
@@ -683,7 +683,7 @@ namespace SushiEngine
                     vehicles_.clear();
                     vehicle_index_.clear();
 
-                    for (const VehicleDesc& desc : vehicles)
+                    for (const VehicleDescription& desc : vehicles)
                     {
                         const Physics::Cooking::NodeBeamAssetView view =
                             Physics::Cooking::load_node_beam_blob(desc.asset, desc.asset_size);
@@ -1422,7 +1422,8 @@ namespace SushiEngine
                 }
 
                 /** @brief The boundary limit, in the solver's precision. */
-                static Physics::JointLimitT<T> to_joint_limit(const JointLimitDesc& limit) noexcept
+                static Physics::JointLimitT<T> to_joint_limit(
+                    const JointLimitDescription& limit) noexcept
                 {
                     Physics::JointLimitT<T> out;
                     out.lower = T(limit.lower);
@@ -1433,7 +1434,8 @@ namespace SushiEngine
                 }
 
                 /** @brief The boundary drive, in the solver's precision. */
-                static Physics::JointMotorT<T> to_joint_motor(const JointMotorDesc& motor) noexcept
+                static Physics::JointMotorT<T> to_joint_motor(
+                    const JointMotorDescription& motor) noexcept
                 {
                     Physics::JointMotorT<T> out;
                     out.target = T(motor.target);
@@ -1527,7 +1529,7 @@ namespace SushiEngine
                 }
 
                 /** @brief Applies a description to a body that already exists. */
-                void update_rigid_entry(RigidEntry& entry, const RigidBodyDesc& desc)
+                void update_rigid_entry(RigidEntry& entry, const RigidBodyDescription& desc)
                 {
                     entry.collider = desc.collider;
                     entry.filter = desc.collider.filter;
@@ -1553,14 +1555,14 @@ namespace SushiEngine
                  *
                  * @param vehicles The requested set.
                  */
-                bool vehicles_match(const std::vector<VehicleDesc>& vehicles) const noexcept
+                bool vehicles_match(const std::vector<VehicleDescription>& vehicles) const noexcept
                 {
                     if (vehicles.size() != vehicles_.size())
                         return false;
                     for (std::size_t i = 0; i < vehicles.size(); ++i)
                     {
                         const VehicleEntry& entry = vehicles_[i];
-                        const VehicleDesc& desc = vehicles[i];
+                        const VehicleDescription& desc = vehicles[i];
                         if (entry.entity != desc.id || entry.asset != desc.asset ||
                             entry.asset_size != desc.asset_size)
                             return false;
@@ -1665,7 +1667,7 @@ namespace SushiEngine
                 }
 
                 /**
-                 * @brief Everything about a `SoftBodyDesc` that a rebuild would change.
+                 * @brief Everything about a `SoftBodyDescription` that a rebuild would change.
                  *
                  * Deliberately not the asset *pointer*: the caller owns those bytes and is
                  * free to move them between frames, so comparing addresses would rebuild
@@ -1675,7 +1677,7 @@ namespace SushiEngine
                  * would be missed, and that is a cook-time change the editor already
                  * re-issues the whole set for.
                  */
-                static SoftKey soft_key(const SoftBodyDesc& desc) noexcept
+                static SoftKey soft_key(const SoftBodyDescription& desc) noexcept
                 {
                     SoftKey key;
                     key.asset_size = desc.asset_size;
@@ -1690,15 +1692,15 @@ namespace SushiEngine
                 }
 
                 /** @brief Whether @p bodies describes exactly the soft bodies already built. */
-                bool soft_matches(const std::vector<SoftBodyDesc>& bodies) const
+                bool soft_matches(const std::vector<SoftBodyDescription>& bodies) const
                 {
                     std::size_t wanted = 0;
-                    for (const SoftBodyDesc& desc : bodies)
+                    for (const SoftBodyDescription& desc : bodies)
                         if (desc.asset != nullptr && desc.asset_size != 0)
                             ++wanted;
                     if (wanted != soft_.size())
                         return false;
-                    for (const SoftBodyDesc& desc : bodies)
+                    for (const SoftBodyDescription& desc : bodies)
                     {
                         if (desc.asset == nullptr || desc.asset_size == 0)
                             continue;
@@ -1957,15 +1959,15 @@ namespace SushiEngine
                 }
 
                 /** @brief Whether @p grids describes exactly the cloths already built. */
-                bool cloth_matches(const std::vector<ClothDesc>& grids) const
+                bool cloth_matches(const std::vector<ClothDescription>& grids) const
                 {
                     std::size_t wanted = 0;
-                    for (const ClothDesc& desc : grids)
+                    for (const ClothDescription& desc : grids)
                         if (desc.rows != 0 && desc.cols != 0)
                             ++wanted;
                     if (wanted != cloth_.size())
                         return false;
-                    for (const ClothDesc& desc : grids)
+                    for (const ClothDescription& desc : grids)
                     {
                         if (desc.rows == 0 || desc.cols == 0)
                             continue;

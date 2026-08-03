@@ -76,10 +76,10 @@ namespace
             {"RightLowerArm", 7, {arm, 0, 0}, {0, 0, 0, 1}},
             {"RightHand", 8, {arm, 0, 0}, {0, 0, 0, 1}},
         };
-        SkeletonDesc desc;
+        SkeletonDescription desc;
         for (const Bone& b : bones)
         {
-            JointDesc joint;
+            JointDescription joint;
             joint.name = b.name;
             joint.parent = b.parent;
             joint.bind_translation = b.translation;
@@ -112,7 +112,7 @@ int main()
     const int right_elbow = source_avatar.joint(HumanBone::RightLowerArm);
 
     // A two-frame source clip: everything at bind, the left elbow bending 45 deg about z at frame 1.
-    ClipDesc clip;
+    ClipDescription clip;
     clip.joint_count = source_skeleton.joint_count;
     clip.frame_count = 2;
     clip.sample_rate = 30.0f;
@@ -132,7 +132,7 @@ int main()
 
     // --- Retarget onto the differently-proportioned rig -------------------------------
     {
-        ClipDesc retargeted;
+        ClipDescription retargeted;
         check(retarget_clip(clip, source_avatar, source_skeleton, target_avatar, target_skeleton,
                             retargeted),
               "retarget succeeds");
@@ -154,7 +154,7 @@ int main()
 
     // --- Mirror the clip left-to-right ------------------------------------------------
     {
-        ClipDesc mirrored;
+        ClipDescription mirrored;
         check(mirror_clip(clip, source_avatar, source_skeleton, mirrored), "mirror succeeds");
 
         // The right elbow now bends by the mirror of 45 deg about z (i.e. -45 deg).

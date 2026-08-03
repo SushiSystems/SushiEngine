@@ -44,9 +44,9 @@
  *    complete and unused since P0 precisely because there was no scaled shape to
  *    hand it.
  *
- * **On `ColliderParams`.** §5.5 says this record supersedes it, and it does for
+ * **On `ColliderParameters`.** §5.5 says this record supersedes it, and it does for
  * everything downstream: the extract reads `Collider`, and the physics never sees
- * `ColliderParams` again. What `ColliderParams` remains is the *authoring* surface
+ * `ColliderParameters` again. What `ColliderParameters` remains is the *authoring* surface
  * — the two fields the editor's inspector and the scene file write — and it stays
  * that way until the cooked `CollisionAsset` it is meant to be able to name
  * actually exists, which is P4. @ref Collider already carries the asset
@@ -148,7 +148,7 @@ namespace SushiEngine
                        : Physics::MaterialCombineMode::average;
         }
 
-        inline Collider collider_from_params(const ColliderParams& params) noexcept
+        inline Collider collider_from_params(const ColliderParameters& params) noexcept
         {
             Collider collider;
             // A body is in exactly one layer, so the authored index becomes the one-bit mask

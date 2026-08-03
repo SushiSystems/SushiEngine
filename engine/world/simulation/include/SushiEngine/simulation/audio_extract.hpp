@@ -92,7 +92,7 @@ namespace SushiEngine
         } // namespace Detail
 
         /** @brief Tuning for the optional acoustic occlusion/portal pass in the extract. */
-        struct AcousticQueryConfig
+        struct AcousticQueryConfiguration
         {
             int ray_count = 8;             /**< Soft-occlusion rays per emitter (sphere sampling). */
             int max_surfaces = 4;          /**< Transmission surfaces folded per blocked ray. */
@@ -179,7 +179,8 @@ namespace SushiEngine
         inline void build_audio_snapshot(World& world, Audio::SceneSnapshot& out,
                                          const Audio::AcousticScene* acoustics = nullptr,
                                          const Audio::PortalGraph* portals = nullptr,
-                                         const AcousticQueryConfig& cfg = AcousticQueryConfig{})
+                                         const AcousticQueryConfiguration& cfg =
+                                             AcousticQueryConfiguration{})
         {
             out.emitters.clear();
             out.has_reverb = false;
@@ -357,7 +358,8 @@ namespace SushiEngine
                                         Audio::SceneSnapshot& scratch,
                                         const Audio::AcousticScene* acoustics = nullptr,
                                         const Audio::PortalGraph* portals = nullptr,
-                                        const AcousticQueryConfig& cfg = AcousticQueryConfig{})
+                                        const AcousticQueryConfiguration& cfg =
+                                            AcousticQueryConfiguration{})
         {
             build_audio_snapshot(world, scratch, acoustics, portals, cfg);
             scene.apply(scratch);

@@ -73,7 +73,7 @@ namespace SushiEngine
          * @c mie_coefficient are the per-metre scattering coefficients at sea level,
          * @c mie_anisotropy is the Henyey-Greenstein g for the forward Mie lobe.
          */
-        struct AtmosphereParams
+        struct AtmosphereScatteringParameters
         {
             bool enabled = true;                       /**< Draw the atmosphere at all. */
             float height = 100000.0f;                  /**< Shell thickness above the surface, metres. */
@@ -95,7 +95,7 @@ namespace SushiEngine
          * airfields haze over and the low sun lights the fog. Plain data; @c density is the
          * sea-level extinction per metre and @c height_falloff its exponential rate.
          */
-        struct FogParams
+        struct FogParameters
         {
             bool enabled = false;                            /**< Draw volumetric fog at all. */
             float density = 0.01f;                           /**< Sea-level extinction, per metre. */
@@ -145,15 +145,16 @@ namespace SushiEngine
          *
          * Deliberately additive/multiplicative rather than a replacement: `VolumetricFogPass`
          * and `AtmosphereLUTPass` add @ref fog_density_bias / @ref turbidity_bias on top of the
-         * author's own @ref FogParams::density / @ref AtmosphereParams::mie_coefficient at push-
-         * constant build time, and `pbr.frag` blends @ref ground_wetness in only where a
-         * material opts in (`MaterialFlags::MATERIAL_WEATHER_WET`). Unlike @ref Environment::clouds
-         * (which the compiled `Cloudscape` fully replaces in Procedural mode), the author's
-         * fog/atmosphere sliders are never overwritten in place — which is what keeps this field
-         * safe to recompute from scratch every `extract()` without the read-modify-write hazard a
-         * full overwrite would create through the editor's `environment()` -> edit -> `set_environment()`
-         * round trip. All-zero (the default) when procedural weather is off, so a scene with no
-         * dynamic weather renders exactly as it did before this phase.
+         * author's own @ref FogParameters::density / @ref AtmosphereScatteringParameters::mie_coefficient at
+         * push-constant build time, and `pbr.frag` blends @ref ground_wetness in only where a
+         * material opts in (`MaterialFlags::MATERIAL_WEATHER_WET`). Unlike
+         * @ref Environment::clouds (which the compiled `Cloudscape` fully replaces in Procedural
+         * mode), the author's fog/atmosphere sliders are never overwritten in place — which is
+         * what keeps this field safe to recompute from scratch every `extract()` without the
+         * read-modify-write hazard a full overwrite would create through the editor's
+         * `environment()` -> edit -> `set_environment()` round trip. All-zero (the default) when
+         * procedural weather is off, so a scene with no dynamic weather renders exactly as it
+         * did before this phase.
          */
         struct WeatherCoupling
         {
@@ -174,7 +175,7 @@ namespace SushiEngine
          * indirect diffuse, and @c normal_bias pushes the sample point along the surface
          * normal to keep a probe behind the surface from leaking through it.
          */
-        struct GIParams
+        struct GIParameters
         {
             bool enabled = false;    /**< Draw probe-volume GI at all. */
             float intensity = 1.0f;  /**< Multiplier on the gathered indirect diffuse. */
@@ -187,7 +188,7 @@ namespace SushiEngine
          * A deliberately simple two-tone surface (ocean vs land) plus a roughness so the
          * ground reads as a lit sphere from orbit without a texture or terrain pipeline.
          */
-        struct PlanetParams
+        struct PlanetParameters
         {
             Vector3 ground_albedo{Vector3{0.16, 0.20, 0.11}}; /**< Land base colour. */
             Vector3 ocean_color{Vector3{0.02, 0.06, 0.16}};   /**< Ocean base colour. */
@@ -646,7 +647,7 @@ namespace SushiEngine
          * optical depth toward space is low — so they emerge as the camera climbs out of
          * the air, which is the near-surface-to-space transition the whole scene targets.
          */
-        struct StarParams
+        struct StarParameters
         {
             bool enabled = true;      /**< Draw stars at all. */
             float brightness = 1.0f;  /**< Overall star radiance scale. */
@@ -871,12 +872,12 @@ namespace SushiEngine
             SurfaceStyle planet_surface_style = SurfaceStyle::EarthLike; /**< Procedural pattern of the dominant body's ground. */
             float planet_ring_inner_metres = 0.0f;            /**< Inner edge of the dominant body's ring, metres; 0 = no ring. */
             float planet_ring_outer_metres = 0.0f;            /**< Outer edge of the dominant body's ring, metres. */
-            AtmosphereParams atmosphere; /**< The air shell around the planet. */
-            FogParams fog;               /**< Ground-hugging volumetric fog. */
+            AtmosphereScatteringParameters atmosphere; /**< The air shell around the planet. */
+            FogParameters fog;               /**< Ground-hugging volumetric fog. */
             FogVolume fog_volumes[MAX_FOG_VOLUMES]{}; /**< Authored local fog primitives. */
             int fog_volume_count = 0;    /**< Number of populated @ref fog_volumes entries. */
-            GIParams gi;                 /**< Probe-volume global illumination. */
-            PlanetParams surface;        /**< How the planet's ground shades. */
+            GIParameters gi;                 /**< Probe-volume global illumination. */
+            PlanetParameters surface;        /**< How the planet's ground shades. */
             Cloudscape clouds;           /**< The ray-marched, layered cloudscape. */
             /**
              * @brief Where the weather is over the whole body, for the march past every window.
@@ -905,12 +906,12 @@ namespace SushiEngine
              * @brief The regional nest's physics, authored and serialized with the scene.
              *
              * `docs/slop/atmosphere_system.md` §13's "every physical constant lives in
-             * `AtmosphereParameters`, is serialized with the scene, and is editable". Off-by-
+             * `AtmosphereNestParameters`, is serialized with the scene, and is editable". Off-by-
              * default is not the choice here — the nest is what makes weather weather — but a
              * scene may switch it off and fall back to the authored or classified sky, which is
              * also what the lowest quality tier does.
              */
-            AtmosphereParameters atmosphere_nest;
+            AtmosphereNestParameters atmosphere_nest;
             /**
              * @brief The nest's grid, resolved by the host from its atmosphere tier.
              *
@@ -931,7 +932,7 @@ namespace SushiEngine
              * a scene with no weather provider costs nothing.
              */
             AtmosphereForcing atmosphere_forcing;
-            StarParams stars;            /**< The space-background star field. */
+            StarParameters stars;            /**< The space-background star field. */
             NightLighting night;         /**< How the Moon and stars light a sunless sky. */
             Vector3 ambient{Vector3{0.03, 0.04, 0.06}}; /**< Ambient floor so shadowed faces are not black; the ephemeris drives this dynamically when @ref NightLighting::enabled. */
             float exposure = 0.18f;      /**< Multiplier applied before tonemapping. */

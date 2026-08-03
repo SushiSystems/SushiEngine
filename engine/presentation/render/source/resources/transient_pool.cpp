@@ -55,7 +55,7 @@ namespace SushiEngine
                 }
             }
 
-            std::uint32_t TexturePool::acquire(const Graph::TextureDesc& desc)
+            std::uint32_t TexturePool::acquire(const Graph::TextureDescription& desc)
             {
                 for (std::size_t i = 0; i < entries_.size(); ++i)
                 {
@@ -171,7 +171,7 @@ namespace SushiEngine
                 }
             }
 
-            std::uint32_t BufferPool::acquire(const Graph::BufferDesc& desc)
+            std::uint32_t BufferPool::acquire(const Graph::BufferDescription& desc)
             {
                 for (std::size_t i = 0; i < entries_.size(); ++i)
                 {

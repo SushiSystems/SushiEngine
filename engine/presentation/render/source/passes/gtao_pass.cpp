@@ -52,9 +52,9 @@ namespace SushiEngine
                 }
 
                 /** @brief A nearest-sampled clamp sampler: AO reads must not blur depth edges. */
-                Resources::SamplerDesc point_sampler() noexcept
+                Resources::SamplerDescription point_sampler() noexcept
                 {
-                    Resources::SamplerDesc desc;
+                    Resources::SamplerDescription desc;
                     desc.filter = VK_FILTER_NEAREST;
                     desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
                     return desc;
@@ -170,7 +170,7 @@ namespace SushiEngine
                 const std::uint32_t half_w = (frame.width + 1) / 2;
                 const std::uint32_t half_h = (frame.height + 1) / 2;
 
-                const Mat4& proj = frame.camera->projection;
+                const Matrix4& proj = frame.camera->projection;
                 Push push{};
                 push.p0[0] = frame.camera->near_plane;
                 push.p0[1] = proj.m[0] != 0.0 ? static_cast<float>(1.0 / proj.m[0]) : 1.0f;

@@ -51,49 +51,49 @@ namespace
     bool nearly(float a, float b, float eps = 1e-3f) { return std::fabs(a - b) <= eps; }
 
     // A rich controller for the round-trip: two layers, a blend tree, transitions, an event.
-    ControllerDesc build_rich_controller()
+    ControllerDescription build_rich_controller()
     {
-        ControllerDesc desc;
-        desc.parameters = {ParameterDesc{"speed", ParameterType::Float, 0.0f},
-                           ParameterDesc{"moving", ParameterType::Bool, 0.0f},
-                           ParameterDesc{"aim", ParameterType::Float, 1.0f}};
+        ControllerDescription desc;
+        desc.parameters = {ParameterDescription{"speed", ParameterType::Float, 0.0f},
+                           ParameterDescription{"moving", ParameterType::Bool, 0.0f},
+                           ParameterDescription{"aim", ParameterType::Float, 1.0f}};
 
-        LayerDesc base;
+        LayerDescription base;
         base.name = "base";
         base.default_state = "Idle";
 
-        StateDesc idle;
+        StateDescription idle;
         idle.name = "Idle";
         idle.clip = 0;
-        TransitionDesc to_move;
+        TransitionDescription to_move;
         to_move.destination = "Move";
         to_move.duration = 0.15f;
-        to_move.conditions.push_back(ConditionDesc{"moving", Comparator::If, 0.0f});
+        to_move.conditions.push_back(ConditionDescription{"moving", Comparator::If, 0.0f});
         idle.transitions.push_back(to_move);
 
-        StateDesc move;
+        StateDescription move;
         move.name = "Move";
-        auto tree = std::make_shared<BlendTreeNodeDesc>();
+        auto tree = std::make_shared<BlendTreeNodeDescription>();
         tree->type = BlendTreeType::Simple1D;
         tree->parameter_x = "speed";
-        tree->children.push_back(BlendChildDesc{1, nullptr, 0.0f, 0, 0, "", 1});
-        tree->children.push_back(BlendChildDesc{2, nullptr, 1.0f, 0, 0, "", 1});
-        tree->children.push_back(BlendChildDesc{3, nullptr, 2.0f, 0, 0, "", 1});
+        tree->children.push_back(BlendChildDescription{1, nullptr, 0.0f, 0, 0, "", 1});
+        tree->children.push_back(BlendChildDescription{2, nullptr, 1.0f, 0, 0, "", 1});
+        tree->children.push_back(BlendChildDescription{3, nullptr, 2.0f, 0, 0, "", 1});
         move.blend_tree = tree;
-        move.events.push_back(StateEventDesc{0.5f, "footstep", 7});
-        TransitionDesc to_idle;
+        move.events.push_back(StateEventDescription{0.5f, "footstep", 7});
+        TransitionDescription to_idle;
         to_idle.destination = "Idle";
-        to_idle.conditions.push_back(ConditionDesc{"moving", Comparator::IfNot, 0.0f});
+        to_idle.conditions.push_back(ConditionDescription{"moving", Comparator::IfNot, 0.0f});
         move.transitions.push_back(to_idle);
         base.states = {idle, move};
 
-        LayerDesc upper;
+        LayerDescription upper;
         upper.name = "upper";
         upper.default_state = "Aim";
         upper.mask = 9; // an asset id; compile stores it verbatim
         upper.blend_mode = LayerBlendMode::Additive;
         upper.weight_parameter = "aim";
-        StateDesc aim;
+        StateDescription aim;
         aim.name = "Aim";
         aim.clip = 4;
         upper.states = {aim};
@@ -105,7 +105,7 @@ namespace
     // A marker clip: single frame parking the root at z, so a blend reads back as the weight-blend.
     AssetId make_marker_clip(AnimationDatabase& database, float z)
     {
-        ClipDesc clip;
+        ClipDescription clip;
         clip.joint_count = 2;
         clip.frame_count = 1;
         clip.sample_rate = 30.0f;
@@ -122,13 +122,13 @@ int main()
 {
     // --- JSON round-trip: serialize -> parse -> recompile -> byte-identical blob -----
     {
-        const ControllerDesc desc = build_rich_controller();
+        const ControllerDescription desc = build_rich_controller();
         std::vector<std::byte> blob_original;
         check(compile_controller_blob(desc, blob_original), "rich controller compiles");
 
         const nlohmann::json json = controller_to_json(desc);
         const std::string text = json.dump();
-        const ControllerDesc parsed = controller_from_json(nlohmann::json::parse(text));
+        const ControllerDescription parsed = controller_from_json(nlohmann::json::parse(text));
 
         std::vector<std::byte> blob_roundtrip;
         check(compile_controller_blob(parsed, blob_roundtrip), "round-tripped controller compiles");
@@ -147,9 +147,9 @@ int main()
     // --- Edit-mode scrub: pin a blend-tree state at a time and pose it off the loop ---
     {
         AnimationDatabase database;
-        SkeletonDesc skeleton_desc;
-        JointDesc root; root.name = "root"; root.parent = -1;
-        JointDesc child; child.name = "child"; child.parent = 0; child.bind_translation = Vector3f{0, 1, 0};
+        SkeletonDescription skeleton_desc;
+        JointDescription root; root.name = "root"; root.parent = -1;
+        JointDescription child; child.name = "child"; child.parent = 0; child.bind_translation = Vector3f{0, 1, 0};
         skeleton_desc.joints = {root, child};
         std::vector<std::byte> skeleton_blob;
         build_skeleton_blob(skeleton_desc, skeleton_blob);
@@ -159,19 +159,19 @@ int main()
         const AssetId walk = make_marker_clip(database, 1.0f);
         const AssetId run = make_marker_clip(database, 2.0f);
 
-        ControllerDesc desc;
-        desc.parameters = {ParameterDesc{"speed", ParameterType::Float, 0.0f}};
-        LayerDesc layer;
+        ControllerDescription desc;
+        desc.parameters = {ParameterDescription{"speed", ParameterType::Float, 0.0f}};
+        LayerDescription layer;
         layer.name = "base";
         layer.default_state = "Move";
-        StateDesc move;
+        StateDescription move;
         move.name = "Move";
-        auto tree = std::make_shared<BlendTreeNodeDesc>();
+        auto tree = std::make_shared<BlendTreeNodeDescription>();
         tree->type = BlendTreeType::Simple1D;
         tree->parameter_x = "speed";
-        tree->children.push_back(BlendChildDesc{idle, nullptr, 0.0f, 0, 0, "", 1});
-        tree->children.push_back(BlendChildDesc{walk, nullptr, 1.0f, 0, 0, "", 1});
-        tree->children.push_back(BlendChildDesc{run, nullptr, 2.0f, 0, 0, "", 1});
+        tree->children.push_back(BlendChildDescription{idle, nullptr, 0.0f, 0, 0, "", 1});
+        tree->children.push_back(BlendChildDescription{walk, nullptr, 1.0f, 0, 0, "", 1});
+        tree->children.push_back(BlendChildDescription{run, nullptr, 2.0f, 0, 0, "", 1});
         move.blend_tree = tree;
         layer.states = {move};
         desc.layers.push_back(layer);
@@ -192,7 +192,7 @@ int main()
 
         AnimatorEvaluator evaluator;
         evaluator.evaluate(controller, database, animator, database.skeleton(skeleton_id));
-        const Mat4& root_model = evaluator.model()[0];
+        const Matrix4& root_model = evaluator.model()[0];
         check(nearly(static_cast<float>(root_model.m[14]), 1.5f),
               "scrub poses the blend-tree state to the 1.5 blend off the loop");
     }

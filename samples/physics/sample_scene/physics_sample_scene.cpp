@@ -31,13 +31,13 @@ namespace SushiEngine
     {
         namespace
         {
-            using Simulation::ColliderParams;
+            using Simulation::ColliderParameters;
             using Simulation::EntityId;
             using Simulation::NULL_ENTITY;
             using Simulation::EntityTransform;
             using Simulation::IWorldEditor;
-            using Simulation::PhysicsBodyParams;
-            using Simulation::PhysicsJointParams;
+            using Simulation::PhysicsBodyParameters;
+            using Simulation::PhysicsJointParameters;
 
             /** @brief The height the ground sits at, so everything else is placed above it. */
             constexpr Scalar GROUND_Y = 0;
@@ -63,7 +63,7 @@ namespace SushiEngine
             /** @brief Gives @p id a rigid body of the authored density. */
             void make_dynamic(IWorldEditor& world, EntityId id, Scalar density)
             {
-                PhysicsBodyParams body;
+                PhysicsBodyParameters body;
                 body.density = density;
                 world.set_has_physics_body(id, true);
                 world.set_physics_body_params(id, body);
@@ -74,7 +74,7 @@ namespace SushiEngine
                               Scalar dynamic_friction, Scalar restitution,
                               std::uint32_t layer = 0, std::uint32_t collides_with = 0xFFFFFFFFu)
             {
-                ColliderParams collider = world.collider_params(id);
+                ColliderParameters collider = world.collider_params(id);
                 collider.static_friction = static_friction;
                 collider.dynamic_friction = dynamic_friction;
                 collider.restitution = restitution;
@@ -189,7 +189,7 @@ namespace SushiEngine
             {
                 const EntityId chassis = world.create_box("Chassis");
                 place(world, chassis, Vector3{-4, GROUND_Y + 3, 6}, Vector3{3, 1.2, 1.6});
-                PhysicsBodyParams pinned;
+                PhysicsBodyParameters pinned;
                 pinned.inv_mass = 0;
                 pinned.inv_inertia = Vector3{0, 0, 0};
                 world.set_has_physics_body(chassis, true);
@@ -206,7 +206,7 @@ namespace SushiEngine
                 make_surface(world, door, Scalar(0.6), Scalar(0.5), Scalar(0), 4,
                              ~(std::uint32_t(1) << 4));
 
-                PhysicsJointParams hinge;
+                PhysicsJointParameters hinge;
                 hinge.connected_body = chassis;
                 hinge.joint.type = Simulation::JointType::Hinge;
                 hinge.joint.anchor_a = Vector3{-0.6, 0, 0};
@@ -214,7 +214,7 @@ namespace SushiEngine
                 hinge.joint.axis_a = Vector3{0, 1, 0};
                 hinge.joint.axis_b = Vector3{0, 1, 0};
                 hinge.joint.twist_limit =
-                    Simulation::JointLimitDesc{Scalar(0), Scalar(1.7), Scalar(0), true};
+                    Simulation::JointLimitDescription{Scalar(0), Scalar(1.7), Scalar(0), true};
                 // High enough that the door's own weight does not tear it off, low enough
                 // that a shove does — which is the range in which a break threshold is a
                 // gameplay parameter rather than a switch.
@@ -240,7 +240,7 @@ namespace SushiEngine
                           Vector3{0.3, 1.0, 0.3});
                     if (i == 0)
                     {
-                        PhysicsBodyParams anchor;
+                        PhysicsBodyParameters anchor;
                         anchor.inv_mass = 0;
                         anchor.inv_inertia = Vector3{0, 0, 0};
                         world.set_has_physics_body(link, true);
@@ -249,7 +249,7 @@ namespace SushiEngine
                     else
                     {
                         make_dynamic(world, link, Scalar(700));
-                        PhysicsJointParams joint;
+                        PhysicsJointParameters joint;
                         joint.connected_body = previous;
                         joint.joint.type = Simulation::JointType::Ball;
                         joint.joint.anchor_a = Vector3{0, 0.55, 0};

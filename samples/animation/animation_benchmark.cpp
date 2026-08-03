@@ -53,7 +53,7 @@ namespace
 int main()
 {
     // --- An 80-joint chain skeleton -------------------------------------------------
-    SkeletonDesc skeleton_desc;
+    SkeletonDescription skeleton_desc;
     skeleton_desc.joints.resize(JOINTS);
     for (std::uint32_t j = 0; j < JOINTS; ++j)
     {
@@ -69,7 +69,7 @@ int main()
     }
 
     // --- A compressed clip: most joints rotate gently, a realistic locomotion shape --
-    ClipDesc clip_desc;
+    ClipDescription clip_desc;
     clip_desc.joint_count = JOINTS;
     clip_desc.frame_count = FRAMES;
     clip_desc.sample_rate = 30.0f;

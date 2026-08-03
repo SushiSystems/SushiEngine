@@ -55,11 +55,11 @@ namespace SushiEngine
             clip_ = database_.clip(clip_id_);
             available_clips_ = std::move(import.clips);
 
-            controller_desc_ = Animation::ControllerDesc{};
-            Animation::LayerDesc base_layer;
+            controller_desc_ = Animation::ControllerDescription{};
+            Animation::LayerDescription base_layer;
             base_layer.name = "Base";
             base_layer.weight = 1.0f;
-            Animation::StateDesc base_state;
+            Animation::StateDescription base_state;
             base_state.name = "State0";
             base_state.clip = clip_id_;
             base_layer.states.push_back(base_state);
@@ -106,7 +106,7 @@ namespace SushiEngine
         }
 
         bool AnimatedMeshPreview::add_layer(const char* clip_name,
-                                            const Animation::MaskDesc* mask, float weight,
+                                            const Animation::MaskDescription* mask, float weight,
                                             bool additive)
         {
             if (clip_name == nullptr || !loaded())
@@ -144,20 +144,20 @@ namespace SushiEngine
             // Wire the layer's weight through a compiled parameter (design §5.1) — the same
             // seam Mecanim's own layer-weight sliders use — so set_layer_weight is a single
             // float write afterward, never a recompile.
-            Animation::ParameterDesc param;
+            Animation::ParameterDescription param;
             param.name = weight_param_name;
             param.type = Animation::ParameterType::Float;
             param.default_value = weight;
             controller_desc_.parameters.push_back(param);
 
-            Animation::LayerDesc layer;
+            Animation::LayerDescription layer;
             layer.name = "Layer" + std::to_string(new_layer_index);
             layer.weight = weight;
             layer.mask = mask_id;
             layer.blend_mode = additive ? Animation::LayerBlendMode::Additive
                                         : Animation::LayerBlendMode::Override;
             layer.weight_parameter = weight_param_name;
-            Animation::StateDesc state;
+            Animation::StateDescription state;
             state.name = "State0";
             state.clip = layer_clip_id;
             layer.states.push_back(state);
@@ -181,8 +181,8 @@ namespace SushiEngine
                 return false;
 
             // Copy before erase: the layer's own weight_parameter name is still needed after
-            // it leaves controller_desc_.layers, to drop the matching ParameterDesc too.
-            const Animation::LayerDesc removed = controller_desc_.layers[index];
+            // it leaves controller_desc_.layers, to drop the matching ParameterDescription too.
+            const Animation::LayerDescription removed = controller_desc_.layers[index];
             controller_desc_.layers.erase(controller_desc_.layers.begin() +
                                           static_cast<std::ptrdiff_t>(index));
             if (!removed.weight_parameter.empty())
@@ -232,11 +232,11 @@ namespace SushiEngine
             }
         }
 
-        bool AnimatedMeshPreview::apply_controller(const Animation::ControllerDesc& desc)
+        bool AnimatedMeshPreview::apply_controller(const Animation::ControllerDescription& desc)
         {
             if (!loaded())
                 return false;
-            const Animation::ControllerDesc previous = controller_desc_;
+            const Animation::ControllerDescription previous = controller_desc_;
             controller_desc_ = desc;
             if (!compile_controller())
             {
@@ -275,7 +275,7 @@ namespace SushiEngine
             clip_id_ = Animation::INVALID_ASSET;
             skeleton_ = Animation::SkeletonView{};
             clip_ = Animation::ClipView{};
-            controller_desc_ = Animation::ControllerDesc{};
+            controller_desc_ = Animation::ControllerDescription{};
             controller_id_ = Animation::INVALID_ASSET;
             controller_ = Animation::ControllerView{};
             animator_instance_ = Animation::AnimatorInstance{};

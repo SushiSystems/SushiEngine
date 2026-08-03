@@ -85,7 +85,7 @@ namespace SushiEngine
                         VmaAllocation allocation = VK_NULL_HANDLE;
                         VkImageView view = VK_NULL_HANDLE;
                         VkImageView sample_view = VK_NULL_HANDLE;
-                        Graph::TextureDesc desc{};
+                        Graph::TextureDescription desc{};
                         Graph::TextureState state{};
                         bool in_use = false;
                         std::uint32_t frames_unused = 0;
@@ -114,7 +114,7 @@ namespace SushiEngine
                      * @param desc The image to back a transient with.
                      * @return The entry index, valid until the next begin_frame().
                      */
-                    std::uint32_t acquire(const Graph::TextureDesc& desc);
+                    std::uint32_t acquire(const Graph::TextureDescription& desc);
 
                     /**
                      * @brief Returns an entry to the free list so a later transient may reuse it.
@@ -156,7 +156,7 @@ namespace SushiEngine
                         VkBuffer buffer = VK_NULL_HANDLE;
                         VmaAllocation allocation = VK_NULL_HANDLE;
                         void* mapped = nullptr;
-                        Graph::BufferDesc desc{};
+                        Graph::BufferDescription desc{};
                         Graph::BufferState state{};
                         bool in_use = false;
                         std::uint32_t frames_unused = 0;
@@ -180,7 +180,7 @@ namespace SushiEngine
                      * @param desc The buffer to back a transient with.
                      * @return The entry index, valid until the next begin_frame().
                      */
-                    std::uint32_t acquire(const Graph::BufferDesc& desc);
+                    std::uint32_t acquire(const Graph::BufferDescription& desc);
 
                     /**
                      * @brief Returns an entry to the free list so a later transient may reuse it.

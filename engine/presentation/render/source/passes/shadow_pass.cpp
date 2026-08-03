@@ -57,7 +57,7 @@ namespace SushiEngine
 
             VkSampler ShadowPass::atlas_sampler(Resources::SamplerCache& samplers)
             {
-                Resources::SamplerDesc desc;
+                Resources::SamplerDescription desc;
                 desc.compare_enable = VK_TRUE;
                 // The maps store distance from the light, so a texel closer than the
                 // reference is what occludes it.
@@ -72,7 +72,7 @@ namespace SushiEngine
 
             VkSampler ShadowPass::atlas_depth_sampler(Resources::SamplerCache& samplers)
             {
-                Resources::SamplerDesc desc;
+                Resources::SamplerDescription desc;
                 desc.filter = VK_FILTER_NEAREST;
                 desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
                 // A tap off the edge of the atlas must read the far plane, which is the
@@ -84,7 +84,7 @@ namespace SushiEngine
 
             void ShadowPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDesc desc = depth_only_pipeline_desc(
+                Resources::GraphicsPipelineDescription desc = depth_only_pipeline_desc(
                     layout_.pipeline_layout(), shaders_.module("shadow.vert"),
                     Frame::SHADOW_FORMAT);
                 // Conventional depth, not reverse-Z: an orthographic projection is linear
@@ -181,7 +181,7 @@ namespace SushiEngine
                                                          VK_INDEX_TYPE_UINT32);
                                     bound_vertices = mesh.vertices;
                                 }
-                                const Mat4 model =
+                                const Matrix4 model =
                                     imported ? instance.model
                                              : mul(instance.model,
                                                    Geometry::shape_scale(instance.kind,

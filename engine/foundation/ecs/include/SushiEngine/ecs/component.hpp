@@ -72,7 +72,7 @@ namespace SushiEngine
      * Archetype storage is laid out from a list of these, so it can allocate and
      * copy components without knowing their static types.
      */
-    struct ComponentInfo
+    struct ComponentInformation
     {
         ComponentId id = 0;   /**< The component's stable id. */
         std::size_t size = 0; /**< sizeof the component, in bytes. */
@@ -83,9 +83,9 @@ namespace SushiEngine
          * @return The id and byte size of @p T.
          */
         template <typename T>
-        static ComponentInfo of() noexcept
+        static ComponentInformation of() noexcept
         {
-            return ComponentInfo{component_id<T>(), sizeof(T)};
+            return ComponentInformation{component_id<T>(), sizeof(T)};
         }
     };
 
@@ -113,12 +113,12 @@ namespace SushiEngine
     /**
      * @brief Builds the type-erased component list for the types @p Ts.
      * @tparam Ts The component types of an archetype.
-     * @return One ComponentInfo per type, in the order written.
+     * @return One ComponentInformation per type, in the order written.
      */
     template <typename... Ts>
-    std::vector<ComponentInfo> make_component_infos()
+    std::vector<ComponentInformation> make_component_infos()
     {
-        return {ComponentInfo::of<Ts>()...};
+        return {ComponentInformation::of<Ts>()...};
     }
 
     /**

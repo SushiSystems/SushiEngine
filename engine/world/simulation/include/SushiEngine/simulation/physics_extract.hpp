@@ -89,13 +89,13 @@ namespace SushiEngine
             Vector3 world_scale{Vector3{1, 1, 1}};
 
             bool has_physics_body = false;
-            PhysicsBodyParams physics_params;
+            PhysicsBodyParameters physics_params;
 
             bool has_collider = false;
-            ColliderParams collider_params;
+            ColliderParameters collider_params;
 
             bool has_shape = false;
-            ShapeParams shape_params;
+            ShapeParameters shape_params;
         };
 
         /**
@@ -117,7 +117,7 @@ namespace SushiEngine
                 collider = collider_from_params(entity.collider_params);
             else if (entity.has_shape)
                 collider = collider_from_params(
-                    ColliderParams{entity.shape_params.kind, entity.shape_params.params});
+                    ColliderParameters{entity.shape_params.kind, entity.shape_params.params});
             else
                 collider.shape = ColliderShape::Sphere;
             return scaled_collider(collider, entity.local_scale);
@@ -188,16 +188,16 @@ namespace SushiEngine
          * @param entities The scene's entities, in the order bodies should be added.
          * @return One descriptor per rigid-body entity, in that same order.
          */
-        inline std::vector<RigidBodyDesc> extract_rigid_bodies(
+        inline std::vector<RigidBodyDescription> extract_rigid_bodies(
             const std::vector<PhysicsSourceEntity>& entities)
         {
-            std::vector<RigidBodyDesc> descs;
+            std::vector<RigidBodyDescription> descs;
             descs.reserve(entities.size());
             for (const PhysicsSourceEntity& entity : entities)
             {
                 if (!entity.has_physics_body)
                     continue;
-                RigidBodyDesc desc;
+                RigidBodyDescription desc;
                 desc.id = entity.id;
                 desc.position = entity.local_position;
                 desc.orientation = entity.local_orientation;
@@ -231,16 +231,16 @@ namespace SushiEngine
          * @param entities The scene's entities.
          * @return One plane per qualifying entity, in the order given.
          */
-        inline std::vector<PlaneDesc> extract_static_planes(
+        inline std::vector<PlaneDescription> extract_static_planes(
             const std::vector<PhysicsSourceEntity>& entities)
         {
-            std::vector<PlaneDesc> planes;
+            std::vector<PlaneDescription> planes;
             for (const PhysicsSourceEntity& entity : entities)
             {
                 if (!entity.has_collider || entity.has_physics_body ||
                     entity.collider_params.kind != PrimitiveKind::Plane)
                     continue;
-                PlaneDesc plane;
+                PlaneDescription plane;
                 plane.point = entity.world_position;
                 plane.normal = rotate(entity.world_orientation, entity.collider_params.params);
                 planes.push_back(plane);

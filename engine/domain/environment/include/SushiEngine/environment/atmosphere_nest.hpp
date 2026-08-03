@@ -30,7 +30,7 @@
  * `docs/slop/atmosphere_system.md` §6 and §13. The shipped W4–W6 weather kept thirteen
  * magic constants inside the body of one 110-line tick function (§1.3); this file is the
  * opposite arrangement and the reason the design doc states it twice: **every physical
- * constant lives in @ref AtmosphereParameters, is serialized with the scene, and is
+ * constant lives in @ref AtmosphereNestParameters, is serialized with the scene, and is
  * editable. None is a function-local constant.** A new microphysics scheme, a
  * different planet, or a per-biome tuning pass is then a data edit rather than a
  * recompile of a loop body.
@@ -68,7 +68,7 @@ namespace SushiEngine
          * microphysics scheme's rate constants, and the last the surface forcing. Defaults
          * are Earth's, and each is the value the source named in its own comment gives.
          */
-        struct AtmosphereParameters
+        struct AtmosphereNestParameters
         {
             // ---- Thermodynamics of moist air -----------------------------------------
 
@@ -831,7 +831,7 @@ namespace SushiEngine
          * layer, because that is what makes placement matter more than strength. Whatever sits
          * under the lower edge is not damped at all, however large `sponge_rate` is.
          */
-        inline float atmosphere_sponge_weight(const AtmosphereParameters& p, float top_m,
+        inline float atmosphere_sponge_weight(const AtmosphereNestParameters& p, float top_m,
                                               float altitude_m)
         {
             const float depth = p.sponge_depth > 1.0f ? p.sponge_depth : 1.0f;
@@ -843,7 +843,8 @@ namespace SushiEngine
         }
 
         /** @brief Base-state temperature at @p altitude_m, K (ISA troposphere then isothermal). */
-        inline float atmosphere_base_temperature(const AtmosphereParameters& p, float altitude_m)
+        inline float atmosphere_base_temperature(const AtmosphereNestParameters& p,
+                                                 float altitude_m)
         {
             const float capped = altitude_m < p.tropopause_altitude ? altitude_m
                                                                     : p.tropopause_altitude;
@@ -851,7 +852,7 @@ namespace SushiEngine
         }
 
         /** @brief Base-state pressure at @p altitude_m, Pa (hydrostatic against the profile above). */
-        inline float atmosphere_base_pressure(const AtmosphereParameters& p, float altitude_m)
+        inline float atmosphere_base_pressure(const AtmosphereNestParameters& p, float altitude_m)
         {
             const float exponent = p.gravity / (p.gas_constant_dry * p.lapse_rate);
             const float capped = altitude_m < p.tropopause_altitude ? altitude_m
@@ -868,20 +869,20 @@ namespace SushiEngine
         }
 
         /** @brief The Exner function `Π = (p/p₀)^(R/c_p)` at @p altitude_m. */
-        inline float atmosphere_exner(const AtmosphereParameters& p, float altitude_m)
+        inline float atmosphere_exner(const AtmosphereNestParameters& p, float altitude_m)
         {
             return std::pow(atmosphere_base_pressure(p, altitude_m) / p.reference_pressure,
                             p.gas_constant_dry / p.specific_heat_pressure);
         }
 
         /** @brief Base-state potential temperature at @p altitude_m, K. */
-        inline float atmosphere_base_theta(const AtmosphereParameters& p, float altitude_m)
+        inline float atmosphere_base_theta(const AtmosphereNestParameters& p, float altitude_m)
         {
             return atmosphere_base_temperature(p, altitude_m) / atmosphere_exner(p, altitude_m);
         }
 
         /** @brief Base-state density at @p altitude_m, kg/m³. */
-        inline float atmosphere_base_density(const AtmosphereParameters& p, float altitude_m)
+        inline float atmosphere_base_density(const AtmosphereNestParameters& p, float altitude_m)
         {
             return atmosphere_base_pressure(p, altitude_m) /
                    (p.gas_constant_dry * atmosphere_base_temperature(p, altitude_m));
@@ -938,9 +939,9 @@ namespace SushiEngine
          * nest is a function of it: the saturation the cell condenses at, the latent heat it
          * releases, how readily it precipitates, and how fast that precipitation falls. Being a
          * function of temperature alone is the scheme's simplification and its named limit —
-         * see @ref AtmosphereParameters::latent_heat_fusion for what that gives up.
+         * see @ref AtmosphereNestParameters::latent_heat_fusion for what that gives up.
          */
-        inline float atmosphere_ice_fraction(const AtmosphereParameters& p, float temperature_k)
+        inline float atmosphere_ice_fraction(const AtmosphereNestParameters& p, float temperature_k)
         {
             const float span = p.freezing_temperature - p.glaciation_temperature;
             if (!(span > 0.0f))
@@ -957,7 +958,7 @@ namespace SushiEngine
          * column that would be clear at +2 °C can be cloudy at −25 °C on the same water. Mirrors
          * `nest_saturation_mixing_ratio_phase` in atmosphere_nest_common.glsl.
          */
-        inline float atmosphere_saturation_mixing_ratio_phase(const AtmosphereParameters& p,
+        inline float atmosphere_saturation_mixing_ratio_phase(const AtmosphereNestParameters& p,
                                                               float temperature_k,
                                                               float pressure_pa)
         {
@@ -978,7 +979,7 @@ namespace SushiEngine
          * releases both, which is 13 % more heat than condensing to a droplet and is why a
          * glaciating updraft gets a second push just as it is running out of the first.
          */
-        inline float atmosphere_latent_heat(const AtmosphereParameters& p, float temperature_k)
+        inline float atmosphere_latent_heat(const AtmosphereNestParameters& p, float temperature_k)
         {
             return p.latent_heat_vaporization +
                    atmosphere_ice_fraction(p, temperature_k) * p.latent_heat_fusion;
@@ -991,7 +992,7 @@ namespace SushiEngine
          * `1 - free_troposphere_drying` of itself at the tropopause and holding above it. Mirrors
          * `nest_base_humidity_ceiling` in atmosphere_nest_common.glsl.
          */
-        inline float atmosphere_base_humidity_ceiling(const AtmosphereParameters& p,
+        inline float atmosphere_base_humidity_ceiling(const AtmosphereNestParameters& p,
                                                        float altitude_m)
         {
             const float tropopause =
@@ -1007,7 +1008,7 @@ namespace SushiEngine
          * @brief Base-state vapour mixing ratio at @p altitude_m, kg/kg.
          *
          * The *mixing ratio* decays exponentially from its surface value, which is what
-         * @ref AtmosphereParameters::humidity_scale_height names and what a real sounding does.
+         * @ref AtmosphereNestParameters::humidity_scale_height names and what a real sounding does.
          * Relative humidity is then whatever `q_v / q_s(z)` comes to: over the lowest kilometres
          * `q_s` folds more slowly than the vapour, so the ISA base state reads 70 % at the ground
          * and 62 % at 1.3 km rather than the 41 % that applying the exponential to RH itself
@@ -1016,7 +1017,7 @@ namespace SushiEngine
          * global cirrus deck at 9.5 km. Capped at saturation as well, so the initial state is
          * never supersaturated anywhere.
          */
-        inline float atmosphere_base_vapour(const AtmosphereParameters& p, float altitude_m)
+        inline float atmosphere_base_vapour(const AtmosphereNestParameters& p, float altitude_m)
         {
             const float surface_saturation = atmosphere_saturation_mixing_ratio(
                 atmosphere_base_temperature(p, 0.0f), atmosphere_base_pressure(p, 0.0f));
@@ -1053,7 +1054,7 @@ namespace SushiEngine
          * @param path_in_level The level's own liquid water path, `ρ q_c Δz`, kg/m².
          * @return              Absorbed flux, W/m², never negative and never above `F0`.
          */
-        inline float atmosphere_cloud_top_absorption(const AtmosphereParameters& p,
+        inline float atmosphere_cloud_top_absorption(const AtmosphereNestParameters& p,
                                                       float path_above, float path_in_level)
         {
             if (!(p.cloud_top_longwave_flux > 0.0f) || !(path_in_level > 0.0f))
@@ -1069,8 +1070,9 @@ namespace SushiEngine
          *
          * The closing condition, and the difference between a flux and a sink. A cloud top emits
          * to a sky that is not empty: the air above returns a share of it, and that share grows
-         * as the top cools, until at @ref AtmosphereParameters::cloud_top_equilibrium_depression
-         * below its environment the two balance and the net loss is gone. Without this the term
+         * as the top cools, until at
+         * @ref AtmosphereNestParameters::cloud_top_equilibrium_depression below its
+         * environment the two balance and the net loss is gone. Without this the term
          * is a constant a persistent deck pays forever — measured at −42.7 K over 72 h, and still
          * falling.
          *
@@ -1083,7 +1085,7 @@ namespace SushiEngine
          * @return              Scale on the flux, in [0, 1]. Exactly 1 at ambient and above, so a
          *                      transient deck is unaffected and only a runaway is capped.
          */
-        inline float atmosphere_cloud_top_flux_scale(const AtmosphereParameters& p,
+        inline float atmosphere_cloud_top_flux_scale(const AtmosphereNestParameters& p,
                                                      float departure_k)
         {
             const float depression = p.cloud_top_equilibrium_depression > 1.0e-3f
@@ -1114,7 +1116,7 @@ namespace SushiEngine
          *                    top is ordinary convection, which the resolved dynamics owns.
          * @return            Entrainment velocity, m/s; 0 when the closure is disabled.
          */
-        inline float atmosphere_cloud_top_entrainment(const AtmosphereParameters& p,
+        inline float atmosphere_cloud_top_entrainment(const AtmosphereNestParameters& p,
                                                       float absorbed, float density,
                                                       float inversion_k)
         {
@@ -1162,7 +1164,7 @@ namespace SushiEngine
          * @param efficiency  The fraction of a nominal excess that actually condenses once its
          *                    own latent heating has raised `q_s`; see
          *                    @ref atmosphere_condensation_efficiency.
-         * @param critical    @ref AtmosphereParameters::cloud_critical_humidity.
+         * @param critical    @ref AtmosphereNestParameters::cloud_critical_humidity.
          */
         inline AtmosphereCloudPartition atmosphere_cloud_partition(float total_water,
                                                                    float saturation,
@@ -1281,7 +1283,7 @@ namespace SushiEngine
          * @param cloud          What is overhead. Default-constructed is a clear sky.
          */
         inline AtmosphereSurfaceBalance atmosphere_surface_balance(
-            const AtmosphereParameters& p, float skin_k, float air_k, float air_vapour,
+            const AtmosphereNestParameters& p, float skin_k, float air_k, float air_vapour,
             float pressure_pa, float density, float wind_mps, float absorbed_w, float dt,
             const AtmosphereCloudCover& cloud = AtmosphereCloudCover{})
         {
@@ -1353,7 +1355,7 @@ namespace SushiEngine
          * and why the ground starts warming so much later than the sky lights up. Zero below the
          * horizon. Mirrors `atmosphere_surface.comp`; neither is edited alone.
          */
-        inline float atmosphere_clear_sky_shortwave(const AtmosphereParameters& p,
+        inline float atmosphere_clear_sky_shortwave(const AtmosphereNestParameters& p,
                                                     float elevation_sine)
         {
             if (!(elevation_sine > 0.0f))
@@ -1380,7 +1382,7 @@ namespace SushiEngine
          * @param saturation    Saturation mixing ratio at @p temperature_k, kg/kg.
          * @param temperature_k The temperature the derivative is taken at, K.
          */
-        inline float atmosphere_condensation_efficiency(const AtmosphereParameters& p,
+        inline float atmosphere_condensation_efficiency(const AtmosphereNestParameters& p,
                                                         float saturation, float temperature_k)
         {
             const float safe = temperature_k > 1.0f ? temperature_k : 1.0f;
@@ -1681,7 +1683,7 @@ namespace SushiEngine
          * one const accessor, no lifetime transfer, no way to ask the renderer to do anything.
          * The host binds an implementation into the simulation once at startup rather than
          * ferrying a copy every frame — a host that forgets gets the honest base-state fallback
-         * (`AtmosphereParameters`' own profile, computable on the CPU) instead of a sky that
+         * (`AtmosphereNestParameters`' own profile, computable on the CPU) instead of a sky that
          * silently stops evolving.
          */
         class IAtmosphereMirror

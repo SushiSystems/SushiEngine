@@ -126,7 +126,7 @@ namespace SushiEngine
                       {"weather_scale", e.clouds.weather_scale},
                       {"evolution_rate", e.clouds.evolution_rate},
                       {"decks", decks}}},
-                // The regional nest's physics. Every field of AtmosphereParameters is here
+                // The regional nest's physics. Every field of AtmosphereNestParameters is here
                 // rather than a chosen few, because docs/slop/atmosphere_system.md §13's
                 // claim -- "every physical constant is serialized with the scene, and
                 // editable" -- is only true if a scene can actually carry all of them.
@@ -319,7 +319,7 @@ namespace SushiEngine
             if (j.contains("atmosphere_nest") && j["atmosphere_nest"].is_object())
             {
                 const json& a = j["atmosphere_nest"];
-                SushiEngine::Render::AtmosphereParameters& n = environment.atmosphere_nest;
+                SushiEngine::Render::AtmosphereNestParameters& n = environment.atmosphere_nest;
                 // Every read defaults to the value already in the struct, so a scene written
                 // before a parameter existed loads with that parameter's own default rather
                 // than with a zero the physics would divide by.

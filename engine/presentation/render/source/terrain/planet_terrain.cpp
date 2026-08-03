@@ -70,7 +70,7 @@ namespace SushiEngine
             }
 
             PlanetTerrain::PlanetTerrain(Vulkan::VulkanDevice& device,
-                                         const PlanetTerrainDesc& desc)
+                                         const PlanetTerrainDescription& desc)
                 : device_(device), source_(pack_), desc_(desc)
             {
                 records_.reserve(desc.maximum_nodes);

@@ -63,7 +63,7 @@ namespace SushiEngine
 
             void SkyPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDesc desc = fullscreen_pipeline_desc(
+                Resources::GraphicsPipelineDescription desc = fullscreen_pipeline_desc(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("sky.frag"), Frame::HDR_FORMAT);
                 // Second MRT slot: the analytic ground's raw, unresolved direct-sun term,
@@ -128,7 +128,8 @@ namespace SushiEngine
                     },
                     [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
+                        const VkSampler sampler =
+                            frame.samplers->get(Resources::SamplerDescription{});
                         Scene::SceneSetWriter writer;
                         writer.uniform(Scene::SceneLayout::SCENE_BINDING,
                                        context.buffer(frame.targets.uniforms),

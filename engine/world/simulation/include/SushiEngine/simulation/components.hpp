@@ -247,11 +247,11 @@ namespace SushiEngine
         /**
          * @brief Which primitive mesh a Shape or Collider is expressed as.
          *
-         * Shared by the editor-facing `ShapeParams`/`ColliderParams` (see
+         * Shared by the editor-facing `ShapeParameters`/`ColliderParameters` (see
          * simulation.hpp) rather than by an ECS component: neither a visual shape
          * nor a collider is read or written by any Schedule system today, so both
          * are plain host-side bookkeeping on `RuntimeSimulation::Record`, exactly
-         * like `PhysicsBodyParams`/`ClothParams` — no ECS archetype migration needed.
+         * like `PhysicsBodyParameters`/`ClothParameters` — no ECS archetype migration needed.
          */
         enum class PrimitiveKind : std::uint32_t
         {

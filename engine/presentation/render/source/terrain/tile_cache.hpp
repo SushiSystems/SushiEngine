@@ -188,7 +188,10 @@ namespace SushiEngine
                     VkImageView view() const noexcept { return view_; }
 
                     /** @brief The description the graph imports it with. */
-                    const Graph::TextureDesc& description() const noexcept { return description_; }
+                    const Graph::TextureDescription& description() const noexcept
+                    {
+                        return description_;
+                    }
 
                     /** @brief The layout/stage the graph left it in; it tracks this across frames. */
                     Graph::TextureState& state() noexcept { return state_; }
@@ -226,7 +229,7 @@ namespace SushiEngine
                     VkImage image_ = VK_NULL_HANDLE;
                     VmaAllocation allocation_ = VK_NULL_HANDLE;
                     VkImageView view_ = VK_NULL_HANDLE;
-                    Graph::TextureDesc description_{};
+                    Graph::TextureDescription description_{};
                     Graph::TextureState state_{};
                     Staging staging_[TERRAIN_FRAME_SLOTS]{};
                     std::vector<PendingUpload> pending_;

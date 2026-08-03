@@ -93,7 +93,7 @@ namespace SushiEngine
         };
 
         /** @brief Author parameters for @ref CompressorBusEffect. */
-        struct CompressorParams
+        struct CompressorParameters
         {
             float threshold_db = -18.0f; /**< Level above which gain reduction begins. */
             float ratio = 4.0f;          /**< Compression ratio (∞ ≈ a limiter). */
@@ -113,13 +113,13 @@ namespace SushiEngine
         class CompressorBusEffect final : public IBusEffect
         {
             public:
-                explicit CompressorBusEffect(const CompressorParams& params = CompressorParams{}) noexcept
+                explicit CompressorBusEffect(const CompressorParameters& params = CompressorParameters{}) noexcept
                     : params_(params)
                 {
                 }
 
                 /** @brief Replaces the author parameters. */
-                void set_params(const CompressorParams& params) noexcept { params_ = params; }
+                void set_params(const CompressorParameters& params) noexcept { params_ = params; }
 
                 /** @brief The current gain reduction in dB (≤ 0), for metering. */
                 float gain_reduction_db() const noexcept { return reduction_db_; }
@@ -192,7 +192,7 @@ namespace SushiEngine
                     return 20.0f * std::log10(lin > 1.0e-7f ? lin : 1.0e-7f);
                 }
 
-                CompressorParams params_;
+                CompressorParameters params_;
                 EnvelopeFollower follower_;
                 const float* key_ = nullptr;
                 double sample_rate_ = 48000.0;
@@ -296,7 +296,7 @@ namespace SushiEngine
         };
 
         /** @brief Author parameters for @ref GateBusEffect. */
-        struct GateParams
+        struct GateParameters
         {
             float threshold_db = -60.0f; /**< Below this the gate closes. */
             float attack_seconds = 0.001f;
@@ -307,7 +307,7 @@ namespace SushiEngine
         class GateBusEffect final : public IBusEffect
         {
             public:
-                explicit GateBusEffect(const GateParams& params = GateParams{}) noexcept
+                explicit GateBusEffect(const GateParameters& params = GateParameters{}) noexcept
                     : params_(params)
                 {
                 }
@@ -349,7 +349,7 @@ namespace SushiEngine
                     return static_cast<float>(std::pow(10.0, static_cast<double>(db) / 20.0));
                 }
 
-                GateParams params_;
+                GateParameters params_;
                 EnvelopeFollower follower_;
                 float threshold_ = 0.001f;
                 float open_ = 0.0f;

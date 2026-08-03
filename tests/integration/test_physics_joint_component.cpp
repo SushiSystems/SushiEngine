@@ -86,7 +86,7 @@ namespace
         transform.position = position;
         world.set_transform(id, transform);
         world.set_has_physics_body(id, true);
-        PhysicsBodyParams body;
+        PhysicsBodyParameters body;
         body.inv_mass = pinned ? Scalar(0) : Scalar(1);
         body.inv_inertia = pinned ? Vector3{0, 0, 0} : Vector3{6, 6, 6};
         world.set_physics_body_params(id, body);
@@ -100,9 +100,9 @@ namespace
      * passes whether that field is written or dropped, which is the one outcome it was
      * supposed to distinguish.
      */
-    PhysicsJointParams reference_joint(EntityId partner)
+    PhysicsJointParameters reference_joint(EntityId partner)
     {
-        PhysicsJointParams params;
+        PhysicsJointParameters params;
         params.connected_body = partner;
         params.joint.type = JointType::Hinge;
         params.joint.anchor_a = Vector3{0.25, -0.5, 0.75};
@@ -110,9 +110,12 @@ namespace
         params.joint.axis_a = Vector3{0, 1, 0};
         params.joint.axis_b = Vector3{0, 0, 1};
         params.joint.compliance = Scalar(1e-6);
-        params.joint.linear_limit = JointLimitDesc{Scalar(-0.5), Scalar(0.5), Scalar(1e-5), true};
-        params.joint.twist_limit = JointLimitDesc{Scalar(-1.25), Scalar(0.75), Scalar(2e-5), true};
-        params.joint.swing_limit = JointLimitDesc{Scalar(0), Scalar(0.4), Scalar(3e-5), true};
+        params.joint.linear_limit =
+            JointLimitDescription{Scalar(-0.5), Scalar(0.5), Scalar(1e-5), true};
+        params.joint.twist_limit =
+            JointLimitDescription{Scalar(-1.25), Scalar(0.75), Scalar(2e-5), true};
+        params.joint.swing_limit =
+            JointLimitDescription{Scalar(0), Scalar(0.4), Scalar(3e-5), true};
         params.joint.motor.type = JointMotorType::Velocity;
         params.joint.motor.target = Scalar(2.5);
         params.joint.motor.max_force = Scalar(125);
@@ -123,7 +126,8 @@ namespace
         return params;
     }
 
-    void expect_limit_equal(const JointLimitDesc& actual, const JointLimitDesc& expected)
+    void expect_limit_equal(const JointLimitDescription& actual,
+                            const JointLimitDescription& expected)
     {
         EXPECT_DOUBLE_EQ(double(actual.lower), double(expected.lower));
         EXPECT_DOUBLE_EQ(double(actual.upper), double(expected.upper));
@@ -131,7 +135,8 @@ namespace
         EXPECT_EQ(actual.enabled, expected.enabled);
     }
 
-    void expect_joint_equal(const PhysicsJointParams& actual, const PhysicsJointParams& expected)
+    void expect_joint_equal(const PhysicsJointParameters& actual,
+                            const PhysicsJointParameters& expected)
     {
         EXPECT_EQ(actual.connected_body, expected.connected_body);
         EXPECT_EQ(actual.joint.type, expected.joint.type);
@@ -177,7 +182,7 @@ TEST(Integration_PhysicsJoint, AJointHoldsUpABodyThatWouldOtherwiseFall)
     const EntityId held = make_body(world, "Held", Vector3{2, 10, 0}, false);
     const EntityId control = make_body(world, "Control", Vector3{6, 10, 0}, false);
 
-    PhysicsJointParams params;
+    PhysicsJointParameters params;
     params.connected_body = anchor;
     params.joint.type = JointType::Fixed;
     params.joint.anchor_a = Vector3{0, 0, 0};
@@ -208,7 +213,7 @@ TEST(Integration_PhysicsJoint, ItIsLiveOnlyWhenBothEndsAreBodies)
     const EntityId held = make_body(world, "Held", Vector3{2, 10, 0}, false);
     const EntityId bare = world.create("NoBody");
 
-    PhysicsJointParams params;
+    PhysicsJointParameters params;
     params.joint.type = JointType::Fixed;
     world.set_has_joint(held, true);
     world.set_joint_params(held, params);
@@ -243,7 +248,7 @@ TEST(Integration_PhysicsJoint, ALoadedJointReportsWhatItIsCarrying)
     const EntityId anchor = make_body(world, "Anchor", Vector3{0, 10, 0}, true);
     const EntityId held = make_body(world, "Held", Vector3{2, 10, 0}, false);
 
-    PhysicsJointParams params;
+    PhysicsJointParameters params;
     params.connected_body = anchor;
     params.joint.type = JointType::Fixed;
     params.joint.anchor_b = Vector3{2, 0, 0};
@@ -274,7 +279,7 @@ TEST(Integration_PhysicsJoint, ABreakableJointTearsOutAndStaysOut)
     const EntityId anchor = make_body(world, "Anchor", Vector3{0, 10, 0}, true);
     const EntityId held = make_body(world, "Held", Vector3{2, 10, 0}, false);
 
-    PhysicsJointParams params;
+    PhysicsJointParameters params;
     params.connected_body = anchor;
     params.joint.type = JointType::Fixed;
     params.joint.anchor_b = Vector3{2, 0, 0};
@@ -308,7 +313,7 @@ TEST(Integration_PhysicsJoint, EditingABrokenJointPutsItBack)
     const EntityId anchor = make_body(world, "Anchor", Vector3{0, 10, 0}, true);
     const EntityId held = make_body(world, "Held", Vector3{2, 10, 0}, false);
 
-    PhysicsJointParams params;
+    PhysicsJointParameters params;
     params.connected_body = anchor;
     params.joint.type = JointType::Fixed;
     params.joint.anchor_b = Vector3{2, 0, 0};
@@ -337,7 +342,7 @@ TEST(Integration_PhysicsJoint, DestroyingThePartnerReleasesTheJoint)
     const EntityId anchor = make_body(world, "Anchor", Vector3{0, 10, 0}, true);
     const EntityId held = make_body(world, "Held", Vector3{2, 10, 0}, false);
 
-    PhysicsJointParams params;
+    PhysicsJointParameters params;
     params.connected_body = anchor;
     params.joint.type = JointType::Fixed;
     params.joint.anchor_b = Vector3{2, 0, 0};
@@ -370,7 +375,7 @@ TEST(Integration_PhysicsJoint, EveryFieldSurvivesCaptureAndApply)
     world.set_joint_params(held, reference_joint(anchor));
 
     const nlohmann::json snapshot = Scene::capture_scene(world);
-    world.set_joint_params(held, PhysicsJointParams{});
+    world.set_joint_params(held, PhysicsJointParameters{});
     world.set_has_joint(held, false);
 
     Scene::apply_scene(world, snapshot);
@@ -395,7 +400,7 @@ TEST(Integration_PhysicsJoint, ThePartnerSurvivesBeingWrittenAfterTheJoint)
     const EntityId held = make_body(world, "Held", Vector3{2, 10, 0}, false);
     const EntityId anchor = make_body(world, "Anchor", Vector3{0, 10, 0}, true);
 
-    PhysicsJointParams params;
+    PhysicsJointParameters params;
     params.connected_body = anchor;
     params.joint.type = JointType::Hinge;
     world.set_has_joint(held, true);

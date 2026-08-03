@@ -28,7 +28,7 @@
  * evaluates an array of instances into it. Two throttles keep a 1000-instance crowd in
  * budget (design §5.2): a distance-derived **bone LOD** poses only a joint-count prefix, and
  * an **update-rate** ladder re-poses a distant instance at 30 or 15 Hz, reusing its last
- * palette on the skipped frames. Both are driven by fields the render `QualityParams`
+ * palette on the skipped frames. Both are driven by fields the render `QualityParameters`
  * resolver maps into @ref AnimationBudget, so animation stays inside the tier contract.
  */
 

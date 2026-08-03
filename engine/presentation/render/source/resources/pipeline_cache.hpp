@@ -137,7 +137,7 @@ namespace SushiEngine
              * four subsets — the cache key for the pipeline libraries, so it must be
              * comparable byte for byte.
              */
-            struct GraphicsPipelineDesc
+            struct GraphicsPipelineDescription
             {
                 VkPipelineLayout layout = VK_NULL_HANDLE;
                 VkShaderModule vertex_shader = VK_NULL_HANDLE;
@@ -243,20 +243,20 @@ namespace SushiEngine
                      * @param desc What the pipeline must be.
                      * @return A handle that resolves to the pipeline at bind time.
                      */
-                    PipelineHandle create(const GraphicsPipelineDesc& desc);
+                    PipelineHandle create(const GraphicsPipelineDescription& desc);
 
                     /**
                      * @brief Creates a mesh-shader pipeline (task + mesh + optional fragment).
                      *
                      * Always monolithic — the pipeline-library path is vertex-input-centric and
                      * a mesh pipeline has no vertex input at all. Used for the meshlet draw path;
-                     * @c GraphicsPipelineDesc::task_shader and @c mesh_shader name the stages,
-                     * and a null @c fragment_shader makes a depth-only mesh pipeline.
+                     * @c GraphicsPipelineDescription::task_shader and @c mesh_shader name the
+                     * stages, and a null @c fragment_shader makes a depth-only mesh pipeline.
                      *
                      * @param desc What the pipeline must be (task/mesh/fragment + state).
                      * @return A handle that resolves to the pipeline at bind time.
                      */
-                    PipelineHandle create_mesh(const GraphicsPipelineDesc& desc);
+                    PipelineHandle create_mesh(const GraphicsPipelineDescription& desc);
 
                     /**
                      * @brief Advances the optimizer's retirement clock by one frame.
@@ -290,7 +290,7 @@ namespace SushiEngine
                     /** @brief One cached pipeline library and the description subset that keyed it. */
                     struct Library
                     {
-                        GraphicsPipelineDesc key{};
+                        GraphicsPipelineDescription key{};
                         VkPipeline pipeline = VK_NULL_HANDLE;
                     };
 
@@ -305,7 +305,7 @@ namespace SushiEngine
                      */
                     struct Slot
                     {
-                        GraphicsPipelineDesc desc{};
+                        GraphicsPipelineDescription desc{};
                         std::atomic<VkPipeline> active{VK_NULL_HANDLE};
                         VkPipeline initial = VK_NULL_HANDLE;
                         VkPipeline optimized = VK_NULL_HANDLE;
@@ -318,13 +318,13 @@ namespace SushiEngine
                         std::uint64_t retire_frame = 0;
                     };
 
-                    VkPipeline create_monolithic(const GraphicsPipelineDesc& desc);
-                    VkPipeline create_mesh_monolithic(const GraphicsPipelineDesc& desc);
-                    VkPipeline create_linked(const GraphicsPipelineDesc& desc);
-                    VkPipeline vertex_input_library(const GraphicsPipelineDesc& desc);
-                    VkPipeline pre_rasterization_library(const GraphicsPipelineDesc& desc);
-                    VkPipeline fragment_shader_library(const GraphicsPipelineDesc& desc);
-                    VkPipeline fragment_output_library(const GraphicsPipelineDesc& desc);
+                    VkPipeline create_monolithic(const GraphicsPipelineDescription& desc);
+                    VkPipeline create_mesh_monolithic(const GraphicsPipelineDescription& desc);
+                    VkPipeline create_linked(const GraphicsPipelineDescription& desc);
+                    VkPipeline vertex_input_library(const GraphicsPipelineDescription& desc);
+                    VkPipeline pre_rasterization_library(const GraphicsPipelineDescription& desc);
+                    VkPipeline fragment_shader_library(const GraphicsPipelineDescription& desc);
+                    VkPipeline fragment_output_library(const GraphicsPipelineDescription& desc);
 
                     void worker_main();
                     void enqueue_optimize(Slot* slot);

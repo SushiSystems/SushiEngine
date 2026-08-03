@@ -63,8 +63,8 @@ namespace SushiEngine
          */
         struct CameraView
         {
-            Mat4 view; /**< World-to-camera. */
-            Mat4 projection; /**< Camera-to-clip (Vulkan depth 0..1, Y-flipped). */
+            Matrix4 view; /**< World-to-camera. */
+            Matrix4 projection; /**< Camera-to-clip (Vulkan depth 0..1, Y-flipped). */
             WorldVector3 world_position{}; /**< Absolute eye position, metres. */
             float near_plane = 0.1f;  /**< Near clip distance, for depth linearisation. */
             float far_plane = 1000.0f; /**< Far clip distance, for depth linearisation. */
@@ -88,7 +88,7 @@ namespace SushiEngine
         /** @brief One mesh drawn this frame: its world transform, material, and pick id. */
         struct MeshInstance
         {
-            Mat4 model;              /**< Object-to-world transform. */
+            Matrix4 model;              /**< Object-to-world transform. */
             Vector3 color;              /**< Base colour; also seeds @ref material.albedo. */
             std::uint32_t id = 0;    /**< Picking id written to the id target (0 = none). */
             MeshKind kind = MeshKind::Box; /**< Which unit mesh to draw this instance with. */
@@ -119,7 +119,7 @@ namespace SushiEngine
          */
         struct SkinnedInstance
         {
-            Mat4 model;                               /**< Object-to-world transform. */
+            Matrix4 model;                               /**< Object-to-world transform. */
             const void* palette = nullptr;            /**< joint_count × 16 floats, this frame. */
             const void* previous_palette = nullptr;   /**< Same, last frame (null = reuse current). */
             std::uint32_t joint_count = 0;            /**< Joints in the palettes. */
@@ -164,7 +164,7 @@ namespace SushiEngine
          */
         struct ParticleEmitterView
         {
-            Mat4 model;                            /**< Emitter object-to-world transform. */
+            Matrix4 model;                            /**< Emitter object-to-world transform. */
             const void* compiled = nullptr;        /**< `VFX::CompiledEmitter*`, opaque here. */
             const float* curve_luts = nullptr;     /**< The effect's baked scalar-curve atlas. */
             const float* gradient_luts = nullptr;  /**< The effect's baked RGBA gradient atlas. */

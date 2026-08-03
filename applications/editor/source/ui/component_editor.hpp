@@ -79,17 +79,17 @@ namespace SushiEngine
          * checked at the binding site: passing `set_light_params` alongside
          * `collider_params` does not compile.
          *
-         * @tparam Params The component's authoring parameter aggregate.
+         * @tparam Parameters The component's authoring parameter aggregate.
          */
-        template <typename Params>
+        template <typename Parameters>
         struct ComponentAccess
         {
             /** @brief Whether the entity carries this component. */
             bool (Simulation::IWorldEditor::*present)(Simulation::EntityId) const;
             /** @brief The entity's current parameters. */
-            Params (Simulation::IWorldEditor::*read)(Simulation::EntityId) const;
+            Parameters (Simulation::IWorldEditor::*read)(Simulation::EntityId) const;
             /** @brief Installs parameters on the entity. */
-            void (Simulation::IWorldEditor::*write)(Simulation::EntityId, const Params&);
+            void (Simulation::IWorldEditor::*write)(Simulation::EntityId, const Parameters&);
         };
 
         /**
@@ -128,12 +128,12 @@ namespace SushiEngine
          * @param component The component's display name, e.g. "Light".
          * @param params The values to remember.
          */
-        template <typename Params>
+        template <typename Parameters>
         void copy_component_values(EditorContext& context, const char* component,
-                                   const Params& params)
+                                   const Parameters& params)
         {
             context.component_clipboard.component = component;
-            context.component_clipboard.values = std::make_shared<Params>(params);
+            context.component_clipboard.values = std::make_shared<Parameters>(params);
         }
 
         /**
@@ -144,18 +144,18 @@ namespace SushiEngine
          * @param out Receives the stored values only when the names match.
          * @return Whether @p out was filled.
          */
-        template <typename Params>
+        template <typename Parameters>
         bool paste_component_values(const EditorContext& context, const char* component,
-                                    Params& out)
+                                    Parameters& out)
         {
             if (context.component_clipboard.values == nullptr ||
                 context.component_clipboard.component != component)
                 return false;
-            out = *static_cast<const Params*>(context.component_clipboard.values.get());
+            out = *static_cast<const Parameters*>(context.component_clipboard.values.get());
             return true;
         }
 
-        template <typename Params>
+        template <typename Parameters>
         class ComponentEditor;
 
         /**
@@ -183,17 +183,17 @@ namespace SushiEngine
          * @param component The component's display name, the clipboard's key.
          * @param editor The section's editor, which performs the writes.
          */
-        template <typename Params>
+        template <typename Parameters>
         void apply_component_section(EditorContext& context, const ComponentSection& section,
-                                     const char* component, ComponentEditor<Params>& editor)
+                                     const char* component, ComponentEditor<Parameters>& editor)
         {
             if (section.reset)
-                editor.write_all(Params{});
+                editor.write_all(Parameters{});
             if (section.copy)
                 copy_component_values(context, component, editor.values());
             if (!section.paste)
                 return;
-            Params pasted;
+            Parameters pasted;
             if (paste_component_values(context, component, pasted))
                 editor.write_all(pasted);
         }
@@ -211,9 +211,9 @@ namespace SushiEngine
          * `Scalar`/float narrowing, the undo bracket, the tooltip — so a section reads as a
          * list of the component's fields rather than a list of ImGui calls.
          *
-         * @tparam Params The component's authoring parameter aggregate.
+         * @tparam Parameters The component's authoring parameter aggregate.
          */
-        template <typename Params>
+        template <typename Parameters>
         class ComponentEditor
         {
         public:
@@ -224,7 +224,7 @@ namespace SushiEngine
              * repeating the fully qualified component type at every one of its fields, which
              * is what keeps a section readable as a list of fields.
              */
-            using Values = Params;
+            using Values = Parameters;
 
             /**
              * @brief Resolves the selection this editor will write to.
@@ -236,7 +236,7 @@ namespace SushiEngine
              *                primary selection, which is always one of the targets.
              */
             ComponentEditor(EditorContext& context, Simulation::IWorldEditor& world,
-                            const ComponentAccess<Params>& access, Simulation::EntityId primary)
+                            const ComponentAccess<Parameters>& access, Simulation::EntityId primary)
                 : context_(context), world_(world), access_(access), primary_(primary),
                   values_((world.*access.read)(primary))
             {
@@ -258,7 +258,7 @@ namespace SushiEngine
              * @param only The single entity to display and write.
              */
             ComponentEditor(EditorContext& context, Simulation::IWorldEditor& world,
-                            const ComponentAccess<Params>& access, Simulation::EntityId only,
+                            const ComponentAccess<Parameters>& access, Simulation::EntityId only,
                             OneEntity)
                 : context_(context), world_(world), access_(access), primary_(only),
                   values_((world.*access.read)(only))
@@ -267,7 +267,7 @@ namespace SushiEngine
             }
 
             /** @brief The primary entity's values, as displayed; edits are folded in here. */
-            const Params& values() const noexcept { return values_; }
+            const Parameters& values() const noexcept { return values_; }
 
             /** @brief How many selected entities this editor writes to (at least one). */
             std::size_t target_count() const noexcept { return targets_.size(); }
@@ -284,12 +284,12 @@ namespace SushiEngine
              * @return True when at least two targets hold different values.
              */
             template <typename Field>
-            bool mixed(Field Params::*member) const
+            bool mixed(Field Parameters::*member) const
             {
                 const Field& reference = values_.*member;
                 for (std::size_t i = 1; i < targets_.size(); ++i)
                 {
-                    const Params other = (world_.*access_.read)(targets_[i]);
+                    const Parameters other = (world_.*access_.read)(targets_[i]);
                     if (!field_equal(other.*member, reference))
                         return true;
                 }
@@ -318,7 +318,7 @@ namespace SushiEngine
              * @return Whether the field changed this frame.
              */
             template <typename Field>
-            bool number(const char* label, Field Params::*member, float speed, float low,
+            bool number(const char* label, Field Parameters::*member, float speed, float low,
                         float high, const char* format, const char* tooltip = nullptr,
                         float scale = 1.0f)
             {
@@ -345,7 +345,7 @@ namespace SushiEngine
              * @return Whether the field changed this frame.
              */
             template <typename Field>
-            bool fraction(const char* label, Field Params::*member, float low, float high,
+            bool fraction(const char* label, Field Parameters::*member, float low, float high,
                           const char* format, const char* tooltip = nullptr)
             {
                 return edit(member, tooltip, 1.0f,
@@ -372,8 +372,8 @@ namespace SushiEngine
              * @return Whether the field changed this frame.
              */
             template <typename Field>
-            bool integer(const char* label, Field Params::*member, float speed, int low, int high,
-                         const char* tooltip = nullptr)
+            bool integer(const char* label, Field Parameters::*member, float speed, int low,
+                         int high, const char* tooltip = nullptr)
             {
                 const bool is_mixed = mixed(member);
                 int value = static_cast<int>(values_.*member);
@@ -401,7 +401,7 @@ namespace SushiEngine
              * @param tooltip Explanation shown on hover, or nullptr for none.
              * @return Whether the field changed this frame.
              */
-            bool toggle(const char* label, bool Params::*member, const char* tooltip = nullptr)
+            bool toggle(const char* label, bool Parameters::*member, const char* tooltip = nullptr)
             {
                 const bool is_mixed = mixed(member);
                 bool value = values_.*member;
@@ -429,7 +429,7 @@ namespace SushiEngine
              * @param tooltip Explanation shown on hover, or nullptr for none.
              * @return Whether the field changed this frame.
              */
-            bool vector(const char* label, Vector3 Params::*member, float speed, float low,
+            bool vector(const char* label, Vector3 Parameters::*member, float speed, float low,
                         float high, const char* format, const char* tooltip = nullptr)
             {
                 const bool is_mixed = mixed(member);
@@ -450,7 +450,7 @@ namespace SushiEngine
              * @brief One component of a vector field, for the fields whose axes mean
              * different things.
              *
-             * A sphere's `ShapeParams` stores its radius in `params.x` and leaves the other
+             * A sphere's `ShapeParameters` stores its radius in `params.x` and leaves the other
              * two unused; drawing all three would offer two controls that change nothing.
              *
              * @param label Field label, also the ImGui id.
@@ -463,7 +463,7 @@ namespace SushiEngine
              * @param tooltip Explanation shown on hover, or nullptr for none.
              * @return Whether the component changed this frame.
              */
-            bool vector_component(const char* label, Vector3 Params::*member, int axis,
+            bool vector_component(const char* label, Vector3 Parameters::*member, int axis,
                                   float speed, float low, float high, const char* format,
                                   const char* tooltip = nullptr)
             {
@@ -473,7 +473,7 @@ namespace SushiEngine
                 bool is_mixed = false;
                 for (std::size_t i = 1; i < targets_.size() && !is_mixed; ++i)
                 {
-                    const Params other = (world_.*access_.read)(targets_[i]);
+                    const Parameters other = (world_.*access_.read)(targets_[i]);
                     is_mixed = axis_of(other.*member) != current;
                 }
                 float value = to_float(current);
@@ -486,7 +486,7 @@ namespace SushiEngine
                 values_.*member = with_axis(values_.*member, axis, to_scalar(value));
                 for (const Simulation::EntityId id : targets_)
                 {
-                    Params params = (world_.*access_.read)(id);
+                    Parameters params = (world_.*access_.read)(id);
                     params.*member = with_axis(params.*member, axis, to_scalar(value));
                     (world_.*access_.write)(id, params);
                 }
@@ -504,7 +504,8 @@ namespace SushiEngine
              * @param tooltip Explanation shown on hover, or nullptr for none.
              * @return Whether the field changed this frame.
              */
-            bool color(const char* label, Vector3 Params::*member, const char* tooltip = nullptr)
+            bool color(const char* label, Vector3 Parameters::*member,
+                       const char* tooltip = nullptr)
             {
                 const bool is_mixed = mixed(member);
                 const Vector3& current = values_.*member;
@@ -530,7 +531,7 @@ namespace SushiEngine
              * @return Whether the field changed this frame.
              */
             template <typename Field>
-            bool choice(const char* label, Field Params::*member, const char* const* names,
+            bool choice(const char* label, Field Parameters::*member, const char* const* names,
                         int count, const char* tooltip = nullptr)
             {
                 const bool is_mixed = mixed(member);
@@ -570,7 +571,8 @@ namespace SushiEngine
              * @return Whether the field changed this frame.
              */
             template <std::size_t N>
-            bool text(const char* label, char (Params::*member)[N], const char* tooltip = nullptr)
+            bool text(const char* label, char (Parameters::*member)[N],
+                      const char* tooltip = nullptr)
             {
                 char buffer[N];
                 std::snprintf(buffer, N, "%s", values_.*member);
@@ -578,7 +580,7 @@ namespace SushiEngine
                 bool is_mixed = false;
                 for (std::size_t i = 1; i < targets_.size() && !is_mixed; ++i)
                 {
-                    const Params other = (world_.*access_.read)(targets_[i]);
+                    const Parameters other = (world_.*access_.read)(targets_[i]);
                     is_mixed = std::string(other.*member) != std::string(values_.*member);
                 }
                 finish_row(tooltip, is_mixed);
@@ -588,7 +590,7 @@ namespace SushiEngine
                 std::snprintf(values_.*member, N, "%s", buffer);
                 for (const Simulation::EntityId id : targets_)
                 {
-                    Params params = (world_.*access_.read)(id);
+                    Parameters params = (world_.*access_.read)(id);
                     std::snprintf(params.*member, N, "%s", buffer);
                     (world_.*access_.write)(id, params);
                 }
@@ -604,7 +606,7 @@ namespace SushiEngine
              *
              * @param params The values to install everywhere.
              */
-            void write_all(const Params& params)
+            void write_all(const Parameters& params)
             {
                 context_.history.record(world_);
                 values_ = params;
@@ -625,7 +627,7 @@ namespace SushiEngine
             }
 
             /** @brief The primary entity's values, mutable for the paths above. */
-            Params& mutable_values() noexcept { return values_; }
+            Parameters& mutable_values() noexcept { return values_; }
 
         private:
             /**
@@ -639,7 +641,7 @@ namespace SushiEngine
              * @return Whether the field changed this frame.
              */
             template <typename Field, typename Draw>
-            bool edit(Field Params::*member, const char* tooltip, float scale, Draw draw)
+            bool edit(Field Parameters::*member, const char* tooltip, float scale, Draw draw)
             {
                 const bool is_mixed = mixed(member);
                 float value = static_cast<float>(values_.*member) * scale;
@@ -684,12 +686,12 @@ namespace SushiEngine
              * did not touch.
              */
             template <typename Field>
-            void assign(Field Params::*member, const Field& value)
+            void assign(Field Parameters::*member, const Field& value)
             {
                 values_.*member = value;
                 for (const Simulation::EntityId id : targets_)
                 {
-                    Params params = (world_.*access_.read)(id);
+                    Parameters params = (world_.*access_.read)(id);
                     params.*member = value;
                     (world_.*access_.write)(id, params);
                 }
@@ -697,9 +699,9 @@ namespace SushiEngine
 
             EditorContext& context_;
             Simulation::IWorldEditor& world_;
-            ComponentAccess<Params> access_;
+            ComponentAccess<Parameters> access_;
             Simulation::EntityId primary_;
-            Params values_;
+            Parameters values_;
             std::vector<Simulation::EntityId> targets_;
         };
     } // namespace Editor

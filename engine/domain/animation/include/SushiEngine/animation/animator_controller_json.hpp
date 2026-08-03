@@ -21,16 +21,16 @@
 
 /**
  * @file animator_controller_json.hpp
- * @brief (De)serializing an authored @ref ControllerDesc as JSON (phase A9).
+ * @brief (De)serializing an authored @ref ControllerDescription as JSON (phase A9).
  *
  * The Animator is authored in the editor and persisted as JSON (design §4.3, like
  * `.sushiscene`); at load it compiles to the flat `.sushictrl` blob. This header is the
- * persistence seam: `ControllerDesc` ⇄ JSON, human-readable (enums as names, nested blend trees
- * as nested objects). It is what the editor's save/load and undo/redo ride on — an undo step is
- * a serialized snapshot restored. Like `input/bindings_json.hpp`, this is the *only* animation
- * header that pulls in nlohmann/json, so the core stack stays dependency-free; a headless build
- * that never persists controllers includes none of it. Asset references serialize as their ids
- * (-1 for none); a project layer that maps ids to paths sits above this.
+ * persistence seam: `ControllerDescription` ⇄ JSON, human-readable (enums as names, nested blend
+ * trees as nested objects). It is what the editor's save/load and undo/redo ride on — an undo
+ * step is a serialized snapshot restored. Like `input/bindings_json.hpp`, this is the *only*
+ * animation header that pulls in nlohmann/json, so the core stack stays dependency-free; a
+ * headless build that never persists controllers includes none of it. Asset references serialize
+ * as their ids (-1 for none); a project layer that maps ids to paths sits above this.
  */
 
 #include <memory>
@@ -146,16 +146,16 @@ namespace SushiEngine
                 return raw < 0 ? INVALID_ASSET : static_cast<AssetId>(raw);
             }
 
-            inline nlohmann::json condition_to_json(const ConditionDesc& condition)
+            inline nlohmann::json condition_to_json(const ConditionDescription& condition)
             {
                 return nlohmann::json{{"parameter", condition.parameter},
                                       {"comparator", comparator_name(condition.comparator)},
                                       {"threshold", condition.threshold}};
             }
-            inline nlohmann::json transition_to_json(const TransitionDesc& transition)
+            inline nlohmann::json transition_to_json(const TransitionDescription& transition)
             {
                 nlohmann::json conditions = nlohmann::json::array();
-                for (const ConditionDesc& c : transition.conditions)
+                for (const ConditionDescription& c : transition.conditions)
                     conditions.push_back(condition_to_json(c));
                 return nlohmann::json{{"destination", transition.destination},
                                       {"has_exit_time", transition.has_exit_time},
@@ -165,9 +165,9 @@ namespace SushiEngine
                                       {"interruption", interruption_name(transition.interruption)},
                                       {"conditions", conditions}};
             }
-            inline TransitionDesc transition_from_json(const nlohmann::json& json)
+            inline TransitionDescription transition_from_json(const nlohmann::json& json)
             {
-                TransitionDesc transition;
+                TransitionDescription transition;
                 transition.destination = json.value("destination", std::string{});
                 transition.has_exit_time = json.value("has_exit_time", false);
                 transition.exit_time = json.value("exit_time", 1.0f);
@@ -178,7 +178,7 @@ namespace SushiEngine
                 if (json.contains("conditions"))
                     for (const nlohmann::json& c : json.at("conditions"))
                     {
-                        ConditionDesc condition;
+                        ConditionDescription condition;
                         condition.parameter = c.value("parameter", std::string{});
                         condition.comparator =
                             comparator_from(c.value("comparator", std::string{"Greater"}));
@@ -188,9 +188,9 @@ namespace SushiEngine
                 return transition;
             }
 
-            inline nlohmann::json blend_node_to_json(const BlendTreeNodeDesc& node);
+            inline nlohmann::json blend_node_to_json(const BlendTreeNodeDescription& node);
 
-            inline nlohmann::json blend_child_to_json(const BlendChildDesc& child)
+            inline nlohmann::json blend_child_to_json(const BlendChildDescription& child)
             {
                 nlohmann::json json{{"clip", asset_to_json(child.clip)},
                                     {"threshold", child.threshold},
@@ -203,10 +203,10 @@ namespace SushiEngine
                 return json;
             }
 
-            inline nlohmann::json blend_node_to_json(const BlendTreeNodeDesc& node)
+            inline nlohmann::json blend_node_to_json(const BlendTreeNodeDescription& node)
             {
                 nlohmann::json children = nlohmann::json::array();
-                for (const BlendChildDesc& child : node.children)
+                for (const BlendChildDescription& child : node.children)
                     children.push_back(blend_child_to_json(child));
                 return nlohmann::json{{"type", blend_tree_type_name(node.type)},
                                       {"parameter_x", node.parameter_x},
@@ -215,11 +215,11 @@ namespace SushiEngine
                                       {"children", children}};
             }
 
-            inline std::shared_ptr<BlendTreeNodeDesc> blend_node_from_json(const nlohmann::json& json);
+            inline std::shared_ptr<BlendTreeNodeDescription> blend_node_from_json(const nlohmann::json& json);
 
-            inline BlendChildDesc blend_child_from_json(const nlohmann::json& json)
+            inline BlendChildDescription blend_child_from_json(const nlohmann::json& json)
             {
-                BlendChildDesc child;
+                BlendChildDescription child;
                 child.clip = asset_from_json(json.value("clip", nlohmann::json(-1)));
                 child.threshold = json.value("threshold", 0.0f);
                 child.position_x = json.value("position_x", 0.0f);
@@ -231,9 +231,9 @@ namespace SushiEngine
                 return child;
             }
 
-            inline std::shared_ptr<BlendTreeNodeDesc> blend_node_from_json(const nlohmann::json& json)
+            inline std::shared_ptr<BlendTreeNodeDescription> blend_node_from_json(const nlohmann::json& json)
             {
-                auto node = std::make_shared<BlendTreeNodeDesc>();
+                auto node = std::make_shared<BlendTreeNodeDescription>();
                 node->type = blend_tree_type_from(json.value("type", std::string{"Simple1D"}));
                 node->parameter_x = json.value("parameter_x", std::string{});
                 node->parameter_y = json.value("parameter_y", std::string{});
@@ -250,25 +250,25 @@ namespace SushiEngine
          * @param desc The controller to serialize.
          * @return A JSON document that @ref controller_from_json reads back to an equal desc.
          */
-        inline nlohmann::json controller_to_json(const ControllerDesc& desc)
+        inline nlohmann::json controller_to_json(const ControllerDescription& desc)
         {
             nlohmann::json parameters = nlohmann::json::array();
-            for (const ParameterDesc& p : desc.parameters)
+            for (const ParameterDescription& p : desc.parameters)
                 parameters.push_back({{"name", p.name},
                                       {"type", detail::parameter_type_name(p.type)},
                                       {"default", p.default_value}});
 
             nlohmann::json layers = nlohmann::json::array();
-            for (const LayerDesc& layer : desc.layers)
+            for (const LayerDescription& layer : desc.layers)
             {
                 nlohmann::json states = nlohmann::json::array();
-                for (const StateDesc& state : layer.states)
+                for (const StateDescription& state : layer.states)
                 {
                     nlohmann::json transitions = nlohmann::json::array();
-                    for (const TransitionDesc& t : state.transitions)
+                    for (const TransitionDescription& t : state.transitions)
                         transitions.push_back(detail::transition_to_json(t));
                     nlohmann::json events = nlohmann::json::array();
-                    for (const StateEventDesc& e : state.events)
+                    for (const StateEventDescription& e : state.events)
                         events.push_back({{"normalized_time", e.normalized_time},
                                           {"name", e.name},
                                           {"payload", e.payload}});
@@ -284,7 +284,7 @@ namespace SushiEngine
                     states.push_back(json_state);
                 }
                 nlohmann::json any_transitions = nlohmann::json::array();
-                for (const TransitionDesc& t : layer.any_state_transitions)
+                for (const TransitionDescription& t : layer.any_state_transitions)
                     any_transitions.push_back(detail::transition_to_json(t));
                 layers.push_back({{"name", layer.name},
                                   {"weight", layer.weight},
@@ -304,13 +304,13 @@ namespace SushiEngine
          * @param json A document produced by @ref controller_to_json (older/partial ones degrade).
          * @return The reconstructed controller description.
          */
-        inline ControllerDesc controller_from_json(const nlohmann::json& json)
+        inline ControllerDescription controller_from_json(const nlohmann::json& json)
         {
-            ControllerDesc desc;
+            ControllerDescription desc;
             if (json.contains("parameters"))
                 for (const nlohmann::json& p : json.at("parameters"))
                 {
-                    ParameterDesc parameter;
+                    ParameterDescription parameter;
                     parameter.name = p.value("name", std::string{});
                     parameter.type = detail::parameter_type_from(p.value("type", std::string{"Float"}));
                     parameter.default_value = p.value("default", 0.0f);
@@ -319,7 +319,7 @@ namespace SushiEngine
             if (json.contains("layers"))
                 for (const nlohmann::json& l : json.at("layers"))
                 {
-                    LayerDesc layer;
+                    LayerDescription layer;
                     layer.name = l.value("name", std::string{});
                     layer.weight = l.value("weight", 1.0f);
                     layer.mask = detail::asset_from_json(l.value("mask", nlohmann::json(-1)));
@@ -329,7 +329,7 @@ namespace SushiEngine
                     if (l.contains("states"))
                         for (const nlohmann::json& s : l.at("states"))
                         {
-                            StateDesc state;
+                            StateDescription state;
                             state.name = s.value("name", std::string{});
                             state.clip = detail::asset_from_json(s.value("clip", nlohmann::json(-1)));
                             state.speed = s.value("speed", 1.0f);
@@ -343,7 +343,7 @@ namespace SushiEngine
                             if (s.contains("events"))
                                 for (const nlohmann::json& e : s.at("events"))
                                 {
-                                    StateEventDesc event;
+                                    StateEventDescription event;
                                     event.normalized_time = e.value("normalized_time", 0.0f);
                                     event.name = e.value("name", std::string{});
                                     event.payload = e.value("payload", 0);

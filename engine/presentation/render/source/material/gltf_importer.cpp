@@ -421,14 +421,14 @@ namespace SushiEngine
                  * produce for this skin, without writing a skeleton blob.
                  *
                  * Only the parent links affect the cook's stable topological sort (§ design
-                 * skeleton_blob.hpp), so a throwaway @c SkeletonDesc with just @c parent set is
-                 * enough to reproduce the same @c order the real skeleton/clip import computed
-                 * for the same file and skin index.
+                 * skeleton_blob.hpp), so a throwaway @c SkeletonDescription with just @c parent
+                 * set is enough to reproduce the same @c order the real skeleton/clip import
+                 * computed for the same file and skin index.
                  */
                 bool skin_joint_remap(const cgltf_skin& skin,
                                       std::vector<std::uint16_t>& out_remap)
                 {
-                    Animation::SkeletonDesc desc;
+                    Animation::SkeletonDescription desc;
                     desc.joints.resize(skin.joints_count);
                     for (cgltf_size j = 0; j < skin.joints_count; ++j)
                         desc.joints[j].parent = skin_joint_index_of(skin, skin.joints[j]->parent);

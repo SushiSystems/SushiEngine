@@ -164,7 +164,7 @@ namespace SushiEngine
              * the usage implied by every declared access before allocating, so a pass
              * that samples a target never has to remember VK_IMAGE_USAGE_SAMPLED_BIT.
              */
-            struct TextureDesc
+            struct TextureDescription
             {
                 std::uint32_t width = 1;
                 std::uint32_t height = 1;
@@ -192,12 +192,14 @@ namespace SushiEngine
             };
 
             /** @brief A buffer the graph may allocate, alias, and hand to passes. */
-            struct BufferDesc
+            struct BufferDescription
             {
                 VkDeviceSize size = 0;
                 VkBufferUsageFlags usage = 0;
                 bool host_visible = false; /**< Allocate mapped host memory (readbacks, uploads). */
-                /** @brief Both queue families touch it; see @ref TextureDesc::cross_queue. */
+                /**
+                 * @brief Both queue families touch it; see @ref TextureDescription::cross_queue.
+                 */
                 bool cross_queue = false;
                 const char* name = "buffer";
             };
@@ -213,7 +215,8 @@ namespace SushiEngine
              * @param b Second description.
              * @return true when the two describe the same physical image.
              */
-            inline bool same_texture_desc(const TextureDesc& a, const TextureDesc& b) noexcept
+            inline bool same_texture_desc(const TextureDescription& a,
+                                          const TextureDescription& b) noexcept
             {
                 return a.width == b.width && a.height == b.height && a.depth == b.depth &&
                        a.mip_levels == b.mip_levels && a.array_layers == b.array_layers &&
@@ -228,7 +231,8 @@ namespace SushiEngine
              * @param b Second description.
              * @return true when the two describe the same physical buffer.
              */
-            inline bool same_buffer_desc(const BufferDesc& a, const BufferDesc& b) noexcept
+            inline bool same_buffer_desc(const BufferDescription& a,
+                                         const BufferDescription& b) noexcept
             {
                 return a.size == b.size && a.usage == b.usage &&
                        a.host_visible == b.host_visible && a.cross_queue == b.cross_queue;

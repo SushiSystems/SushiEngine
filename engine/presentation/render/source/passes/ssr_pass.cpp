@@ -83,8 +83,9 @@ namespace SushiEngine
                     },
                     [this, &frame, trace](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        const VkSampler linear = frame.samplers->get(Resources::SamplerDesc{});
-                        Resources::SamplerDesc hiz_desc;
+                        const VkSampler linear =
+                            frame.samplers->get(Resources::SamplerDescription{});
+                        Resources::SamplerDescription hiz_desc;
                         hiz_desc.filter = VK_FILTER_NEAREST;
                         hiz_desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
                         hiz_desc.max_lod = 16.0f;

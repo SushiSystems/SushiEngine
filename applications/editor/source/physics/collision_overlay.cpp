@@ -29,7 +29,7 @@ namespace SushiEngine
 {
     namespace Editor
     {
-        std::size_t draw_collision_overlay(const std::vector<float>& segments, const Mat4& world,
+        std::size_t draw_collision_overlay(const std::vector<float>& segments, const Matrix4& world,
                                            const SushiEngine::Render::CameraView& camera_view,
                                            const ImVec2& image_origin, float width, float height,
                                            ImDrawList* draw_list)
@@ -37,7 +37,7 @@ namespace SushiEngine
             if (draw_list == nullptr || segments.size() < 6)
                 return 0;
 
-            const Mat4 view_projection = mul(camera_view.projection, camera_view.view);
+            const Matrix4 view_projection = mul(camera_view.projection, camera_view.view);
             // Green, and thin. The collider is a second opinion about a shape the artist is
             // already looking at, so it has to be legible over the mesh without becoming the
             // thing they see — an overlay that dominates gets switched off and then shows

@@ -192,7 +192,8 @@ namespace SushiEngine
                     [this, &frame, luminance, push](VkCommandBuffer cmd,
                                                     const Graph::PassContext& context)
                     {
-                        const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
+                        const VkSampler sampler =
+                            frame.samplers->get(Resources::SamplerDescription{});
                         const VkDescriptorSet set = frame.descriptors->allocate(set_layout_);
 
                         Resources::DescriptorWriter writer;

@@ -58,12 +58,12 @@ namespace
 
     void bind_pose_context(const SkeletonView& skeleton, std::vector<Vector3f>& t,
                            std::vector<Quaternionf>& r, std::vector<Vector3f>& s,
-                           std::vector<Mat4>& model)
+                           std::vector<Matrix4>& model)
     {
         t.assign(skeleton.joint_count, Vector3f{});
         r.assign(skeleton.joint_count, Quaternionf{});
         s.assign(skeleton.joint_count, Vector3f{1, 1, 1});
-        model.assign(skeleton.joint_count, Mat4{});
+        model.assign(skeleton.joint_count, Matrix4{});
         for (std::uint32_t j = 0; j < skeleton.joint_count; ++j)
         {
             t[j] = skeleton.bind_translations[j];
@@ -78,15 +78,15 @@ int main()
 {
     // --- Test 1: a single 3-joint chain reaches an out-of-plane target -----------------
     {
-        SkeletonDesc desc;
-        JointDesc root;
+        SkeletonDescription desc;
+        JointDescription root;
         root.name = "root";
         root.parent = -1;
-        JointDesc mid;
+        JointDescription mid;
         mid.name = "mid";
         mid.parent = 0;
         mid.bind_translation = Vector3f{1.0f, 0.0f, 0.0f};
-        JointDesc tip;
+        JointDescription tip;
         tip.name = "tip";
         tip.parent = 1;
         tip.bind_translation = Vector3f{1.0f, 0.0f, 0.0f};
@@ -101,7 +101,7 @@ int main()
         std::vector<Vector3f> t;
         std::vector<Quaternionf> r;
         std::vector<Vector3f> s;
-        std::vector<Mat4> model;
+        std::vector<Matrix4> model;
         bind_pose_context(skeleton, t, r, s, model);
         PoseModifierContext context;
         context.skeleton = skeleton;
@@ -134,23 +134,23 @@ int main()
 
     // --- Test 2: two independent limbs off a shared, never-rotated anchor --------------
     {
-        SkeletonDesc desc;
-        JointDesc root;
+        SkeletonDescription desc;
+        JointDescription root;
         root.name = "root";
         root.parent = -1;
-        JointDesc limb_a_base;
+        JointDescription limb_a_base;
         limb_a_base.name = "limb_a_base";
         limb_a_base.parent = 0;
         limb_a_base.bind_translation = Vector3f{0.0f, 1.0f, 0.0f};
-        JointDesc limb_a_tip;
+        JointDescription limb_a_tip;
         limb_a_tip.name = "limb_a_tip";
         limb_a_tip.parent = 1;
         limb_a_tip.bind_translation = Vector3f{1.0f, 0.0f, 0.0f};
-        JointDesc limb_b_base;
+        JointDescription limb_b_base;
         limb_b_base.name = "limb_b_base";
         limb_b_base.parent = 0;
         limb_b_base.bind_translation = Vector3f{0.0f, -1.0f, 0.0f};
-        JointDesc limb_b_tip;
+        JointDescription limb_b_tip;
         limb_b_tip.name = "limb_b_tip";
         limb_b_tip.parent = 3;
         limb_b_tip.bind_translation = Vector3f{1.0f, 0.0f, 0.0f};
@@ -185,7 +185,7 @@ int main()
         std::vector<Vector3f> t;
         std::vector<Quaternionf> r;
         std::vector<Vector3f> s;
-        std::vector<Mat4> model;
+        std::vector<Matrix4> model;
         bind_pose_context(skeleton, t, r, s, model);
         PoseModifierContext context;
         context.skeleton = skeleton;

@@ -144,7 +144,7 @@ namespace SushiEngine
                 // Wraps in U (the azimuth axis) and clamps in V (the polar axis) the way
                 // any equirectangular map addresses: a sample straying past the pole
                 // should hold the pole's own colour rather than jumping to the far side.
-                Resources::SamplerDesc sampler_desc{};
+                Resources::SamplerDescription sampler_desc{};
                 sampler_desc.filter = VK_FILTER_LINEAR;
                 sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
                 sampler_ = samplers.get(sampler_desc);

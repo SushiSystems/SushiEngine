@@ -139,7 +139,7 @@ namespace SushiEngine
                 // Edge-clamped, not wrapped: the field describes a bounded region of the world,
                 // and a march ray leaving it must keep reading the nearest simulated cell rather
                 // than teleporting to the far side of the domain.
-                Resources::SamplerDesc sampler_desc{};
+                Resources::SamplerDescription sampler_desc{};
                 sampler_desc.filter = VK_FILTER_LINEAR;
                 sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
                 sampler_ = samplers.get(sampler_desc);

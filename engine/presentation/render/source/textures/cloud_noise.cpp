@@ -70,14 +70,14 @@ namespace SushiEngine
                               "exactly — cloud_noise_mip.comp's 2x2x2 box gather assumes it");
 
                 /** @brief The push block both noise generation shaders declare. */
-                struct NoiseParams
+                struct NoiseParameters
                 {
                     std::uint32_t resolution;
                     std::uint32_t kind;
                 };
 
                 /** @brief The push block cloud_noise_mip.comp declares. */
-                struct MipParams
+                struct MipParameters
                 {
                     std::uint32_t resolution; /**< Destination extent; the source is twice it. */
                 };
@@ -100,7 +100,7 @@ namespace SushiEngine
                                    Resources::DescriptorHeap& heap)
                 : device_(device), heap_(heap)
             {
-                Resources::SamplerDesc sampler_desc;
+                Resources::SamplerDescription sampler_desc;
                 sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
                 sampler_ = samplers.get(sampler_desc);
                 // The same sampler, allowed to reach the march volume's coarser levels. A
@@ -133,7 +133,7 @@ namespace SushiEngine
 
                 VkPushConstantRange range{};
                 range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-                range.size = sizeof(NoiseParams);
+                range.size = sizeof(NoiseParameters);
 
                 VkPipelineLayoutCreateInfo pipeline_info{};
                 pipeline_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -156,7 +156,7 @@ namespace SushiEngine
                                                           &mip_set_layout_),
                               "vkCreateDescriptorSetLayout(noise mip)");
 
-                range.size = sizeof(MipParams);
+                range.size = sizeof(MipParameters);
                 pipeline_info.pSetLayouts = &mip_set_layout_;
                 Vulkan::check(vkCreatePipelineLayout(device_.device(), &pipeline_info, nullptr,
                                                      &mip_pipeline_layout_),
@@ -407,9 +407,9 @@ namespace SushiEngine
                     Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                    pipeline_layout_, 0, sets[slot]);
 
-                    NoiseParams params{volume.resolution, slot};
+                    NoiseParameters params{volume.resolution, slot};
                     vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                       sizeof(NoiseParams), &params);
+                                       sizeof(NoiseParameters), &params);
 
                     if (volume.three_dimensional)
                         vkCmdDispatch(cmd, groups(volume.resolution, 4), groups(volume.resolution, 4),
@@ -435,9 +435,9 @@ namespace SushiEngine
                     Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                    mip_pipeline_layout_, 0,
                                                    mip_descriptor_sets[level - 1]);
-                    MipParams mip_params{MARCH_RESOLUTION >> level};
+                    MipParameters mip_params{MARCH_RESOLUTION >> level};
                     vkCmdPushConstants(cmd, mip_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                       sizeof(MipParams), &mip_params);
+                                       sizeof(MipParameters), &mip_params);
                     vkCmdDispatch(cmd, groups(mip_params.resolution, 4),
                                   groups(mip_params.resolution, 4),
                                   groups(mip_params.resolution, 4));

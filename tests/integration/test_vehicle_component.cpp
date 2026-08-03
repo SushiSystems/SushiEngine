@@ -200,7 +200,7 @@ namespace
         world.set_transform(id, transform);
 
         world.set_has_vehicle(id, true);
-        VehicleInstanceParams params;
+        VehicleInstanceParameters params;
         params.asset_path = asset_path;
         params.setup = road_car();
         world.set_vehicle_params(id, params);

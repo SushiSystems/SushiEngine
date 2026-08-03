@@ -53,7 +53,7 @@ namespace
     // the weight-blend of the contributing clips' z values (translation blends linearly).
     AssetId make_marker_clip(AnimationDatabase& database, float z)
     {
-        ClipDesc clip;
+        ClipDescription clip;
         clip.joint_count = 2;
         clip.frame_count = 1;
         clip.sample_rate = 30.0f;
@@ -65,9 +65,10 @@ namespace
         return database.add_clip(std::move(blob));
     }
 
-    std::shared_ptr<BlendTreeNodeDesc> leaf_tree(BlendTreeType type, const char* px, const char* py)
+    std::shared_ptr<BlendTreeNodeDescription> leaf_tree(BlendTreeType type, const char* px,
+                                                        const char* py)
     {
-        auto node = std::make_shared<BlendTreeNodeDesc>();
+        auto node = std::make_shared<BlendTreeNodeDescription>();
         node->type = type;
         node->parameter_x = px ? px : "";
         node->parameter_y = py ? py : "";
@@ -79,9 +80,9 @@ int main()
 {
     AnimationDatabase database;
 
-    SkeletonDesc skeleton_desc;
-    JointDesc root; root.name = "root"; root.parent = -1;
-    JointDesc child; child.name = "child"; child.parent = 0; child.bind_translation = Vector3f{0, 1, 0};
+    SkeletonDescription skeleton_desc;
+    JointDescription root; root.name = "root"; root.parent = -1;
+    JointDescription child; child.name = "child"; child.parent = 0; child.bind_translation = Vector3f{0, 1, 0};
     skeleton_desc.joints = {root, child};
     std::vector<std::byte> skeleton_blob;
     build_skeleton_blob(skeleton_desc, skeleton_blob);
@@ -93,15 +94,15 @@ int main()
 
     // Builds a one-state controller wrapping a blend tree, so its compiled node arrays can be
     // resolved directly. Parameters are given by name; the tree's root is the state's motion.
-    const auto compile_tree = [&](const std::vector<ParameterDesc>& parameters,
-                                  std::shared_ptr<BlendTreeNodeDesc> tree) -> AssetId
+    const auto compile_tree = [&](const std::vector<ParameterDescription>& parameters,
+                                  std::shared_ptr<BlendTreeNodeDescription> tree) -> AssetId
     {
-        ControllerDesc desc;
+        ControllerDescription desc;
         desc.parameters = parameters;
-        LayerDesc layer;
+        LayerDescription layer;
         layer.name = "base";
         layer.default_state = "Move";
-        StateDesc state;
+        StateDescription state;
         state.name = "Move";
         state.blend_tree = std::move(tree);
         layer.states = {state};
@@ -138,10 +139,11 @@ int main()
     // --- 1D locomotion: idle(0) / walk(1) / run(2) over "speed" ----------------------
     {
         auto tree = leaf_tree(BlendTreeType::Simple1D, "speed", nullptr);
-        tree->children.push_back(BlendChildDesc{idle, nullptr, 0.0f, 0, 0, "", 1});
-        tree->children.push_back(BlendChildDesc{walk, nullptr, 1.0f, 0, 0, "", 1});
-        tree->children.push_back(BlendChildDesc{run, nullptr, 2.0f, 0, 0, "", 1});
-        const AssetId id = compile_tree({ParameterDesc{"speed", ParameterType::Float, 0.0f}}, tree);
+        tree->children.push_back(BlendChildDescription{idle, nullptr, 0.0f, 0, 0, "", 1});
+        tree->children.push_back(BlendChildDescription{walk, nullptr, 1.0f, 0, 0, "", 1});
+        tree->children.push_back(BlendChildDescription{run, nullptr, 2.0f, 0, 0, "", 1});
+        const AssetId id =
+            compile_tree({ParameterDescription{"speed", ParameterType::Float, 0.0f}}, tree);
         check(id != INVALID_ASSET, "1D tree compiles");
 
         AnimatorParameterBlock p;
@@ -161,18 +163,22 @@ int main()
     }
 
     // --- 2D freeform cartesian strafe: four cardinal clips ---------------------------
-    const auto strafe_children = [&](std::shared_ptr<BlendTreeNodeDesc>& tree)
+    const auto strafe_children = [&](std::shared_ptr<BlendTreeNodeDescription>& tree)
     {
-        tree->children.push_back(BlendChildDesc{walk, nullptr, 0, 0.0f, 1.0f, "", 1});  // forward
-        tree->children.push_back(BlendChildDesc{run, nullptr, 0, 1.0f, 0.0f, "", 1});   // right
-        tree->children.push_back(BlendChildDesc{idle, nullptr, 0, 0.0f, -1.0f, "", 1}); // back
-        tree->children.push_back(BlendChildDesc{run, nullptr, 0, -1.0f, 0.0f, "", 1});  // left
+        tree->children.push_back(
+            BlendChildDescription{walk, nullptr, 0, 0.0f, 1.0f, "", 1}); // forward
+        tree->children.push_back(
+            BlendChildDescription{run, nullptr, 0, 1.0f, 0.0f, "", 1}); // right
+        tree->children.push_back(
+            BlendChildDescription{idle, nullptr, 0, 0.0f, -1.0f, "", 1}); // back
+        tree->children.push_back(
+            BlendChildDescription{run, nullptr, 0, -1.0f, 0.0f, "", 1}); // left
     };
     {
         auto tree = leaf_tree(BlendTreeType::FreeformCartesian2D, "x", "y");
         strafe_children(tree);
         const AssetId id = compile_tree(
-            {ParameterDesc{"x", ParameterType::Float, 0.0f}, ParameterDesc{"y", ParameterType::Float, 0.0f}},
+            {ParameterDescription{"x", ParameterType::Float, 0.0f}, ParameterDescription{"y", ParameterType::Float, 0.0f}},
             tree);
         AnimatorParameterBlock p;
         p.set_float(0, 0.0f);
@@ -194,7 +200,7 @@ int main()
         auto tree = leaf_tree(BlendTreeType::FreeformDirectional2D, "x", "y");
         strafe_children(tree);
         const AssetId id = compile_tree(
-            {ParameterDesc{"x", ParameterType::Float, 0.0f}, ParameterDesc{"y", ParameterType::Float, 0.0f}},
+            {ParameterDescription{"x", ParameterType::Float, 0.0f}, ParameterDescription{"y", ParameterType::Float, 0.0f}},
             tree);
         AnimatorParameterBlock p;
         p.set_float(0, 1.0f);
@@ -207,12 +213,16 @@ int main()
     // --- 2D simple directional: centre + ring ----------------------------------------
     {
         auto tree = leaf_tree(BlendTreeType::SimpleDirectional2D, "x", "y");
-        tree->children.push_back(BlendChildDesc{idle, nullptr, 0, 0.0f, 0.0f, "", 1});  // centre
-        tree->children.push_back(BlendChildDesc{walk, nullptr, 0, 0.0f, 1.0f, "", 1});  // forward
-        tree->children.push_back(BlendChildDesc{run, nullptr, 0, 1.0f, 0.0f, "", 1});   // right
-        tree->children.push_back(BlendChildDesc{walk, nullptr, 0, -1.0f, 0.0f, "", 1}); // left
+        tree->children.push_back(
+            BlendChildDescription{idle, nullptr, 0, 0.0f, 0.0f, "", 1}); // centre
+        tree->children.push_back(
+            BlendChildDescription{walk, nullptr, 0, 0.0f, 1.0f, "", 1}); // forward
+        tree->children.push_back(
+            BlendChildDescription{run, nullptr, 0, 1.0f, 0.0f, "", 1}); // right
+        tree->children.push_back(
+            BlendChildDescription{walk, nullptr, 0, -1.0f, 0.0f, "", 1}); // left
         const AssetId id = compile_tree(
-            {ParameterDesc{"x", ParameterType::Float, 0.0f}, ParameterDesc{"y", ParameterType::Float, 0.0f}},
+            {ParameterDescription{"x", ParameterType::Float, 0.0f}, ParameterDescription{"y", ParameterType::Float, 0.0f}},
             tree);
         AnimatorParameterBlock p;
         p.set_float(0, 0.0f);
@@ -231,12 +241,12 @@ int main()
     {
         auto tree = leaf_tree(BlendTreeType::Direct, nullptr, nullptr);
         tree->normalize = true;
-        BlendChildDesc a{idle, nullptr, 0, 0, 0, "w_idle", 1};
-        BlendChildDesc b{walk, nullptr, 0, 0, 0, "w_walk", 1};
+        BlendChildDescription a{idle, nullptr, 0, 0, 0, "w_idle", 1};
+        BlendChildDescription b{walk, nullptr, 0, 0, 0, "w_walk", 1};
         tree->children = {a, b};
         const AssetId id =
-            compile_tree({ParameterDesc{"w_idle", ParameterType::Float, 0.0f},
-                          ParameterDesc{"w_walk", ParameterType::Float, 0.0f}},
+            compile_tree({ParameterDescription{"w_idle", ParameterType::Float, 0.0f},
+                          ParameterDescription{"w_walk", ParameterType::Float, 0.0f}},
                          tree);
         AnimatorParameterBlock p;
         p.set_float(0, 3.0f); // idle weight 3
@@ -249,15 +259,15 @@ int main()
     // --- Nested: a 1D whose top child is a Direct sub-tree ----------------------------
     {
         auto sub = leaf_tree(BlendTreeType::Direct, nullptr, nullptr);
-        sub->children = {BlendChildDesc{walk, nullptr, 0, 0, 0, "w_walk", 1},
-                         BlendChildDesc{run, nullptr, 0, 0, 0, "w_run", 1}};
+        sub->children = {BlendChildDescription{walk, nullptr, 0, 0, 0, "w_walk", 1},
+                         BlendChildDescription{run, nullptr, 0, 0, 0, "w_run", 1}};
         auto tree = leaf_tree(BlendTreeType::Simple1D, "speed", nullptr);
-        BlendChildDesc low{idle, nullptr, 0.0f, 0, 0, "", 1};
-        BlendChildDesc high{INVALID_ASSET, sub, 1.0f, 0, 0, "", 1};
+        BlendChildDescription low{idle, nullptr, 0.0f, 0, 0, "", 1};
+        BlendChildDescription high{INVALID_ASSET, sub, 1.0f, 0, 0, "", 1};
         tree->children = {low, high};
-        const AssetId id = compile_tree({ParameterDesc{"speed", ParameterType::Float, 0.0f},
-                                         ParameterDesc{"w_walk", ParameterType::Float, 0.0f},
-                                         ParameterDesc{"w_run", ParameterType::Float, 0.0f}},
+        const AssetId id = compile_tree({ParameterDescription{"speed", ParameterType::Float, 0.0f},
+                                         ParameterDescription{"w_walk", ParameterType::Float, 0.0f},
+                                         ParameterDescription{"w_run", ParameterType::Float, 0.0f}},
                                         tree);
         AnimatorParameterBlock p;
         p.set_float(0, 1.0f); // fully the nested Direct sub-tree
@@ -272,11 +282,11 @@ int main()
     // --- End to end: a blend-tree state posed by the evaluator ------------------------
     {
         auto tree = leaf_tree(BlendTreeType::Simple1D, "speed", nullptr);
-        tree->children.push_back(BlendChildDesc{idle, nullptr, 0.0f, 0, 0, "", 1});
-        tree->children.push_back(BlendChildDesc{walk, nullptr, 1.0f, 0, 0, "", 1});
-        tree->children.push_back(BlendChildDesc{run, nullptr, 2.0f, 0, 0, "", 1});
+        tree->children.push_back(BlendChildDescription{idle, nullptr, 0.0f, 0, 0, "", 1});
+        tree->children.push_back(BlendChildDescription{walk, nullptr, 1.0f, 0, 0, "", 1});
+        tree->children.push_back(BlendChildDescription{run, nullptr, 2.0f, 0, 0, "", 1});
         const AssetId controller_id =
-            compile_tree({ParameterDesc{"speed", ParameterType::Float, 0.0f}}, tree);
+            compile_tree({ParameterDescription{"speed", ParameterType::Float, 0.0f}}, tree);
         const ControllerView controller = database.controller(controller_id);
 
         AnimatorInstance animator{};
@@ -287,7 +297,7 @@ int main()
 
         AnimatorEvaluator evaluator;
         evaluator.evaluate(controller, database, animator, database.skeleton(skeleton_id));
-        const Mat4& root_model = evaluator.model()[0];
+        const Matrix4& root_model = evaluator.model()[0];
         // Column-major translation lives in elements 12/13/14; expect the weight-blend 1.5.
         check(nearly(static_cast<float>(root_model.m[14]), 1.5f),
               "evaluator blends root z to 1.5 at speed 1.5");

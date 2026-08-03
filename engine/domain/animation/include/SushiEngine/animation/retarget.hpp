@@ -29,14 +29,15 @@
  * joint bends the same, while the target's own bone lengths give its proportions. The root's
  * translation transfers scaled by the hip-height ratio so stride follows scale. Mirroring is the
  * same delta transfer with the left/right bones swapped and the delta reflected across the
- * sagittal plane. Both run at import on raw @ref ClipDesc data, so nothing at runtime pays for it.
+ * sagittal plane. Both run at import on raw @ref ClipDescription data, so nothing at runtime
+ * pays for it.
  */
 
 #include <cmath>
 #include <cstdint>
 #include <vector>
 
-#include <SushiEngine/animation/clip_blob.hpp> // ClipDesc
+#include <SushiEngine/animation/clip_blob.hpp> // ClipDescription
 #include <SushiEngine/animation/humanoid.hpp>
 #include <SushiEngine/animation/skeleton.hpp>
 #include <SushiEngine/core/types.hpp>
@@ -67,7 +68,7 @@ namespace SushiEngine
             }
 
             /** @brief Seeds a clip's joint tracks to a skeleton's bind pose for every frame. */
-            inline void seed_bind_tracks(const SkeletonView& skeleton, ClipDesc& clip)
+            inline void seed_bind_tracks(const SkeletonView& skeleton, ClipDescription& clip)
             {
                 const std::size_t elements =
                     static_cast<std::size_t>(clip.frame_count) * clip.joint_count;
@@ -101,11 +102,11 @@ namespace SushiEngine
          * @param out             Receives the retargeted clip for the target rig; cleared first.
          * @return True on success; false if the source clip is malformed for its skeleton.
          */
-        inline bool retarget_clip(const ClipDesc& source, const Avatar& source_avatar,
+        inline bool retarget_clip(const ClipDescription& source, const Avatar& source_avatar,
                                   const SkeletonView& source_skeleton, const Avatar& target_avatar,
-                                  const SkeletonView& target_skeleton, ClipDesc& out)
+                                  const SkeletonView& target_skeleton, ClipDescription& out)
         {
-            out = ClipDesc{};
+            out = ClipDescription{};
             const std::size_t source_elements =
                 static_cast<std::size_t>(source.frame_count) * source.joint_count;
             if (source.joint_count != source_skeleton.joint_count ||
@@ -183,10 +184,10 @@ namespace SushiEngine
          * @param out      Receives the mirrored clip; cleared first.
          * @return True on success; false if the source clip is malformed for its skeleton.
          */
-        inline bool mirror_clip(const ClipDesc& source, const Avatar& avatar,
-                                const SkeletonView& skeleton, ClipDesc& out)
+        inline bool mirror_clip(const ClipDescription& source, const Avatar& avatar,
+                                const SkeletonView& skeleton, ClipDescription& out)
         {
-            out = ClipDesc{};
+            out = ClipDescription{};
             const std::size_t elements =
                 static_cast<std::size_t>(source.frame_count) * source.joint_count;
             if (source.joint_count != skeleton.joint_count || source.rotations.size() != elements ||
@@ -244,13 +245,13 @@ namespace SushiEngine
          * The runtime counterpart to @ref retarget_clip: the same bind-pose-delta transfer
          * (`target_bind · (source_bind⁻¹ · source_animated)`), applied to a single frame's local
          * pose (e.g. a @ref ClipEvaluator's output for the current time) instead of a whole
-         * @ref ClipDesc. This is what makes retargeting available *after* import — a clip already
-         * playing against one skeleton can drive a different one bound at runtime (design §12.4's
-         * "same-session retarget onto a different rig" gap, e.g. swapping a character model
-         * mid-game), at the cost of redoing the delta transfer every frame instead of once at cook
-         * time. A caller retargeting the same clip onto the same rig pair every frame should
-         * prefer @ref retarget_clip once, offline, instead — this function is for the case where
-         * the target rig is not known until runtime.
+         * @ref ClipDescription. This is what makes retargeting available *after* import — a clip
+         * already playing against one skeleton can drive a different one bound at runtime
+         * (design §12.4's "same-session retarget onto a different rig" gap, e.g. swapping a
+         * character model mid-game), at the cost of redoing the delta transfer every frame
+         * instead of once at cook time. A caller retargeting the same clip onto the same rig
+         * pair every frame should prefer @ref retarget_clip once, offline, instead — this
+         * function is for the case where the target rig is not known until runtime.
          *
          * @param source_translations Per-joint local translation for @p source_skeleton.
          * @param source_rotations    Per-joint local rotation for @p source_skeleton.

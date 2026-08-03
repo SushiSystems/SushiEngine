@@ -87,7 +87,7 @@ namespace SushiEngine
                     reference_rotations_.assign(joint_count, Quaternionf{});
                     have_reference_.assign(joint_count, 0);
                     mask_.assign(joint_count, 1.0f);
-                    model_.assign(joint_count, Mat4{});
+                    model_.assign(joint_count, Matrix4{});
                     palette_.assign(joint_count, JointMatrix{});
                 }
 
@@ -190,7 +190,7 @@ namespace SushiEngine
                 const std::vector<JointMatrix>& palette() const noexcept { return palette_; }
 
                 /** @brief The model-space matrix per joint (bind space, post-compose). */
-                const std::vector<Mat4>& model() const noexcept { return model_; }
+                const std::vector<Matrix4>& model() const noexcept { return model_; }
 
             private:
                 /** @brief One weighted clip sampled at a specific normalized time. */
@@ -416,7 +416,7 @@ namespace SushiEngine
                 std::vector<Quaternionf> reference_rotations_;
                 std::vector<std::uint8_t> have_reference_;
                 std::vector<float> mask_;
-                std::vector<Mat4> model_;
+                std::vector<Matrix4> model_;
                 std::vector<JointMatrix> palette_;
         };
     } // namespace Animation

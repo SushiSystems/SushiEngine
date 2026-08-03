@@ -62,9 +62,9 @@ namespace SushiEngine
              * @param depth_format Format of the depth attachment.
              * @return The description to build the pipeline from.
              */
-            Resources::GraphicsPipelineDesc depth_only_pipeline_desc(VkPipelineLayout layout,
-                                                                     VkShaderModule vertex,
-                                                                     VkFormat depth_format);
+            Resources::GraphicsPipelineDescription depth_only_pipeline_desc(VkPipelineLayout layout,
+                                                                            VkShaderModule vertex,
+                                                                            VkFormat depth_format);
 
             /**
              * @brief Fills a push constant for a depth-only draw.
@@ -81,7 +81,7 @@ namespace SushiEngine
              * @param cascade  Which shadow cascade this draw targets, ignored elsewhere.
              * @return The filled push constant.
              */
-            Scene::MeshPushConstants depth_only_push(const Mat4& model, const double eye[3],
+            Scene::MeshPushConstants depth_only_push(const Matrix4& model, const double eye[3],
                                                      float cascade = 0.0f);
         } // namespace Passes
     } // namespace Render

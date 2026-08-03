@@ -36,7 +36,7 @@
  * ping-ponged by frame parity exactly like `ViewResources`'s main history (see that
  * file), except sized at a *fixed* half of the view's output extent rather than the
  * dynamic internal render extent: the march itself already resamples across whatever
- * `QualityParams::cloud_buffer_scale` and dynamic resolution put it at, the same
+ * `QualityParameters::cloud_buffer_scale` and dynamic resolution put it at, the same
  * render/output-extent split `taa.frag` already reconciles for the main resolve, so
  * this history is insulated from both without forcing a resize on every dynamic-
  * resolution step. The images are private to this pass and barriered by hand, exactly

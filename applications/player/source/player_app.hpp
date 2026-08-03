@@ -80,7 +80,7 @@ namespace SushiEngine
         {
             public:
                 /** @brief What `start()` needs to bring the player up. */
-                struct Desc
+                struct Description
                 {
                     /** @brief A `.sushiscene` to load, or empty to start with an empty world. */
                     std::string scene_path;
@@ -123,7 +123,7 @@ namespace SushiEngine
                  *
                  * @param desc The launch configuration.
                  */
-                void start(const Desc& desc);
+                void start(const Description& desc);
 
                 /**
                  * @brief Pumps window events, advances the world, and presents one frame.
@@ -173,7 +173,7 @@ namespace SushiEngine
                 /** @brief The window's minimize/restore events, routed to suspend()/resume(). */
                 void handle_window_event(const void* native_event);
 
-                Desc desc_;
+                Description desc_;
                 std::unique_ptr<Platform::SDLWindow> window_;
                 std::unique_ptr<Input::InputManager> input_;
                 std::unique_ptr<Input::SDLInputTranslator> input_translator_;

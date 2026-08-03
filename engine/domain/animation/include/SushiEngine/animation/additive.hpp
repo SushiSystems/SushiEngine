@@ -36,7 +36,7 @@
 #include <cstdint>
 #include <vector>
 
-#include <SushiEngine/animation/clip_blob.hpp> // ClipDesc
+#include <SushiEngine/animation/clip_blob.hpp> // ClipDescription
 #include <SushiEngine/animation/skeleton.hpp>
 #include <SushiEngine/core/types.hpp>
 
@@ -59,10 +59,11 @@ namespace SushiEngine
          * @param out             Receives the additive clip (same shape as @p source); cleared first.
          * @return True on success; false if @p source is malformed or @p reference_frame is out of range.
          */
-        inline bool bake_additive_clip(const ClipDesc& source, const ClipDesc& reference,
-                                       std::uint32_t reference_frame, ClipDesc& out)
+        inline bool bake_additive_clip(const ClipDescription& source,
+                                       const ClipDescription& reference,
+                                       std::uint32_t reference_frame, ClipDescription& out)
         {
-            out = ClipDesc{};
+            out = ClipDescription{};
             const std::size_t source_elements =
                 static_cast<std::size_t>(source.frame_count) * source.joint_count;
             if (source.joint_count == 0 || source.frame_count == 0 ||

@@ -234,7 +234,7 @@ namespace SushiEngine
              * @param view The world-to-camera matrix.
              * @param eye  Receives the world eye position in metres.
              */
-            void camera_eye(const Mat4& view, double eye[3]) noexcept;
+            void camera_eye(const Matrix4& view, double eye[3]) noexcept;
 
             /**
              * @brief Fills the scene block from this frame's camera and environment.

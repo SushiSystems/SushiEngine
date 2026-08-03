@@ -146,8 +146,8 @@ namespace SushiEngine
                 // The camera basis, derived exactly as the scene uniform fill derives it,
                 // so the froxel bounds live in the same view frame the shading pass maps a
                 // pixel into: unit right/up/forward with view_z = dot(forward, position).
-                const Mat4& view = frame.camera->view;
-                const Mat4& proj = frame.camera->projection;
+                const Matrix4& view = frame.camera->view;
+                const Matrix4& proj = frame.camera->projection;
                 Push push{};
                 push.right[0] = static_cast<float>(view.m[0]);
                 push.right[1] = static_cast<float>(view.m[4]);

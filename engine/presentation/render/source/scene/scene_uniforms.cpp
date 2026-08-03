@@ -32,7 +32,7 @@ namespace SushiEngine
     {
         namespace Scene
         {
-            void camera_eye(const Mat4& view, double eye[3]) noexcept
+            void camera_eye(const Matrix4& view, double eye[3]) noexcept
             {
                 eye[0] = -(view.m[0] * view.m[12] + view.m[1] * view.m[13] +
                            view.m[2] * view.m[14]);
@@ -48,8 +48,8 @@ namespace SushiEngine
             {
                 uniforms = SceneUniforms{};
 
-                const Mat4& V = camera.view;
-                const Mat4& P = camera.projection;
+                const Matrix4& V = camera.view;
+                const Matrix4& P = camera.projection;
                 const double right[3] = {V.m[0], V.m[4], V.m[8]};
                 const double up[3] = {V.m[1], V.m[5], V.m[9]};
                 const double forward[3] = {-V.m[2], -V.m[6], -V.m[10]};

@@ -108,13 +108,13 @@ namespace SushiEngine
                      * @brief Brings up the Vulkan instance, device, and allocator.
                      * @param desc Selection request forwarded from create_render_device().
                      */
-                    explicit VulkanDevice(const RenderDeviceDesc& desc);
+                    explicit VulkanDevice(const RenderDeviceDescription& desc);
                     ~VulkanDevice() override;
 
                     VulkanDevice(const VulkanDevice&) = delete;
                     VulkanDevice& operator=(const VulkanDevice&) = delete;
 
-                    const DeviceInfo& info() const noexcept override { return info_; }
+                    const DeviceInformation& info() const noexcept override { return info_; }
                     NativeDeviceHandles native_handles() const noexcept override;
 
                     /** @brief The Vulkan instance handle. */
@@ -192,7 +192,7 @@ namespace SushiEngine
                      *
                      * True when the platform's external-memory extension was enabled, which is
                      * what lets an allocation this device owns be imported by SushiRuntime's
-                     * SYCL device (matched by @c DeviceInfo::uuid) instead of copied through
+                     * SYCL device (matched by @c DeviceInformation::uuid) instead of copied through
                      * the host. The handle getter itself is resolved by the interop module
                      * rather than here, because reaching it means pulling the platform's
                      * Vulkan header — and its Win32 baggage — into every translation unit that
@@ -360,7 +360,7 @@ namespace SushiEngine
                     std::uint32_t max_mesh_output_vertices_ = 0;
                     std::uint32_t max_mesh_output_primitives_ = 0;
                     MeshShaderFunctions mesh_shader_{};
-                    DeviceInfo info_{};
+                    DeviceInformation info_{};
             };
         } // namespace Vulkan
     } // namespace Render

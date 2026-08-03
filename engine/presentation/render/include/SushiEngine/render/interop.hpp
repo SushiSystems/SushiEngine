@@ -31,8 +31,8 @@
  * storage buffer, whose backing allocation is *also* reachable by SushiRuntime's SYCL
  * device, so simulation output (a weather grid, particle state, soft-body positions)
  * becomes renderable by being written rather than by being uploaded. The match key is
- * @c DeviceInfo::uuid — the same UUID @c RenderDeviceDesc::required_uuid already selects
- * the graphics device by — because two APIs share memory only when they are on one
+ * @c DeviceInformation::uuid — the same UUID @c RenderDeviceDescription::required_uuid already
+ * selects the graphics device by — because two APIs share memory only when they are on one
  * physical device.
  *
  * The direction of the seam is deliberate. The renderer *exports*: it allocates, and
@@ -86,7 +86,7 @@ namespace SushiEngine
         };
 
         /** @brief What an interop buffer is asked to be. */
-        struct InteropBufferDesc
+        struct InteropBufferDescription
         {
             std::uint64_t size_bytes = 0;
 
@@ -142,6 +142,6 @@ namespace SushiEngine
          *         case the caller's fallback is an ordinary upload — no path depends on this).
          */
         std::unique_ptr<IInteropBuffer> create_interop_buffer(IRenderDevice& device,
-                                                              const InteropBufferDesc& desc);
+                                                              const InteropBufferDescription& desc);
     } // namespace Render
 } // namespace SushiEngine

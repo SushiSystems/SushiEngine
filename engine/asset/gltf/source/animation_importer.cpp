@@ -55,7 +55,7 @@ namespace SushiEngine
             {
                 float local[16];
                 cgltf_node_transform_local(const_cast<cgltf_node*>(node), local);
-                Mat4 matrix{};
+                Matrix4 matrix{};
                 for (int i = 0; i < 16; ++i)
                     matrix.m[i] = static_cast<Scalar>(local[i]);
                 Vector3 dt{};
@@ -281,7 +281,7 @@ namespace SushiEngine
             const cgltf_size joint_count = skin.joints_count;
 
             // Cook the skeleton and keep the sort order so clips resample in the blob's order.
-            SkeletonDesc skeleton_desc;
+            SkeletonDescription skeleton_desc;
             skeleton_desc.joints.resize(joint_count);
             skeleton_desc.has_inverse_bind = skin.inverse_bind_matrices != nullptr;
             std::vector<Vector3f> bind_t(joint_count), bind_s(joint_count);
@@ -289,7 +289,7 @@ namespace SushiEngine
             for (cgltf_size j = 0; j < joint_count; ++j)
             {
                 const cgltf_node* node = skin.joints[j];
-                JointDesc& joint = skeleton_desc.joints[j];
+                JointDescription& joint = skeleton_desc.joints[j];
                 joint.name = node->name != nullptr ? std::string(node->name)
                                                    : "joint_" + std::to_string(j);
                 joint.parent = joint_index_of(skin, node->parent);
@@ -405,7 +405,7 @@ namespace SushiEngine
                     }
                 }
 
-                ClipDesc clip;
+                ClipDescription clip;
                 clip.joint_count = static_cast<std::uint32_t>(joint_count);
                 clip.sample_rate = sample_rate;
                 clip.frame_count = duration > 0.0f

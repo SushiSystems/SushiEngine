@@ -107,7 +107,7 @@ namespace SushiEngine
          * @brief A humanoid avatar: which joint plays each canonical bone, for one skeleton.
          *
          * Trivially copyable; @c joints[bone] is the joint index, or -1 where the rig has no such
-         * bone. Built by @ref build_avatar_heuristic or @ref AvatarDesc.
+         * bone. Built by @ref build_avatar_heuristic or @ref AvatarDescription.
          */
         struct Avatar
         {
@@ -185,7 +185,7 @@ namespace SushiEngine
          *
          * For each bone it tries the default alias list in order and takes the first joint whose
          * name matches (by hash). Bones the rig has no name for stay unmapped (-1). Author-side
-         * overrides go through @ref AvatarDesc when a rig's naming is unusual.
+         * overrides go through @ref AvatarDescription when a rig's naming is unusual.
          *
          * @param skeleton The rig to map.
          * @return The avatar; unmapped bones are -1.
@@ -213,7 +213,7 @@ namespace SushiEngine
         }
 
         /** @brief An explicit bone→joint-name mapping, for rigs the heuristic misses. */
-        struct AvatarDesc
+        struct AvatarDescription
         {
             /** @brief One authored mapping: a canonical bone and the joint name that plays it. */
             struct Entry
@@ -231,10 +231,10 @@ namespace SushiEngine
          * @param skeleton The rig to resolve names against.
          * @return The avatar; a name the rig lacks leaves its bone unmapped.
          */
-        inline Avatar build_avatar(const AvatarDesc& desc, const SkeletonView& skeleton)
+        inline Avatar build_avatar(const AvatarDescription& desc, const SkeletonView& skeleton)
         {
             Avatar avatar;
-            for (const AvatarDesc::Entry& entry : desc.entries)
+            for (const AvatarDescription::Entry& entry : desc.entries)
             {
                 const int joint = skeleton.find_joint(hash_name(entry.joint.c_str()));
                 if (joint >= 0)

@@ -59,9 +59,9 @@ namespace
     }
 
     /** @brief The authored light every test round-trips. */
-    LightParams reference_light()
+    LightParameters reference_light()
     {
-        LightParams p;
+        LightParameters p;
         p.color = Vector3{0.25, 0.5, 0.75};
         p.intensity = 12.5f;
         p.range = 42.0f;
@@ -73,9 +73,9 @@ namespace
     }
 
     /** @brief The authored decal, ids and paths both set (the live-handle convention). */
-    DecalParams reference_decal()
+    DecalParameters reference_decal()
     {
-        DecalParams p;
+        DecalParameters p;
         p.color = Vector3{0.125, 0.25, 0.375};
         p.half_extents = Vector3{2.0, 3.0, 0.5};
         p.opacity = 0.625f;
@@ -127,7 +127,7 @@ namespace
         EXPECT_DOUBLE_EQ(static_cast<double>(actual.z), static_cast<double>(expected.z));
     }
 
-    void expect_light_equal(const LightParams& actual, const LightParams& expected)
+    void expect_light_equal(const LightParameters& actual, const LightParameters& expected)
     {
         expect_vector3_equal(actual.color, expected.color);
         EXPECT_FLOAT_EQ(actual.intensity, expected.intensity);
@@ -138,7 +138,7 @@ namespace
         EXPECT_EQ(actual.casts_shadows, expected.casts_shadows);
     }
 
-    void expect_decal_equal(const DecalParams& actual, const DecalParams& expected)
+    void expect_decal_equal(const DecalParameters& actual, const DecalParameters& expected)
     {
         expect_vector3_equal(actual.color, expected.color);
         expect_vector3_equal(actual.half_extents, expected.half_extents);
@@ -234,7 +234,7 @@ TEST(Integration_SceneSerializer, LightsDecalsMaterialsSurviveCaptureApply)
     // Wreck everything the snapshot should restore: delete the light, gut the
     // decal, reset the material.
     world.destroy(find_by_name(world, "KeyLight"));
-    world.set_decal_params(find_by_name(world, "Splash"), DecalParams{});
+    world.set_decal_params(find_by_name(world, "Splash"), DecalParameters{});
     world.set_material(find_by_name(world, "BrickBox"), Render::Material{});
     world.set_material_texture_paths(find_by_name(world, "BrickBox"),
                                      MaterialTexturePaths{});

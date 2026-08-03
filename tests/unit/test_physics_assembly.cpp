@@ -100,11 +100,11 @@ namespace
      * children so the mean-of-children bone is used, and `head` and `wrist` are leaves
      * so the no-part path is taken.
      */
-    Animation::SkeletonDesc humanoid_desc()
+    Animation::SkeletonDescription humanoid_desc()
     {
         const auto joint = [](const char* name, int parent, Scalar x, Scalar y, Scalar z)
         {
-            Animation::JointDesc desc;
+            Animation::JointDescription desc;
             desc.name = name;
             desc.parent = parent;
             desc.bind_translation =
@@ -112,7 +112,7 @@ namespace
             return desc;
         };
 
-        Animation::SkeletonDesc desc;
+        Animation::SkeletonDescription desc;
         desc.joints.push_back(joint("root", -1, 0, 0, 0));
         desc.joints.push_back(joint("hip", 0, 0, Scalar(0.9), 0));
         desc.joints.push_back(joint("spine", 1, 0, Scalar(0.2), 0));
@@ -176,7 +176,7 @@ namespace
         public:
             std::unordered_map<EntityId, SolvedPose> poses;
 
-            void set_rigid_bodies(const std::vector<RigidBodyDesc>&, std::size_t,
+            void set_rigid_bodies(const std::vector<RigidBodyDescription>&, std::size_t,
                                   Scalar) override
             {
             }
@@ -211,8 +211,8 @@ namespace
         return double(length(a - b));
     }
 
-    /** @brief The translation a Mat4 carries (column-major). */
-    Vector3 translation_of(const Mat4& matrix)
+    /** @brief The translation a Matrix4 carries (column-major). */
+    Vector3 translation_of(const Matrix4& matrix)
     {
         return Vector3{Scalar(matrix.m[12]), Scalar(matrix.m[13]), Scalar(matrix.m[14])};
     }
@@ -415,7 +415,7 @@ TEST(Unit_PhysicsAssembly, InstancingNamesTheEntitiesItsPartsBecame)
     ASSERT_EQ(out.joints.size(), 1u);
     EXPECT_EQ(out.joints[0].body_a, ids[0]);
     EXPECT_EQ(out.joints[0].body_b, ids[1]);
-    // And the parameters travelled whole, which is what sharing `JointParams` with a
+    // And the parameters travelled whole, which is what sharing `JointParameters` with a
     // hand-built joint buys: nothing here copies a field, so nothing here can forget one.
     EXPECT_EQ(int(out.joints[0].params.type), int(JointType::Hinge));
     EXPECT_NEAR(double(out.joints[0].params.break_force), 12000.0, 1e-9);
@@ -540,7 +540,7 @@ TEST(Unit_PhysicsAssembly, ARagdollWeighsWhatItWasAskedTo)
     double total = 0;
     double heaviest = 0;
     double lightest = 1e30;
-    for (const RigidBodyDesc& body : out.bodies)
+    for (const RigidBodyDescription& body : out.bodies)
     {
         ASSERT_GT(double(body.inv_mass), 0.0);
         const double mass = 1.0 / double(body.inv_mass);
@@ -574,12 +574,12 @@ TEST(Unit_PhysicsAssembly, TheBindOffsetRecoversTheJointPoseFromItsPart)
     ASSERT_EQ(out.bodies.size(), ids.size());
 
     StubBodies bodies;
-    for (const RigidBodyDesc& body : out.bodies)
+    for (const RigidBodyDescription& body : out.bodies)
         bodies.set_rigid_pose(body.id, body.position, body.orientation);
 
     std::vector<Animation::RagdollJointTarget> targets;
     const std::size_t written = resolve_ragdoll_targets(rig, bodies, ids.data(), ids.size(),
-                                                        Mat4{}, Scalar(1), targets);
+                                                        Matrix4{}, Scalar(1), targets);
     ASSERT_EQ(written, rig.bindings.size());
 
     for (const Animation::RagdollJointTarget& target : targets)
@@ -602,13 +602,13 @@ TEST(Unit_PhysicsAssembly, TargetsComeBackInTheCharactersObjectSpace)
 
     const Vector3 root{Scalar(-40), Scalar(7), Scalar(12)};
     const Quaternion turn = quaternion_axis_angle(Vector3{0, 1, 0}, Scalar(1.1));
-    const Mat4 world_from_object = compose_transform(root, turn, Vector3{1, 1, 1});
+    const Matrix4 world_from_object = compose_transform(root, turn, Vector3{1, 1, 1});
 
     const AssemblyInstantiation out = instantiate_assembly(
         to_view(rig.assembly), ids.data(), ids.size(), root, turn);
 
     StubBodies bodies;
-    for (const RigidBodyDesc& body : out.bodies)
+    for (const RigidBodyDescription& body : out.bodies)
         bodies.set_rigid_pose(body.id, body.position, body.orientation);
 
     std::vector<Animation::RagdollJointTarget> targets;
@@ -707,14 +707,14 @@ TEST(Unit_PhysicsAssembly, ResolveSkipsAPartTheSimulationHasNoBodyFor)
     // One short, and the missing one is skipped rather than reported at its bind pose:
     // a target the physics did not produce is not a physics target, and blending toward
     // one would drag the animation to the rig's rest pose.
-    EXPECT_EQ(resolve_ragdoll_targets(rig, bodies, ids.data(), ids.size(), Mat4{}, Scalar(1),
+    EXPECT_EQ(resolve_ragdoll_targets(rig, bodies, ids.data(), ids.size(), Matrix4{}, Scalar(1),
                                       targets),
               rig.bindings.size() - 1);
     for (const Animation::RagdollJointTarget& target : targets)
         EXPECT_NE(target.joint, rig.bindings[0].joint);
 
     // And too few entities is refused outright, for the same reason instancing refuses.
-    EXPECT_EQ(resolve_ragdoll_targets(rig, bodies, ids.data(), 1, Mat4{}, Scalar(1), targets),
+    EXPECT_EQ(resolve_ragdoll_targets(rig, bodies, ids.data(), 1, Matrix4{}, Scalar(1), targets),
               std::size_t(0));
 }
 
@@ -722,8 +722,8 @@ TEST(Unit_PhysicsAssembly, ASkeletonWithNoBonesYieldsNoRig)
 {
     // A single joint has no children, so no bone, so nothing to simulate. Reported as an
     // empty rig rather than a rig of one degenerate capsule.
-    Animation::SkeletonDesc desc;
-    Animation::JointDesc only;
+    Animation::SkeletonDescription desc;
+    Animation::JointDescription only;
     only.name = "root";
     only.parent = -1;
     desc.joints.push_back(only);

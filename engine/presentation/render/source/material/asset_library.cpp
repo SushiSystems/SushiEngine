@@ -127,7 +127,7 @@ namespace SushiEngine
                 }
             } // namespace
 
-            void AssetLibrary::stage_atmosphere(const AtmosphereParameters& parameters,
+            void AssetLibrary::stage_atmosphere(const AtmosphereNestParameters& parameters,
                                                 const AtmosphereForcing& forcing,
                                                 const AtmosphereNestSize& size)
             {

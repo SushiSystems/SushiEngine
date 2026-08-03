@@ -52,10 +52,10 @@ namespace SushiEngine
              * @param color_format Format of the single colour attachment.
              * @return The description to build the pipeline from.
              */
-            Resources::GraphicsPipelineDesc fullscreen_pipeline_desc(VkPipelineLayout layout,
-                                                                     VkShaderModule vertex,
-                                                                     VkShaderModule fragment,
-                                                                     VkFormat color_format);
+            Resources::GraphicsPipelineDescription fullscreen_pipeline_desc(VkPipelineLayout layout,
+                                                                            VkShaderModule vertex,
+                                                                            VkShaderModule fragment,
+                                                                            VkFormat color_format);
         } // namespace Passes
     } // namespace Render
 } // namespace SushiEngine

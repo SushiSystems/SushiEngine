@@ -76,7 +76,7 @@ namespace SushiEngine
 
             void CloudPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDesc desc = fullscreen_pipeline_desc(
+                Resources::GraphicsPipelineDescription desc = fullscreen_pipeline_desc(
                     layout_.pipeline_layout(), shaders_.module("fullscreen.vert"),
                     shaders_.module("cloud.frag"), Frame::HDR_FORMAT);
                 // Second MRT slot: the W3 transmittance-weighted mean march depth
@@ -153,7 +153,7 @@ namespace SushiEngine
                         // into a value that matches neither, letting the march either poke
                         // through the edge of foreground geometry or clip short in front of
                         // it. A point sample always reads one real depth.
-                        Resources::SamplerDesc point{};
+                        Resources::SamplerDescription point{};
                         point.filter = VK_FILTER_NEAREST;
                         point.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
                         const VkSampler depth_sampler = frame.samplers->get(point);
@@ -197,7 +197,7 @@ namespace SushiEngine
                         // Stays in GENERAL across AtmosphereLUTPass's own compute build,
                         // like the other LUTs this descriptor set samples elsewhere.
                         const VkSampler lut_sampler =
-                            frame.samplers->get(Resources::SamplerDesc{});
+                            frame.samplers->get(Resources::SamplerDescription{});
                         writer.image(Scene::SceneLayout::TRANSMITTANCE_LUT_BINDING,
                                      atmosphere_.transmittance_view(), lut_sampler,
                                      VK_IMAGE_LAYOUT_GENERAL);

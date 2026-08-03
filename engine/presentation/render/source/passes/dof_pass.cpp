@@ -82,8 +82,9 @@ namespace SushiEngine
                     [this, &frame, source, depth](VkCommandBuffer cmd,
                                                   const Graph::PassContext& context)
                     {
-                        const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
-                        Resources::SamplerDesc point{};
+                        const VkSampler sampler =
+                            frame.samplers->get(Resources::SamplerDescription{});
+                        Resources::SamplerDescription point{};
                         point.filter = VK_FILTER_NEAREST;
                         point.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
                         const VkSampler depth_sampler = frame.samplers->get(point);

@@ -120,17 +120,18 @@ namespace SushiEngine
                           "SDFMeshInstance must match its std140 GLSL mirror");
 
             /**
-             * @brief The block locating the clipmap in space, mirroring @c SDFClipmapConfig.
+             * @brief The block locating the clipmap in space, mirroring the GLSL
+             *        @c SDFClipmapConfig block.
              */
-            struct SDFClipmapConfig
+            struct SDFClipmapConfiguration
             {
                 float origin_voxel[4];      /**< xyz camera-relative min corner; w = voxel size, metres. */
                 std::int32_t resolution[4]; /**< xyz voxel counts; w = live primitive count. */
                 std::int32_t extra[4];      /**< x = mesh-instance count; yzw spare. */
             };
 
-            static_assert(sizeof(SDFClipmapConfig) == 48,
-                          "SDFClipmapConfig must match its std140 GLSL mirror");
+            static_assert(sizeof(SDFClipmapConfiguration) == 48,
+                          "SDFClipmapConfiguration must match its std140 GLSL mirror");
 
             /**
              * @brief Fills the clipmap config, snapping the cube to a voxel lattice.
@@ -144,7 +145,7 @@ namespace SushiEngine
              * @param out             Receives the filled block.
              */
             void configure_sdf_clipmap(const double eye[3], std::int32_t primitive_count,
-                                       SDFClipmapConfig& out) noexcept;
+                                       SDFClipmapConfiguration& out) noexcept;
 
             /**
              * @brief Extracts the frame's axis-aligned analytic primitives, camera-relative.
@@ -178,7 +179,7 @@ namespace SushiEngine
              * @param emissive  The emitted radiance injected into the probes (three floats).
              * @param out       Receives the filled instance.
              */
-            void fill_sdf_mesh_instance(const Mat4& model, const double eye[3],
+            void fill_sdf_mesh_instance(const Matrix4& model, const double eye[3],
                                         const float aabb_min[3], const float aabb_max[3],
                                         std::int32_t slot, const float albedo[3],
                                         const float emissive[3], SDFMeshInstance& out) noexcept;

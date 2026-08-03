@@ -68,7 +68,7 @@ namespace SushiEngine
         };
 
         /** @brief Parameters for a ray-traced acoustics bake. */
-        struct RayTraceParams
+        struct RayTraceParameters
         {
             int rays = 8000;             /**< Rays cast from the source. */
             int max_order = 64;          /**< Maximum reflection order per ray. */
@@ -92,9 +92,9 @@ namespace SushiEngine
                  * @param params   Ray-trace parameters.
                  * @return The measured RT60 per band and a synthesized impulse response.
                  */
-                RoomImpulseResponse bake(const AcousticMesh& mesh, const AudioVec3& source,
-                                         const AudioVec3& listener,
-                                         const RayTraceParams& params = RayTraceParams()) const
+                RoomImpulseResponse bake(
+                    const AcousticMesh& mesh, const AudioVec3& source, const AudioVec3& listener,
+                    const RayTraceParameters& params = RayTraceParameters()) const
                 {
                     RoomImpulseResponse out;
                     out.sample_rate = 48000.0;
@@ -309,7 +309,7 @@ namespace SushiEngine
 
                 void trace_ray(const AcousticMesh& mesh, const AudioVec3& source,
                                const AudioVec3& listener, const float* dir0,
-                               const RayTraceParams& params, std::vector<double>& histogram,
+                               const RayTraceParameters& params, std::vector<double>& histogram,
                                int bins, RoomImpulseResponse& out) const
                 {
                     AudioVec3 origin = source;
@@ -431,7 +431,7 @@ namespace SushiEngine
                 }
 
                 static void compute_rt60(const std::vector<double>& histogram, int bins,
-                                         const RayTraceParams& params, RoomImpulseResponse& out)
+                                         const RayTraceParameters& params, RoomImpulseResponse& out)
                 {
                     for (int b = 0; b < ACOUSTIC_BAND_COUNT; ++b)
                     {
@@ -473,7 +473,7 @@ namespace SushiEngine
                 }
 
                 static void synthesize_impulse(const std::vector<double>& histogram, int bins,
-                                               const RayTraceParams& params, RoomImpulseResponse& out)
+                                               const RayTraceParameters& params, RoomImpulseResponse& out)
                 {
                     const int length = static_cast<int>(out.sample_rate * params.histogram_seconds);
                     out.impulse.assign(static_cast<std::size_t>(length), 0.0f);

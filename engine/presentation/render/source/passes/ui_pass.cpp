@@ -84,7 +84,7 @@ namespace SushiEngine
 
             void UIPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDesc desc;
+                Resources::GraphicsPipelineDescription desc;
                 desc.layout = pipeline_layout_;
                 desc.vertex_shader = shaders_.module("ui.vert");
                 desc.fragment_shader = shaders_.module("ui.frag");

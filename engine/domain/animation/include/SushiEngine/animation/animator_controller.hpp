@@ -233,17 +233,17 @@ namespace SushiEngine
 
         // --- Host authoring description ------------------------------------------------
 
-        struct ConditionDesc
+        struct ConditionDescription
         {
             std::string parameter;
             Comparator comparator = Comparator::Greater;
             float threshold = 0.0f;
         };
 
-        struct TransitionDesc
+        struct TransitionDescription
         {
             std::string destination;                 /**< Destination state name (in the layer). */
-            std::vector<ConditionDesc> conditions;
+            std::vector<ConditionDescription> conditions;
             bool has_exit_time = false;
             float exit_time = 1.0f;
             float duration = 0.0f;
@@ -251,14 +251,14 @@ namespace SushiEngine
             InterruptionSource interruption = InterruptionSource::None;
         };
 
-        struct StateEventDesc
+        struct StateEventDescription
         {
             float normalized_time = 0.0f;
             std::string name;
             std::int32_t payload = 0;
         };
 
-        struct BlendTreeNodeDesc; // a child may nest another node
+        struct BlendTreeNodeDescription; // a child may nest another node
 
         /**
          * @brief One authored blend-tree child: a clip leaf or a nested node, and its coordinates.
@@ -266,10 +266,10 @@ namespace SushiEngine
          * Exactly one of @c clip and @c child_node is set. Parameter names are resolved to
          * indices at compile.
          */
-        struct BlendChildDesc
+        struct BlendChildDescription
         {
             AssetId clip = INVALID_ASSET;                    /**< Leaf clip, or @ref INVALID_ASSET. */
-            std::shared_ptr<BlendTreeNodeDesc> child_node;   /**< Nested node, or null. */
+            std::shared_ptr<BlendTreeNodeDescription> child_node;   /**< Nested node, or null. */
             float threshold = 0.0f;                          /**< 1D coordinate. */
             float position_x = 0.0f;                         /**< 2D coordinate, X. */
             float position_y = 0.0f;                         /**< 2D coordinate, Y. */
@@ -278,40 +278,41 @@ namespace SushiEngine
         };
 
         /** @brief One authored blend-tree node: its kind, driving parameters, and children. */
-        struct BlendTreeNodeDesc
+        struct BlendTreeNodeDescription
         {
             BlendTreeType type = BlendTreeType::Simple1D;
             std::string parameter_x; /**< 1D / 2D-X driving parameter. */
             std::string parameter_y; /**< 2D-Y driving parameter (empty for 1D / Direct). */
             bool normalize = true;   /**< Direct: normalise child weights to sum 1. */
-            std::vector<BlendChildDesc> children;
+            std::vector<BlendChildDescription> children;
         };
 
-        struct StateDesc
+        struct StateDescription
         {
             std::string name;
             AssetId clip = INVALID_ASSET; /**< The single clip, when @c blend_tree is null. */
-            std::shared_ptr<BlendTreeNodeDesc> blend_tree; /**< A blend tree, or null for a clip. */
+            /** @brief A blend tree, or null for a clip. */
+            std::shared_ptr<BlendTreeNodeDescription> blend_tree;
             float speed = 1.0f;
             std::string speed_parameter; /**< Empty for none. */
             float cycle_offset = 0.0f;
-            std::vector<TransitionDesc> transitions;
-            std::vector<StateEventDesc> events;
+            std::vector<TransitionDescription> transitions;
+            std::vector<StateEventDescription> events;
         };
 
-        struct LayerDesc
+        struct LayerDescription
         {
             std::string name;
             float weight = 1.0f;
-            std::vector<StateDesc> states;
-            std::vector<TransitionDesc> any_state_transitions;
+            std::vector<StateDescription> states;
+            std::vector<TransitionDescription> any_state_transitions;
             std::string default_state;                        /**< Empty defaults to the first state. */
             AssetId mask = INVALID_ASSET;                     /**< Avatar mask gating this layer, or none. */
             LayerBlendMode blend_mode = LayerBlendMode::Override;
             std::string weight_parameter;                     /**< Parameter driving layer weight, or empty. */
         };
 
-        struct ParameterDesc
+        struct ParameterDescription
         {
             std::string name;
             ParameterType type = ParameterType::Float;
@@ -319,16 +320,16 @@ namespace SushiEngine
         };
 
         /** @brief A controller as authored: the input to @ref compile_controller_blob. */
-        struct ControllerDesc
+        struct ControllerDescription
         {
-            std::vector<ParameterDesc> parameters;
-            std::vector<LayerDesc> layers;
+            std::vector<ParameterDescription> parameters;
+            std::vector<LayerDescription> layers;
         };
 
         namespace detail
         {
             /** @brief Resolves a state name to its index within one layer, or -1. */
-            inline int find_state(const LayerDesc& layer, const std::string& name)
+            inline int find_state(const LayerDescription& layer, const std::string& name)
             {
                 for (std::size_t i = 0; i < layer.states.size(); ++i)
                     if (layer.states[i].name == name)
@@ -337,7 +338,7 @@ namespace SushiEngine
             }
 
             /** @brief Resolves a parameter name to its index, or -1. */
-            inline int find_parameter(const ControllerDesc& desc, const std::string& name)
+            inline int find_parameter(const ControllerDescription& desc, const std::string& name)
             {
                 for (std::size_t i = 0; i < desc.parameters.size(); ++i)
                     if (desc.parameters[i].name == name)
@@ -359,8 +360,8 @@ namespace SushiEngine
              * node's blend metric and `1/|delta|²` — cartesian difference, or
              * `(signed-angle, magnitude-difference)` for the directional variant.
              */
-            inline void bake_pairs(const std::vector<BlendChildDesc>& children, bool directional,
-                                   std::vector<BlendPairRecord>& pairs)
+            inline void bake_pairs(const std::vector<BlendChildDescription>& children,
+                                   bool directional, std::vector<BlendPairRecord>& pairs)
             {
                 const std::size_t n = children.size();
                 for (std::size_t i = 0; i < n; ++i)
@@ -402,8 +403,8 @@ namespace SushiEngine
              *
              * @return The flattened node's index, or -1 if a referenced parameter name is unknown.
              */
-            inline int flatten_blend_tree(const ControllerDesc& controller,
-                                          const BlendTreeNodeDesc& node,
+            inline int flatten_blend_tree(const ControllerDescription& controller,
+                                          const BlendTreeNodeDescription& node,
                                           std::vector<BlendTreeNodeRecord>& nodes,
                                           std::vector<BlendTreeChildRecord>& children,
                                           std::vector<BlendPairRecord>& pairs)
@@ -411,10 +412,10 @@ namespace SushiEngine
                 if (node.children.size() > MAX_BLEND_TREE_CHILDREN)
                     return -1;
 
-                std::vector<BlendChildDesc> ordered = node.children;
+                std::vector<BlendChildDescription> ordered = node.children;
                 if (node.type == BlendTreeType::Simple1D)
                     std::sort(ordered.begin(), ordered.end(),
-                              [](const BlendChildDesc& a, const BlendChildDesc& b)
+                              [](const BlendChildDescription& a, const BlendChildDescription& b)
                               { return a.threshold < b.threshold; });
 
                 std::vector<int> child_node_index(ordered.size(), -1);
@@ -489,7 +490,8 @@ namespace SushiEngine
          * @return True on success; false if a referenced state/parameter name is unknown, or
          *         a layer/parameter count exceeds its cap.
          */
-        inline bool compile_controller_blob(const ControllerDesc& desc, std::vector<std::byte>& out)
+        inline bool compile_controller_blob(const ControllerDescription& desc,
+                                            std::vector<std::byte>& out)
         {
             out.clear();
             if (desc.layers.empty() || desc.layers.size() > MAX_LAYERS ||
@@ -506,7 +508,7 @@ namespace SushiEngine
             std::vector<BlendTreeChildRecord> children;
             std::vector<BlendPairRecord> pairs;
 
-            for (const ParameterDesc& p : desc.parameters)
+            for (const ParameterDescription& p : desc.parameters)
             {
                 ParameterRecord record;
                 record.name = hash_name(p.name.c_str());
@@ -517,12 +519,12 @@ namespace SushiEngine
 
             // Compiles a transition list against a layer, appending to the global arrays.
             const auto compile_transitions =
-                [&](const LayerDesc& layer, const std::vector<TransitionDesc>& source,
+                [&](const LayerDescription& layer, const std::vector<TransitionDescription>& source,
                     std::uint32_t& base, std::uint32_t& count) -> bool
             {
                 base = static_cast<std::uint32_t>(transitions.size());
                 count = 0;
-                for (const TransitionDesc& t : source)
+                for (const TransitionDescription& t : source)
                 {
                     // "Exit" is the reserved sink of the editor's graph: at this flat level it
                     // returns to the layer's entry (default) state, so exit transitions compile
@@ -543,7 +545,7 @@ namespace SushiEngine
                     record.interruption = static_cast<std::uint32_t>(t.interruption);
                     record.condition_base = static_cast<std::uint32_t>(conditions.size());
                     record.condition_count = static_cast<std::uint32_t>(t.conditions.size());
-                    for (const ConditionDesc& c : t.conditions)
+                    for (const ConditionDescription& c : t.conditions)
                     {
                         const int parameter = detail::find_parameter(desc, c.parameter);
                         if (parameter < 0)
@@ -560,7 +562,7 @@ namespace SushiEngine
                 return true;
             };
 
-            for (const LayerDesc& layer : desc.layers)
+            for (const LayerDescription& layer : desc.layers)
             {
                 LayerRecord layer_record;
                 layer_record.weight = layer.weight;
@@ -584,7 +586,7 @@ namespace SushiEngine
                                          layer_record.any_transition_count))
                     return false;
 
-                for (const StateDesc& state : layer.states)
+                for (const StateDescription& state : layer.states)
                 {
                     StateRecord state_record;
                     state_record.clip = state.clip;
@@ -608,7 +610,7 @@ namespace SushiEngine
                         return false;
                     state_record.event_base = static_cast<std::uint32_t>(events.size());
                     state_record.event_count = static_cast<std::uint32_t>(state.events.size());
-                    for (const StateEventDesc& e : state.events)
+                    for (const StateEventDescription& e : state.events)
                     {
                         EventRecord event;
                         event.normalized_time = e.normalized_time;

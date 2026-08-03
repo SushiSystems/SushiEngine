@@ -86,9 +86,9 @@ namespace
     }
 
     /** @brief Frictionless, bounceless contact parameters with the anti-jitter floor set. */
-    ContactSolveParams<Scalar> plain_params(Scalar substep)
+    ContactSolveParameters<Scalar> plain_params(Scalar substep)
     {
-        ContactSolveParams<Scalar> params;
+        ContactSolveParameters<Scalar> params;
         params.static_friction = 0.0;
         params.dynamic_friction = 0.0;
         params.restitution = 0.0;
@@ -122,7 +122,7 @@ namespace
      */
     void tick_on_ground(IConstraintSolver<Scalar>& solver, const std::vector<BodyHandle>& handles,
                         std::vector<ContactManifold<Scalar>>& manifolds, Vector3 half_extents,
-                        const ContactSolveParams<Scalar>& params, Scalar dt)
+                        const ContactSolveParameters<Scalar>& params, Scalar dt)
     {
         const PlaneCollider<Scalar> ground{Vector3{0.0, 1.0, 0.0}, 0.0};
         // Generated further out than they are resolved to: an offset that did not
@@ -280,7 +280,7 @@ TEST(Unit_ContactConstraint, ADroppedBoxComesToRestThroughTheSolver)
     std::vector<BodyHandle> handles{handle};
     std::vector<ContactManifold<Scalar>> manifolds(1);
     const Scalar dt = 1.0 / 60.0;
-    const ContactSolveParams<Scalar> params = plain_params(dt / 8.0);
+    const ContactSolveParameters<Scalar> params = plain_params(dt / 8.0);
 
     for (int tick = 0; tick < 180; ++tick)
         tick_on_ground(solver, handles, manifolds, Vector3{0.5, 0.5, 0.5}, params, dt);
@@ -304,7 +304,7 @@ TEST(Unit_ContactConstraint, TheSolvedImpulsesComeBackOut)
     std::vector<BodyHandle> handles{handle};
     std::vector<ContactManifold<Scalar>> manifolds(1);
     const Scalar dt = 1.0 / 60.0;
-    const ContactSolveParams<Scalar> params = plain_params(dt / 8.0);
+    const ContactSolveParameters<Scalar> params = plain_params(dt / 8.0);
 
     for (int tick = 0; tick < 60; ++tick)
         tick_on_ground(solver, handles, manifolds, Vector3{0.5, 0.5, 0.5}, params, dt);
@@ -377,7 +377,7 @@ TEST(Unit_ContactConstraint, AStackOfBoxesSettlesThroughTheSolver)
     const Vector3 half{0.5, 0.5, 0.5};
     const PlaneCollider<Scalar> ground{Vector3{0.0, 1.0, 0.0}, 0.0};
     const Scalar dt = 1.0 / 60.0;
-    const ContactSolveParams<Scalar> params = plain_params(dt / 8.0);
+    const ContactSolveParameters<Scalar> params = plain_params(dt / 8.0);
     const Scalar contact_offset = 0.03;
 
     std::vector<ContactManifold<Scalar>> ground_manifolds(COUNT);

@@ -51,7 +51,7 @@ namespace SushiEngine
                  * hand-written layout blocks because that is genuinely all the difference between
                  * them, and ten near-identical blocks is ten places for a binding index to drift.
                  */
-                struct StageDesc
+                struct StageDescription
                 {
                     const char* module;
                     const char* bindings;
@@ -112,7 +112,7 @@ namespace SushiEngine
                     float seed_seconds;
                 };
 
-                const StageDesc STAGES[] = {
+                const StageDescription STAGES[] = {
                     {"atmosphere_shift.comp", "usssssiiiiissi", sizeof(ShiftPushBlock)},
                     {"atmosphere_advect_velocity.comp", "usssiii", 0},
                     {"atmosphere_advect_scalars.comp", "usssssii", 0},
@@ -252,7 +252,7 @@ namespace SushiEngine
                 // the boundary cell, which is where the Davies zone has already nudged the
                 // solution toward the parent — so the clamp returns the most nearly correct value
                 // available rather than wrapping into the far side of the domain.
-                Resources::SamplerDesc sampler_desc{};
+                Resources::SamplerDescription sampler_desc{};
                 sampler_desc.filter = VK_FILTER_LINEAR;
                 sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
                 sampler_ = samplers.get(sampler_desc);
@@ -419,7 +419,7 @@ namespace SushiEngine
                         *mapped = info_out.pMappedData;
                 };
 
-                make(params_, params_allocation_, &params_mapped_, sizeof(NestParams),
+                make(params_, params_allocation_, &params_mapped_, sizeof(NestParameters),
                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
 
                 const VkDeviceSize mirror_bytes = sizeof(AtmosphereMirrorColumn) *
@@ -484,7 +484,7 @@ namespace SushiEngine
 
                 for (std::uint32_t stage = 0; stage < STAGE_COUNT; ++stage)
                 {
-                    const StageDesc& desc = STAGES[stage];
+                    const StageDescription& desc = STAGES[stage];
                     VkDescriptorSetLayoutBinding bindings[16]{};
                     std::uint32_t count = 0;
                     for (const char* c = desc.bindings; *c != '\0'; ++c, ++count)
@@ -655,7 +655,7 @@ namespace SushiEngine
                 z = double(origin_cell_z_) * double(size_.spacing_m);
             }
 
-            float AtmosphereNest::choose_step(const AtmosphereParameters& parameters,
+            float AtmosphereNest::choose_step(const AtmosphereNestParameters& parameters,
                                               const AtmosphereForcing& forcing) const
             {
                 // The horizontal CFL against the fastest wind the parent solution carries — the
@@ -712,11 +712,11 @@ namespace SushiEngine
                 return std::clamp(cfl, parameters.min_step_seconds, parameters.max_step_seconds);
             }
 
-            void AtmosphereNest::upload_parameters(const AtmosphereParameters& p, float dt)
+            void AtmosphereNest::upload_parameters(const AtmosphereNestParameters& p, float dt)
             {
                 if (params_mapped_ == nullptr)
                     return;
-                NestParams block{};
+                NestParameters block{};
                 block.gas_constant_dry = p.gas_constant_dry;
                 block.gas_constant_vapour = p.gas_constant_vapour;
                 block.specific_heat_pressure = p.specific_heat_pressure;
@@ -788,7 +788,7 @@ namespace SushiEngine
                 // the same reason — the parameter block is uploaded once per step and this is
                 // one of its fields, not something to thread through every record call.
                 block.coriolis = coriolis_;
-                std::memcpy(params_mapped_, &block, sizeof(NestParams));
+                std::memcpy(params_mapped_, &block, sizeof(NestParameters));
             }
 
             VkDescriptorSet AtmosphereNest::allocate(std::uint32_t stage, std::uint32_t slot)
@@ -936,7 +936,7 @@ namespace SushiEngine
                 TimedSection timed(profiler_.get(), cmd, "shift");
                 const VkDescriptorSet set = allocate(STAGE_SHIFT, slot_);
                 Resources::DescriptorWriter writer;
-                writer.uniform_buffer(0, params_, sizeof(NestParams));
+                writer.uniform_buffer(0, params_, sizeof(NestParameters));
                 const Volume* sources[] = {&wind_x_.front, &wind_y_.front, &wind_z_.front,
                                            &theta_.front, &moisture_.front};
                 const Volume* targets[] = {&wind_x_.back, &wind_y_.back, &wind_z_.back,
@@ -985,7 +985,7 @@ namespace SushiEngine
                 const auto begin = [&](std::uint32_t stage, Resources::DescriptorWriter& writer)
                 {
                     const VkDescriptorSet set = allocate(stage, slot_);
-                    writer.uniform_buffer(0, params_, sizeof(NestParams));
+                    writer.uniform_buffer(0, params_, sizeof(NestParameters));
                     return set;
                 };
                 const auto dispatch = [&](std::uint32_t stage, VkDescriptorSet set,
@@ -1235,7 +1235,7 @@ namespace SushiEngine
                 TimedSection timed(profiler_.get(), cmd, "extinction");
                 const VkDescriptorSet set = allocate(STAGE_EXTINCTION, slot_);
                 Resources::DescriptorWriter writer;
-                writer.uniform_buffer(0, params_, sizeof(NestParams));
+                writer.uniform_buffer(0, params_, sizeof(NestParameters));
                 writer.sampled_image(1, moisture_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
                 writer.storage_image(2, extinction_.view, VK_IMAGE_LAYOUT_GENERAL);
                 writer.storage_image(3, cloud_shade_.view, VK_IMAGE_LAYOUT_GENERAL);
@@ -1257,7 +1257,7 @@ namespace SushiEngine
                 ReadbackPush push{ATMOSPHERE_MIRROR_CELLS};
                 const VkDescriptorSet set = allocate(STAGE_READBACK, slot);
                 Resources::DescriptorWriter writer;
-                writer.uniform_buffer(0, params_, sizeof(NestParams));
+                writer.uniform_buffer(0, params_, sizeof(NestParameters));
                 writer.sampled_image(1, extinction_.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
                 writer.sampled_image(2, moisture_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
                 writer.sampled_image(3, theta_.front.view, sampler_, VK_IMAGE_LAYOUT_GENERAL);
@@ -1416,7 +1416,7 @@ namespace SushiEngine
                 step_cost_ = cost;
             }
 
-            void AtmosphereNest::step(const AtmosphereParameters& parameters,
+            void AtmosphereNest::step(const AtmosphereNestParameters& parameters,
                                       const AtmosphereForcing& forcing,
                                       const VkSemaphoreSubmitInfo* readers,
                                       std::uint32_t reader_count)

@@ -54,7 +54,7 @@ namespace SushiEngine
 
             void LightShadowPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDesc desc = depth_only_pipeline_desc(
+                Resources::GraphicsPipelineDescription desc = depth_only_pipeline_desc(
                     layout_.pipeline_layout(), shaders_.module("light_shadow.vert"),
                     Frame::SHADOW_FORMAT);
                 // Conventional depth like the sun atlas: the spot projection is not
@@ -139,7 +139,7 @@ namespace SushiEngine
                                                          VK_INDEX_TYPE_UINT32);
                                     bound_vertices = mesh.vertices;
                                 }
-                                const Mat4 model =
+                                const Matrix4 model =
                                     imported ? instance.model
                                              : mul(instance.model,
                                                    Geometry::shape_scale(instance.kind,

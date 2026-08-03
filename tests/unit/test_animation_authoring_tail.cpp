@@ -88,7 +88,7 @@ namespace
 
         Fixture()
         {
-            SkeletonDesc description;
+            SkeletonDescription description;
             description.joints.resize(3);
             const char* names[3] = {"root", "footLeft", "footRight"};
             const int parents[3] = {-1, 0, 0};
@@ -123,7 +123,7 @@ namespace
             const float rate = 30.0f;
             const std::uint32_t frames =
                 static_cast<std::uint32_t>(duration_seconds * rate) + 1u;
-            ClipDesc clip;
+            ClipDescription clip;
             clip.joint_count = view.joint_count;
             clip.frame_count = frames;
             clip.sample_rate = rate;
@@ -286,7 +286,7 @@ TEST(Unit_AnimationAuthoringTail,TheSamplerResamplesOnItsIntervalRatherThanEvery
     motion.add_clip(slow, fixture.database, fixture.view, fixture.joint("root"), -1, -1, 2);
     motion.add_clip(fast, fixture.database, fixture.view, fixture.joint("root"), -1, -1, 2);
 
-    MotionMatchSamplerConfig config;
+    MotionMatchSamplerConfiguration config;
     config.resample_interval_seconds = 0.1f;
     config.crossfade_seconds = 0.2f;
 
@@ -327,7 +327,7 @@ TEST(Unit_AnimationAuthoringTail,ACrossfadeCompletesAfterItsDurationAndEndsOnThe
     motion.add_clip(slow, fixture.database, fixture.view, fixture.joint("root"), -1, -1, 2);
     motion.add_clip(fast, fixture.database, fixture.view, fixture.joint("root"), -1, -1, 2);
 
-    MotionMatchSamplerConfig config;
+    MotionMatchSamplerConfiguration config;
     config.resample_interval_seconds = 0.05f;
     config.crossfade_seconds = 0.2f;
 

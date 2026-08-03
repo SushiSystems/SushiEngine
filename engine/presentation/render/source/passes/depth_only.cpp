@@ -33,11 +33,11 @@ namespace SushiEngine
     {
         namespace Passes
         {
-            Resources::GraphicsPipelineDesc depth_only_pipeline_desc(VkPipelineLayout layout,
-                                                                     VkShaderModule vertex,
-                                                                     VkFormat depth_format)
+            Resources::GraphicsPipelineDescription depth_only_pipeline_desc(VkPipelineLayout layout,
+                                                                            VkShaderModule vertex,
+                                                                            VkFormat depth_format)
             {
-                Resources::GraphicsPipelineDesc desc;
+                Resources::GraphicsPipelineDescription desc;
                 desc.layout = layout;
                 desc.vertex_shader = vertex;
                 desc.vertex_stride = sizeof(Geometry::MeshVertex);
@@ -70,7 +70,7 @@ namespace SushiEngine
                 return desc;
             }
 
-            Scene::MeshPushConstants depth_only_push(const Mat4& model, const double eye[3],
+            Scene::MeshPushConstants depth_only_push(const Matrix4& model, const double eye[3],
                                                      float cascade)
             {
                 Scene::MeshPushConstants push{};

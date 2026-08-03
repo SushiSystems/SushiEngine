@@ -369,7 +369,7 @@ namespace SushiEngine
                     basis[row][2] = -basis[row][2];
             }
 
-            Mat4 rotation{};
+            Matrix4 rotation{};
             for (int i = 0; i < 16; ++i)
                 rotation.m[i] = Scalar(0);
             for (int column = 0; column < 3; ++column)

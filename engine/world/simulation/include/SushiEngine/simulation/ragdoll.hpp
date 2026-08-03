@@ -64,12 +64,12 @@
  * one to make the two coincide would be reshaping a record to avoid storing six
  * numbers.
  *
- * ### `Animation::JointDesc` and `Simulation::JointDesc` are different types
+ * ### `Animation::JointDescription` and `Simulation::JointDescription` are different types
  *
  * Both names are right in their own namespace — one is a cook-time authoring joint of a
  * skeleton, the other the physics boundary's joint description — and this header names
  * both namespaces. Everything here is therefore qualified; a translation unit that
- * `using`s both will find `JointDesc` ambiguous, which is the correct outcome for a
+ * `using`s both will find `JointDescription` ambiguous, which is the correct outcome for a
  * name that means two things.
  */
 
@@ -459,14 +459,14 @@ namespace SushiEngine
         inline std::size_t resolve_ragdoll_targets(
             const RagdollRig& rig, const IRigidBodyService& bodies,
             const EntityId* part_entities, std::size_t part_entity_count,
-            const Mat4& world_from_object, Scalar weight,
+            const Matrix4& world_from_object, Scalar weight,
             std::vector<Animation::RagdollJointTarget>& out)
         {
             out.clear();
             if (part_entities == nullptr || part_entity_count < rig.bindings.size())
                 return 0;
 
-            const Mat4 object_from_world = affine_inverse(world_from_object);
+            const Matrix4 object_from_world = affine_inverse(world_from_object);
             out.reserve(rig.bindings.size());
 
             for (const RagdollBinding& binding : rig.bindings)
@@ -480,9 +480,9 @@ namespace SushiEngine
                 if (!bodies.rigid_pose(part_entities[binding.part], pose))
                     continue;
 
-                const Mat4 part_world =
+                const Matrix4 part_world =
                     compose_transform(pose.position, pose.orientation, Vector3{1, 1, 1});
-                const Mat4 joint_in_part = compose_transform(
+                const Matrix4 joint_in_part = compose_transform(
                     binding.offset_position, binding.offset_orientation, Vector3{1, 1, 1});
 
                 Animation::RagdollJointTarget target;

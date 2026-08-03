@@ -79,8 +79,8 @@ namespace SushiEngine
              * @param previous_projection Last frame's unjittered camera-to-clip matrix.
              * @param result              Receives the 16 floats, column-major.
              */
-            void previous_view_projection(const Mat4& previous_view,
-                                          const Mat4& previous_projection,
+            void previous_view_projection(const Matrix4& previous_view,
+                                          const Matrix4& previous_projection,
                                           float result[16]) noexcept;
 
             /**
@@ -99,8 +99,9 @@ namespace SushiEngine
              * @param eye_delta        This frame's eye minus last frame's, metres, as {x, y, z}.
              * @param uniforms         Receives the filled block.
              */
-            void fill_temporal_uniforms(const RenderSettings& settings, const Mat4& previous_view,
-                                        const Mat4& previous_proj, const float jitter[2],
+            void fill_temporal_uniforms(const RenderSettings& settings,
+                                        const Matrix4& previous_view,
+                                        const Matrix4& previous_proj, const float jitter[2],
                                         const float previous_jitter[2],
                                         std::uint32_t render_width, std::uint32_t render_height,
                                         std::uint32_t output_width, std::uint32_t output_height,

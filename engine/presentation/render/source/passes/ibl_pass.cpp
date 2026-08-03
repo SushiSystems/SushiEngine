@@ -63,7 +63,7 @@ namespace SushiEngine
                 constexpr std::uint32_t RECAPTURE_INTERVAL = 4;
 
                 /** @brief The push block the prefilter and irradiance shaders share. */
-                struct ConvolveParams
+                struct ConvolveParameters
                 {
                     std::uint32_t resolution;
                     std::uint32_t source_resolution;
@@ -72,7 +72,7 @@ namespace SushiEngine
                 };
 
                 /** @brief The push block the BRDF LUT shader reads. */
-                struct LUTParams
+                struct LUTParameters
                 {
                     std::uint32_t resolution;
                     std::uint32_t sample_count;
@@ -82,7 +82,7 @@ namespace SushiEngine
                 constexpr std::uint32_t SH_SAMPLE_RESOLUTION = 32;
 
                 /** @brief The push block the SH projection shader reads. */
-                struct ShParams
+                struct SHParameters
                 {
                     std::uint32_t resolution; /**< Per-face sample grid side. */
                     float source_mip;         /**< Environment mip the radiance is read from. */
@@ -174,7 +174,7 @@ namespace SushiEngine
                 : device_(device), shaders_(shaders), pipelines_(pipelines), layout_(layout),
                   noise_(noise), atmosphere_(atmosphere), fog_(fog)
             {
-                Resources::SamplerDesc sampler_desc;
+                Resources::SamplerDescription sampler_desc;
                 sampler_desc.max_lod = static_cast<float>(SPECULAR_MIPS);
                 sampler_ = samplers.get(sampler_desc);
 
@@ -246,7 +246,7 @@ namespace SushiEngine
 
                 VkPushConstantRange convolve_range{};
                 convolve_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-                convolve_range.size = sizeof(ConvolveParams);
+                convolve_range.size = sizeof(ConvolveParameters);
                 VkPipelineLayoutCreateInfo compute_pipeline_info{};
                 compute_pipeline_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
                 compute_pipeline_info.setLayoutCount = 1;
@@ -272,7 +272,7 @@ namespace SushiEngine
 
                 VkPushConstantRange lut_range{};
                 lut_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-                lut_range.size = sizeof(LUTParams);
+                lut_range.size = sizeof(LUTParameters);
                 VkPipelineLayoutCreateInfo lut_pipeline_info{};
                 lut_pipeline_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
                 lut_pipeline_info.setLayoutCount = 1;
@@ -305,7 +305,7 @@ namespace SushiEngine
 
                 VkPushConstantRange sh_range{};
                 sh_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-                sh_range.size = sizeof(ShParams);
+                sh_range.size = sizeof(SHParameters);
                 VkPipelineLayoutCreateInfo sh_pipeline_info{};
                 sh_pipeline_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
                 sh_pipeline_info.setLayoutCount = 1;
@@ -595,7 +595,7 @@ namespace SushiEngine
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
                 Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                lut_pipeline_layout_, 0, set);
-                LUTParams params{BRDF_RESOLUTION, BRDF_SAMPLES};
+                LUTParameters params{BRDF_RESOLUTION, BRDF_SAMPLES};
                 vkCmdPushConstants(cmd, lut_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                    sizeof(params), &params);
                 vkCmdDispatch(cmd, groups(BRDF_RESOLUTION, 8), groups(BRDF_RESOLUTION, 8), 1);
@@ -893,7 +893,8 @@ namespace SushiEngine
                            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
                 const auto convolve = [&](VkPipeline pipeline, VkImageView destination,
-                                          const ConvolveParams& params, std::uint32_t resolution)
+                                          const ConvolveParameters& params,
+                                          std::uint32_t resolution)
                 {
                     const VkDescriptorSet set = frame.descriptors->allocate(compute_layout_);
                     Resources::DescriptorWriter writer;
@@ -905,7 +906,7 @@ namespace SushiEngine
                     Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                    compute_pipeline_layout_, 0, set);
                     vkCmdPushConstants(cmd, compute_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                                       0, sizeof(ConvolveParams), &params);
+                                       0, sizeof(ConvolveParameters), &params);
                     vkCmdDispatch(cmd, groups(resolution, 8), groups(resolution, 8), 6);
                 };
 
@@ -913,18 +914,18 @@ namespace SushiEngine
                 {
                     const std::uint32_t resolution =
                         std::max(1u, specular_.resolution >> level);
-                    ConvolveParams params{resolution, environment_.resolution,
-                                          static_cast<float>(level) /
-                                              static_cast<float>(specular_.mips - 1),
-                                          PREFILTER_SAMPLES};
+                    ConvolveParameters params{resolution, environment_.resolution,
+                                              static_cast<float>(level) /
+                                                  static_cast<float>(specular_.mips - 1),
+                                              PREFILTER_SAMPLES};
                     convolve(prefilter_pipeline_, specular_.mip_views[level], params, resolution);
                 }
 
                 // The irradiance integral is smooth, so it reads a coarse mip of the
                 // environment and still converges at this sample count.
-                ConvolveParams irradiance_params{irradiance_.resolution,
-                                                 environment_.resolution, 3.0f,
-                                                 IRRADIANCE_SAMPLES};
+                ConvolveParameters irradiance_params{irradiance_.resolution,
+                                                     environment_.resolution, 3.0f,
+                                                     IRRADIANCE_SAMPLES};
                 convolve(irradiance_pipeline_, irradiance_.mip_views[0], irradiance_params,
                          irradiance_.resolution);
 
@@ -939,12 +940,12 @@ namespace SushiEngine
                     writer.storage_buffer(1, sh_buffer_, sh_buffer_bytes());
                     writer.update(device_.device(), sh_set);
 
-                    const ShParams sh_params{SH_SAMPLE_RESOLUTION, 2.0f};
+                    const SHParameters sh_params{SH_SAMPLE_RESOLUTION, 2.0f};
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sh_pipeline_);
                     Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                    sh_pipeline_layout_, 0, sh_set);
                     vkCmdPushConstants(cmd, sh_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                       sizeof(ShParams), &sh_params);
+                                       sizeof(SHParameters), &sh_params);
                     vkCmdDispatch(cmd, 1, 1, 1);
                 }
 

@@ -216,7 +216,7 @@ namespace SushiEngine
                 // nothing rather than bounce off a phantom surface.
                 VkBufferCreateInfo buffer_info{};
                 buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-                buffer_info.size = sizeof(GI::SDFClipmapConfig);
+                buffer_info.size = sizeof(GI::SDFClipmapConfiguration);
                 buffer_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
                 buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -230,7 +230,7 @@ namespace SushiEngine
                                               &mapped),
                               "vmaCreateBuffer(particle sim fallback config)");
                 if (mapped.pMappedData != nullptr)
-                    std::memset(mapped.pMappedData, 0, sizeof(GI::SDFClipmapConfig));
+                    std::memset(mapped.pMappedData, 0, sizeof(GI::SDFClipmapConfiguration));
             }
 
             void ParticleSimPass::destroy_fallback_field()
@@ -401,7 +401,7 @@ namespace SushiEngine
                         writer.sampled_image(
                             DEPTH_PYRAMID_BINDING,
                             depth_usable ? hiz_.pyramid_view() : fallback_view_,
-                            frame.samplers->get(Resources::SamplerDesc{}),
+                            frame.samplers->get(Resources::SamplerDescription{}),
                             depth_usable ? VK_IMAGE_LAYOUT_GENERAL
                                          : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
@@ -415,13 +415,13 @@ namespace SushiEngine
                         writer.sampled_image(SDF_CLIPMAP_BINDING,
                                              field_usable ? field.distance_field
                                                           : fallback_field_view_,
-                                             frame.samplers->get(Resources::SamplerDesc{}),
+                                             frame.samplers->get(Resources::SamplerDescription{}),
                                              field_usable ? VK_IMAGE_LAYOUT_GENERAL
                                                           : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                         writer.uniform_buffer(SDF_CONFIG_BINDING,
                                               field_usable ? field.config : fallback_config_,
                                               field_usable ? field.config_bytes
-                                                           : sizeof(GI::SDFClipmapConfig));
+                                                           : sizeof(GI::SDFClipmapConfiguration));
                         writer.update(device_.device(), set);
                         Resources::bind_descriptor_set(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                                        pipeline_layout_, 0, set);
@@ -441,11 +441,11 @@ namespace SushiEngine
                         push.misc[3] = static_cast<float>(frame.eye[2]);
                         if (frame.camera != nullptr)
                         {
-                            const Mat4 view_projection =
+                            const Matrix4 view_projection =
                                 mul(frame.camera->projection, frame.camera->view);
                             for (int i = 0; i < 16; ++i)
                                 push.view_projection[i] = static_cast<float>(view_projection.m[i]);
-                            const Mat4& view = frame.camera->view;
+                            const Matrix4& view = frame.camera->view;
                             push.camera_right[0] = static_cast<float>(view.m[0]);
                             push.camera_right[1] = static_cast<float>(view.m[4]);
                             push.camera_right[2] = static_cast<float>(view.m[8]);

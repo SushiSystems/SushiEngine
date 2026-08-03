@@ -42,7 +42,7 @@ namespace SushiEngine
         namespace
         {
             /** @brief Transforms a point by an affine matrix (w = 1). */
-            SushiEngine::Vector3 transform_point(const SushiEngine::Mat4& matrix,
+            SushiEngine::Vector3 transform_point(const SushiEngine::Matrix4& matrix,
                                                  const SushiEngine::Vector3& p)
             {
                 const SushiEngine::Scalar* m = matrix.m;
@@ -56,7 +56,7 @@ namespace SushiEngine
         {
             /** @brief Builds the `UI::RectTransform` equivalent of an authored UI element's params. */
             SushiEngine::UI::RectTransform ui_rect_transform(
-                const SushiEngine::Simulation::UIElementParams& p) noexcept
+                const SushiEngine::Simulation::UIElementParameters& p) noexcept
             {
                 using SushiEngine::UI::Vector2;
                 SushiEngine::UI::RectTransform transform;
@@ -110,7 +110,7 @@ namespace SushiEngine
                         ? resolve_ui_rect(ui, count, rects, done, root, ui[i].parent)
                         : root;
 
-                const SushiEngine::Simulation::UIElementParams& p = ui[i].params;
+                const SushiEngine::Simulation::UIElementParameters& p = ui[i].params;
                 const ImVec4 rect =
                     p.kind == SushiEngine::Simulation::UIElementKind::Canvas
                         ? parent
@@ -168,7 +168,7 @@ namespace SushiEngine
                 out.clear();
                 for (std::size_t i = 0; i < ui.count; ++i)
                 {
-                    const SushiEngine::Simulation::UIElementParams& p = ui.elements[i].params;
+                    const SushiEngine::Simulation::UIElementParameters& p = ui.elements[i].params;
                     const ImVec4 r = rects[i];
                     SushiEngine::UI::Rect rect;
                     rect.min.x = r.x;
@@ -247,7 +247,7 @@ namespace SushiEngine
                 using Kind = SushiEngine::Simulation::UIElementKind;
                 for (std::size_t i = 0; i < ui.count; ++i)
                 {
-                    const SushiEngine::Simulation::UIElementParams& p = ui.elements[i].params;
+                    const SushiEngine::Simulation::UIElementParameters& p = ui.elements[i].params;
                     const ImVec4 r = rects[i];
                     const ImVec2 mn(r.x, r.y);
                     const ImVec2 mx(r.x + r.z, r.y + r.w);
@@ -298,7 +298,7 @@ namespace SushiEngine
              * edit and the read-back path agree on one formula rather than each
              * reimplementing it. Lets a drag edit the rect directly in screen space.
              */
-            void ui_apply_screen_rect(SushiEngine::Simulation::UIElementParams& p,
+            void ui_apply_screen_rect(SushiEngine::Simulation::UIElementParameters& p,
                                       const ImVec4& parent, const ImVec4& target)
             {
                 SushiEngine::UI::RectTransform transform = ui_rect_transform(p);
@@ -846,7 +846,7 @@ namespace SushiEngine
             if (inputs.pickable)
             {
                 ImDrawList* dl = ImGui::GetWindowDrawList();
-                const SushiEngine::Mat4 vp =
+                const SushiEngine::Matrix4 vp =
                     SushiEngine::mul(camera_view.projection, camera_view.view);
                 const float w = static_cast<float>(width);
                 const float h = static_cast<float>(height);
@@ -945,7 +945,7 @@ namespace SushiEngine
             // asset is authored in its own space and placing it belongs to whatever instances
             // it, which the bake surface does not.
             if (inputs.collision_wireframe != nullptr && !inputs.collision_wireframe->empty())
-                draw_collision_overlay(*inputs.collision_wireframe, SushiEngine::Mat4{},
+                draw_collision_overlay(*inputs.collision_wireframe, SushiEngine::Matrix4{},
                                        camera_view, image_origin, static_cast<float>(width),
                                        static_cast<float>(height), ImGui::GetWindowDrawList());
 
@@ -984,7 +984,7 @@ namespace SushiEngine
             // gizmo-target/pickable split above.
             if (inputs.ik_gizmo && inputs.animated_mesh != nullptr && inputs.animated_mesh->loaded())
             {
-                const SushiEngine::Mat4& character_world = inputs.animated_mesh->world();
+                const SushiEngine::Matrix4& character_world = inputs.animated_mesh->world();
                 SushiEngine::Simulation::EntityTransform ik_transform;
                 ik_transform.position =
                     transform_point(character_world, inputs.animated_mesh->two_bone_ik().target);

@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // The authoring side of a clip: the sparse curves a dope sheet edits, the recorder that turns a
-// posed rig into keys, the bake that resamples all of it into the dense `ClipDesc` the cook
+// posed rig into keys, the bake that resamples all of it into the dense `ClipDescription` the cook
 // consumes, and the generic float tracks a baked clip dispatches to arbitrary consumers.
 //
 // The bake is the load-bearing part, because it is the only place the editable representation and
@@ -271,7 +271,7 @@ TEST(Unit_AnimationKeyframe,TheBakeReproducesTheCurveAtEveryFrameItWrites)
 
     EXPECT_FLOAT_EQ(authoring.duration(), 1.0f);
 
-    ClipDesc baked;
+    ClipDescription baked;
     const float rate = 20.0f;
     ASSERT_TRUE(authoring.bake(rate, baked));
 
@@ -318,7 +318,7 @@ TEST(Unit_AnimationKeyframe,TheBakeCarriesNamedCurvesFrameMajorWithTheRightStrid
     authoring.generics.push_back({"emissive", curve_of(InterpolationMode::Constant,
                                                        {{0.0f, 5.0f}, {1.0f, 9.0f}})});
 
-    ClipDesc baked;
+    ClipDescription baked;
     ASSERT_TRUE(authoring.bake(10.0f, baked));
     ASSERT_EQ(baked.frame_count, 11u);
     ASSERT_EQ(baked.morph_names.size(), 2u);
@@ -344,9 +344,9 @@ TEST(Unit_AnimationKeyframe,TheBakeCarriesNamedCurvesFrameMajorWithTheRightStrid
 TEST(Unit_AnimationKeyframe,TheBakeRefusesWhatItCannotResampleAndHandlesAStaticPose)
 {
     ClipAuthoring empty;
-    ClipDesc out;
-    // No joints means no clip: a `ClipDesc` with zero joints would validate and pose nothing,
-    // which is harder to diagnose than a refusal.
+    ClipDescription out;
+    // No joints means no clip: a `ClipDescription` with zero joints would validate and pose
+    // nothing, which is harder to diagnose than a refusal.
     EXPECT_FALSE(empty.bake(30.0f, out));
 
     ClipAuthoring one_joint;
@@ -393,7 +393,7 @@ TEST(Unit_AnimationKeyframe,RecordingAPoseAndBakingItReproducesThePosesRecorded)
     EXPECT_EQ(authoring.joints[1].translation_z.keys.size(), 3u);
     EXPECT_EQ(authoring.joints[1].rotation.keys.size(), 3u);
 
-    ClipDesc baked;
+    ClipDescription baked;
     ASSERT_TRUE(authoring.bake(2.0f, baked)); // exactly the recorded times: 0, 0.5, 1.0
     ASSERT_EQ(baked.frame_count, 3u);
 
@@ -429,7 +429,7 @@ TEST(Unit_AnimationKeyframe,GenericTracksDispatchByNameToTheirBoundTargets)
     authoring.generics.push_back({"widgetAlpha", curve_of(InterpolationMode::Linear,
                                                           {{0.0f, 1.0f}, {1.0f, 0.0f}})});
 
-    ClipDesc description;
+    ClipDescription description;
     ASSERT_TRUE(authoring.bake(10.0f, description));
     std::vector<std::byte> blob;
     ASSERT_TRUE(build_clip_blob(description, blob));
@@ -488,7 +488,7 @@ TEST(Unit_AnimationKeyframe,AClipWithMoreTracksThanTheDispatchBoundStaysWithinIt
         authoring.generics.push_back({"property_" + std::to_string(t), curve});
     }
 
-    ClipDesc description;
+    ClipDescription description;
     ASSERT_TRUE(authoring.bake(4.0f, description));
     std::vector<std::byte> blob;
     ASSERT_TRUE(build_clip_blob(description, blob));
@@ -522,7 +522,7 @@ TEST(Unit_AnimationKeyframe,DispatchingFromAClipWithNoGenericTracksDoesNothing)
     authoring.joints.resize(1);
     authoring.joints[0].translation_y = curve_of(InterpolationMode::Linear,
                                                 {{0.0f, 0.0f}, {1.0f, 1.0f}});
-    ClipDesc description;
+    ClipDescription description;
     ASSERT_TRUE(authoring.bake(10.0f, description));
     std::vector<std::byte> blob;
     ASSERT_TRUE(build_clip_blob(description, blob));

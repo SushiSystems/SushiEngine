@@ -154,7 +154,8 @@ namespace SushiEngine
                     [this, &frame, source, push](VkCommandBuffer cmd,
                                                  const Graph::PassContext& context)
                     {
-                        const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
+                        const VkSampler sampler =
+                            frame.samplers->get(Resources::SamplerDescription{});
                         Scene::SceneSetWriter writer;
                         writer.uniform(Scene::SceneLayout::SCENE_BINDING,
                                        context.buffer(frame.targets.uniforms),

@@ -54,7 +54,7 @@ int main()
 
     // A clip: two joints (identity tracks), a "smile" morph track and an "emissive" generic track
     // over three frames at 30 Hz — smile 0 -> 0.5 -> 1, emissive 1 -> 2 -> 3.
-    ClipDesc clip;
+    ClipDescription clip;
     clip.joint_count = 2;
     clip.frame_count = 3;
     clip.sample_rate = 30.0f;

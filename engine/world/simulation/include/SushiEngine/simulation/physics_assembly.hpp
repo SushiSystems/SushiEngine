@@ -38,7 +38,7 @@
  * record: authored, scaled, carrying the cooked-asset identifier P4 will fill, and
  * already what the extract hands the physics. An assembly expressed in physics-layer
  * shape types would be a second description of the same thing, and §5.5's whole
- * argument against `ColliderParams`'s flattened copies applies with equal force here.
+ * argument against `ColliderParameters`'s flattened copies applies with equal force here.
  *
  * ### Instancing is a translation, not a service that owns bodies
  *
@@ -58,7 +58,7 @@
  * side is exactly the shape §4.1 blessed for `PhysicsExtract` — a translation
  * responsibility in one unit, tested on its own: @ref instantiate_assembly turns an
  * asset plus a root pose plus one caller-supplied entity per part into the
- * @ref RigidBodyDesc list and @ref JointDesc list the caller already knows how to
+ * @ref RigidBodyDescription list and @ref JointDescription list the caller already knows how to
  * feed. Nothing here holds state, so there is nothing to release.
  *
  * ### The filter matrix is authoritative
@@ -165,7 +165,7 @@ namespace SushiEngine
         /**
          * @brief One joint of an assembly, between two of its parts.
          *
-         * The parameters are a @ref JointParams rather than a copy of its fields, which
+         * The parameters are a @ref JointParameters rather than a copy of its fields, which
          * is why that value exists: an assembly authored against part indices and a
          * joint created against entities are the same joint, and a parameter added to
          * one must not be silently absent from the other.
@@ -179,7 +179,7 @@ namespace SushiEngine
             std::uint32_t part_b = 0;
 
             /** @brief What is held between them. */
-            JointParams params;
+            JointParameters params;
         };
 
         /**
@@ -504,10 +504,10 @@ namespace SushiEngine
         struct AssemblyInstantiation
         {
             /** @brief One per part, in part order, ready for `set_rigid_bodies`. */
-            std::vector<RigidBodyDesc> bodies;
+            std::vector<RigidBodyDescription> bodies;
 
             /** @brief One per joint, in joint order, ready for `create_joint`. */
-            std::vector<JointDesc> joints;
+            std::vector<JointDescription> joints;
         };
 
         /**
@@ -546,7 +546,7 @@ namespace SushiEngine
             {
                 const AssemblyPart& part = view.parts[i];
 
-                RigidBodyDesc desc;
+                RigidBodyDescription desc;
                 desc.id = part_entities[i];
                 desc.position = root_position + rotate(root_orientation, part.local_position);
                 desc.orientation = mul(root_orientation, part.local_orientation);
@@ -577,7 +577,7 @@ namespace SushiEngine
                 // Bounds already hold: `validate_assembly_blob` refuses a blob whose
                 // joints name parts that do not exist, and `to_view` comes from an
                 // owning assembly `build_assembly_blob` refuses to write otherwise.
-                JointDesc desc;
+                JointDescription desc;
                 desc.body_a = part_entities[joint.part_a];
                 desc.body_b = part_entities[joint.part_b];
                 desc.params = joint.params;

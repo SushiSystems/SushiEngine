@@ -114,7 +114,7 @@ namespace SushiEngine
                     // The transform the draw actually uses — primitive scaling baked in, then
                     // made camera-relative in double before the float cast, exactly as the
                     // classic push path did — so the cull and vertex shaders see one geometry.
-                    const Mat4 model =
+                    const Matrix4 model =
                         imported ? instance.model
                                  : mul(instance.model, Geometry::shape_scale(
                                                            instance.kind, instance.shape_params));

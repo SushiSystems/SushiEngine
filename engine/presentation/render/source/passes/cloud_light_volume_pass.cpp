@@ -129,7 +129,7 @@ namespace SushiEngine
                 // Tiles under the same convention as the T3 field's own sampler: the
                 // volume wraps in every axis so a march sample straying past the union
                 // band's Y edge reads its own boundary back.
-                Resources::SamplerDesc sampler_desc{};
+                Resources::SamplerDescription sampler_desc{};
                 sampler_desc.filter = VK_FILTER_LINEAR;
                 sampler_desc.address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
                 sampler_ = samplers.get(sampler_desc);

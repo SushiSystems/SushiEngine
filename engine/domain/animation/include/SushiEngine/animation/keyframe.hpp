@@ -28,9 +28,9 @@
  * editor manipulates, with constant / linear / cubic-Hermite interpolation (Catmull-Rom
  * auto-tangents), and a @ref QuaternionCurve slerps rotation keys. A @ref ClipAuthoring is the
  * per-joint (and per-morph / per-generic) bundle of curves; @ref ClipAuthoring::bake resamples it
- * to the dense @ref ClipDesc the cook consumes. @ref PoseRecorder captures a live pose over time
- * into keys — the "record" workflow — so a rig posed by hand, IK, or physics can be turned into a
- * clip. Nothing here runs at runtime; it feeds the import/cook path.
+ * to the dense @ref ClipDescription the cook consumes. @ref PoseRecorder captures a live pose
+ * over time into keys — the "record" workflow — so a rig posed by hand, IK, or physics can be
+ * turned into a clip. Nothing here runs at runtime; it feeds the import/cook path.
  */
 
 #include <algorithm>
@@ -40,7 +40,7 @@
 #include <string>
 #include <vector>
 
-#include <SushiEngine/animation/clip_blob.hpp> // ClipDesc
+#include <SushiEngine/animation/clip_blob.hpp> // ClipDescription
 #include <SushiEngine/animation/hash.hpp>
 #include <SushiEngine/core/types.hpp>
 
@@ -295,8 +295,8 @@ namespace SushiEngine
          * @brief The editable clip: per-joint curves plus morph/generic curves, baked to a clip.
          *
          * The dope sheet and curve editor manipulate this; @ref bake resamples it to the dense
-         * @ref ClipDesc the `.sushianim` cook consumes. Joints keep a rest default so a channel
-         * with no keys still poses correctly.
+         * @ref ClipDescription the `.sushianim` cook consumes. Joints keep a rest default so a
+         * channel with no keys still poses correctly.
          */
         struct ClipAuthoring
         {
@@ -331,9 +331,9 @@ namespace SushiEngine
              * @param out         Receives the dense clip (frame-major); cleared first.
              * @return True on success; false if there are no joints or the rate is non-positive.
              */
-            bool bake(float sample_rate, ClipDesc& out) const
+            bool bake(float sample_rate, ClipDescription& out) const
             {
-                out = ClipDesc{};
+                out = ClipDescription{};
                 if (joints.empty() || sample_rate <= 0.0f)
                     return false;
 

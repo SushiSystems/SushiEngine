@@ -200,7 +200,7 @@ TEST(Unit_Audio, RayTracedRt60MatchesSabine)
                  AudioVec3{lx * 0.5f, ly * 0.5f, lz * 0.5f}, room.add_material(wall));
 
     RayTracedAcoustics tracer;
-    RayTraceParams params;
+    RayTraceParameters params;
     params.rays = 8000;
     params.receiver_radius = 0.6f;
     const RoomImpulseResponse rir =

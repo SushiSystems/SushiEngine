@@ -188,7 +188,7 @@ already `Transform`/`Orientation`, always present. So attaching/detaching physic
 is plain host bookkeeping in `RuntimeSimulation::Record` (`has_physics_body`,
 `physics_params`). The physics itself lives behind the `Simulation::IPhysicsScene`
 seam (`sim/physics_services.hpp`), not in `RuntimeSimulation`: whenever the
-physics-driven entity set changes, `tick()` gathers one `RigidBodyDesc` per Rigid Body
+physics-driven entity set changes, `tick()` gathers one `RigidBodyDescription` per Rigid Body
 entity and calls `set_rigid_bodies`, which rebuilds a free-body `PhysicsWorld` (no
 constraints registered — no joints yet) inside the seam, the same "rebuild only when
 the input set changes" discipline `Schedule` and `XPBDSolver` follow. That rebuild
@@ -266,12 +266,12 @@ entirely) is a distinct future milestone, not a natural extension of this file.
 `build_cloth_grid` into the live tick loop, following the same route §4.1's Rigid
 Body toggle takes rather than `sim/physics_bridge.hpp`: a cloth grid is a single
 host-side record — `RuntimeSimulation::Record::has_cloth`/`cloth_params`
-(`Simulation::ClothParams`: rows, columns, spacing, compliance) — not one ECS entity per
+(`Simulation::ClothParameters`: rows, columns, spacing, compliance) — not one ECS entity per
 grid point. Unlike a Rigid Body, whose count is the only thing that forces a rebuild,
-*any* `ClothParams` edit forces one (`cloth_dirty_`), because rows/cols change the
+*any* `ClothParameters` edit forces one (`cloth_dirty_`), because rows/cols change the
 grid's body count and there is no meaningful partial state to carry across a topology
 change the way a falling free body's position/velocity survives an unrelated Rigid Body
-toggle. `tick()` gathers one `ClothDesc` per Cloth entity and calls
+toggle. `tick()` gathers one `ClothDescription` per Cloth entity and calls
 `IClothService::set_cloth_grids`; the rebuild is a wholesale replace, every grid
 torn down and rebuilt from its current `Transform::position` as the grid origin, at
 rest. Inside the seam, cloth lives in its own `PhysicsWorld`, separate from the Rigid
@@ -329,9 +329,9 @@ an independent field pair, the same shape as `has_physics_body`/`physics_body`.
 
 Three concerns previously conflated into one hardcoded cube now separate cleanly:
 what an entity *looks like*, what it *collides as*, and what drives its *motion*.
-`Simulation::ShapeParams`/`ColliderParams` (`sim/simulation.hpp`) are both
+`Simulation::ShapeParameters`/`ColliderParameters` (`sim/simulation.hpp`) are both
 `{PrimitiveKind kind; Vector3 params;}` pairs, editor-facing and, like
-`ClothParams`, plain host-side bookkeeping on `RuntimeSimulation::Record`
+`ClothParameters`, plain host-side bookkeeping on `RuntimeSimulation::Record`
 (`has_shape`/`shape_params`, `has_collider`/`collider_params`) rather than ECS
 components — neither is read or written by any `Schedule` system, so there is
 nothing to gain from an archetype migration. `PrimitiveKind` (`Box`, `Sphere`,
@@ -429,13 +429,13 @@ plain-C++ `IWorldEditor` seam and all as attach/detach components.
 
 **Cloth as an object.** `create_cloth` (Entity ▸ Objects ▸ Cloth) makes a bare entity
 owning a cloth grid. So a fresh cloth is visible without pressing Play, `extract()`
-synthesises a flat resting sheet from `ClothParams` (matching `build_cloth_grid`'s
+synthesises a flat resting sheet from `ClothParameters` (matching `build_cloth_grid`'s
 `origin + (col, 0, row) * spacing` layout) whenever the physics grid has not been built
 yet; once the world is played the simulated particle positions take over. The wireframe
 already reached the renderer as deformable surfaces (§5), so no render change was needed.
 
 **UI (Canvas + elements).** UI is a host-side record on the entity — `UIElementKind`
-(Canvas/Panel/Image/Text/Button) plus a `UIElementParams` that is a uGUI RectTransform
+(Canvas/Panel/Image/Text/Button) plus a `UIElementParameters` that is a uGUI RectTransform
 (anchors, pivot, anchored position, size, colour, opacity, text) — the same
 no-ECS-migration bookkeeping as cloth, since nothing in the `Schedule` reads it.
 `create_canvas`/`create_ui_element` add them from Entity ▸ UI (elements parent to the
@@ -477,9 +477,9 @@ dependency-inversion boundary so a D3D12/Metal backend can follow without touchi
 consumer. The layering, from abstract to concrete:
 
 - **RHI device** (`render/rhi/device.hpp`): `IRenderDevice` / `create_render_device()`
-  carry no Vulkan types. `DeviceInfo` exposes the physical device's UUID — the key a
+  carry no Vulkan types. `DeviceInformation` exposes the physical device's UUID — the key a
   later milestone matches against SushiRuntime's SYCL device for zero-copy interop.
-  `RenderDeviceDesc` carries a `SurfaceFactory` hook and required instance extensions
+  `RenderDeviceDescription` carries a `SurfaceFactory` hook and required instance extensions
   so a windowed host supplies its presentation surface without the renderer ever
   calling a windowing library; `native_handles()` is the single, explicit escape
   hatch a native-API adapter (the editor's ImGui Vulkan backend) uses.
@@ -493,7 +493,7 @@ consumer. The layering, from abstract to concrete:
   swapchain image — outside any dynamic-rendering scope, since the blit cannot record
   inside one — for a host with no other UI to draw over it (`se_player`, unlike the
   editor, which instead samples the scene view's texture through ImGui). A
-  `WindowRendererDesc` with no `surface_factory` (PLATFORM0 S6) builds no swapchain at
+  `WindowRendererDescription` with no `surface_factory` (PLATFORM0 S6) builds no swapchain at
   all: `begin_frame`/`present_scene_view`/`end_frame` become well-defined no-ops, and a
   host still gets a working device, asset library, and `create_scene_view()` — the
   offscreen-render, no-window shape `se_player --headless` uses for CI.
@@ -720,7 +720,7 @@ extract pass and a reparent walk the parent chain on the host
 (`RuntimeSimulation::world_transform`, bounded by the live entity count against a
 corrupt chain) rather than in a kernel — the same host-copy-first posture as extract
 itself, revisited only if parenting needs to affect systems running on the device. World
-pose is composed as a shear-free hierarchical TRS chain rather than a general `Mat4`
+pose is composed as a shear-free hierarchical TRS chain rather than a general `Matrix4`
 product (`world_scale = parent_scale * local_scale`, `world_rotation = parent_rotation *
 local_rotation`, `world_position = parent_position + parent_rotation ∘ (parent_scale *
 local_position)`, matching Unity's model) precisely because that form is invertible:
@@ -737,7 +737,7 @@ each pass to register itself; the graph then derives everything that used to be
 written by hand.
 
 The quality tier does not reach the passes raw. Once per frame the scene view runs
-`resolve_quality` (`render/frame/quality.cpp`, public type `QualityParams`), which
+`resolve_quality` (`render/frame/quality.cpp`, public type `QualityParameters`), which
 turns `RenderQuality` into the concrete parameters passes actually read — soft-shadow
 tap counts, contact-march length, cloud budget, the coarsest variable-rate tile, the
 shadow atlas size and cascade count, and which advanced BRDF lobes are evaluated. The
@@ -823,7 +823,7 @@ a lower tier scales the expensive half down from it.
   value still pushed per bucket — the bucket's base into that list. Its instance and compacted
   buffers ride a **set-2** descriptor set (`SceneLayout::INSTANCE_SET`), so the bindless heap
   keeps set 1 and both vertex shaders feed the same `pbr.frag`. The whole path is **two-path**:
-  the scene view takes the GPU-driven route when the tier permits it (`QualityParams::gpu_driven`
+  the scene view takes the GPU-driven route when the tier permits it (`QualityParameters::gpu_driven`
   — off on Low, on for Medium/High/Ultra), the author has left `GPUCullingSettings::enabled`
   on, the bindless heap is present, and nothing is selected; anything else falls back to the
   classic CPU per-instance draw (a selection keeps it so the outline's stencil mask still
@@ -851,14 +851,14 @@ a lower tier scales the expensive half down from it.
   consumes or consumed what it overwrites (a dependency on its own queue is already ordered by
   submission order, and per-queue timeline values rise monotonically, so one wait covers every
   earlier one). The same walk marks which resources both queues touch, and only those are
-  allocated with concurrent sharing (`TextureDesc::cross_queue`) — the graph cannot transfer
+  allocated with concurrent sharing (`TextureDescription::cross_queue`) — the graph cannot transfer
   queue-family ownership, and paying for concurrent sharing on every transient would cost
   attachment compression for nothing. Two conditions a flagging pass owes the graph: everything
   it produces must be *declared* (a pass that hand-barriers a resource it owns would leave its
   consumers unsynchronised), and what it shares must be a graph transient rather than an
   import, whose sharing mode the graph cannot change. Flagged today: the clustered light cull
   and the GTAO horizon march. Gated three ways — a compute queue family distinct from graphics,
-  `QualityParams::async_compute` (off on Low), and `FrameDeliverySettings::async_compute` —
+  `QualityParameters::async_compute` (off on Low), and `FrameDeliverySettings::async_compute` —
   and with any of them absent every pass records on the graphics queue exactly as before.
 - **Frame delivery** (`ViewResources`). Each queue carries one monotonic **timeline
   semaphore**: every submission signals its own value, waits on the value it depends on, and a
@@ -878,7 +878,7 @@ a lower tier scales the expensive half down from it.
   the editor.
 - **`render/interop/`** — a device-local buffer whose memory another API can import by OS
   handle: a dedicated, exportable allocation stamped with the device UUID that
-  `RenderDeviceDesc::required_uuid` already selects the graphics device by, exposed through the
+  `RenderDeviceDescription::required_uuid` already selects the graphics device by, exposed through the
   public `interop.hpp` with no Vulkan, SYCL, or platform type in sight. The renderer *exports*
   only; importing belongs to whoever owns the other API, which for SushiRuntime means the
   runtime — the dependency points one way.
@@ -1101,7 +1101,7 @@ The environment the renderer lights against is a neutral seam,
 authors it and the renderer consumes it without either depending on the other. It
 holds the sun (`DirectionalLight`), the sky's derived `CelestialLight` list, the `Wgs84` ellipsoid (equatorial radius
 6378137 m, inverse flattening 298.257223563), and the `AtmosphereParams`,
-`PlanetParams`, the genus-driven `Cloudscape` (up to `CLOUD_MAX_DECKS` `CloudDeck`s, each a WMO `CloudGenus` resolved through `cloud_genus_profile`), `StarParams`, and metallic-roughness `Material` that
+`PlanetParameters`, the genus-driven `Cloudscape` (up to `CLOUD_MAX_DECKS` `CloudDeck`s, each a WMO `CloudGenus` resolved through `cloud_genus_profile`), `StarParameters`, and metallic-roughness `Material` that
 describe how the planet is lit and surrounded. The simulation carries one
 `Environment` on `RenderScene` and a `Material` per `RenderInstance` (its albedo kept
 in sync with the entity's `Tint`), authored through `IWorldEditor`'s
@@ -1151,7 +1151,7 @@ the frame in **three HDR passes** (the Vulkan scene view's targets are now linea
    black space and the stars emerge: the near-surface-to-orbit transition falls out
    of the physics rather than a hard switch.
 3. **Cloud** — the genus-driven volumetric cloudscape, ray-marched in a **dedicated
-   pass** (`cloud.frag`) at `QualityParams::cloud_buffer_scale` of the render extent
+   pass** (`cloud.frag`) at `QualityParameters::cloud_buffer_scale` of the render extent
    (design doc §4.7's "Cloud buffer" row — a third on Low, half on Medium/High, ¾ on
    Ultra) into two MRT targets: (`scattered.rgb`, `transmittance`) and, since W3, the
    transmittance-weighted mean march depth (`frame.targets.cloud_depth`, accumulated the
@@ -1198,13 +1198,13 @@ the frame in **three HDR passes** (the Vulkan scene view's targets are now linea
    0.08*sqrt(dist), min_step)` rule). Within 200 m of the camera (design doc §4.4/§4.7's
    near-band radius) an extra fixed-scale (811 m) erosion tap, with a curl-noise warp
    folded in near cloud bases, adds detail the field's own camera-independent bake
-   cannot carry; on the High/Ultra tiers (`QualityParams::cloud_near_far_split`) the
+   cannot carry; on the High/Ultra tiers (`QualityParameters::cloud_near_far_split`) the
    march's temporal dither also freezes at a fixed phase beyond 250 m instead of
    animating every frame (Nubis3's "jitter animated only < 250 m, static hash beyond"),
    which is what keeps a distant silhouette's sample pattern — and so the cloud TAA's
    history below — stable at range; the literal dual-viewport near/far resolution split
    §4.4 also describes is a scoped W3 deferral (see the CHANGELOG entry). Lighting samples the baked
-   light volume for one fetch per lit sample (`QualityParams::cloud_light_taps`, 0-3,
+   light volume for one fetch per lit sample (`QualityParameters::cloud_light_taps`, 0-3,
    tiers how often a costlier inline cone march layers a correction on top) and shapes
    it with dual-lobe Henyey-Greenstein scattering (the author's forward
    `forward_scattering` g paired with a fixed back lobe) through the analytic in-step
@@ -1218,7 +1218,7 @@ the frame in **three HDR passes** (the Vulkan scene view's targets are now linea
    instead of running a shader.
 4. **Tonemap** — before the composite, `CloudTAAPass` (`cloud_taa_pass.{hpp,cpp}`,
    `cloud_taa.comp`, W3) resolves the cloud buffer's own dedicated temporal history: a
-   YCoCg neighbourhood variance clip (gamma ≈ 1.2, `QualityParams::cloud_variance_clip`
+   YCoCg neighbourhood variance clip (gamma ≈ 1.2, `QualityParameters::cloud_variance_clip`
    — Low instead takes a cheaper 5-tap cross min/max clamp, design doc §4.7's TAA row;
    the flag selects *which* neighbourhood rejection runs, never whether one does, because
    the rejection test is this feedback loop's stability condition rather than a quality
@@ -1311,7 +1311,7 @@ single shadow-cascade atlas belong to the Sun by day and to the dominant reflect
 sunset; the PBR pass and the analytic ground both loop the array, shading the rest with
 the same BRDF minus the cascades. Because the lights are physical, so is the exposure
 path: the auto-exposure histogram's floor reaches `2^-20` to meter a moonlit surface
-rather than crush it, and `PlanetParams::ocean_roughness` gives the ocean mask a tight
+rather than crush it, and `PlanetParameters::ocean_roughness` gives the ocean mask a tight
 GGX lobe, so a body low over water draws a glitter path instead of a round highlight.
 
 The pipeline is organised around **three coordinate spaces**: *solar* (heliocentric
@@ -1444,7 +1444,7 @@ The engine takes its scalar, vector, matrix, and quaternion types — and the
 operations on them — from `core/types.hpp` and nowhere else. Those types belong to
 **SushiBLAS** (tensors, and the floats derived from them). Until that library exists,
 `core/types.hpp` aliases a minimal placeholder in `core/blas_placeholder.hpp`, which
-now carries `Vector3`, `Mat4`, `Quaternion` and the handful of operations the renderer and
+now carries `Vector3`, `Matrix4`, `Quaternion` and the handful of operations the renderer and
 camera need (`perspective`, `look_at`, `compose_transform`, `mul`, …). When SushiBLAS lands, re-point `core/types.hpp` at it
 and delete the placeholder — a single-file change, because nothing else in the
 engine names the underlying type.
@@ -1866,7 +1866,7 @@ structure-of-arrays view: a topologically sorted parent array with the invariant
 `parent[i] < i` (so composing model space is a forward scan, never a pointer chase — this
 is what retires the engine's old host-side, non-topological hierarchy), bind-pose local
 TRS, object-space inverse-bind matrices (`JointMatrix`, 16 floats, GLSL column-major — the
-palette layout, distinct from the double `Mat4` because object-space joint data never needs
+palette layout, distinct from the double `Matrix4` because object-space joint data never needs
 the range that forces double), FNV-1a 64 joint name hashes (`hash.hpp`) for mask / IK /
 attachment lookup, and a bone-LOD table. The `.sushiskel` format (`skeleton_blob.hpp`) is
 versioned, little-endian, and position-independent (byte offsets, no pointers): the cook
@@ -1945,13 +1945,13 @@ persists a controller as JSON (`animator_controller_json.hpp`, the only animatio
 pulls in nlohmann/json — the editor's save/load and undo/redo, round-tripping to a byte-identical
 blob) and previews states off the loop (`edit_preview.hpp`'s `scrub_to_state`). Under the *dense* runtime clip sits the *sparse* **keyframe authoring model** (`keyframe.hpp`):
 `ScalarCurve` / `QuaternionCurve` (the dope-sheet / curve-editor primitives, constant/linear/
-cubic), a `ClipAuthoring` bundle that `bake`s to the dense `ClipDesc`, and a `PoseRecorder` that
+cubic), a `ClipAuthoring` bundle that `bake`s to the dense `ClipDescription`, and a `PoseRecorder` that
 captures a live pose into keys (the "record" workflow). The editor's **Animation window**
 (`editor/animation/animation_panel.*`) is a GUI over it, Unity's Animation-window shape: it targets
 the **Hierarchy-selected entity**, and with Record armed keys its transform as it is moved, or with
 Record off **drives the object live in the Scene view** from its keys as the timeline is scrubbed —
 Bake writes a dense `.sushianim`. The **Animator window** (`editor/animation/animator_graph_panel.*`)
-is the Mecanim state-machine graph editor over a `ControllerDesc` — a grid canvas of draggable
+is the Mecanim state-machine graph editor over a `ControllerDescription` — a grid canvas of draggable
 state nodes, transition arrows made by right-click ▸ Make Transition To (a `"Exit"` target compiles
 to the layer's entry), Entry/Exit/Any-State nodes, a parameter panel, and JSON save/load through
 `animator_controller_json.hpp`. Guarded by ten CTest suites, 125 cases — `Unit_AnimationClip` (the
@@ -2463,7 +2463,7 @@ seqlock, the engine gather, and the real/virtual split.
 
 **Editor audio authoring (`sim` seam + `editor/audio/`, Phase S9, part 2).** The editor half of §11:
 a designer places an Audio Emitter, moves the Scene camera, and hears it, with no game running. The
-sim seam gains editor-facing `AudioEmitterParams`/`ReverbZoneParams`/`AudioListenerParams` and the
+sim seam gains editor-facing `AudioEmitterParameters`/`ReverbZoneParameters`/`AudioListenerParameters` and the
 matching `IWorldEditor` accessors, stored as host bookkeeping on the entity record like light/cloth
 (no ECS migration, and no Audio dependency in the sim layer). The editor's `AudioEditorSystem` owns a
 live `AudioEngine` + SDL device with a small mixer (Master/SFX/Music + a reverb aux bus running the
@@ -2509,7 +2509,7 @@ existing module). `AnimationCurve` and `ColorGradient` are keyframed authoring t
 fixed-width LUTs. `EmitterCompiler` flattens a `ParticleEffect` (a list of `EmitterDescriptor`)
 into a `CompiledEffect`: an array of POD `CompiledEmitter` records plus two baked LUT atlases — the
 single artifact both backends and the GPU consume, the particle equivalent of resolving authored
-`RenderSettings` into a POD `QualityParams`. `EffectDatabase` is the AssetId registry (lazy
+`RenderSettings` into a POD `QualityParameters`. `EffectDatabase` is the AssetId registry (lazy
 compilation), mirroring `AnimationDatabase`. `GPUParticle` is the shared 80-byte, five-`vec4`
 std430 record used by the CPU backend, the GPU pools, and the shaders.
 
@@ -2536,9 +2536,9 @@ compute→draw barriers); the pool is system-owned. `ISceneView::render` gained 
 spawn count), the same shape as `SkinnedInstance`. Additive-only for the slice; alpha depth-sorting,
 lit particles, ribbons, mesh particles, and GPU collision are phases VFX2–VFX5.
 
-**Enabling seams.** `Resources::GraphicsPipelineDesc` gained a `ColorBlend` member folded into the
+**Enabling seams.** `Resources::GraphicsPipelineDescription` gained a `ColorBlend` member folded into the
 fragment-output pipeline-library key (defaults reproduce opaque, so transparent draws are now
-expressible without disturbing existing passes). `QualityParams` gained `gpu_particles` /
+expressible without disturbing existing passes). `QualityParameters` gained `gpu_particles` /
 `max_particles` / `particle_sim_substeps`, scaled per tier (Low drops cosmetic particles). Build:
 the four shaders (`particle_emit.comp`, `particle_simulate.comp`, `particle.vert`, `particle.frag`,
 sharing `particle_common.glsl`) go through `sushiengine_compile_shader` + the shader catalogue; the two
@@ -2807,7 +2807,7 @@ not stepped at all — the sim only *places* it (transform, this frame's spawn c
 record and its LUT atlases) and the renderer emits and integrates it on the GPU. That is what lets a
 scene emitter reach ribbons, mesh particles, depth collision, and counts a 1024-particle host pool
 could never hold. The per-emitter runtime state (play head, fractional-spawn carry) lives on the
-sim's record rather than on `ParticleEmitterParams`, because those are the *authored* parameters the
+sim's record rather than on `ParticleEmitterParameters`, because those are the *authored* parameters the
 scene file round-trips and a play head is neither authored nor persisted.
 
 **How an authored effect reaches the world.** The sim owns no asset loader — `.sushieffect` files
@@ -3072,7 +3072,7 @@ intensity echo, and a near-surface wind passthrough. `extract()` samples one col
 it to both compilers, and writes the results into `Environment::clouds` and
 `Environment::weather` respectively. `WeatherCoupling` is deliberately additive/multiplicative
 rather than a replacement: `VolumetricFogPass` and `AtmosphereLUTPass` add its bias fields
-onto the author's own `FogParams::density`/`AtmosphereParams::mie_coefficient` at push-constant
+onto the author's own `FogParameters::density`/`AtmosphereParams::mie_coefficient` at push-constant
 build time, so a scene with weather off renders exactly as it did before this phase (every
 field defaults to zero), and the author's fog/atmosphere sliders are never overwritten in
 place the way `Environment::clouds` is — which is what keeps this field safe to recompute
@@ -3103,7 +3103,7 @@ appends a `Render::ParticleEmitterView` for it straight into `RenderScene::parti
 — the same seam an authored particle-emitter entity's Cosmetic sub-emitters already write
 through (§15.9), just sourced from weather instead of a record. Not an authored ECS entity:
 that would clutter the Hierarchy/Outliner and the scene file with a system-generated object.
-Uses the GPU cosmetic path per `QualityParams::gpu_particles`'s own doc ("the deterministic
+Uses the GPU cosmetic path per `QualityParameters::gpu_particles`'s own doc ("the deterministic
 CPU particle path is unaffected; it is gameplay, not a quality knob") — ambient weather rain
 is squarely cosmetic. Rain only: `WeatherColumn` carries no temperature signal, so there is
 no honest basis to pick snow over rain (a named scope-down, not a fabricated phase test).
@@ -3630,7 +3630,7 @@ rather than merely *that* it is.
 
 ## 17. Planetary terrain (foundation and vertical slice, phases P0–P2b)
 
-The engine's ground has always been analytic: `PlanetParams` is two colours and a
+The engine's ground has always been analytic: `PlanetParameters` is two colours and a
 roughness, and `sky.frag` paints a body from noise about its pole. That is enough to
 read as a lit sphere from orbit and nothing like enough to stand on, which is why
 `docs/slop/atmosphere_system.md` §15 records the missing terrain height field as the

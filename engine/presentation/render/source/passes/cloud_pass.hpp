@@ -27,7 +27,7 @@
  * @file cloud_pass.hpp
  * @brief The volumetric cloud march, at the tier's dedicated cloud buffer resolution.
  *
- * Writes two MRT attachments at `QualityParams::cloud_buffer_scale` of the render
+ * Writes two MRT attachments at `QualityParameters::cloud_buffer_scale` of the render
  * extent: (scattered.rgb, transmittance) and, since W3, the transmittance-weighted
  * mean march depth (`frame.targets.cloud_depth`) `CloudCompositePass` samples the
  * aerial-perspective volume at. `CloudTAAPass` resolves this target's own dedicated

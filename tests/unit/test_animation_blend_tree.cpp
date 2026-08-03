@@ -56,11 +56,11 @@ namespace
 
         Fixture()
         {
-            SkeletonDesc description;
-            JointDesc root;
+            SkeletonDescription description;
+            JointDescription root;
             root.name = "root";
             root.parent = -1;
-            JointDesc child;
+            JointDescription child;
             child.name = "child";
             child.parent = 0;
             child.bind_translation = Vector3f{0.0f, 1.0f, 0.0f};
@@ -72,7 +72,7 @@ namespace
 
         AssetId marker_clip(float z)
         {
-            ClipDesc clip;
+            ClipDescription clip;
             clip.joint_count = 2;
             clip.frame_count = 1;
             clip.sample_rate = 30.0f;
@@ -87,15 +87,15 @@ namespace
         // Wraps a tree in a one-state controller, the only shape the resolver is reachable
         // through: the compile flattens the authored node graph into the blob's index-linked
         // arrays, so a compile bug and a resolver bug are both in scope here.
-        bool compile(const std::vector<ParameterDesc>& parameters,
-                     std::shared_ptr<BlendTreeNodeDesc> tree)
+        bool compile(const std::vector<ParameterDescription>& parameters,
+                     std::shared_ptr<BlendTreeNodeDescription> tree)
         {
-            ControllerDesc description;
+            ControllerDescription description;
             description.parameters = parameters;
-            LayerDesc layer;
+            LayerDescription layer;
             layer.name = "base";
             layer.default_state = "Move";
-            StateDesc state;
+            StateDescription state;
             state.name = "Move";
             state.blend_tree = std::move(tree);
             layer.states = {state};
@@ -117,10 +117,10 @@ namespace
         }
     };
 
-    std::shared_ptr<BlendTreeNodeDesc> tree_of(BlendTreeType type, const char* x = "",
+    std::shared_ptr<BlendTreeNodeDescription> tree_of(BlendTreeType type, const char* x = "",
                                               const char* y = "")
     {
-        auto node = std::make_shared<BlendTreeNodeDesc>();
+        auto node = std::make_shared<BlendTreeNodeDescription>();
         node->type = type;
         node->parameter_x = x;
         node->parameter_y = y;
@@ -177,10 +177,10 @@ TEST(Unit_AnimationBlendTree, OneDimensionalSegmentLerpBetweenSortedThresholds)
     const AssetId run = world.marker_clip(2.0f);
 
     auto tree = tree_of(BlendTreeType::Simple1D, "speed");
-    tree->children.push_back(BlendChildDesc{idle, nullptr, 0.0f, 0, 0, "", 1});
-    tree->children.push_back(BlendChildDesc{walk, nullptr, 1.0f, 0, 0, "", 1});
-    tree->children.push_back(BlendChildDesc{run, nullptr, 2.0f, 0, 0, "", 1});
-    ASSERT_TRUE(world.compile({ParameterDesc{"speed", ParameterType::Float, 0.0f}}, tree));
+    tree->children.push_back(BlendChildDescription{idle, nullptr, 0.0f, 0, 0, "", 1});
+    tree->children.push_back(BlendChildDescription{walk, nullptr, 1.0f, 0, 0, "", 1});
+    tree->children.push_back(BlendChildDescription{run, nullptr, 2.0f, 0, 0, "", 1});
+    ASSERT_TRUE(world.compile({ParameterDescription{"speed", ParameterType::Float, 0.0f}}, tree));
 
     BlendContribution contributions[MAX_BLEND_CONTRIBUTIONS];
     AnimatorParameterBlock parameters;
@@ -227,8 +227,8 @@ TEST(Unit_AnimationBlendTree, OneDimensionalTreeWithASingleChildIsThatChild)
     Fixture world;
     const AssetId only = world.marker_clip(3.0f);
     auto tree = tree_of(BlendTreeType::Simple1D, "speed");
-    tree->children.push_back(BlendChildDesc{only, nullptr, 1.0f, 0, 0, "", 1});
-    ASSERT_TRUE(world.compile({ParameterDesc{"speed", ParameterType::Float, 0.0f}}, tree));
+    tree->children.push_back(BlendChildDescription{only, nullptr, 1.0f, 0, 0, "", 1});
+    ASSERT_TRUE(world.compile({ParameterDescription{"speed", ParameterType::Float, 0.0f}}, tree));
 
     BlendContribution contributions[MAX_BLEND_CONTRIBUTIONS];
     AnimatorParameterBlock parameters;
@@ -251,12 +251,12 @@ TEST(Unit_AnimationBlendTree, FreeformCartesianOwnsItsAuthoredPointsAndPartition
     const AssetId left = world.marker_clip(4.0f);
 
     auto tree = tree_of(BlendTreeType::FreeformCartesian2D, "x", "y");
-    tree->children.push_back(BlendChildDesc{forward, nullptr, 0, 0.0f, 1.0f, "", 1});
-    tree->children.push_back(BlendChildDesc{right, nullptr, 0, 1.0f, 0.0f, "", 1});
-    tree->children.push_back(BlendChildDesc{back, nullptr, 0, 0.0f, -1.0f, "", 1});
-    tree->children.push_back(BlendChildDesc{left, nullptr, 0, -1.0f, 0.0f, "", 1});
-    ASSERT_TRUE(world.compile({ParameterDesc{"x", ParameterType::Float, 0.0f},
-                               ParameterDesc{"y", ParameterType::Float, 0.0f}},
+    tree->children.push_back(BlendChildDescription{forward, nullptr, 0, 0.0f, 1.0f, "", 1});
+    tree->children.push_back(BlendChildDescription{right, nullptr, 0, 1.0f, 0.0f, "", 1});
+    tree->children.push_back(BlendChildDescription{back, nullptr, 0, 0.0f, -1.0f, "", 1});
+    tree->children.push_back(BlendChildDescription{left, nullptr, 0, -1.0f, 0.0f, "", 1});
+    ASSERT_TRUE(world.compile({ParameterDescription{"x", ParameterType::Float, 0.0f},
+                               ParameterDescription{"y", ParameterType::Float, 0.0f}},
                               tree));
 
     BlendContribution contributions[MAX_BLEND_CONTRIBUTIONS];
@@ -298,12 +298,12 @@ TEST(Unit_AnimationBlendTree, FreeformDirectionalOwnsItsAuthoredPointsAndPartiti
     const AssetId left = world.marker_clip(4.0f);
 
     auto tree = tree_of(BlendTreeType::FreeformDirectional2D, "x", "y");
-    tree->children.push_back(BlendChildDesc{forward, nullptr, 0, 0.0f, 1.0f, "", 1});
-    tree->children.push_back(BlendChildDesc{right, nullptr, 0, 1.0f, 0.0f, "", 1});
-    tree->children.push_back(BlendChildDesc{back, nullptr, 0, 0.0f, -1.0f, "", 1});
-    tree->children.push_back(BlendChildDesc{left, nullptr, 0, -1.0f, 0.0f, "", 1});
-    ASSERT_TRUE(world.compile({ParameterDesc{"x", ParameterType::Float, 0.0f},
-                               ParameterDesc{"y", ParameterType::Float, 0.0f}},
+    tree->children.push_back(BlendChildDescription{forward, nullptr, 0, 0.0f, 1.0f, "", 1});
+    tree->children.push_back(BlendChildDescription{right, nullptr, 0, 1.0f, 0.0f, "", 1});
+    tree->children.push_back(BlendChildDescription{back, nullptr, 0, 0.0f, -1.0f, "", 1});
+    tree->children.push_back(BlendChildDescription{left, nullptr, 0, -1.0f, 0.0f, "", 1});
+    ASSERT_TRUE(world.compile({ParameterDescription{"x", ParameterType::Float, 0.0f},
+                               ParameterDescription{"y", ParameterType::Float, 0.0f}},
                               tree));
 
     BlendContribution contributions[MAX_BLEND_CONTRIBUTIONS];
@@ -335,12 +335,12 @@ TEST(Unit_AnimationBlendTree, SimpleDirectionalSeparatesTheCentreFromTheRing)
     const AssetId left = world.marker_clip(3.0f);
 
     auto tree = tree_of(BlendTreeType::SimpleDirectional2D, "x", "y");
-    tree->children.push_back(BlendChildDesc{centre, nullptr, 0, 0.0f, 0.0f, "", 1});
-    tree->children.push_back(BlendChildDesc{forward, nullptr, 0, 0.0f, 1.0f, "", 1});
-    tree->children.push_back(BlendChildDesc{right, nullptr, 0, 1.0f, 0.0f, "", 1});
-    tree->children.push_back(BlendChildDesc{left, nullptr, 0, -1.0f, 0.0f, "", 1});
-    ASSERT_TRUE(world.compile({ParameterDesc{"x", ParameterType::Float, 0.0f},
-                               ParameterDesc{"y", ParameterType::Float, 0.0f}},
+    tree->children.push_back(BlendChildDescription{centre, nullptr, 0, 0.0f, 0.0f, "", 1});
+    tree->children.push_back(BlendChildDescription{forward, nullptr, 0, 0.0f, 1.0f, "", 1});
+    tree->children.push_back(BlendChildDescription{right, nullptr, 0, 1.0f, 0.0f, "", 1});
+    tree->children.push_back(BlendChildDescription{left, nullptr, 0, -1.0f, 0.0f, "", 1});
+    ASSERT_TRUE(world.compile({ParameterDescription{"x", ParameterType::Float, 0.0f},
+                               ParameterDescription{"y", ParameterType::Float, 0.0f}},
                               tree));
 
     BlendContribution contributions[MAX_BLEND_CONTRIBUTIONS];
@@ -384,10 +384,10 @@ TEST(Unit_AnimationBlendTree, DirectModeTakesOneParameterPerChild)
 
     auto tree = tree_of(BlendTreeType::Direct);
     tree->normalize = true;
-    tree->children = {BlendChildDesc{idle, nullptr, 0, 0, 0, "w_idle", 1},
-                      BlendChildDesc{walk, nullptr, 0, 0, 0, "w_walk", 1}};
-    ASSERT_TRUE(world.compile({ParameterDesc{"w_idle", ParameterType::Float, 0.0f},
-                               ParameterDesc{"w_walk", ParameterType::Float, 0.0f}},
+    tree->children = {BlendChildDescription{idle, nullptr, 0, 0, 0, "w_idle", 1},
+                      BlendChildDescription{walk, nullptr, 0, 0, 0, "w_walk", 1}};
+    ASSERT_TRUE(world.compile({ParameterDescription{"w_idle", ParameterType::Float, 0.0f},
+                               ParameterDescription{"w_walk", ParameterType::Float, 0.0f}},
                               tree));
 
     BlendContribution contributions[MAX_BLEND_CONTRIBUTIONS];
@@ -425,14 +425,14 @@ TEST(Unit_AnimationBlendTree, NestedTreesScaleTheirChildrenByTheParentWeight)
 
     auto sub = tree_of(BlendTreeType::Direct);
     sub->normalize = true;
-    sub->children = {BlendChildDesc{walk, nullptr, 0, 0, 0, "w_walk", 1},
-                     BlendChildDesc{run, nullptr, 0, 0, 0, "w_run", 1}};
+    sub->children = {BlendChildDescription{walk, nullptr, 0, 0, 0, "w_walk", 1},
+                     BlendChildDescription{run, nullptr, 0, 0, 0, "w_run", 1}};
     auto tree = tree_of(BlendTreeType::Simple1D, "speed");
-    tree->children = {BlendChildDesc{idle, nullptr, 0.0f, 0, 0, "", 1},
-                      BlendChildDesc{INVALID_ASSET, sub, 1.0f, 0, 0, "", 1}};
-    ASSERT_TRUE(world.compile({ParameterDesc{"speed", ParameterType::Float, 0.0f},
-                               ParameterDesc{"w_walk", ParameterType::Float, 0.0f},
-                               ParameterDesc{"w_run", ParameterType::Float, 0.0f}},
+    tree->children = {BlendChildDescription{idle, nullptr, 0.0f, 0, 0, "", 1},
+                      BlendChildDescription{INVALID_ASSET, sub, 1.0f, 0, 0, "", 1}};
+    ASSERT_TRUE(world.compile({ParameterDescription{"speed", ParameterType::Float, 0.0f},
+                               ParameterDescription{"w_walk", ParameterType::Float, 0.0f},
+                               ParameterDescription{"w_run", ParameterType::Float, 0.0f}},
                               tree));
 
     BlendContribution contributions[MAX_BLEND_CONTRIBUTIONS];
@@ -463,13 +463,13 @@ TEST(Unit_AnimationBlendTree, ResolutionNeverWritesPastTheCallersCapacity)
     Fixture world;
     auto tree = tree_of(BlendTreeType::Direct);
     tree->normalize = true;
-    std::vector<ParameterDesc> parameters;
+    std::vector<ParameterDescription> parameters;
     for (int i = 0; i < 16; ++i)
     {
         const std::string name = "w" + std::to_string(i);
-        parameters.push_back(ParameterDesc{name, ParameterType::Float, 1.0f});
-        tree->children.push_back(
-            BlendChildDesc{world.marker_clip(static_cast<float>(i)), nullptr, 0, 0, 0, name, 1});
+        parameters.push_back(ParameterDescription{name, ParameterType::Float, 1.0f});
+        tree->children.push_back(BlendChildDescription{
+            world.marker_clip(static_cast<float>(i)), nullptr, 0, 0, 0, name, 1});
     }
     ASSERT_TRUE(world.compile(parameters, tree));
 
@@ -501,10 +501,10 @@ TEST(Unit_AnimationBlendTree, TheEvaluatorPosesAStateByItsResolvedWeights)
     const AssetId run = world.marker_clip(2.0f);
 
     auto tree = tree_of(BlendTreeType::Simple1D, "speed");
-    tree->children.push_back(BlendChildDesc{idle, nullptr, 0.0f, 0, 0, "", 1});
-    tree->children.push_back(BlendChildDesc{walk, nullptr, 1.0f, 0, 0, "", 1});
-    tree->children.push_back(BlendChildDesc{run, nullptr, 2.0f, 0, 0, "", 1});
-    ASSERT_TRUE(world.compile({ParameterDesc{"speed", ParameterType::Float, 0.0f}}, tree));
+    tree->children.push_back(BlendChildDescription{idle, nullptr, 0.0f, 0, 0, "", 1});
+    tree->children.push_back(BlendChildDescription{walk, nullptr, 1.0f, 0, 0, "", 1});
+    tree->children.push_back(BlendChildDescription{run, nullptr, 2.0f, 0, 0, "", 1});
+    ASSERT_TRUE(world.compile({ParameterDescription{"speed", ParameterType::Float, 0.0f}}, tree));
 
     const ControllerView controller = world.database.controller(world.controller);
     AnimatorInstance animator{};

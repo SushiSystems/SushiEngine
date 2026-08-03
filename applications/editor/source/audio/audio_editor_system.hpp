@@ -145,7 +145,8 @@ namespace SushiEngine
                         bool looping = true;
                 };
 
-                static Audio::I3DL2Reverb to_i3dl2(const Simulation::ReverbZoneParams& p) noexcept;
+                static Audio::I3DL2Reverb to_i3dl2(
+                    const Simulation::ReverbZoneParameters& p) noexcept;
 
                 /** @brief Maps an emitter's bus code (0 Master,1 SFX,2 Music,3 Reverb) to a bus id. */
                 int bus_for(std::uint32_t code) const noexcept;

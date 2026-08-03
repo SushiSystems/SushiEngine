@@ -122,7 +122,7 @@ namespace SushiEngine
             {
                 SushiEngine::Vector3 color{SushiEngine::Vector3{1, 1, 1}};
                 bool has_shape = true;
-                SushiEngine::Simulation::ShapeParams shape;
+                SushiEngine::Simulation::ShapeParameters shape;
             };
 
             /** @brief The amber the editor says "this will not do what you meant" in. */
@@ -445,10 +445,10 @@ namespace SushiEngine
                 }
                 else
                 {
-                    const ComponentAccess<SushiEngine::Simulation::CameraParams> access{
+                    const ComponentAccess<SushiEngine::Simulation::CameraParameters> access{
                         &IWorldEditor::is_camera, &IWorldEditor::camera_params,
                         &IWorldEditor::set_camera_params};
-                    ComponentEditor<SushiEngine::Simulation::CameraParams> editor(
+                    ComponentEditor<SushiEngine::Simulation::CameraParameters> editor(
                         context, *world, access, id);
                     apply_component_section(context, section, "Camera", editor);
                     if (section.open)
@@ -569,10 +569,10 @@ namespace SushiEngine
                     // given one so it starts drawing.
                     if (world->has_shape(id))
                     {
-                        const ComponentAccess<SushiEngine::Simulation::ShapeParams> access{
+                        const ComponentAccess<SushiEngine::Simulation::ShapeParameters> access{
                             &IWorldEditor::has_shape, &IWorldEditor::shape_params,
                             &IWorldEditor::set_shape_params};
-                        ComponentEditor<SushiEngine::Simulation::ShapeParams> editor(
+                        ComponentEditor<SushiEngine::Simulation::ShapeParameters> editor(
                             context, *world, access, id);
 
                         // Plane is not a drawable mesh (Terrain uses a thin Box), so only
@@ -621,10 +621,10 @@ namespace SushiEngine
                 }
                 else
                 {
-                    const ComponentAccess<SushiEngine::Simulation::PhysicsBodyParams> access{
+                    const ComponentAccess<SushiEngine::Simulation::PhysicsBodyParameters> access{
                         &IWorldEditor::has_physics_body, &IWorldEditor::physics_body_params,
                         &IWorldEditor::set_physics_body_params};
-                    ComponentEditor<SushiEngine::Simulation::PhysicsBodyParams> editor(
+                    ComponentEditor<SushiEngine::Simulation::PhysicsBodyParameters> editor(
                         context, *world, access, id);
                     apply_component_section(context, section, "Rigid Body", editor);
                     if (section.open)
@@ -665,10 +665,10 @@ namespace SushiEngine
                 }
                 else
                 {
-                    const ComponentAccess<SushiEngine::Simulation::ColliderParams> access{
+                    const ComponentAccess<SushiEngine::Simulation::ColliderParameters> access{
                         &IWorldEditor::has_collider, &IWorldEditor::collider_params,
                         &IWorldEditor::set_collider_params};
-                    ComponentEditor<SushiEngine::Simulation::ColliderParams> editor(
+                    ComponentEditor<SushiEngine::Simulation::ColliderParameters> editor(
                         context, *world, access, id);
                     apply_component_section(context, section, "Collider", editor);
                     if (section.open)
@@ -806,7 +806,7 @@ namespace SushiEngine
                         if (mask_changed)
                         {
                             context.history.record(*world);
-                            SushiEngine::Simulation::ColliderParams updated = editor.values();
+                            SushiEngine::Simulation::ColliderParameters updated = editor.values();
                             updated.collides_with = mask;
                             editor.write_all(updated);
                         }
@@ -824,12 +824,12 @@ namespace SushiEngine
                 else
                 {
                     using SushiEngine::Simulation::JointState;
-                    using SushiEngine::Simulation::PhysicsJointParams;
+                    using SushiEngine::Simulation::PhysicsJointParameters;
 
-                    const ComponentAccess<PhysicsJointParams> access{
+                    const ComponentAccess<PhysicsJointParameters> access{
                         &IWorldEditor::has_joint, &IWorldEditor::joint_params,
                         &IWorldEditor::set_joint_params};
-                    ComponentEditor<PhysicsJointParams> editor(context, *world, access, id);
+                    ComponentEditor<PhysicsJointParameters> editor(context, *world, access, id);
                     apply_component_section(context, section, "Physics Joint", editor);
                     if (section.open)
                     {
@@ -840,7 +840,7 @@ namespace SushiEngine
                         // attach every selected entity to the *same* partner at the *same*
                         // anchor, which is never what an author means. A joint is authored
                         // per entity because both of its endpoints are.
-                        PhysicsJointParams& values = editor.mutable_values();
+                        PhysicsJointParameters& values = editor.mutable_values();
                         bool changed =
                             draw_joint_partner(context, *world, id, values.connected_body);
 
@@ -902,7 +902,7 @@ namespace SushiEngine
                 }
                 else if (section.open)
                 {
-                    const SushiEngine::Simulation::VehicleInstanceParams params =
+                    const SushiEngine::Simulation::VehicleInstanceParameters params =
                         world->vehicle_params(id);
                     if (params.asset_path.empty())
                         ImGui::TextDisabled("No structure named yet.");
@@ -952,11 +952,11 @@ namespace SushiEngine
                 }
                 else
                 {
-                    const ComponentAccess<SushiEngine::Simulation::ClothParams> access{
+                    const ComponentAccess<SushiEngine::Simulation::ClothParameters> access{
                         &IWorldEditor::has_cloth, &IWorldEditor::cloth_params,
                         &IWorldEditor::set_cloth_params};
-                    ComponentEditor<SushiEngine::Simulation::ClothParams> editor(context, *world,
-                                                                                access, id);
+                    ComponentEditor<SushiEngine::Simulation::ClothParameters> editor(
+                        context, *world, access, id);
                     apply_component_section(context, section, "Cloth", editor);
                     if (section.open)
                     {
@@ -978,8 +978,8 @@ namespace SushiEngine
 
             if (world->has_soft_body(id))
             {
-                // §16.45.2: `SoftBodyParams` was wired end to end into the solver as
-                // thoroughly as `ClothParams` and had no Inspector section at all — the only
+                // §16.45.2: `SoftBodyParameters` was wired end to end into the solver as
+                // thoroughly as `ClothParameters` and had no Inspector section at all — the only
                 // way to put one on an entity was `IWorldEditor::create_soft_body`, called by
                 // nothing in the editor. This is that section.
                 const ComponentSection section = component_header(context, "Soft Body");
@@ -989,12 +989,12 @@ namespace SushiEngine
                 }
                 else
                 {
-                    using SushiEngine::Simulation::SoftBodyParams;
+                    using SushiEngine::Simulation::SoftBodyParameters;
 
-                    const ComponentAccess<SoftBodyParams> access{
+                    const ComponentAccess<SoftBodyParameters> access{
                         &IWorldEditor::has_soft_body, &IWorldEditor::soft_body_params,
                         &IWorldEditor::set_soft_body_params};
-                    ComponentEditor<SoftBodyParams> editor(context, *world, access, id);
+                    ComponentEditor<SoftBodyParameters> editor(context, *world, access, id);
                     apply_component_section(context, section, "Soft Body", editor);
                     if (section.open)
                     {
@@ -1002,7 +1002,7 @@ namespace SushiEngine
                         // hatch the Physics Joint section uses and for the same reason: the
                         // cooked asset bytes are this entity's own body, not a setting a
                         // multi-selection should be fanned the same copy of.
-                        SoftBodyParams& values = editor.mutable_values();
+                        SoftBodyParameters& values = editor.mutable_values();
                         bool changed = false;
 
                         if (values.asset.empty())
@@ -1174,11 +1174,11 @@ namespace SushiEngine
                 }
                 else
                 {
-                    const ComponentAccess<SushiEngine::Simulation::ParticleEmitterParams> access{
-                        &IWorldEditor::has_particle_emitter,
-                        &IWorldEditor::particle_emitter_params,
-                        &IWorldEditor::set_particle_emitter_params};
-                    ComponentEditor<SushiEngine::Simulation::ParticleEmitterParams> editor(
+                    const ComponentAccess<SushiEngine::Simulation::ParticleEmitterParameters>
+                        access{&IWorldEditor::has_particle_emitter,
+                               &IWorldEditor::particle_emitter_params,
+                               &IWorldEditor::set_particle_emitter_params};
+                    ComponentEditor<SushiEngine::Simulation::ParticleEmitterParameters> editor(
                         context, *world, access, id);
                     apply_component_section(context, section, "Particle System", editor);
                     if (section.open)
@@ -1212,11 +1212,11 @@ namespace SushiEngine
                 }
                 else
                 {
-                    const ComponentAccess<SushiEngine::Simulation::LightParams> access{
+                    const ComponentAccess<SushiEngine::Simulation::LightParameters> access{
                         &IWorldEditor::has_light, &IWorldEditor::light_params,
                         &IWorldEditor::set_light_params};
-                    ComponentEditor<SushiEngine::Simulation::LightParams> editor(context, *world,
-                                                                                access, id);
+                    ComponentEditor<SushiEngine::Simulation::LightParameters> editor(
+                        context, *world, access, id);
                     apply_component_section(context, section, "Light", editor);
                     // The field list lives with the lights (see lighting_panel.hpp), because
                     // the Lighting panel offers the same fields and a second copy here is how
@@ -1235,11 +1235,11 @@ namespace SushiEngine
                 }
                 else
                 {
-                    const ComponentAccess<SushiEngine::Simulation::DecalParams> access{
+                    const ComponentAccess<SushiEngine::Simulation::DecalParameters> access{
                         &IWorldEditor::has_decal, &IWorldEditor::decal_params,
                         &IWorldEditor::set_decal_params};
-                    ComponentEditor<SushiEngine::Simulation::DecalParams> editor(context, *world,
-                                                                                access, id);
+                    ComponentEditor<SushiEngine::Simulation::DecalParameters> editor(
+                        context, *world, access, id);
 
                     // The header's value actions cover the tint, box and opacity but never the
                     // maps: a TextureId is a reference the asset library counts, so copying
@@ -1247,12 +1247,12 @@ namespace SushiEngine
                     // other two are still projecting. The paths stay each decal's own.
                     if (section.reset || section.paste)
                     {
-                        SushiEngine::Simulation::DecalParams source;
+                        SushiEngine::Simulation::DecalParameters source;
                         const bool have = section.reset ||
                                           paste_component_values(context, "Decal", source);
                         if (have)
                         {
-                            SushiEngine::Simulation::DecalParams merged = editor.values();
+                            SushiEngine::Simulation::DecalParameters merged = editor.values();
                             merged.color = source.color;
                             merged.half_extents = source.half_extents;
                             merged.opacity = source.opacity;
@@ -1279,7 +1279,7 @@ namespace SushiEngine
                         // scene file, where a load from disk re-resolves the id from it.
                         if (context.assets != nullptr)
                         {
-                            SushiEngine::Simulation::DecalParams& params =
+                            SushiEngine::Simulation::DecalParameters& params =
                                 editor.mutable_values();
                             bool maps_changed = false;
                             const auto map_field =
@@ -1359,10 +1359,10 @@ namespace SushiEngine
                 }
                 else
                 {
-                    const ComponentAccess<SushiEngine::Simulation::UIElementParams> access{
+                    const ComponentAccess<SushiEngine::Simulation::UIElementParameters> access{
                         &IWorldEditor::has_ui, &IWorldEditor::ui_params,
                         &IWorldEditor::set_ui_params};
-                    ComponentEditor<SushiEngine::Simulation::UIElementParams> editor(
+                    ComponentEditor<SushiEngine::Simulation::UIElementParameters> editor(
                         context, *world, access, id);
                     apply_component_section(context, section, "UI Element", editor);
                     if (section.open)

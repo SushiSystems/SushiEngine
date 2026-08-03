@@ -105,7 +105,7 @@ namespace SushiEngine
                 VkImage image = VK_NULL_HANDLE;
                 VkImageView view = VK_NULL_HANDLE;
                 VkImageView sample_view = VK_NULL_HANDLE; /**< Falls back to @c view when null. */
-                TextureDesc desc{};
+                TextureDescription desc{};
                 TextureState* state = nullptr;
             };
 
@@ -114,7 +114,7 @@ namespace SushiEngine
             {
                 VkBuffer buffer = VK_NULL_HANDLE;
                 void* mapped = nullptr;
-                BufferDesc desc{};
+                BufferDescription desc{};
                 BufferState* state = nullptr;
             };
 
@@ -167,7 +167,7 @@ namespace SushiEngine
                      * @param handle The declared texture.
                      * @return The description, including its extent and format.
                      */
-                    const TextureDesc& texture_desc(TextureHandle handle) const;
+                    const TextureDescription& texture_desc(TextureHandle handle) const;
 
                     /**
                      * @brief The buffer behind a buffer handle this frame.
@@ -301,7 +301,7 @@ namespace SushiEngine
                      * so a pass that hand-barriers a resource it owns (the LUT and fog
                      * volumes do) would have its consumers unsynchronised. And the resources
                      * it shares must be graph transients: the graph marks those concurrent
-                     * for itself (@c TextureDesc::cross_queue), but it cannot change the
+                     * for itself (@c TextureDescription::cross_queue), but it cannot change the
                      * sharing mode of an *imported* allocation someone else created, so an
                      * import that crosses queues has to have been created shared by its owner.
                      *
@@ -394,7 +394,7 @@ namespace SushiEngine
                      *             declared accesses before allocation.
                      * @return A handle valid until the next begin_frame().
                      */
-                    TextureHandle create_texture(const TextureDesc& desc);
+                    TextureHandle create_texture(const TextureDescription& desc);
 
                     /**
                      * @brief Declares a transient buffer the graph allocates and may alias.
@@ -402,7 +402,7 @@ namespace SushiEngine
                      *             declared accesses before allocation.
                      * @return A handle valid until the next begin_frame().
                      */
-                    BufferHandle create_buffer(const BufferDesc& desc);
+                    BufferHandle create_buffer(const BufferDescription& desc);
 
                     /**
                      * @brief Brings an externally owned texture under the graph's scheduling.
@@ -534,7 +534,7 @@ namespace SushiEngine
                     /** @brief A virtual texture: its description and this frame's backing. */
                     struct TextureResource
                     {
-                        TextureDesc desc{};
+                        TextureDescription desc{};
                         bool imported = false;
                         VkImage image = VK_NULL_HANDLE;
                         VkImageView view = VK_NULL_HANDLE;
@@ -552,7 +552,7 @@ namespace SushiEngine
                     /** @brief A virtual buffer: its description and this frame's backing. */
                     struct BufferResource
                     {
-                        BufferDesc desc{};
+                        BufferDescription desc{};
                         bool imported = false;
                         VkBuffer buffer = VK_NULL_HANDLE;
                         void* mapped = nullptr;

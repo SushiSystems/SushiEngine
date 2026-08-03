@@ -103,7 +103,7 @@ namespace SushiEngine
                 {
                     VkBufferCreateInfo info{};
                     info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-                    info.size = sizeof(GI::ProbeVolumeConfig);
+                    info.size = sizeof(GI::ProbeVolumeConfiguration);
                     info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
                     VmaAllocationCreateInfo alloc{};
                     alloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -150,7 +150,7 @@ namespace SushiEngine
                 // The config block is written every frame — enabled or not — so the shading
                 // pass always has a valid binding to read and fall back on.
                 const std::uint32_t ring = frame.index % RING;
-                GI::ProbeVolumeConfig config{};
+                GI::ProbeVolumeConfiguration config{};
                 GI::configure_probe_volume(frame.eye, enabled, environment.gi.intensity,
                                            environment.gi.normal_bias, config);
                 std::memcpy(config_mapped_[ring], &config, sizeof(config));

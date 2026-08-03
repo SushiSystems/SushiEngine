@@ -43,7 +43,7 @@ namespace SushiEngine
         namespace
         {
             using SushiEngine::Animation::ClipAuthoring;
-            using SushiEngine::Animation::ClipDesc;
+            using SushiEngine::Animation::ClipDescription;
             using SushiEngine::Animation::JointChannels;
             using SushiEngine::Animation::Quaternionf;
             using SushiEngine::Animation::Vector3f;
@@ -123,7 +123,7 @@ namespace SushiEngine
             {
                 ClipAuthoring authoring;
                 authoring.joints.assign(1, s.channels);
-                ClipDesc dense;
+                ClipDescription dense;
                 if (!authoring.bake(s.sample_rate, dense))
                     return "Bake failed.";
                 std::vector<std::byte> blob;

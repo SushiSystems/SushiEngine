@@ -126,7 +126,7 @@ namespace SushiEngine
                 bool changed = false;
                 if (ImGui::TreeNode("Atmosphere physics (regional nest)"))
                 {
-                    SushiEngine::Render::AtmosphereParameters& nest = edited.atmosphere_nest;
+                    SushiEngine::Render::AtmosphereNestParameters& nest = edited.atmosphere_nest;
 
                     if (ImGui::Checkbox("Nest Enabled", &nest.enabled))
                         changed = true;
@@ -501,7 +501,7 @@ namespace SushiEngine
             }
 
             ImGui::SeparatorText("Clock");
-            const SushiEngine::Render::AtmosphereParameters& nest = environment.atmosphere_nest;
+            const SushiEngine::Render::AtmosphereNestParameters& nest = environment.atmosphere_nest;
 
             const double sky_rate = context.sky_animate ? context.sky_days_per_second * 86400.0 : 0.0;
             // The grid the *atmosphere tier* resolves to, not a hard-coded default: the nest's
@@ -1028,7 +1028,7 @@ namespace SushiEngine
                         densest = &mirror.profile[k];
                 if (densest != nullptr && densest->cloud_fraction > 0.01f)
                 {
-                    const SushiEngine::Render::AtmosphereParameters& physics =
+                    const SushiEngine::Render::AtmosphereNestParameters& physics =
                         environment.atmosphere_nest;
                     // The same formula CloudscapeCompilePass uploads as
                     // atmosphere_nest_params.w, so this preview and the GPU bake cannot

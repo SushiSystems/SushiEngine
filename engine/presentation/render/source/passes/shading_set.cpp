@@ -81,9 +81,9 @@ namespace SushiEngine
                              context.sampled_view(frame.targets.shadow_atlas),
                              ShadowPass::atlas_depth_sampler(*frame.samplers));
                 writer.image(4, context.sampled_view(frame.targets.ray_shadow),
-                             frame.samplers->get(Resources::SamplerDesc{}));
+                             frame.samplers->get(Resources::SamplerDescription{}));
                 writer.image(5, context.sampled_view(frame.targets.contact_shadow),
-                             frame.samplers->get(Resources::SamplerDesc{}));
+                             frame.samplers->get(Resources::SamplerDescription{}));
                 // Kept in GENERAL across CloudShadowMapPass's own compute build.
                 writer.image(6, sources.cloud_shadow.view(), sources.cloud_shadow.sampler(),
                              VK_IMAGE_LAYOUT_GENERAL);
@@ -136,7 +136,7 @@ namespace SushiEngine
                 // diffuse and specular by.
                 writer.image(Scene::SceneLayout::AO_BINDING,
                              context.sampled_view(frame.targets.ao),
-                             frame.samplers->get(Resources::SamplerDesc{}));
+                             frame.samplers->get(Resources::SamplerDescription{}));
                 // Probe-volume GI: the SH grid the shading pass gathers and the config block
                 // that locates a surface in it. Both are pass-owned resources the
                 // irradiance-volume pass barriered before this pass runs.

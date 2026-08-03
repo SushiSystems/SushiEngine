@@ -63,7 +63,7 @@ namespace
             Rig(const std::vector<std::string>& names, const std::vector<int>& parents,
                 const std::vector<Vector3f>& bind_translations)
             {
-                SkeletonDesc description;
+                SkeletonDescription description;
                 description.joints.resize(names.size());
                 for (std::size_t i = 0; i < names.size(); ++i)
                 {
@@ -85,7 +85,7 @@ namespace
                 translations_.assign(skeleton_.bind_translations, skeleton_.bind_translations + count);
                 rotations_.assign(skeleton_.bind_rotations, skeleton_.bind_rotations + count);
                 scales_.assign(skeleton_.bind_scales, skeleton_.bind_scales + count);
-                model_.assign(count, Mat4{});
+                model_.assign(count, Matrix4{});
                 context_.skeleton = skeleton_;
                 context_.local_translations = translations_.data();
                 context_.local_rotations = rotations_.data();
@@ -114,7 +114,7 @@ namespace
             std::vector<Vector3f> translations_;
             std::vector<Quaternionf> rotations_;
             std::vector<Vector3f> scales_;
-            std::vector<Mat4> model_;
+            std::vector<Matrix4> model_;
             PoseModifierContext context_{};
     };
 
@@ -136,9 +136,9 @@ namespace
         return std::sqrt(static_cast<double>(v.x * v.x + v.y * v.y + v.z * v.z));
     }
 
-    Mat4 translation_matrix(double x, double y, double z)
+    Matrix4 translation_matrix(double x, double y, double z)
     {
-        Mat4 matrix{};
+        Matrix4 matrix{};
         matrix.m[12] = static_cast<Scalar>(x);
         matrix.m[13] = static_cast<Scalar>(y);
         matrix.m[14] = static_cast<Scalar>(z);

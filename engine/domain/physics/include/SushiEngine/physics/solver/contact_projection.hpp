@@ -93,7 +93,7 @@ namespace SushiEngine
          * meeting, so a per-point lookup would be the same answer four times.
          */
         template <typename T>
-        struct ContactSolveParams
+        struct ContactSolveParameters
         {
             /**
              * @brief The separation contacts are resolved *to* (§7.6).
@@ -155,12 +155,12 @@ namespace SushiEngine
          * @param restitution_threshold The anti-jitter floor, usually `2 * g * h`.
          */
         template <typename T>
-        inline ContactSolveParams<T> make_contact_params(const PhysicsMaterialT<T>& material_a,
-                                                         const PhysicsMaterialT<T>& material_b,
-                                                         T rest_offset,
-                                                         T restitution_threshold) noexcept
+        inline ContactSolveParameters<T> make_contact_params(const PhysicsMaterialT<T>& material_a,
+                                                             const PhysicsMaterialT<T>& material_b,
+                                                             T rest_offset,
+                                                             T restitution_threshold) noexcept
         {
-            ContactSolveParams<T> params;
+            ContactSolveParameters<T> params;
             params.rest_offset = rest_offset;
             combine_friction(material_a, material_b, params.static_friction,
                              params.dynamic_friction);
@@ -306,7 +306,7 @@ namespace SushiEngine
         template <typename T>
         inline void solve_manifold_positions(ContactManifold<T>& manifold, RigidBodyT<T>& body_a,
                                              RigidBodyT<T>& body_b,
-                                             const ContactSolveParams<T>& params) noexcept
+                                             const ContactSolveParameters<T>& params) noexcept
         {
             if (manifold.point_count == 0)
                 return;
@@ -449,7 +449,7 @@ namespace SushiEngine
          *   weld.
          * - **Restitution** restores the closing speed the positional solve
          *   destroyed, scaled by `e`: the body leaves at `-e` times the speed it
-         *   arrived at. Below @ref ContactSolveParams::restitution_threshold it is
+         *   arrived at. Below @ref ContactSolveParameters::restitution_threshold it is
          *   suppressed entirely, because a resting body's contacts carry a closing
          *   speed of about `g * h` every substep purely from gravity, and returning
          *   that is how a settled stack buzzes.
@@ -463,7 +463,7 @@ namespace SushiEngine
         template <typename T>
         inline void solve_manifold_velocities(ContactManifold<T>& manifold, RigidBodyT<T>& body_a,
                                               RigidBodyT<T>& body_b,
-                                              const ContactSolveParams<T>& params, T h) noexcept
+                                              const ContactSolveParameters<T>& params, T h) noexcept
         {
             if (manifold.point_count == 0 || h <= T(0))
                 return;

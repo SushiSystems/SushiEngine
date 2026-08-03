@@ -28,7 +28,7 @@
  * @brief The joint vocabulary at the boundary: what is held, and what it carries.
  *
  * A mirror of `Physics::JointKind` and its descriptor rather than a using-declaration
- * of them, for the reason `RigidBodyDesc` is not `Physics::RigidBodyT`: this is
+ * of them, for the reason `RigidBodyDescription` is not `Physics::RigidBodyT`: this is
  * boundary vocabulary and names no solver type, so a gameplay system that creates a
  * hinge does not thereby depend on the solver that projects one.
  *
@@ -46,7 +46,7 @@
  * Nothing here names an entity. That is what keeps this header includable from
  * `simulation.hpp`, which is where `EntityId` is defined, and it is not a compromise:
  * *what is held between two bodies* is genuinely separable from *which two bodies*,
- * which is the same split @ref JointParams makes for the assembly asset's sake.
+ * which is the same split @ref JointParameters makes for the assembly asset's sake.
  */
 
 #include <cstddef>
@@ -90,7 +90,7 @@ namespace SushiEngine
          * free/limited/locked are three readings of one range rather than a mode word
          * that could disagree with the numbers.
          */
-        struct JointLimitDesc
+        struct JointLimitDescription
         {
             Scalar lower = 0;      /**< Radians for an angle, metres for a translation. */
             Scalar upper = 0;
@@ -99,7 +99,7 @@ namespace SushiEngine
         };
 
         /** @brief A drive on a joint's primary axis, with a saturation limit. */
-        struct JointMotorDesc
+        struct JointMotorDescription
         {
             JointMotorType type = JointMotorType::Disabled;
             Scalar target = 0;     /**< A coordinate, or a rate, per @ref type. */
@@ -141,7 +141,7 @@ namespace SushiEngine
          * pose reads a twist angle of zero — which is what an author means by "the door
          * is shut".
          */
-        struct JointParams
+        struct JointParameters
         {
             JointType type = JointType::Fixed;
 
@@ -154,16 +154,16 @@ namespace SushiEngine
             Scalar compliance = 0;
 
             /** @brief Travel along the primary axis (slider), or the anchor range (distance). */
-            JointLimitDesc linear_limit;
+            JointLimitDescription linear_limit;
 
             /** @brief Rotation about the primary axis (hinge angle, cone-twist twist). */
-            JointLimitDesc twist_limit;
+            JointLimitDescription twist_limit;
 
             /** @brief The cone half-angle the primary axis may stray by; only `upper` is read. */
-            JointLimitDesc swing_limit;
+            JointLimitDescription swing_limit;
 
             /** @brief The drive on the primary axis. */
-            JointMotorDesc motor;
+            JointMotorDescription motor;
 
             /** @brief Force (N) above which the joint breaks; zero is unbreakable. */
             Scalar break_force = 0;

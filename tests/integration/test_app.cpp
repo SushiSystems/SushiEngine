@@ -126,7 +126,7 @@ namespace
 
 TEST(Integration_App, FixedStepRunMatchesClosedFormReference)
 {
-    Loop::AppConfig config;
+    Loop::AppConfiguration config;
     config.fixed_dt_seconds = FIXED_DT;
     config.chunk_capacity = CAPACITY;
 
@@ -147,7 +147,7 @@ TEST(Integration_App, FixedStepRunMatchesClosedFormReference)
 
 TEST(Integration_App, ClientReconcilesToAuthoritativeServer)
 {
-    Loop::AppConfig config;
+    Loop::AppConfiguration config;
     config.fixed_dt_seconds = FIXED_DT;
     config.chunk_capacity = CAPACITY;
 
@@ -161,7 +161,7 @@ TEST(Integration_App, ClientReconcilesToAuthoritativeServer)
     const Vector3 server_position = server.world().get<Position>(server_player).value;
 
     // The client: mispredicts some ticks, reconciles via rollback against the server.
-    Loop::AppConfig client_config = config;
+    Loop::AppConfiguration client_config = config;
     client_config.rollback_capacity = TICKS;
     Loop::App<MoveCommand> client(Harness::shared_runtime(), client_config);
     Entity client_player{};

@@ -104,9 +104,9 @@ namespace
         return collider;
     }
 
-    std::vector<PlaneDesc> ground()
+    std::vector<PlaneDescription> ground()
     {
-        PlaneDesc plane;
+        PlaneDescription plane;
         plane.point = Vector3{0, 0, 0};
         plane.normal = Vector3{0, 1, 0};
         return {plane};
@@ -121,10 +121,10 @@ TEST(Regression_PenetrationContract, StackedCratesRestWithinTolerance)
     auto physics = create_physics_simulation(Harness::shared_context());
 
     constexpr int CRATE_COUNT = 3;
-    std::vector<RigidBodyDesc> bodies;
+    std::vector<RigidBodyDescription> bodies;
     for (int i = 0; i < CRATE_COUNT; ++i)
     {
-        RigidBodyDesc desc;
+        RigidBodyDescription desc;
         desc.id = i + 1;
         // Seeded with a small gap between crates so each one actually falls and
         // makes its own contact, rather than starting already touching.
@@ -167,13 +167,13 @@ TEST(Regression_PenetrationContract, FastSphereDoesNotTunnelThroughAThinPlate)
 
         auto physics = create_physics_simulation(Harness::shared_context());
 
-        RigidBodyDesc plate;
+        RigidBodyDescription plate;
         plate.id = 1;
         plate.position = Vector3{0, 0, 0};
         plate.inv_mass = Scalar(0); // static
         plate.collider = box_collider(Vector3{2.0, plate_half_thickness, 2.0});
 
-        RigidBodyDesc sphere;
+        RigidBodyDescription sphere;
         sphere.id = 2;
         sphere.position = Vector3{0, start_height, 0};
         sphere.inv_mass = Scalar(1);

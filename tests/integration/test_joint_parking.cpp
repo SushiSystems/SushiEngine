@@ -54,9 +54,9 @@ namespace
     WindSampler still_air() { return WindSampler{}; }
 
     /** @brief A pinned body: zero inverse mass and inertia, so nothing can move it. */
-    RigidBodyDesc anchor_desc()
+    RigidBodyDescription anchor_desc()
     {
-        RigidBodyDesc desc;
+        RigidBodyDescription desc;
         desc.id = ANCHOR;
         desc.position = Vector3{0, Scalar(2), 0};
         desc.inv_mass = 0;
@@ -65,9 +65,9 @@ namespace
     }
 
     /** @brief The body the fixed joint holds in place against gravity. */
-    RigidBodyDesc held_desc()
+    RigidBodyDescription held_desc()
     {
-        RigidBodyDesc desc;
+        RigidBodyDescription desc;
         desc.id = HELD;
         desc.position = Vector3{Scalar(1), Scalar(2), 0};
         desc.inv_mass = Scalar(1);
@@ -76,9 +76,9 @@ namespace
     }
 
     /** @brief A rigid attachment between the anchor and the held body. */
-    JointDesc anchor_joint()
+    JointDescription anchor_joint()
     {
-        JointDesc joint;
+        JointDescription joint;
         joint.body_a = ANCHOR;
         joint.body_b = HELD;
         joint.params.type = JointType::Fixed;
@@ -191,7 +191,7 @@ TEST(Integration_JointParking, EditingAParkedJointsMotorWakesItImmediately)
     settle_and_sleep(*physics);
     ASSERT_EQ(physics->statistics().joints, 0u) << "setup failed to park the joint";
 
-    JointMotorDesc motor;
+    JointMotorDescription motor;
     motor.type = JointMotorType::Velocity;
     motor.target = Scalar(0);
     motor.max_force = Scalar(10);

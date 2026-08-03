@@ -336,7 +336,7 @@ namespace SushiEngine
             if (playing_)
                 time_ += dt;
 
-            const Mat4 model = translation(position_);
+            const Matrix4 model = translation(position_);
             const float* curve_luts = compiled.curve_luts.empty() ? nullptr : compiled.curve_luts.data();
             const float* gradient_luts =
                 compiled.gradient_luts.empty() ? nullptr : compiled.gradient_luts.data();
@@ -375,7 +375,7 @@ namespace SushiEngine
                                 const ImVec2& image_origin, float width, float height,
                                 ImDrawList* draw_list)
         {
-            const Mat4 view_projection = mul(camera.projection, camera.view);
+            const Matrix4 view_projection = mul(camera.projection, camera.view);
             const Vector3 p = preview.position();
             const double clip_x = view_projection.m[0] * p.x + view_projection.m[4] * p.y +
                                   view_projection.m[8] * p.z + view_projection.m[12];

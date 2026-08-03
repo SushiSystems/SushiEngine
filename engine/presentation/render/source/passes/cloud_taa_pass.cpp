@@ -184,7 +184,7 @@ namespace SushiEngine
                 height_ = std::max<std::uint32_t>(1u, output_height / 2u);
                 create_history();
 
-                Resources::SamplerDesc sampler_desc{};
+                Resources::SamplerDescription sampler_desc{};
                 sampler_ = samplers.get(sampler_desc);
 
                 create_pipeline();

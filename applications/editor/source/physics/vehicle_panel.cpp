@@ -372,7 +372,7 @@ namespace SushiEngine
                     return;
                 }
 
-                Simulation::VehicleInstanceParams params = world->vehicle_params(id);
+                Simulation::VehicleInstanceParameters params = world->vehicle_params(id);
                 char path[512];
                 std::snprintf(path, sizeof(path), "%s", params.asset_path.c_str());
                 if (ImGui::InputText("Structure (.sushinodebeam)", path, sizeof(path)))

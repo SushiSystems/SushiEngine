@@ -51,14 +51,14 @@ namespace SushiEngine
 
             // Bind-pose model-space joint positions: a forward scan (parent[i] < i), the
             // translation column of each joint's composed model matrix.
-            std::vector<SushiEngine::Mat4> model(skeleton_.joint_count);
+            std::vector<SushiEngine::Matrix4> model(skeleton_.joint_count);
             joint_positions_.resize(skeleton_.joint_count);
             for (std::uint32_t i = 0; i < skeleton_.joint_count; ++i)
             {
                 const auto& t = skeleton_.bind_translations[i];
                 const auto& r = skeleton_.bind_rotations[i];
                 const auto& s = skeleton_.bind_scales[i];
-                const SushiEngine::Mat4 local = SushiEngine::compose_transform(
+                const SushiEngine::Matrix4 local = SushiEngine::compose_transform(
                     Vector3{t.x, t.y, t.z}, SushiEngine::Quaternion{r.x, r.y, r.z, r.w},
                     Vector3{s.x, s.y, s.z});
                 model[i] = skeleton_.parents[i] == NO_PARENT
@@ -75,7 +75,7 @@ namespace SushiEngine
             skeleton_ = SkeletonView{};
             joint_positions_.clear();
             bind_positions_.clear();
-            world_ = SushiEngine::Mat4{};
+            world_ = SushiEngine::Matrix4{};
         }
 
         void draw_skeleton_overlay(const SkeletonPreview& preview,
@@ -87,8 +87,8 @@ namespace SushiEngine
                 return;
             const SkeletonView& skeleton = preview.skeleton();
             const std::vector<Vector3>& local_positions = preview.joint_positions();
-            const SushiEngine::Mat4& world = preview.world();
-            const SushiEngine::Mat4 view_projection =
+            const SushiEngine::Matrix4& world = preview.world();
+            const SushiEngine::Matrix4 view_projection =
                 SushiEngine::mul(camera_view.projection, camera_view.view);
 
             // World joint positions, and a joint-marker size from the longest bone so the

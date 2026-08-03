@@ -73,9 +73,9 @@ namespace SushiEngine
                 }
 
                 /** @brief Builds a windowed device desc from the renderer desc. */
-                RenderDeviceDesc to_device_desc(const WindowRendererDesc& desc)
+                RenderDeviceDescription to_device_desc(const WindowRendererDescription& desc)
                 {
-                    RenderDeviceDesc device_desc;
+                    RenderDeviceDescription device_desc;
                     device_desc.enable_validation = desc.enable_validation;
                     device_desc.preference = desc.preference;
                     device_desc.required_instance_extensions = desc.required_instance_extensions;
@@ -84,7 +84,7 @@ namespace SushiEngine
                 }
             } // namespace
 
-            VulkanWindowRenderer::VulkanWindowRenderer(const WindowRendererDesc& desc)
+            VulkanWindowRenderer::VulkanWindowRenderer(const WindowRendererDescription& desc)
                 : device_(to_device_desc(desc)),
                   headless_(device_.surface() == VK_NULL_HANDLE)
             {
@@ -467,7 +467,8 @@ namespace SushiEngine
             }
         } // namespace Vulkan
 
-        std::unique_ptr<IWindowRenderer> create_window_renderer(const WindowRendererDesc& desc)
+        std::unique_ptr<IWindowRenderer> create_window_renderer(
+            const WindowRendererDescription& desc)
         {
             return std::unique_ptr<IWindowRenderer>(new Vulkan::VulkanWindowRenderer(desc));
         }

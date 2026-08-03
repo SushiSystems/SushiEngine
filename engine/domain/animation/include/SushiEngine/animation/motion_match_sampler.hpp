@@ -62,7 +62,7 @@ namespace SushiEngine
     namespace Animation
     {
         /** @brief Tuning knobs for @ref MotionMatchSampler::update. */
-        struct MotionMatchSamplerConfig
+        struct MotionMatchSamplerConfiguration
         {
             float velocity_weight = 1.0f;         /**< Passed through to @ref MotionDatabase::find_best. */
             float foot_weight = 0.25f;             /**< Passed through to @ref MotionDatabase::find_best. */
@@ -124,10 +124,10 @@ namespace SushiEngine
                  * @param animation_database Where selected clips resolve.
                  * @param query The desired feature (see @ref MotionDatabase::find_best).
                  * @param dt Seconds since the previous call.
-                 * @param config Tuning knobs; see @ref MotionMatchSamplerConfig.
+                 * @param config Tuning knobs; see @ref MotionMatchSamplerConfiguration.
                  */
                 void update(const MotionDatabase& database, const IAnimationDatabase& animation_database,
-                           const MotionFeature& query, float dt, const MotionMatchSamplerConfig& config)
+                           const MotionFeature& query, float dt, const MotionMatchSamplerConfiguration& config)
                 {
                     if (current_clip_ == INVALID_ASSET)
                     {

@@ -23,7 +23,7 @@
  * @file clip_compress.hpp
  * @brief The ACL-shaped clip compressor and the version-2 `.sushianim` cook/load.
  *
- * Cooks a raw @ref ClipDesc into a compressed, relocatable blob: uniform-time segments,
+ * Cooks a raw @ref ClipDescription into a compressed, relocatable blob: uniform-time segments,
  * per-segment per-track range reduction, three-smallest-component quaternions, and a
  * per-segment variable bit rate chosen by an error solver that measures displacement at a
  * virtual vertex (design §4.2). Constant tracks collapse to one value. The load returns a
@@ -348,14 +348,14 @@ namespace SushiEngine
 
         /**
          * @brief Cooks a raw clip into a compressed, relocatable blob.
-         * @param desc            The raw clip (dense frame-major tracks; see @ref ClipDesc).
+         * @param desc            The raw clip (dense frame-major tracks; see @ref ClipDescription).
          * @param error_threshold The maximum reconstruction error the solver may leave, in
          *                        the clip's units (a virtual vertex at unit distance for
          *                        rotation). Smaller keeps more bits; ~0.001–0.01 is typical.
          * @param out             Receives the blob bytes; cleared first, empty on failure.
          * @return True on success; false if the counts are out of range or tracks mis-sized.
          */
-        inline bool compress_clip(const ClipDesc& desc, float error_threshold,
+        inline bool compress_clip(const ClipDescription& desc, float error_threshold,
                                   std::vector<std::byte>& out)
         {
             out.clear();

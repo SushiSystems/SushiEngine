@@ -21,9 +21,9 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// The Animator's persistence seam: `ControllerDesc` to JSON and back. This is what the editor's
-// save/load rides on, and what an undo step *is* — a serialized snapshot restored — so a field
-// this layer forgets is a field that silently reverts when the user presses Ctrl+Z.
+// The Animator's persistence seam: `ControllerDescription` to JSON and back. This is what the
+// editor's save/load rides on, and what an undo step *is* — a serialized snapshot restored — so
+// a field this layer forgets is a field that silently reverts when the user presses Ctrl+Z.
 //
 // The strongest assertion available is used deliberately: the desc is compiled to a `.sushictrl`
 // blob before *and* after the round trip and the two blobs are compared byte for byte. A
@@ -55,9 +55,9 @@ namespace
      * still reproduces the default, so a desc built from defaults would pass against a
      * serializer that wrote nothing at all.
      */
-    ControllerDesc maximal_controller()
+    ControllerDescription maximal_controller()
     {
-        ControllerDesc desc;
+        ControllerDescription desc;
 
         // One parameter of each type, so `parameter_type_name`/`_from` is exercised whole.
         desc.parameters.push_back({"speed", ParameterType::Float, 2.5f});
@@ -65,14 +65,14 @@ namespace
         desc.parameters.push_back({"moving", ParameterType::Bool, 1.0f});
         desc.parameters.push_back({"jump", ParameterType::Trigger, 0.0f});
 
-        LayerDesc base;
+        LayerDescription base;
         base.name = "Base";
         base.weight = 1.0f;
         base.mask = INVALID_ASSET;
         base.blend_mode = LayerBlendMode::Override;
         base.default_state = "Walk";
 
-        StateDesc idle;
+        StateDescription idle;
         idle.name = "Idle";
         idle.clip = 7;
         idle.speed = 0.75f;
@@ -88,7 +88,7 @@ namespace
                                           Comparator::If,      Comparator::IfNot};
         for (std::size_t i = 0; i < sizeof(comparators) / sizeof(comparators[0]); ++i)
         {
-            TransitionDesc transition;
+            TransitionDescription transition;
             transition.destination = "Walk";
             transition.has_exit_time = (i % 2) == 0;
             transition.exit_time = 0.8f + 0.01f * float(i);
@@ -104,33 +104,33 @@ namespace
 
         // A state driven by a nested blend tree rather than a clip, covering every tree kind
         // through the nesting: a 2D parent whose children are themselves trees.
-        StateDesc walk;
+        StateDescription walk;
         walk.name = "Walk";
         walk.speed = 1.5f;
         walk.cycle_offset = 0.25f;
 
-        auto inner_1d = std::make_shared<BlendTreeNodeDesc>();
+        auto inner_1d = std::make_shared<BlendTreeNodeDescription>();
         inner_1d->type = BlendTreeType::Simple1D;
         inner_1d->parameter_x = "speed";
         inner_1d->children.push_back({1, nullptr, 0.0f, 0.0f, 0.0f, "", 1.0f});
         inner_1d->children.push_back({2, nullptr, 4.5f, 0.0f, 0.0f, "", 0.5f});
 
-        auto inner_direct = std::make_shared<BlendTreeNodeDesc>();
+        auto inner_direct = std::make_shared<BlendTreeNodeDescription>();
         inner_direct->type = BlendTreeType::Direct;
         inner_direct->normalize = false;
         inner_direct->children.push_back({3, nullptr, 0.0f, 0.0f, 0.0f, "speed", 2.0f});
 
-        auto root = std::make_shared<BlendTreeNodeDesc>();
+        auto root = std::make_shared<BlendTreeNodeDescription>();
         root->type = BlendTreeType::FreeformCartesian2D;
         root->parameter_x = "speed";
         root->parameter_y = "variant";
         root->normalize = true;
-        BlendChildDesc nested_a;
+        BlendChildDescription nested_a;
         nested_a.child_node = inner_1d;
         nested_a.position_x = -1.0f;
         nested_a.position_y = 0.5f;
         nested_a.speed = 1.25f;
-        BlendChildDesc nested_b;
+        BlendChildDescription nested_b;
         nested_b.child_node = inner_direct;
         nested_b.position_x = 1.0f;
         nested_b.position_y = -0.5f;
@@ -141,7 +141,7 @@ namespace
         base.states.push_back(idle);
         base.states.push_back(walk);
 
-        TransitionDesc any;
+        TransitionDescription any;
         any.destination = "Idle";
         any.duration = 0.1f;
         any.interruption = InterruptionSource::NextState;
@@ -150,14 +150,14 @@ namespace
 
         // A second layer, additive and masked and weight-driven, so the layer fields that only
         // a non-base layer ever exercises are covered too.
-        LayerDesc upper;
+        LayerDescription upper;
         upper.name = "UpperBody";
         upper.weight = 0.4f;
         upper.mask = 42;
         upper.blend_mode = LayerBlendMode::Additive;
         upper.weight_parameter = "speed";
         upper.default_state = "Aim";
-        StateDesc aim;
+        StateDescription aim;
         aim.name = "Aim";
         aim.clip = 9;
         aim.speed = 1.0f;
@@ -169,7 +169,7 @@ namespace
     }
 
     /** @brief The compiled `.sushictrl` bytes for @p desc, empty when the compile refuses. */
-    std::vector<std::byte> compile(const ControllerDesc& desc)
+    std::vector<std::byte> compile(const ControllerDescription& desc)
     {
         std::vector<std::byte> blob;
         if (!compile_controller_blob(desc, blob))
@@ -180,11 +180,11 @@ namespace
 
 TEST(Unit_AnimationControllerJSON,TheCompiledAssetIsByteIdenticalAcrossARoundTrip)
 {
-    const ControllerDesc authored = maximal_controller();
+    const ControllerDescription authored = maximal_controller();
     const std::vector<std::byte> before = compile(authored);
     ASSERT_FALSE(before.empty()) << "the maximal controller must compile, or the rest is moot";
 
-    const ControllerDesc restored = controller_from_json(controller_to_json(authored));
+    const ControllerDescription restored = controller_from_json(controller_to_json(authored));
     const std::vector<std::byte> after = compile(restored);
 
     ASSERT_EQ(after.size(), before.size());
@@ -197,12 +197,12 @@ TEST(Unit_AnimationControllerJSON,TheRoundTripSurvivesSerializationToTextAndBack
     // would skip the dump/parse pair, and that is where a float written at too few digits stops
     // reading back to the same value — the failure mode is a blend threshold that drifts a
     // little every time the file is saved.
-    const ControllerDesc authored = maximal_controller();
+    const ControllerDescription authored = maximal_controller();
     const std::vector<std::byte> before = compile(authored);
     ASSERT_FALSE(before.empty());
 
     const std::string text = controller_to_json(authored).dump();
-    const ControllerDesc restored = controller_from_json(nlohmann::json::parse(text));
+    const ControllerDescription restored = controller_from_json(nlohmann::json::parse(text));
     const std::vector<std::byte> after = compile(restored);
 
     ASSERT_EQ(after.size(), before.size());
@@ -289,7 +289,7 @@ TEST(Unit_AnimationControllerJSON,AMissingFieldReadsAsItsDefaultRatherThanThrowi
         }]
     })");
 
-    const ControllerDesc desc = controller_from_json(sparse);
+    const ControllerDescription desc = controller_from_json(sparse);
     ASSERT_EQ(desc.parameters.size(), 1u);
     EXPECT_EQ(desc.parameters[0].type, ParameterType::Float);
     EXPECT_FLOAT_EQ(desc.parameters[0].default_value, 0.0f);
@@ -301,14 +301,14 @@ TEST(Unit_AnimationControllerJSON,AMissingFieldReadsAsItsDefaultRatherThanThrowi
     EXPECT_TRUE(desc.layers[0].default_state.empty());
 
     ASSERT_EQ(desc.layers[0].states.size(), 1u);
-    const StateDesc& state = desc.layers[0].states[0];
+    const StateDescription& state = desc.layers[0].states[0];
     EXPECT_EQ(state.clip, INVALID_ASSET);
     EXPECT_FLOAT_EQ(state.speed, 1.0f);
     EXPECT_FLOAT_EQ(state.cycle_offset, 0.0f);
     EXPECT_EQ(state.blend_tree, nullptr);
 
     ASSERT_EQ(state.transitions.size(), 1u);
-    const TransitionDesc& transition = state.transitions[0];
+    const TransitionDescription& transition = state.transitions[0];
     EXPECT_FALSE(transition.has_exit_time);
     EXPECT_FLOAT_EQ(transition.exit_time, 1.0f);
     EXPECT_FLOAT_EQ(transition.duration, 0.0f);
@@ -319,11 +319,11 @@ TEST(Unit_AnimationControllerJSON,AnEmptyDocumentReadsAsAnEmptyControllerAndNotA
 {
     // Two shapes a real project produces: a brand-new controller with nothing authored yet, and
     // a document whose arrays are present but empty. Neither is an error.
-    const ControllerDesc from_empty_object = controller_from_json(nlohmann::json::object());
+    const ControllerDescription from_empty_object = controller_from_json(nlohmann::json::object());
     EXPECT_TRUE(from_empty_object.parameters.empty());
     EXPECT_TRUE(from_empty_object.layers.empty());
 
-    const ControllerDesc from_empty_arrays =
+    const ControllerDescription from_empty_arrays =
         controller_from_json(nlohmann::json::parse(R"({"parameters": [], "layers": []})"));
     EXPECT_TRUE(from_empty_arrays.layers.empty());
 
@@ -335,14 +335,14 @@ TEST(Unit_AnimationControllerJSON,AssetReferencesSerializeAsIdsWithMinusOneForNo
 {
     // The header pins this contract explicitly — ids, with -1 for none — because a project layer
     // above maps ids to paths and would otherwise have to guess what an absent reference is.
-    ControllerDesc desc;
-    LayerDesc layer;
+    ControllerDescription desc;
+    LayerDescription layer;
     layer.name = "Base";
     layer.mask = INVALID_ASSET;
-    StateDesc with_clip;
+    StateDescription with_clip;
     with_clip.name = "Idle";
     with_clip.clip = 5;
-    StateDesc without_clip;
+    StateDescription without_clip;
     without_clip.name = "Empty";
     without_clip.clip = INVALID_ASSET;
     layer.states.push_back(with_clip);
@@ -354,7 +354,7 @@ TEST(Unit_AnimationControllerJSON,AssetReferencesSerializeAsIdsWithMinusOneForNo
     EXPECT_EQ(json.at("layers").at(0).at("states").at(0).at("clip").get<std::int64_t>(), 5);
     EXPECT_EQ(json.at("layers").at(0).at("states").at(1).at("clip").get<std::int64_t>(), -1);
 
-    const ControllerDesc restored = controller_from_json(json);
+    const ControllerDescription restored = controller_from_json(json);
     EXPECT_EQ(restored.layers[0].mask, INVALID_ASSET);
     EXPECT_EQ(restored.layers[0].states[0].clip, AssetId(5));
     EXPECT_EQ(restored.layers[0].states[1].clip, INVALID_ASSET);
@@ -370,11 +370,12 @@ TEST(Unit_AnimationControllerJSON,ANestedBlendTreeKeepsItsShapeAndNotJustItsLeav
     // Nesting is the recursive half of the serializer, and a recursion that flattens produces a
     // tree that still blends — just not the authored one. Asserting the shape, depth included,
     // is what distinguishes the two.
-    const ControllerDesc restored = controller_from_json(controller_to_json(maximal_controller()));
+    const ControllerDescription restored =
+        controller_from_json(controller_to_json(maximal_controller()));
     ASSERT_GE(restored.layers.size(), 1u);
     ASSERT_GE(restored.layers[0].states.size(), 2u);
 
-    const std::shared_ptr<BlendTreeNodeDesc>& root = restored.layers[0].states[1].blend_tree;
+    const std::shared_ptr<BlendTreeNodeDescription>& root = restored.layers[0].states[1].blend_tree;
     ASSERT_NE(root, nullptr);
     EXPECT_EQ(root->type, BlendTreeType::FreeformCartesian2D);
     EXPECT_EQ(root->parameter_x, "speed");
@@ -387,7 +388,7 @@ TEST(Unit_AnimationControllerJSON,ANestedBlendTreeKeepsItsShapeAndNotJustItsLeav
     EXPECT_FLOAT_EQ(root->children[0].position_x, -1.0f);
     EXPECT_FLOAT_EQ(root->children[0].speed, 1.25f);
 
-    const BlendTreeNodeDesc& inner = *root->children[0].child_node;
+    const BlendTreeNodeDescription& inner = *root->children[0].child_node;
     EXPECT_EQ(inner.type, BlendTreeType::Simple1D);
     ASSERT_EQ(inner.children.size(), 2u);
     EXPECT_EQ(inner.children[1].clip, AssetId(2));
@@ -396,7 +397,7 @@ TEST(Unit_AnimationControllerJSON,ANestedBlendTreeKeepsItsShapeAndNotJustItsLeav
 
     // `normalize` defaults to true, so the child that authored it false is the one that proves
     // the field is carried rather than reconstructed from the default.
-    const BlendTreeNodeDesc& direct = *root->children[1].child_node;
+    const BlendTreeNodeDescription& direct = *root->children[1].child_node;
     EXPECT_EQ(direct.type, BlendTreeType::Direct);
     EXPECT_FALSE(direct.normalize);
     ASSERT_EQ(direct.children.size(), 1u);
@@ -408,8 +409,9 @@ TEST(Unit_AnimationControllerJSON,EventsAndAnyStateTransitionsSurviveWithTheirOr
     // Both are arrays whose *order* is observable — events fire in sequence and transitions are
     // evaluated first-match — so a serializer that round-trips the set but not the sequence
     // produces a controller that behaves differently after a save.
-    const ControllerDesc restored = controller_from_json(controller_to_json(maximal_controller()));
-    const StateDesc& idle = restored.layers[0].states[0];
+    const ControllerDescription restored =
+        controller_from_json(controller_to_json(maximal_controller()));
+    const StateDescription& idle = restored.layers[0].states[0];
 
     ASSERT_EQ(idle.events.size(), 2u);
     EXPECT_EQ(idle.events[0].name, "footstep");
@@ -436,12 +438,13 @@ TEST(Unit_AnimationControllerJSON,LayerOrderAndPerLayerFieldsSurvive)
     // Layer order is fold order — a later layer overrides an earlier one — so it is behaviour,
     // not presentation. And the second layer is where the additive/mask/weight-parameter fields
     // live, which a single-layer round trip never touches.
-    const ControllerDesc restored = controller_from_json(controller_to_json(maximal_controller()));
+    const ControllerDescription restored =
+        controller_from_json(controller_to_json(maximal_controller()));
     ASSERT_EQ(restored.layers.size(), 2u);
     EXPECT_EQ(restored.layers[0].name, "Base");
     EXPECT_EQ(restored.layers[1].name, "UpperBody");
 
-    const LayerDesc& upper = restored.layers[1];
+    const LayerDescription& upper = restored.layers[1];
     EXPECT_FLOAT_EQ(upper.weight, 0.4f);
     EXPECT_EQ(upper.mask, AssetId(42));
     EXPECT_EQ(upper.blend_mode, LayerBlendMode::Additive);

@@ -45,7 +45,8 @@ namespace SushiEngine
 {
     namespace Player
     {
-        /** @brief What a `boot.json` may specify; see `PlayerApp::Desc` for the field meanings. */
+        /** @brief What a `boot.json` may specify; the fields mean what
+         *         `PlayerApp::Description`'s do. */
         struct BootManifest
         {
             std::string scene_path;

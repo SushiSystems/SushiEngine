@@ -65,7 +65,7 @@ namespace
 
 TEST(Unit_AtmosphereNest, BaseStateMatchesTheStandardAtmosphere)
 {
-    const Render::AtmosphereParameters p{};
+    const Render::AtmosphereNestParameters p{};
 
     // Sea level, by definition of the defaults.
     EXPECT_NEAR(Render::atmosphere_base_temperature(p, 0.0f), 288.15f, 1e-3f);
@@ -86,7 +86,7 @@ TEST(Unit_AtmosphereNest, BaseStateMatchesTheStandardAtmosphere)
 
 TEST(Unit_AtmosphereNest, PotentialTemperatureIsTheQuantityBuoyancyIsWrittenIn)
 {
-    const Render::AtmosphereParameters p{};
+    const Render::AtmosphereNestParameters p{};
 
     // Exner is 1 at the reference pressure by construction, and just above it at the surface
     // because standard sea-level pressure is slightly above 1000 hPa.
@@ -121,7 +121,7 @@ TEST(Unit_AtmosphereNest, SaturationFollowsMagnusNotAThreshold)
 
 TEST(Unit_AtmosphereNest, BaseVapourIsNeverSupersaturated)
 {
-    const Render::AtmosphereParameters p{};
+    const Render::AtmosphereNestParameters p{};
     // The initial state must not start the model already condensing, or every column would
     // produce cloud on its first step regardless of what the dynamics did.
     for (float altitude = 0.0f; altitude <= 18000.0f; altitude += 250.0f)
@@ -137,7 +137,7 @@ TEST(Unit_AtmosphereNest, BaseVapourIsNeverSupersaturated)
 
 TEST(Unit_AtmosphereNest, TheScaleHeightFoldsTheMixingRatioAndNotTheRelativeHumidity)
 {
-    const Render::AtmosphereParameters p{};
+    const Render::AtmosphereNestParameters p{};
     const float surface = Render::atmosphere_base_vapour(p, 0.0f);
 
     // What the parameter is named for: one scale height up, the *mixing ratio* is down by e.
@@ -179,7 +179,7 @@ TEST(Unit_AtmosphereNest, TheScaleHeightFoldsTheMixingRatioAndNotTheRelativeHumi
 
 TEST(Unit_AtmosphereNest, CloudTopCoolingIsConservativeAndConcentratedAtTheTop)
 {
-    const Render::AtmosphereParameters p{};
+    const Render::AtmosphereNestParameters p{};
 
     // Clear air has no cloud-top cooling, which is the whole distinction the term draws: this is
     // the sink a cloud has and the air beside it does not.
@@ -211,7 +211,7 @@ TEST(Unit_AtmosphereNest, CloudTopCoolingIsConservativeAndConcentratedAtTheTop)
 
 TEST(Unit_AtmosphereNest, CloudTopCoolingClosesInsteadOfRunningAway)
 {
-    const Render::AtmosphereParameters p{};
+    const Render::AtmosphereNestParameters p{};
 
     // The distinction this scale draws is between a flux and a sink. A cloud at its environment's
     // temperature loses everything the flux says it does — so nothing about a transient deck, the
@@ -240,11 +240,11 @@ TEST(Unit_AtmosphereNest, CloudTopCoolingClosesInsteadOfRunningAway)
 
 TEST(Unit_AtmosphereNest, CloudTopEntrainmentMixesWhereTheCoolingIs)
 {
-    Render::AtmosphereParameters p{};
+    Render::AtmosphereNestParameters p{};
 
     // No efficiency, no cooling, or no stable interface: no closure. The last is the
     // double-counting guard — an unstable top is resolved convection's job.
-    Render::AtmosphereParameters off = p;
+    Render::AtmosphereNestParameters off = p;
     off.cloud_top_entrainment_efficiency = 0.0f;
     EXPECT_FLOAT_EQ(Render::atmosphere_cloud_top_entrainment(off, 70.0f, 1.0f, 5.0f), 0.0f);
     EXPECT_FLOAT_EQ(Render::atmosphere_cloud_top_entrainment(p, 0.0f, 1.0f, 5.0f), 0.0f);
@@ -308,7 +308,7 @@ TEST(Unit_AtmosphereNest, VerticalGridIsStretchedAndClosesOnTheDomainTop)
 
 TEST(Unit_AtmosphereNest, TheSpongeCoversTheLevelsThatOscillatedAndNotTheWeather)
 {
-    const Render::AtmosphereParameters p{};
+    const Render::AtmosphereNestParameters p{};
     const Render::AtmosphereNestSize size{};
 
     // Shape first: zero and flat where it starts, one at the lid, monotone between.
@@ -426,7 +426,7 @@ TEST(Unit_AtmosphereNest, SubgridCloudFractionGeneralisesTheAllOrNothingAdjustme
     // width, and the partition must reduce *exactly* to condensing the excess over saturation.
     // If it does not, then a scene authored at 1.0 gets some third behaviour belonging to
     // neither scheme, and every comparison against the phase's earlier measurements is void.
-    const Render::AtmosphereParameters parameters;
+    const Render::AtmosphereNestParameters parameters;
     const float saturation = 0.008f;                // kg/kg, a fair-weather cumulus base
     const float efficiency = 0.5f;                  // near enough the 290 K value
 
@@ -484,7 +484,7 @@ TEST(Unit_AtmosphereNest, IcePartitionReducesExactlyToLiquidAboveFreezing)
     // *identically* the liquid ones. If they are not, then every measurement this phase took
     // before ice existed is void, and the difference would be invisible — a slightly different
     // sky, with nothing saying why.
-    const Render::AtmosphereParameters p;
+    const Render::AtmosphereNestParameters p;
     const float pressure = 85000.0f; // ~1500 m, where these clouds live
 
     for (const float t : {300.0f, 290.0f, 280.0f, p.freezing_temperature})
@@ -536,7 +536,7 @@ TEST(Unit_AtmosphereNest, SaturationOverIceIsLowerAndThatGapIsTheBergeronProcess
     // What that means for the model: the same air is cloudier when it is colder, on the same
     // water. A cell below the glaciation point condenses against the ice curve, which is well
     // under the liquid one, so its saturation mixing ratio is lower.
-    const Render::AtmosphereParameters p;
+    const Render::AtmosphereNestParameters p;
     const float pressure = 85000.0f;
     const float cold = p.glaciation_temperature - 5.0f;
     EXPECT_LT(Render::atmosphere_saturation_mixing_ratio_phase(p, cold, pressure),
@@ -553,7 +553,7 @@ TEST(Unit_AtmosphereNest, SaturationOverIceIsLowerAndThatGapIsTheBergeronProcess
 
 TEST(Unit_AtmosphereNest, InsolationIsDimmedAlongTheSlantPathAndNotOnlyByElevation)
 {
-    const Render::AtmosphereParameters parameters;
+    const Render::AtmosphereNestParameters parameters;
 
     // Below the horizon there is no sun, and the balance has to be able to say so rather than
     // returning a small positive number that would keep the ground warming all night.
@@ -579,7 +579,7 @@ TEST(Unit_AtmosphereNest, SurfaceBalanceIsUnconditionallyStableAndLandsItsSteady
 {
     // The diurnal cycle's integrator. Two claims are pinned here, and both are the kind that
     // fail silently: a scene simply looks different, and nothing says why.
-    Render::AtmosphereParameters parameters;
+    Render::AtmosphereNestParameters parameters;
     const float air = 288.15f;
     const float pressure = 101325.0f;
     const float density = 1.2f;
@@ -652,7 +652,7 @@ TEST(Unit_AtmosphereNest, SurfaceBalanceIsUnconditionallyStableAndLandsItsSteady
     //     to a colder sky than it is, cools below the air, and the sensible flux reverses. This
     //     is what *ends* convection in the evening, and the retired `surface_night_flux` was a
     //     constant standing in for it.
-    parameters = Render::AtmosphereParameters{};
+    parameters = Render::AtmosphereNestParameters{};
     const Render::AtmosphereSurfaceBalance night = Render::atmosphere_surface_balance(
         parameters, air, air, vapour, pressure, density, wind, 0.0f, 60.0f);
     EXPECT_LT(night.net_radiation, 0.0f);
@@ -662,11 +662,11 @@ TEST(Unit_AtmosphereNest, SurfaceBalanceIsUnconditionallyStableAndLandsItsSteady
     // (4) Moisture availability is the Bowen ratio's author, and it has to actually author it:
     //     the same radiation over a wet surface must go mostly into evaporation and over a dry
     //     one mostly into heating the air.
-    Render::AtmosphereParameters wet = parameters;
+    Render::AtmosphereNestParameters wet = parameters;
     wet.surface_moisture_availability = 1.0f;
-    Render::AtmosphereParameters dry = parameters;
+    Render::AtmosphereNestParameters dry = parameters;
     dry.surface_moisture_availability = 0.0f;
-    const auto settle = [&](const Render::AtmosphereParameters& p)
+    const auto settle = [&](const Render::AtmosphereNestParameters& p)
     {
         float s = air;
         Render::AtmosphereSurfaceBalance b;
@@ -688,7 +688,7 @@ TEST(Unit_AtmosphereNest, SurfaceBalanceIsUnconditionallyStableAndLandsItsSteady
 
 TEST(Unit_AtmosphereNest, TheGroundRadiatesToTheCloudBaseAndNotThroughIt)
 {
-    const Render::AtmosphereParameters p{};
+    const Render::AtmosphereNestParameters p{};
     const float air = 288.0f;
     const float vapour = 0.008f;
     const float pressure = 101325.0f;

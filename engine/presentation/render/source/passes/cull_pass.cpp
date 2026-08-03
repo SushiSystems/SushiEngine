@@ -50,9 +50,9 @@ namespace SushiEngine
                     return value == 0 ? 1u : (value + GROUP_SIZE - 1) / GROUP_SIZE;
                 }
 
-                Resources::SamplerDesc point_sampler() noexcept
+                Resources::SamplerDescription point_sampler() noexcept
                 {
-                    Resources::SamplerDesc desc;
+                    Resources::SamplerDescription desc;
                     desc.filter = VK_FILTER_NEAREST;
                     desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
                     desc.max_lod = 16.0f;
@@ -130,7 +130,7 @@ namespace SushiEngine
                 {
                     VkBufferCreateInfo params_info{};
                     params_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-                    params_info.size = sizeof(Params);
+                    params_info.size = sizeof(Parameters);
                     params_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
                     VmaAllocationCreateInfo params_alloc{};
                     params_alloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -257,7 +257,7 @@ namespace SushiEngine
 
                         // Fill the cull parameters into this slot's mapped UBO. Host writes made
                         // before this submit are visible to the compute read.
-                        Params values{};
+                        Parameters values{};
                         std::memcpy(values.previous_view_projection, frame.previous_view_projection,
                                     sizeof(values.previous_view_projection));
                         values.delta_eye[0] = frame.eye_delta[0];
@@ -280,11 +280,11 @@ namespace SushiEngine
                         {
                             if (!frozen_valid_)
                             {
-                                Mat4 frozen_view = frame.camera->view;
+                                Matrix4 frozen_view = frame.camera->view;
                                 frozen_view.m[12] = 0.0;
                                 frozen_view.m[13] = 0.0;
                                 frozen_view.m[14] = 0.0;
-                                const Mat4 frozen =
+                                const Matrix4 frozen =
                                     mul(frame.camera->projection, frozen_view);
                                 for (int i = 0; i < 16; ++i)
                                     frozen_view_projection_[i] =
@@ -317,7 +317,7 @@ namespace SushiEngine
                         Resources::DescriptorWriter writer;
                         // Only the leading two matrices of the scene block are read here.
                         writer.uniform_buffer(0, context.buffer(uniforms), 2 * 16 * sizeof(float));
-                        writer.uniform_buffer(1, slots_[slot].params, sizeof(Params));
+                        writer.uniform_buffer(1, slots_[slot].params, sizeof(Parameters));
                         writer.storage_buffer(2, instances_.instance_buffer(),
                                               instances_.instance_buffer_range());
                         writer.storage_buffer(3, instances_.bucket_buffer(),

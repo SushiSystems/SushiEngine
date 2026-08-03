@@ -101,7 +101,7 @@ namespace SushiEngine
                      * @param model     This frame's object-to-world transform, absolute.
                      * @return The index the draw carries into the frame's motion array.
                      */
-                    std::uint32_t push(std::uint32_t entity_id, const Mat4& model);
+                    std::uint32_t push(std::uint32_t entity_id, const Matrix4& model);
 
                     /**
                      * @brief Packs motion for geometry the CPU already made camera-relative.
@@ -142,11 +142,11 @@ namespace SushiEngine
                     struct Record
                     {
                         std::uint32_t id = 0;
-                        Mat4 model{};
+                        Matrix4 model{};
                     };
 
                     void grow(Slot& slot, VkDeviceSize bytes);
-                    std::uint32_t append(const Mat4& previous_absolute);
+                    std::uint32_t append(const Matrix4& previous_absolute);
 
                     Vulkan::VulkanDevice& device_;
                     std::vector<Slot> slots_;

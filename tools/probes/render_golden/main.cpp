@@ -614,7 +614,7 @@ int main(int argc, char** argv)
 
     try
     {
-        RenderDeviceDesc desc;
+        RenderDeviceDescription desc;
         Vulkan::VulkanDevice device(desc);
         std::printf("device: %s\n", device.info().name.c_str());
 

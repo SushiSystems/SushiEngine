@@ -129,37 +129,37 @@ namespace SushiEngine
             SushiEngine::Render::Material material;
             SushiEngine::Simulation::MaterialTexturePaths material_texture_paths;
             bool is_camera = false;
-            SushiEngine::Simulation::CameraParams camera_params;
+            SushiEngine::Simulation::CameraParameters camera_params;
             bool has_physics_body = false;
-            SushiEngine::Simulation::PhysicsBodyParams physics_body_params;
+            SushiEngine::Simulation::PhysicsBodyParameters physics_body_params;
             bool has_cloth = false;
-            SushiEngine::Simulation::ClothParams cloth_params;
+            SushiEngine::Simulation::ClothParameters cloth_params;
             bool has_light = false;
-            SushiEngine::Simulation::LightParams light_params;
+            SushiEngine::Simulation::LightParameters light_params;
             bool has_decal = false;
-            SushiEngine::Simulation::DecalParams decal_params;
+            SushiEngine::Simulation::DecalParameters decal_params;
             bool has_shape = false;
-            SushiEngine::Simulation::ShapeParams shape_params;
+            SushiEngine::Simulation::ShapeParameters shape_params;
             bool has_collider = false;
-            SushiEngine::Simulation::ColliderParams collider_params;
+            SushiEngine::Simulation::ColliderParameters collider_params;
             bool has_joint = false;
-            SushiEngine::Simulation::PhysicsJointParams joint_params;
+            SushiEngine::Simulation::PhysicsJointParameters joint_params;
             bool has_vehicle = false;
-            SushiEngine::Simulation::VehicleInstanceParams vehicle_params;
+            SushiEngine::Simulation::VehicleInstanceParameters vehicle_params;
             bool has_particle_emitter = false;
-            SushiEngine::Simulation::ParticleEmitterParams particle_emitter_params;
+            SushiEngine::Simulation::ParticleEmitterParameters particle_emitter_params;
             SushiEngine::VFX::ParticleEffect particle_effect;
             bool has_audio_emitter = false;
-            SushiEngine::Simulation::AudioEmitterParams audio_emitter_params;
+            SushiEngine::Simulation::AudioEmitterParameters audio_emitter_params;
             bool has_reverb_zone = false;
-            SushiEngine::Simulation::ReverbZoneParams reverb_zone_params;
+            SushiEngine::Simulation::ReverbZoneParameters reverb_zone_params;
             bool has_audio_listener = false;
-            SushiEngine::Simulation::AudioListenerParams audio_listener_params;
+            SushiEngine::Simulation::AudioListenerParameters audio_listener_params;
             bool surface_anchored = false;
             SushiEngine::Quaternion surface_local_orientation{};
             SushiEngine::Simulation::EntityFrame entity_frame;
             bool has_ui = false;
-            SushiEngine::Simulation::UIElementParams ui_params;
+            SushiEngine::Simulation::UIElementParameters ui_params;
             std::vector<SushiEngine::Simulation::ScriptComponent> scripts;
         };
 
@@ -245,7 +245,7 @@ namespace SushiEngine
             std::string cooking_override_target;
 
             // The Inspector's Soft Body section stages the source mesh path here between
-            // frames -- `SoftBodyParams::asset` holds cooked bytes by value, not a path, so
+            // frames -- `SoftBodyParameters::asset` holds cooked bytes by value, not a path, so
             // there is nowhere on the component itself for a text field to write into.
             std::string soft_body_source_path;
 

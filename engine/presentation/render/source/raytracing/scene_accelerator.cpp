@@ -66,7 +66,7 @@ namespace SushiEngine
                  * @param eye    Camera world position, metres.
                  * @param result Receives the 3x4 matrix.
                  */
-                void fill_transform(const Mat4& model, const double eye[3],
+                void fill_transform(const Matrix4& model, const double eye[3],
                                     VkTransformMatrixKHR& result) noexcept
                 {
                     for (int row = 0; row < 3; ++row)
@@ -359,7 +359,7 @@ namespace SushiEngine
                     // An imported mesh carries its own scale; a primitive's unit mesh has
                     // to be mapped onto its shape parameters first, exactly as the raster
                     // path does, or the traced silhouette and the drawn one disagree.
-                    const Mat4 model =
+                    const Matrix4 model =
                         imported ? instance.model
                                  : mul(instance.model,
                                        Geometry::shape_scale(instance.kind,

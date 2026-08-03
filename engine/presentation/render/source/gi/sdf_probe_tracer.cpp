@@ -279,10 +279,11 @@ namespace SushiEngine
                     make_mapped(sizeof(SDFPrimitive) * MAX_SDF_PRIMITIVES,
                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, primitive_buffers_[i],
                                 primitive_allocations_[i], primitive_mapped_[i]);
-                    make_mapped(sizeof(SDFClipmapConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                    make_mapped(sizeof(SDFClipmapConfiguration), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                 clip_config_buffers_[i], clip_config_allocations_[i],
                                 clip_config_mapped_[i]);
-                    make_mapped(sizeof(ProbeVolumeConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                    make_mapped(sizeof(ProbeVolumeConfiguration),
+                                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                 probe_config_buffers_[i], probe_config_allocations_[i],
                                 probe_config_mapped_[i]);
                     make_mapped(sizeof(SDFMeshInstance) * MAX_SDF_MESH_INSTANCES,
@@ -344,7 +345,7 @@ namespace SushiEngine
                 VisibilityField field;
                 field.distance_field = clipmap_view_;
                 field.config = clip_config_buffers_[frame_index % RING];
-                field.config_bytes = sizeof(SDFClipmapConfig);
+                field.config_bytes = sizeof(SDFClipmapConfiguration);
                 return field;
             }
 
@@ -422,11 +423,12 @@ namespace SushiEngine
                     inputs.frame->draws, inputs.frame->eye, primitives, MAX_SDF_PRIMITIVES);
                 const std::int32_t mesh_count = build_mesh_instances(inputs, ring);
 
-                SDFClipmapConfig clip_config{};
+                SDFClipmapConfiguration clip_config{};
                 configure_sdf_clipmap(inputs.frame->eye, primitive_count, clip_config);
                 clip_config.extra[0] = mesh_count;
                 std::memcpy(clip_config_mapped_[ring], &clip_config, sizeof(clip_config));
-                std::memcpy(probe_config_mapped_[ring], inputs.config, sizeof(ProbeVolumeConfig));
+                std::memcpy(probe_config_mapped_[ring], inputs.config,
+                            sizeof(ProbeVolumeConfiguration));
 
                 // Choose the relight window. A full relight is forced when nothing has been
                 // relit yet, when any cascade's lattice shifts a cell (every probe index in it
@@ -490,7 +492,8 @@ namespace SushiEngine
                 last_sun_[2] = sun[2];
                 last_sun_intensity_ = sun_intensity;
 
-                const VkSampler sampler = inputs.frame->samplers->get(Resources::SamplerDesc{});
+                const VkSampler sampler =
+                    inputs.frame->samplers->get(Resources::SamplerDescription{});
 
                 // Populate both clipmaps. Every voxel is rewritten, so the old contents are
                 // discarded (UNDEFINED old layout).
@@ -508,7 +511,8 @@ namespace SushiEngine
                     writer.storage_image(0, clipmap_view_);
                     writer.storage_buffer(1, primitive_buffers_[ring],
                                           sizeof(SDFPrimitive) * MAX_SDF_PRIMITIVES);
-                    writer.uniform_buffer(2, clip_config_buffers_[ring], sizeof(SDFClipmapConfig));
+                    writer.uniform_buffer(2, clip_config_buffers_[ring],
+                                          sizeof(SDFClipmapConfiguration));
                     writer.storage_buffer(3, mesh_buffers_[ring],
                                           sizeof(SDFMeshInstance) * MAX_SDF_MESH_INSTANCES);
                     writer.storage_buffer(4, brick_atlas_,
@@ -543,8 +547,10 @@ namespace SushiEngine
                     writer.storage_buffer(0, inputs.probe_sh, inputs.probe_sh_bytes);
                     writer.storage_buffer(1, inputs.environment_sh, inputs.environment_sh_bytes);
                     writer.sampled_image(2, clipmap_view_, sampler);
-                    writer.uniform_buffer(3, probe_config_buffers_[ring], sizeof(ProbeVolumeConfig));
-                    writer.uniform_buffer(4, clip_config_buffers_[ring], sizeof(SDFClipmapConfig));
+                    writer.uniform_buffer(3, probe_config_buffers_[ring],
+                                          sizeof(ProbeVolumeConfiguration));
+                    writer.uniform_buffer(4, clip_config_buffers_[ring],
+                                          sizeof(SDFClipmapConfiguration));
                     writer.sampled_image(5, emissive_view_, sampler);
                     writer.update(device_.device(), set);
 

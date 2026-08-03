@@ -29,21 +29,22 @@ namespace SushiEngine
     {
         namespace Scene
         {
-            void previous_view_projection(const Mat4& previous_view,
-                                          const Mat4& previous_projection,
+            void previous_view_projection(const Matrix4& previous_view,
+                                          const Matrix4& previous_projection,
                                           float result[16]) noexcept
             {
-                Mat4 view = previous_view;
+                Matrix4 view = previous_view;
                 view.m[12] = 0.0;
                 view.m[13] = 0.0;
                 view.m[14] = 0.0;
-                const Mat4 view_projection = mul(previous_projection, view);
+                const Matrix4 view_projection = mul(previous_projection, view);
                 for (int i = 0; i < 16; ++i)
                     result[i] = static_cast<float>(view_projection.m[i]);
             }
 
-            void fill_temporal_uniforms(const RenderSettings& settings, const Mat4& previous_view,
-                                        const Mat4& previous_proj, const float jitter[2],
+            void fill_temporal_uniforms(const RenderSettings& settings,
+                                        const Matrix4& previous_view,
+                                        const Matrix4& previous_proj, const float jitter[2],
                                         const float previous_jitter[2],
                                         std::uint32_t render_width, std::uint32_t render_height,
                                         std::uint32_t output_width, std::uint32_t output_height,

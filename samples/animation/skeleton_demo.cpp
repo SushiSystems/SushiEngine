@@ -54,7 +54,7 @@ namespace
 
     bool nearly(double a, double b, double eps = 1e-5) { return std::fabs(a - b) <= eps; }
 
-    bool matrices_equal(const Mat4& a, const Mat4& b, double eps = 1e-5)
+    bool matrices_equal(const Matrix4& a, const Matrix4& b, double eps = 1e-5)
     {
         for (int i = 0; i < 16; ++i)
             if (!nearly(a.m[i], b.m[i], eps))
@@ -62,7 +62,7 @@ namespace
         return true;
     }
 
-    Mat4 identity() { return Mat4{}; }
+    Matrix4 identity() { return Matrix4{}; }
 
     // --- Math seam ------------------------------------------------------------------
     void test_math()
@@ -72,7 +72,7 @@ namespace
         const Quaternion r =
             quaternion_axis_angle(normalize(Vector3{0.3, 1.0, -0.6}), Scalar(0.7));
         const Vector3 s{2.0, 0.5, 1.25};
-        const Mat4 composed = compose_transform(t, r, s);
+        const Matrix4 composed = compose_transform(t, r, s);
 
         Vector3 dt{}, ds{};
         Quaternion dr{};
@@ -88,8 +88,8 @@ namespace
         check(matrices_equal(mul(composed, affine_inverse(composed)), identity(), 1e-4),
               "affine inverse");
 
-        // quaternion_from_matrix inverts mat4_from_quaternion (up to sign).
-        const Quaternion back = quaternion_from_matrix(mat4_from_quaternion(r));
+        // quaternion_from_matrix inverts matrix4_from_quaternion (up to sign).
+        const Quaternion back = quaternion_from_matrix(matrix4_from_quaternion(r));
         const Vector3 probe{0.4, -0.7, 0.55};
         check(length(rotate(back, probe) - rotate(r, probe)) < 1e-5, "quaternion from matrix");
 
@@ -114,14 +114,14 @@ namespace
     {
         // A four-joint arm chain, authored leaf-first so the cook's topological sort has
         // real work to do: root is desc index 3, not 0.
-        SkeletonDesc desc;
-        JointDesc hand;     hand.name = "hand";     hand.parent = 1;
+        SkeletonDescription desc;
+        JointDescription hand;     hand.name = "hand";     hand.parent = 1;
         hand.bind_translation = Vector3f{0.0f, 0.4f, 0.0f};
-        JointDesc forearm;  forearm.name = "forearm";  forearm.parent = 2;
+        JointDescription forearm;  forearm.name = "forearm";  forearm.parent = 2;
         forearm.bind_translation = Vector3f{0.0f, 0.5f, 0.0f};
-        JointDesc upperarm; upperarm.name = "upperarm"; upperarm.parent = 3;
+        JointDescription upperarm; upperarm.name = "upperarm"; upperarm.parent = 3;
         upperarm.bind_translation = Vector3f{0.0f, 0.5f, 0.0f};
-        JointDesc root;     root.name = "root";     root.parent = -1;
+        JointDescription root;     root.name = "root";     root.parent = -1;
         root.bind_translation = Vector3f{0.0f, 1.0f, 0.0f};
         desc.joints = {hand, forearm, upperarm, root};
 
@@ -161,20 +161,20 @@ namespace
 
         // End-to-end proof: model-space compose of the bind pose, times inverse-bind, is
         // the identity for every joint — a forward scan, since parent[i] < i.
-        std::vector<Mat4> model(skeleton.joint_count);
+        std::vector<Matrix4> model(skeleton.joint_count);
         bool skin_is_identity = true;
         for (std::uint32_t i = 0; i < skeleton.joint_count; ++i)
         {
             const Vector3f& tt = skeleton.bind_translations[i];
             const Quaternionf& rr = skeleton.bind_rotations[i];
             const Vector3f& sc = skeleton.bind_scales[i];
-            const Mat4 local = compose_transform(Vector3{tt.x, tt.y, tt.z},
-                                                 Quaternion{rr.x, rr.y, rr.z, rr.w},
-                                                 Vector3{sc.x, sc.y, sc.z});
+            const Matrix4 local = compose_transform(Vector3{tt.x, tt.y, tt.z},
+                                                    Quaternion{rr.x, rr.y, rr.z, rr.w},
+                                                    Vector3{sc.x, sc.y, sc.z});
             model[i] = skeleton.parents[i] == NO_PARENT
                            ? local
                            : mul(model[skeleton.parents[i]], local);
-            const Mat4 skin = mul(model[i], to_mat4(skeleton.inverse_bind[i]));
+            const Matrix4 skin = mul(model[i], to_mat4(skeleton.inverse_bind[i]));
             if (!matrices_equal(skin, identity(), 1e-4))
                 skin_is_identity = false;
         }

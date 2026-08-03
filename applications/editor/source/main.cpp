@@ -173,7 +173,7 @@ int main(int argc, char** argv)
         std::uint32_t height = 0;
         window.drawable_size(width, height);
 
-        SushiEngine::Render::WindowRendererDesc desc;
+        SushiEngine::Render::WindowRendererDescription desc;
         desc.required_instance_extensions = window.vulkan_instance_extensions();
         desc.surface_factory = [&window](std::uint64_t instance)
         {

@@ -46,7 +46,7 @@ namespace SushiEngine
          */
         struct GraphState
         {
-            Animation::ControllerDesc controller;
+            Animation::ControllerDescription controller;
             int layer = 0;                        /**< The layer being edited. */
             std::vector<ImVec2> positions;        /**< One per state in the current layer. */
             std::vector<std::string> clip_paths;  /**< Per-state `.sushianim` motion path. */
@@ -74,7 +74,7 @@ namespace SushiEngine
         /**
          * @brief Draw the Animator window: a Mecanim-style state-machine graph editor.
          *
-         * Authors a controller (`animation/animator_controller.hpp`'s `ControllerDesc`) as a
+         * Authors a controller (`animation/animator_controller.hpp`'s `ControllerDescription`) as a
          * graph: states are draggable nodes, transitions are arrows, and a parameter panel edits
          * the typed parameters. Add/remove states and transitions, link a source to a destination,
          * pick the default (entry) state, and save/load the whole controller as JSON

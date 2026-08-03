@@ -31,7 +31,7 @@
  * IRenderDevice and the create_render_device() factory, never against Vulkan.
  * The only backend today is Vulkan (render/rhi/vulkan/), but the abstract surface
  * carries no Vulkan types, so a D3D12/Metal backend can be added without touching
- * a consumer. DeviceInfo exposes the device UUID from the start because that is
+ * a consumer. DeviceInformation exposes the device UUID from the start because that is
  * the key a later milestone matches against SushiRuntime's SYCL device to share
  * memory without a copy.
  */
@@ -78,7 +78,7 @@ namespace SushiEngine
          * on) so their allocations can be shared; left null, the backend picks by
          * @ref preference.
          */
-        struct RenderDeviceDesc
+        struct RenderDeviceDescription
         {
             bool enable_validation = false;
             DevicePreference preference = DevicePreference::HighPerformance;
@@ -122,7 +122,7 @@ namespace SushiEngine
          * @ref uuid is a stable 16-byte device identifier (Vulkan's deviceUUID),
          * comparable across APIs, and is what interop matches on.
          */
-        struct DeviceInfo
+        struct DeviceInformation
         {
             std::string name;
             std::array<std::uint8_t, 16> uuid{};
@@ -146,7 +146,7 @@ namespace SushiEngine
                  * @brief The selected physical device's identity.
                  * @return Name, UUID, and capability summary of the device in use.
                  */
-                virtual const DeviceInfo& info() const noexcept = 0;
+                virtual const DeviceInformation& info() const noexcept = 0;
 
                 /**
                  * @brief Raw backend handles for a native-API adapter.
@@ -169,6 +169,6 @@ namespace SushiEngine
          * @param desc Device-selection request (validation, preference, interop UUID).
          * @return An owning handle to the live device.
          */
-        std::unique_ptr<IRenderDevice> create_render_device(const RenderDeviceDesc& desc);
+        std::unique_ptr<IRenderDevice> create_render_device(const RenderDeviceDescription& desc);
     } // namespace Render
 } // namespace SushiEngine

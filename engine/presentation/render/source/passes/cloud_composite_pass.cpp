@@ -99,12 +99,13 @@ namespace SushiEngine
                     },
                     [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
-                        const VkSampler sampler = frame.samplers->get(Resources::SamplerDesc{});
+                        const VkSampler sampler =
+                            frame.samplers->get(Resources::SamplerDescription{});
                         // Point, not linear: the shader reconstructs the tier-scaled
                         // cloud target itself from four explicit texel taps weighted by
                         // depth agreement (nearest-depth upsample), and needs its own and
                         // the full-resolution scene depth read back exactly, unblended.
-                        Resources::SamplerDesc point{};
+                        Resources::SamplerDescription point{};
                         point.filter = VK_FILTER_NEAREST;
                         point.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
                         const VkSampler point_sampler = frame.samplers->get(point);

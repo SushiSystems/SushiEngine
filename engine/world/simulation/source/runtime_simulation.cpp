@@ -797,14 +797,14 @@ namespace SushiEngine
                         return record != nullptr && record->has_physics_body;
                     }
 
-                    PhysicsBodyParams physics_body_params(EntityId id) const override
+                    PhysicsBodyParameters physics_body_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->physics_params : PhysicsBodyParams{};
+                        return record != nullptr ? record->physics_params : PhysicsBodyParameters{};
                     }
 
                     void set_physics_body_params(EntityId id,
-                                                 const PhysicsBodyParams& params) override
+                                                 const PhysicsBodyParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr)
@@ -832,13 +832,13 @@ namespace SushiEngine
                         return record != nullptr && record->has_cloth;
                     }
 
-                    ClothParams cloth_params(EntityId id) const override
+                    ClothParameters cloth_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->cloth_params : ClothParams{};
+                        return record != nullptr ? record->cloth_params : ClothParameters{};
                     }
 
-                    void set_cloth_params(EntityId id, const ClothParams& params) override
+                    void set_cloth_params(EntityId id, const ClothParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr)
@@ -874,13 +874,14 @@ namespace SushiEngine
                         return record != nullptr && record->has_soft_body;
                     }
 
-                    SoftBodyParams soft_body_params(EntityId id) const override
+                    SoftBodyParameters soft_body_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->soft_body_params : SoftBodyParams{};
+                        return record != nullptr ? record->soft_body_params : SoftBodyParameters{};
                     }
 
-                    void set_soft_body_params(EntityId id, const SoftBodyParams& params) override
+                    void set_soft_body_params(EntityId id,
+                                              const SoftBodyParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr)
@@ -942,13 +943,13 @@ namespace SushiEngine
                         return record != nullptr && record->has_crowd;
                     }
 
-                    CrowdParams crowd_params(EntityId id) const override
+                    CrowdParameters crowd_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->crowd_params : CrowdParams{};
+                        return record != nullptr ? record->crowd_params : CrowdParameters{};
                     }
 
-                    void set_crowd_params(EntityId id, const CrowdParams& params) override
+                    void set_crowd_params(EntityId id, const CrowdParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr)
@@ -1022,13 +1023,13 @@ namespace SushiEngine
                         return record != nullptr && record->has_light;
                     }
 
-                    LightParams light_params(EntityId id) const override
+                    LightParameters light_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->light_params : LightParams{};
+                        return record != nullptr ? record->light_params : LightParameters{};
                     }
 
-                    void set_light_params(EntityId id, const LightParams& params) override
+                    void set_light_params(EntityId id, const LightParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_light)
@@ -1055,13 +1056,13 @@ namespace SushiEngine
                         return record != nullptr && record->has_audio_emitter;
                     }
 
-                    AudioEmitterParams audio_emitter_params(EntityId id) const override
+                    AudioEmitterParameters audio_emitter_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->audio_emitter_params : AudioEmitterParams{};
+                        return record != nullptr ? record->audio_emitter_params : AudioEmitterParameters{};
                     }
 
-                    void set_audio_emitter_params(EntityId id, const AudioEmitterParams& params) override
+                    void set_audio_emitter_params(EntityId id, const AudioEmitterParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_audio_emitter)
@@ -1083,13 +1084,14 @@ namespace SushiEngine
                         return record != nullptr && record->has_reverb_zone;
                     }
 
-                    ReverbZoneParams reverb_zone_params(EntityId id) const override
+                    ReverbZoneParameters reverb_zone_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->reverb_zone_params : ReverbZoneParams{};
+                        return record != nullptr ? record->reverb_zone_params
+                                                 : ReverbZoneParameters{};
                     }
 
-                    void set_reverb_zone_params(EntityId id, const ReverbZoneParams& params) override
+                    void set_reverb_zone_params(EntityId id, const ReverbZoneParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_reverb_zone)
@@ -1111,13 +1113,13 @@ namespace SushiEngine
                         return record != nullptr && record->has_audio_listener;
                     }
 
-                    AudioListenerParams audio_listener_params(EntityId id) const override
+                    AudioListenerParameters audio_listener_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->audio_listener_params : AudioListenerParams{};
+                        return record != nullptr ? record->audio_listener_params : AudioListenerParameters{};
                     }
 
-                    void set_audio_listener_params(EntityId id, const AudioListenerParams& params) override
+                    void set_audio_listener_params(EntityId id, const AudioListenerParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_audio_listener)
@@ -1154,13 +1156,13 @@ namespace SushiEngine
                         return record != nullptr && record->has_decal;
                     }
 
-                    DecalParams decal_params(EntityId id) const override
+                    DecalParameters decal_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->decal_params : DecalParams{};
+                        return record != nullptr ? record->decal_params : DecalParameters{};
                     }
 
-                    void set_decal_params(EntityId id, const DecalParams& params) override
+                    void set_decal_params(EntityId id, const DecalParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_decal)
@@ -1214,7 +1216,7 @@ namespace SushiEngine
                         // its Collider is Plane, and it never gets a physics body, so
                         // nothing ever integrates its pose (see create_terrain's Doxygen).
                         const Vector3 half_extents{Scalar(50), Scalar(0.1), Scalar(50)};
-                        const ColliderParams terrain_collider{PrimitiveKind::Plane, Vector3{0, 1, 0}};
+                        const ColliderParameters terrain_collider{PrimitiveKind::Plane, Vector3{0, 1, 0}};
                         const EntityId id = create_primitive(display_name, PrimitiveKind::Box,
                                                              half_extents, &terrain_collider);
                         Record* record = find(id);
@@ -1298,13 +1300,13 @@ namespace SushiEngine
                         return record != nullptr && record->has_shape;
                     }
 
-                    ShapeParams shape_params(EntityId id) const override
+                    ShapeParameters shape_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->shape_params : ShapeParams{};
+                        return record != nullptr ? record->shape_params : ShapeParameters{};
                     }
 
-                    void set_shape_params(EntityId id, const ShapeParams& params) override
+                    void set_shape_params(EntityId id, const ShapeParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_shape)
@@ -1328,13 +1330,13 @@ namespace SushiEngine
                         return record != nullptr && record->has_collider;
                     }
 
-                    ColliderParams collider_params(EntityId id) const override
+                    ColliderParameters collider_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->collider_params : ColliderParams{};
+                        return record != nullptr ? record->collider_params : ColliderParameters{};
                     }
 
-                    void set_collider_params(EntityId id, const ColliderParams& params) override
+                    void set_collider_params(EntityId id, const ColliderParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_collider)
@@ -1354,9 +1356,9 @@ namespace SushiEngine
                         // back to a unit Box volume.
                         if (value)
                             record->collider_params = record->has_shape
-                                                          ? ColliderParams{record->shape_params.kind,
+                                                          ? ColliderParameters{record->shape_params.kind,
                                                                           record->shape_params.params}
-                                                          : ColliderParams{};
+                                                          : ColliderParameters{};
                     }
 
                     bool has_joint(EntityId id) const noexcept override
@@ -1365,13 +1367,14 @@ namespace SushiEngine
                         return record != nullptr && record->has_joint;
                     }
 
-                    PhysicsJointParams joint_params(EntityId id) const override
+                    PhysicsJointParameters joint_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->joint_params : PhysicsJointParams{};
+                        return record != nullptr ? record->joint_params : PhysicsJointParameters{};
                     }
 
-                    void set_joint_params(EntityId id, const PhysicsJointParams& params) override
+                    void set_joint_params(EntityId id,
+                                          const PhysicsJointParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_joint)
@@ -1392,7 +1395,7 @@ namespace SushiEngine
                             return;
                         record->has_joint = value;
                         if (value)
-                            record->joint_params = PhysicsJointParams{};
+                            record->joint_params = PhysicsJointParameters{};
                         touch_joint(*record);
                     }
 
@@ -1417,15 +1420,15 @@ namespace SushiEngine
                         return record != nullptr && record->has_vehicle;
                     }
 
-                    VehicleInstanceParams vehicle_params(EntityId id) const override
+                    VehicleInstanceParameters vehicle_params(EntityId id) const override
                     {
                         const Record* record = find(id);
                         return record != nullptr ? record->vehicle_params
-                                                 : VehicleInstanceParams{};
+                                                 : VehicleInstanceParameters{};
                     }
 
                     void set_vehicle_params(EntityId id,
-                                            const VehicleInstanceParams& params) override
+                                            const VehicleInstanceParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_vehicle)
@@ -1441,7 +1444,7 @@ namespace SushiEngine
                             return;
                         record->has_vehicle = value;
                         if (value)
-                            record->vehicle_params = VehicleInstanceParams{};
+                            record->vehicle_params = VehicleInstanceParameters{};
                         vehicles_dirty_ = true;
                     }
 
@@ -1551,7 +1554,7 @@ namespace SushiEngine
                         if (record != nullptr)
                         {
                             record->has_ui = true;
-                            record->ui_params = UIElementParams{};
+                            record->ui_params = UIElementParameters{};
                             record->ui_params.kind = UIElementKind::Canvas;
                             record->ui_params.size_x = static_cast<Scalar>(ui_target_size_.x);
                             record->ui_params.size_y = static_cast<Scalar>(ui_target_size_.y);
@@ -1591,13 +1594,13 @@ namespace SushiEngine
                                record->ui_params.kind == UIElementKind::Canvas;
                     }
 
-                    UIElementParams ui_params(EntityId id) const override
+                    UIElementParameters ui_params(EntityId id) const override
                     {
                         const Record* record = find(id);
-                        return record != nullptr ? record->ui_params : UIElementParams{};
+                        return record != nullptr ? record->ui_params : UIElementParameters{};
                     }
 
-                    void set_ui_params(EntityId id, const UIElementParams& params) override
+                    void set_ui_params(EntityId id, const UIElementParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_ui)
@@ -1716,14 +1719,14 @@ namespace SushiEngine
                         return record != nullptr && record->is_camera;
                     }
 
-                    CameraParams camera_params(EntityId id) const override
+                    CameraParameters camera_params(EntityId id) const override
                     {
                         const Record* record = find(id);
                         if (record == nullptr || !record->is_camera ||
                             !world_.alive(record->entity))
-                            return CameraParams{};
+                            return CameraParameters{};
                         const Camera& c = world_.get<Camera>(record->entity);
-                        CameraParams params;
+                        CameraParameters params;
                         params.vertical_fov_radians = c.vertical_fov_radians;
                         params.near_plane = c.near_plane;
                         params.far_plane = c.far_plane;
@@ -1733,7 +1736,7 @@ namespace SushiEngine
                         return params;
                     }
 
-                    void set_camera_params(EntityId id, const CameraParams& params) override
+                    void set_camera_params(EntityId id, const CameraParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->is_camera ||
@@ -1772,16 +1775,16 @@ namespace SushiEngine
                         return record != nullptr && record->has_particle_emitter;
                     }
 
-                    ParticleEmitterParams particle_emitter_params(EntityId id) const override
+                    ParticleEmitterParameters particle_emitter_params(EntityId id) const override
                     {
                         const Record* record = find(id);
                         return (record != nullptr && record->has_particle_emitter)
                                    ? record->emitter_params
-                                   : ParticleEmitterParams{};
+                                   : ParticleEmitterParameters{};
                     }
 
-                    void set_particle_emitter_params(EntityId id,
-                                                     const ParticleEmitterParams& params) override
+                    void set_particle_emitter_params(
+                        EntityId id, const ParticleEmitterParameters& params) override
                     {
                         Record* record = find(id);
                         if (record == nullptr || !record->has_particle_emitter)
@@ -1931,51 +1934,51 @@ namespace SushiEngine
                         // Unlike has_renderer/is_camera this needs no ECS migration, so it is
                         // plain host bookkeeping rather than a component toggle.
                         bool has_physics_body = false;
-                        PhysicsBodyParams physics_params{};
+                        PhysicsBodyParameters physics_params{};
                         // Whether a cloth grid is tracked by the physics simulation (see
                         // set_has_cloth). Same plain-host-bookkeeping treatment as
                         // has_physics_body: cloth needs no ECS component migration.
                         bool has_cloth = false;
-                        ClothParams cloth_params{};
+                        ClothParameters cloth_params{};
                         // A tetrahedral soft body (§9). Same plain-host-bookkeeping shape as
                         // cloth, but it carries its own cooked asset by value: a soft body
                         // cannot be rebuilt from numbers the way a grid can, so the blob is
                         // part of the record rather than a reference into something that
                         // might be reloaded out from under it.
                         bool has_soft_body = false;
-                        SoftBodyParams soft_body_params{};
+                        SoftBodyParameters soft_body_params{};
                         // A crowd-batched skinned character (design §12.3/§12.4): same plain
                         // host bookkeeping as cloth (no ECS migration) — playback time is
                         // advanced on the fixed tick and sampled through crowd_evaluator_ at
                         // extract, keyed by EntityId, not a per-instance component.
                         bool has_crowd = false;
-                        CrowdParams crowd_params{};
+                        CrowdParameters crowd_params{};
                         // A punctual light on this entity: same plain host bookkeeping as
                         // cloth/shape, extracted into RenderScene::lights each frame with
                         // the entity's transform supplying the light's position and aim.
                         bool has_light = false;
-                        LightParams light_params{};
+                        LightParameters light_params{};
                         // Audio authoring, same plain host bookkeeping as light/cloth (no ECS
                         // migration): an emitter plays a sound at the entity's transform, a
                         // reverb zone imposes its I3DL2 reverb on a listener inside its box, and
                         // the listener marks the ears. Read live by the editor's audio system
                         // through the IWorldEditor accessors each wall-clock frame.
                         bool has_audio_emitter = false;
-                        AudioEmitterParams audio_emitter_params{};
+                        AudioEmitterParameters audio_emitter_params{};
                         bool has_reverb_zone = false;
-                        ReverbZoneParams reverb_zone_params{};
+                        ReverbZoneParameters reverb_zone_params{};
                         bool has_audio_listener = false;
-                        AudioListenerParams audio_listener_params{};
+                        AudioListenerParameters audio_listener_params{};
                         // A projected decal on this entity, same host bookkeeping as the
                         // light, extracted into RenderScene::decals each frame.
                         bool has_decal = false;
-                        DecalParams decal_params{};
+                        DecalParameters decal_params{};
                         // A deterministic particle emitter: same plain host bookkeeping as
                         // cloth (no ECS migration). The ~80 KB fixed pool lives here, off the
                         // ECS chunk, and is advanced on the fixed tick and extracted to
                         // RenderScene::particle_billboards each frame.
                         bool has_particle_emitter = false;
-                        ParticleEmitterParams emitter_params{};
+                        ParticleEmitterParameters emitter_params{};
                         VFX::DeterministicEmitterState particle_pool{};
                         /**
                          * @brief Runtime emitter state, kept off @ref emitter_params.
@@ -2000,15 +2003,15 @@ namespace SushiEngine
                         // has_physics_body/has_cloth — these are plain host bookkeeping
                         // rather than ECS components; no archetype migration needed.
                         bool has_shape = false;
-                        ShapeParams shape_params{};
+                        ShapeParameters shape_params{};
                         bool has_collider = false;
-                        ColliderParams collider_params{};
+                        ColliderParameters collider_params{};
                         // §5.5's PhysicsJoint: what this entity is attached to. Same plain
                         // host bookkeeping as the collider above — no Schedule system reads
                         // a joint, because the joint that matters is the solver's and this
                         // is only the authoring it is reconciled from (see sync_joints).
                         bool has_joint = false;
-                        PhysicsJointParams joint_params{};
+                        PhysicsJointParameters joint_params{};
                         /**
                          * @brief The live joint this authoring currently owns, if any.
                          *
@@ -2022,7 +2025,7 @@ namespace SushiEngine
                          * @brief Which revision of the authoring @ref live_joint was built from.
                          *
                          * A counter rather than a comparison of the parameters themselves.
-                         * `PhysicsJointParams` is trivially copyable but not free of padding,
+                         * `PhysicsJointParameters` is trivially copyable but not free of padding,
                          * so a byte comparison could report a difference that is not one, and
                          * a field-by-field comparison is a second place every new joint
                          * parameter has to be remembered. A counter cannot be forgotten
@@ -2036,7 +2039,7 @@ namespace SushiEngine
                         // what the driver is asking of it. Same plain host bookkeeping as
                         // the joint above.
                         bool has_vehicle = false;
-                        VehicleInstanceParams vehicle_params{};
+                        VehicleInstanceParameters vehicle_params{};
                         VehicleInput vehicle_input{};
                         /**
                          * @brief The `.sushinodebeam` bytes, read once and held.
@@ -2069,7 +2072,7 @@ namespace SushiEngine
                         // migration — since the UI overlay is drawn host-side, not by
                         // any Schedule system.
                         bool has_ui = false;
-                        UIElementParams ui_params{};
+                        UIElementParameters ui_params{};
                         // The real ECS entity mirroring `ui_params` into `UI::` components
                         // (RectTransform/Canvas/UIImage/UIText/UIButton per `ui_mirror_kind`),
                         // so `SushiEngine::UI::resolve_rect` is the one and only layout
@@ -2100,7 +2103,7 @@ namespace SushiEngine
                      */
                     EntityId create_primitive(const std::string& display_name, PrimitiveKind kind,
                                               const Vector3& default_params,
-                                              const ColliderParams* collider_override = nullptr)
+                                              const ColliderParameters* collider_override = nullptr)
                     {
                         const Entity entity = world_.spawn(
                             Transform{}, Orientation{},
@@ -2110,11 +2113,11 @@ namespace SushiEngine
                         Record record{entity, display_name, true, false};
                         record.has_renderer = true;
                         record.has_shape = true;
-                        record.shape_params = ShapeParams{kind, default_params};
+                        record.shape_params = ShapeParameters{kind, default_params};
                         record.has_collider = true;
                         record.collider_params = collider_override != nullptr
                                                      ? *collider_override
-                                                     : ColliderParams{kind, default_params};
+                                                     : ColliderParameters{kind, default_params};
                         records_.emplace(id, record);
                         extract();
                         return id;
@@ -2174,9 +2177,9 @@ namespace SushiEngine
                      * first rule: a vehicle's four hundred bodies are added in this order, so
                      * a hash-order walk would be a body numbering that varied between runs.
                      */
-                    std::vector<VehicleDesc> gather_vehicle_descs()
+                    std::vector<VehicleDescription> gather_vehicle_descs()
                     {
-                        std::vector<VehicleDesc> descs;
+                        std::vector<VehicleDescription> descs;
                         for (const EntityId id : order_)
                         {
                             Record* record = find(id);
@@ -2186,7 +2189,7 @@ namespace SushiEngine
                             if (!refresh_vehicle_asset(*record))
                                 continue;
 
-                            VehicleDesc desc;
+                            VehicleDescription desc;
                             desc.id = id;
                             desc.asset = record->vehicle_asset.data();
                             desc.asset_size = record->vehicle_asset.size();
@@ -2304,7 +2307,7 @@ namespace SushiEngine
                             if (!wanted || record->live_joint != NULL_JOINT)
                                 continue;
 
-                            JointDesc desc;
+                            JointDescription desc;
                             desc.body_a = id;
                             desc.body_b = record->joint_params.connected_body;
                             desc.params = record->joint_params.joint;
@@ -2355,9 +2358,9 @@ namespace SushiEngine
                     }
 
                     /** @brief The default rect/paint for a freshly created UI element of @p kind. */
-                    static UIElementParams default_ui_params(UIElementKind kind)
+                    static UIElementParameters default_ui_params(UIElementKind kind)
                     {
-                        UIElementParams params;
+                        UIElementParameters params;
                         params.kind = kind;
                         switch (kind)
                         {
@@ -2393,8 +2396,8 @@ namespace SushiEngine
                         return params;
                     }
 
-                    /** @brief Converts an authored `UIElementParams` rect into a `UI::RectTransform`. */
-                    static UI::RectTransform to_rect_transform(const UIElementParams& params) noexcept
+                    /** @brief Converts an authored `UIElementParameters` rect into a `UI::RectTransform`. */
+                    static UI::RectTransform to_rect_transform(const UIElementParameters& params) noexcept
                     {
                         UI::RectTransform transform;
                         transform.anchor_min = UI::Vector2{params.anchor_min_x, params.anchor_min_y};
@@ -2419,11 +2422,12 @@ namespace SushiEngine
                      * whenever the required `UI::` component combination changes (i.e. when its
                      * `UIElementKind` changes, or the UI is first attached); otherwise the
                      * existing mirror's components are updated in place. This is the single
-                     * point where host-side `UIElementParams` bookkeeping is reconciled with the
-                     * real `SushiEngine::UI::` components that `SushiEngine::UI::resolve_rect`
-                     * actually lays out — the editor and any runtime UI overlay both read the
-                     * mirror's `UI::ComputedRect`/`UI::RectTransform`, so there is exactly one
-                     * UI layout mechanism in the engine.
+                     * point where host-side `UIElementParameters` bookkeeping is reconciled with
+                     * the real `SushiEngine::UI::` components that
+                     * `SushiEngine::UI::resolve_rect` actually lays out — the editor and any
+                     * runtime UI overlay both read the mirror's
+                     * `UI::ComputedRect`/`UI::RectTransform`, so there is exactly one UI layout
+                     * mechanism in the engine.
                      *
                      * @param record The UI record to mirror; a no-op if it carries no UI.
                      */
@@ -2544,7 +2548,7 @@ namespace SushiEngine
 
 
                     /** @brief The object-to-world matrix for @p id, built from @ref world_transform. */
-                    Mat4 world_matrix(EntityId id) const
+                    Matrix4 world_matrix(EntityId id) const
                     {
                         const EntityTransform world = world_transform(id);
                         return compose_transform(world.position, world.rotation, world.scale);
@@ -3160,7 +3164,7 @@ namespace SushiEngine
                      *
                      * @return One descriptor per live physics-driven entity, in display order.
                      */
-                    std::vector<RigidBodyDesc> gather_rigid_descs() const
+                    std::vector<RigidBodyDescription> gather_rigid_descs() const
                     {
                         return extract_rigid_bodies(physics_source_entities());
                     }
@@ -3222,7 +3226,7 @@ namespace SushiEngine
                      *
                      * @return One plane per static Plane collider in the scene.
                      */
-                    std::vector<PlaneDesc> gather_static_planes() const
+                    std::vector<PlaneDescription> gather_static_planes() const
                     {
                         return extract_static_planes(physics_source_entities());
                     }
@@ -3248,17 +3252,17 @@ namespace SushiEngine
                      *
                      * @return One descriptor per live soft-body entity with a non-empty asset.
                      */
-                    std::vector<SoftBodyDesc> gather_soft_body_descs() const
+                    std::vector<SoftBodyDescription> gather_soft_body_descs() const
                     {
-                        std::vector<SoftBodyDesc> descs;
+                        std::vector<SoftBodyDescription> descs;
                         for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
                             if (record == nullptr || !record->has_soft_body ||
                                 record->soft_body_params.asset.empty())
                                 continue;
-                            const SoftBodyParams& params = record->soft_body_params;
-                            SoftBodyDesc desc;
+                            const SoftBodyParameters& params = record->soft_body_params;
+                            SoftBodyDescription desc;
                             desc.id = id;
                             desc.asset = params.asset.data();
                             desc.asset_size = params.asset.size();
@@ -3274,9 +3278,9 @@ namespace SushiEngine
                         return descs;
                     }
 
-                    std::vector<ClothDesc> gather_cloth_descs() const
+                    std::vector<ClothDescription> gather_cloth_descs() const
                     {
-                        std::vector<ClothDesc> descs;
+                        std::vector<ClothDescription> descs;
                         for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
@@ -3284,7 +3288,7 @@ namespace SushiEngine
                                 !world_.alive(record->entity) ||
                                 record->cloth_params.rows == 0 || record->cloth_params.cols == 0)
                                 continue;
-                            ClothDesc desc;
+                            ClothDescription desc;
                             desc.id = id;
                             desc.rows = record->cloth_params.rows;
                             desc.cols = record->cloth_params.cols;
@@ -3315,7 +3319,7 @@ namespace SushiEngine
                                                        const Orientation& orientation,
                                                        const Camera& camera) noexcept
                     {
-                        const Mat4 rotation = mat4_from_quaternion(orientation.rotation);
+                        const Matrix4 rotation = matrix4_from_quaternion(orientation.rotation);
                         // Column-major basis: right = col0, up = col1, +Z = col2. A camera
                         // looks down its local -Z, so forward is the negated third column.
                         const Vector3 forward{-rotation.m[8], -rotation.m[9], -rotation.m[10]};
@@ -3742,7 +3746,7 @@ namespace SushiEngine
                             if (compiled == nullptr)
                                 continue;
 
-                            const Mat4 model = world_matrix(id);
+                            const Matrix4 model = world_matrix(id);
                             const float* curve_luts =
                                 compiled->curve_luts.empty() ? nullptr : compiled->curve_luts.data();
                             const float* gradient_luts = compiled->gradient_luts.empty()
@@ -3794,9 +3798,9 @@ namespace SushiEngine
                         // object, so it is appended straight into the render scene's own
                         // particle-emitter list instead, the same seam the entity loop above
                         // already writes through -- using the GPU cosmetic path per
-                        // QualityParams::gpu_particles's own doc ("the deterministic CPU particle
-                        // path is unaffected; it is gameplay, not a quality knob"), since ambient
-                        // weather rain is squarely cosmetic.
+                        // QualityParameters::gpu_particles's own doc ("the deterministic CPU
+                        // particle path is unaffected; it is gameplay, not a quality knob"),
+                        // since ambient weather rain is squarely cosmetic.
                         //
                         // Rain only: WeatherColumn carries no temperature signal (see
                         // weather_types.hpp), so there is no honest basis to pick snow over rain --
@@ -4004,7 +4008,7 @@ namespace SushiEngine
                             const Record* record = find(id);
                             if (record == nullptr || !record->has_light || !record->visible)
                                 continue;
-                            const Mat4 model = world_matrix(id);
+                            const Matrix4 model = world_matrix(id);
                             constexpr float degrees_to_radians = 0.017453292519943295f;
                             Render::PunctualLight light;
                             light.position = WorldVector3{model.m[12], model.m[13], model.m[14]};
@@ -4036,7 +4040,7 @@ namespace SushiEngine
                             const Record* record = find(id);
                             if (record == nullptr || !record->has_decal || !record->visible)
                                 continue;
-                            const Mat4 model = world_matrix(id);
+                            const Matrix4 model = world_matrix(id);
                             Render::Decal decal;
                             decal.position = WorldVector3{model.m[12], model.m[13], model.m[14]};
                             decal.right = normalize(Vector3{model.m[0], model.m[1], model.m[2]});
@@ -4197,7 +4201,7 @@ namespace SushiEngine
                             crowd_device_clips_.clear();
                         }
 
-                        std::vector<Animation::DeviceInstanceDesc> instances;
+                        std::vector<Animation::DeviceInstanceDescription> instances;
                         instances.reserve(batch_entities.size());
                         std::vector<EntityId> included_entities;
                         included_entities.reserve(batch_entities.size());
@@ -4219,7 +4223,7 @@ namespace SushiEngine
                                 bound = crowd_device_clips_.emplace(clip_handle, device_handle).first;
                             }
 
-                            Animation::DeviceInstanceDesc desc;
+                            Animation::DeviceInstanceDescription desc;
                             desc.clip_handle = bound->second;
                             desc.time_seconds = record->crowd_params.time_seconds;
                             desc.loop = record->crowd_params.loop ? 1u : 0u;
@@ -4390,7 +4394,7 @@ namespace SushiEngine
                     // Crowd device-batch skinning (design §12.3/§12.4): register_crowd_skeleton/
                     // register_crowd_clip cook glTF content into crowd_database_ once, at load
                     // time; crowd_skeletons_/crowd_clips_ are that database's asset ids, indexed
-                    // by the 1-based handle CrowdParams::skeleton/clip name (handle 0 is always
+                    // by the 1-based handle CrowdParameters::skeleton/clip name (handle 0 is always
                     // invalid, matching every other "0 = none" id in this codebase). The path
                     // caches make re-registering the same file a no-op lookup, not a re-import.
                     Animation::AnimationDatabase crowd_database_;

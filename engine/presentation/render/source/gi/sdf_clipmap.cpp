@@ -35,7 +35,7 @@ namespace SushiEngine
         {
             namespace
             {
-                float column_length(const Mat4& m, int column) noexcept
+                float column_length(const Matrix4& m, int column) noexcept
                 {
                     const float x = m.m[column * 4 + 0];
                     const float y = m.m[column * 4 + 1];
@@ -45,7 +45,7 @@ namespace SushiEngine
 
                 // Inverts the upper-left 3x3 of a column-major 4x4 into a row-major r[3][3].
                 // Falls back to the identity on a singular matrix.
-                void invert_upper3x3(const Mat4& m, float r[3][3]) noexcept
+                void invert_upper3x3(const Matrix4& m, float r[3][3]) noexcept
                 {
                     const float a00 = m.m[0], a01 = m.m[4], a02 = m.m[8];
                     const float a10 = m.m[1], a11 = m.m[5], a12 = m.m[9];
@@ -75,7 +75,7 @@ namespace SushiEngine
             } // namespace
 
             void configure_sdf_clipmap(const double eye[3], std::int32_t primitive_count,
-                                       SDFClipmapConfig& out) noexcept
+                                       SDFClipmapConfiguration& out) noexcept
             {
                 const double voxel =
                     static_cast<double>(SDF_CLIPMAP_EXTENT_METRES) / SDF_CLIPMAP_RESOLUTION;
@@ -113,7 +113,7 @@ namespace SushiEngine
                     if (instance.mesh != INVALID_MESH)
                         continue; // imported meshes fold in as baked bricks later
 
-                    const Mat4& model = instance.model;
+                    const Matrix4& model = instance.model;
                     const float scale_x = column_length(model, 0);
                     const float scale_y = column_length(model, 1);
                     const float scale_z = column_length(model, 2);
@@ -170,7 +170,7 @@ namespace SushiEngine
                 return count;
             }
 
-            void fill_sdf_mesh_instance(const Mat4& model, const double eye[3],
+            void fill_sdf_mesh_instance(const Matrix4& model, const double eye[3],
                                         const float aabb_min[3], const float aabb_max[3],
                                         std::int32_t slot, const float albedo[3],
                                         const float emissive[3], SDFMeshInstance& out) noexcept

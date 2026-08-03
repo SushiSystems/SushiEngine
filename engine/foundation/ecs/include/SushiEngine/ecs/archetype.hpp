@@ -54,7 +54,7 @@ namespace SushiEngine
              * @param chunk_capacity Entities per chunk.
              */
             Archetype(Execution::Context& context, Signature signature,
-                      std::vector<ComponentInfo> comps, std::size_t chunk_capacity)
+                      std::vector<ComponentInformation> comps, std::size_t chunk_capacity)
                 : context_(context),
                   signature_(std::move(signature)),
                   comps_(std::move(comps)),
@@ -104,7 +104,7 @@ namespace SushiEngine
         private:
             Execution::Context& context_;
             Signature signature_;
-            std::vector<ComponentInfo> comps_;
+            std::vector<ComponentInformation> comps_;
             std::size_t chunk_capacity_;
             std::vector<std::unique_ptr<Chunk>> chunks_;
     };

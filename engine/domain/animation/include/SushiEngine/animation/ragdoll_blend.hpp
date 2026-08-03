@@ -63,7 +63,7 @@ namespace SushiEngine
         struct RagdollJointTarget
         {
             std::uint32_t joint = 0;    /**< Index into the skeleton's cooked joint order. */
-            Mat4 object_space_transform{}; /**< The physics body's pose, in the character's object space (caller-resolved). */
+            Matrix4 object_space_transform{}; /**< The physics body's pose, in the character's object space (caller-resolved). */
             float weight = 0.0f;        /**< 0 = pure animation, 1 = pure physics, blends the local pose between. */
         };
 
@@ -96,9 +96,9 @@ namespace SushiEngine
                             continue;
 
                         const std::uint16_t parent_index = context.skeleton.parents[target.joint];
-                        const Mat4 parent_model =
-                            parent_index == NO_PARENT ? Mat4{} : context.model[parent_index];
-                        const Mat4 desired_local =
+                        const Matrix4 parent_model =
+                            parent_index == NO_PARENT ? Matrix4{} : context.model[parent_index];
+                        const Matrix4 desired_local =
                             mul(affine_inverse(parent_model), target.object_space_transform);
 
                         Vector3 desired_t;

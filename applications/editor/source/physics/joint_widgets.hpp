@@ -29,14 +29,14 @@
  *
  * A joint is authored in two places — on an entity, in the Inspector's Physics Joint
  * section, and against part indices, in the Assembly editor's joint list — and §10.1's
- * whole argument for a single `JointParams` is that those are the *same* joint. A second
+ * whole argument for a single `JointParameters` is that those are the *same* joint. A second
  * copy of the widget list is how a new limit ends up editable in one of them and
  * invisible in the other, which is precisely the failure the shared value type exists to
  * prevent; the widgets have to be shared for the same reason the type is.
  *
  * What is *not* here is the endpoint picker. An entity joint names a partner entity and
  * an assembly joint names two part indices, and those are genuinely different questions
- * with different answers — which is the split `JointParams` already makes, honoured here
+ * with different answers — which is the split `JointParameters` already makes, honoured here
  * rather than papered over with a callback.
  */
 
@@ -68,8 +68,8 @@ namespace SushiEngine
          * @return Whether anything changed this frame.
          */
         bool draw_joint_limit(EditorContext& context, Simulation::IWorldEditor& world,
-                              const char* label, Simulation::JointLimitDesc& limit, bool degrees,
-                              const char* tooltip, bool upper_only);
+                              const char* label, Simulation::JointLimitDescription& limit,
+                              bool degrees, const char* tooltip, bool upper_only);
 
         /**
          * @brief Draws everything a joint holds, except which two bodies it holds.
@@ -85,6 +85,6 @@ namespace SushiEngine
          * @return Whether anything changed this frame.
          */
         bool draw_joint_params(EditorContext& context, Simulation::IWorldEditor& world,
-                               Simulation::JointParams& params);
+                               Simulation::JointParameters& params);
     } // namespace Editor
 } // namespace SushiEngine

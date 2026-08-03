@@ -33,39 +33,43 @@ namespace SushiEngine
         {
             namespace
             {
-                struct Vec3
+                // Local to this file, and deliberately not the engine's Vector3: meshlet
+                // bounds and cones are packed as floats for the GPU, while
+                // SushiEngine::Vector3 is double. Nothing here needs the boundary precision,
+                // and the name says which of the two a reader is looking at.
+                struct FloatVector3
                 {
                     float x = 0.0f;
                     float y = 0.0f;
                     float z = 0.0f;
                 };
 
-                Vec3 sub(const Vec3& a, const Vec3& b) noexcept
+                FloatVector3 sub(const FloatVector3& a, const FloatVector3& b) noexcept
                 {
-                    return Vec3{a.x - b.x, a.y - b.y, a.z - b.z};
+                    return FloatVector3{a.x - b.x, a.y - b.y, a.z - b.z};
                 }
 
-                Vec3 cross(const Vec3& a, const Vec3& b) noexcept
+                FloatVector3 cross(const FloatVector3& a, const FloatVector3& b) noexcept
                 {
-                    return Vec3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
-                                a.x * b.y - a.y * b.x};
+                    return FloatVector3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+                                        a.x * b.y - a.y * b.x};
                 }
 
-                float dot(const Vec3& a, const Vec3& b) noexcept
+                float dot(const FloatVector3& a, const FloatVector3& b) noexcept
                 {
                     return a.x * b.x + a.y * b.y + a.z * b.z;
                 }
 
-                float length(const Vec3& a) noexcept { return std::sqrt(dot(a, a)); }
+                float length(const FloatVector3& a) noexcept { return std::sqrt(dot(a, a)); }
 
-                Vec3 position_of(const MeshVertex& vertex) noexcept
+                FloatVector3 position_of(const MeshVertex& vertex) noexcept
                 {
-                    return Vec3{vertex.position[0], vertex.position[1], vertex.position[2]};
+                    return FloatVector3{vertex.position[0], vertex.position[1], vertex.position[2]};
                 }
 
-                Vec3 normal_of(const MeshVertex& vertex) noexcept
+                FloatVector3 normal_of(const MeshVertex& vertex) noexcept
                 {
-                    return Vec3{vertex.normal[0], vertex.normal[1], vertex.normal[2]};
+                    return FloatVector3{vertex.normal[0], vertex.normal[1], vertex.normal[2]};
                 }
             } // namespace
 
@@ -102,11 +106,12 @@ namespace SushiEngine
 
                     // Bounding sphere: the AABB centre of the meshlet's vertices, radius the
                     // farthest vertex from it — conservative, never clips a visible cluster.
-                    Vec3 lo{1e30f, 1e30f, 1e30f};
-                    Vec3 hi{-1e30f, -1e30f, -1e30f};
+                    FloatVector3 lo{1e30f, 1e30f, 1e30f};
+                    FloatVector3 hi{-1e30f, -1e30f, -1e30f};
                     for (std::uint32_t i = 0; i < current.vertex_count; ++i)
                     {
-                        const Vec3 p = position_of(vertices[local_to_global[current.vertex_offset + i]]);
+                        const FloatVector3 p =
+                            position_of(vertices[local_to_global[current.vertex_offset + i]]);
                         lo.x = std::fmin(lo.x, p.x);
                         lo.y = std::fmin(lo.y, p.y);
                         lo.z = std::fmin(lo.z, p.z);
@@ -114,12 +119,13 @@ namespace SushiEngine
                         hi.y = std::fmax(hi.y, p.y);
                         hi.z = std::fmax(hi.z, p.z);
                     }
-                    const Vec3 centre{(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f,
-                                      (lo.z + hi.z) * 0.5f};
+                    const FloatVector3 centre{(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f,
+                                              (lo.z + hi.z) * 0.5f};
                     float radius = 0.0f;
                     for (std::uint32_t i = 0; i < current.vertex_count; ++i)
                     {
-                        const Vec3 p = position_of(vertices[local_to_global[current.vertex_offset + i]]);
+                        const FloatVector3 p =
+                            position_of(vertices[local_to_global[current.vertex_offset + i]]);
                         radius = std::fmax(radius, length(sub(p, centre)));
                     }
                     current.bounding_sphere[0] = centre.x;
@@ -131,7 +137,7 @@ namespace SushiEngine
                     // and the tightest angle any triangle normal makes with it sets the cutoff.
                     // A spread of 90 degrees or more cannot be culled, so the cutoff is pushed
                     // past one to mark the cone as always-visible.
-                    Vec3 axis{0.0f, 0.0f, 0.0f};
+                    FloatVector3 axis{0.0f, 0.0f, 0.0f};
                     for (std::uint32_t t = 0; t < current.triangle_count; ++t)
                     {
                         const std::uint32_t packed = data.triangles[current.triangle_offset + t];
@@ -140,8 +146,9 @@ namespace SushiEngine
                             local_to_global[current.vertex_offset + ((packed >> 8) & 0xFFu)];
                         const std::uint32_t c =
                             local_to_global[current.vertex_offset + ((packed >> 16) & 0xFFu)];
-                        Vec3 n = cross(sub(position_of(vertices[b]), position_of(vertices[a])),
-                                       sub(position_of(vertices[c]), position_of(vertices[a])));
+                        FloatVector3 n =
+                            cross(sub(position_of(vertices[b]), position_of(vertices[a])),
+                                  sub(position_of(vertices[c]), position_of(vertices[a])));
                         const float len = length(n);
                         if (len > 1e-12f)
                         {
@@ -169,12 +176,14 @@ namespace SushiEngine
                                 local_to_global[current.vertex_offset + ((packed >> 8) & 0xFFu)];
                             const std::uint32_t c =
                                 local_to_global[current.vertex_offset + ((packed >> 16) & 0xFFu)];
-                            Vec3 n = cross(sub(position_of(vertices[b]), position_of(vertices[a])),
-                                           sub(position_of(vertices[c]), position_of(vertices[a])));
+                            FloatVector3 n =
+                                cross(sub(position_of(vertices[b]), position_of(vertices[a])),
+                                      sub(position_of(vertices[c]), position_of(vertices[a])));
                             const float len = length(n);
                             if (len > 1e-12f)
-                                min_dot = std::fmin(min_dot, dot(axis, Vec3{n.x / len, n.y / len,
-                                                                            n.z / len}));
+                                min_dot = std::fmin(
+                                    min_dot,
+                                    dot(axis, FloatVector3{n.x / len, n.y / len, n.z / len}));
                         }
                         current.cone[0] = axis.x;
                         current.cone[1] = axis.y;

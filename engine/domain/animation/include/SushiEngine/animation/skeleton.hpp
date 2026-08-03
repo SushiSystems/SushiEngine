@@ -58,7 +58,7 @@ namespace SushiEngine
          *
          * Object space, GLSL's native layout (element at row @c r, column @c c is
          * @c m[c * 4 + r]), so it uploads to a joint palette storage buffer with no
-         * repack. Distinct from the engine's double-precision @c Mat4, which is the
+         * repack. Distinct from the engine's double-precision @c Matrix4, which is the
          * boundary/camera precision; joint data never needs the range that forces double,
          * because palettes are object space (the camera-relative offset stays in the
          * per-instance model matrix — see the design's §5.2).
@@ -177,24 +177,24 @@ namespace SushiEngine
         };
 
         /**
-         * @brief The engine's double-precision @c Mat4 for a float joint matrix.
+         * @brief The engine's double-precision @c Matrix4 for a float joint matrix.
          * @param joint A float object-space joint/skin matrix.
          * @return The same matrix widened to boundary precision.
          */
-        inline Mat4 to_mat4(const JointMatrix& joint) noexcept
+        inline Matrix4 to_mat4(const JointMatrix& joint) noexcept
         {
-            Mat4 out{};
+            Matrix4 out{};
             for (int i = 0; i < 16; ++i)
                 out.m[i] = static_cast<Scalar>(joint.m[i]);
             return out;
         }
 
         /**
-         * @brief A float joint matrix from the engine's double-precision @c Mat4.
+         * @brief A float joint matrix from the engine's double-precision @c Matrix4.
          * @param matrix A double object-space matrix.
          * @return The same matrix narrowed to float storage.
          */
-        inline JointMatrix to_joint_matrix(const Mat4& matrix) noexcept
+        inline JointMatrix to_joint_matrix(const Matrix4& matrix) noexcept
         {
             JointMatrix out{};
             for (int i = 0; i < 16; ++i)

@@ -112,8 +112,8 @@ namespace SushiEngine
                 // The camera basis in world space, read straight out of the view matrix's
                 // rows. The eye itself is deliberately not read: the whole fit is
                 // camera-relative, so the eye is the origin.
-                const Mat4& view = camera.view;
-                const Mat4& projection = camera.projection;
+                const Matrix4& view = camera.view;
+                const Matrix4& projection = camera.projection;
                 const Vector3 right{view.m[0], view.m[4], view.m[8]};
                 const Vector3 up{view.m[1], view.m[5], view.m[9]};
                 const Vector3 forward{-view.m[2], -view.m[6], -view.m[10]};

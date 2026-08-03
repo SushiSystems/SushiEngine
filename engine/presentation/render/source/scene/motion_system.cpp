@@ -101,7 +101,7 @@ namespace SushiEngine
                     eye_[i] = eye[i];
             }
 
-            std::uint32_t MotionSystem::append(const Mat4& previous_absolute)
+            std::uint32_t MotionSystem::append(const Matrix4& previous_absolute)
             {
                 const std::uint32_t index =
                     static_cast<std::uint32_t>(packed_.size() / MATRIX_FLOATS);
@@ -118,7 +118,7 @@ namespace SushiEngine
                 return index;
             }
 
-            std::uint32_t MotionSystem::push(std::uint32_t entity_id, const Mat4& model)
+            std::uint32_t MotionSystem::push(std::uint32_t entity_id, const Matrix4& model)
             {
                 current_.push_back(Record{entity_id, model});
 
@@ -126,7 +126,7 @@ namespace SushiEngine
                 // it identifies nothing and must not be allowed to match another draw's
                 // history; such geometry is static, and its current transform is the
                 // right answer for where it was.
-                const Mat4* previous = &model;
+                const Matrix4* previous = &model;
                 if (entity_id != 0)
                 {
                     const auto found = previous_index_.find(entity_id);
@@ -142,7 +142,7 @@ namespace SushiEngine
                 // carries them into the previous frame's camera-relative space is the
                 // shift between the two eyes — and append() will subtract the previous
                 // eye from the translation column, so it is added here first.
-                Mat4 shift;
+                Matrix4 shift;
                 shift.m[12] = eye_[0];
                 shift.m[13] = eye_[1];
                 shift.m[14] = eye_[2];

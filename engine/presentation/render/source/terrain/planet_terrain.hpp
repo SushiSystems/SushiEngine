@@ -82,7 +82,7 @@ namespace SushiEngine
             std::string default_pack_path(int body);
 
             /** @brief How a body's terrain is configured at bring-up. */
-            struct PlanetTerrainDesc
+            struct PlanetTerrainDescription
             {
                 /** @brief Tiles that may be resident at once. */
                 std::uint32_t slot_count = 2048;
@@ -148,7 +148,8 @@ namespace SushiEngine
                      * @param device The live Vulkan device.
                      * @param desc   What to select for, and how large the pool may grow.
                      */
-                    PlanetTerrain(Vulkan::VulkanDevice& device, const PlanetTerrainDesc& desc);
+                    PlanetTerrain(Vulkan::VulkanDevice& device,
+                                  const PlanetTerrainDescription& desc);
 
                     PlanetTerrain(const PlanetTerrain&) = delete;
                     PlanetTerrain& operator=(const PlanetTerrain&) = delete;
@@ -261,11 +262,11 @@ namespace SushiEngine
                      * @brief The pool, created with the first pack and kept across bodies.
                      *
                      * A pointer only so that it need not exist: its image is sized from
-                     * @ref PlanetTerrainDesc::slot_count and a view that never looks at a
+                     * @ref PlanetTerrainDescription::slot_count and a view that never looks at a
                      * planet should never allocate it.
                      */
                     std::unique_ptr<TileCache> cache_;
-                    PlanetTerrainDesc desc_;
+                    PlanetTerrainDescription desc_;
                     int body_index_ = -1;
 
                     std::vector<SushiEngine::Terrain::TerrainNode> nodes_;

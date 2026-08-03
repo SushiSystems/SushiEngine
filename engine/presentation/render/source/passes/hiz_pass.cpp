@@ -95,9 +95,9 @@ namespace SushiEngine
                     vkCmdPipelineBarrier2(cmd, &dependency);
                 }
 
-                Resources::SamplerDesc point_sampler() noexcept
+                Resources::SamplerDescription point_sampler() noexcept
                 {
-                    Resources::SamplerDesc desc;
+                    Resources::SamplerDescription desc;
                     desc.filter = VK_FILTER_NEAREST;
                     desc.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
                     desc.max_lod = 16.0f; // reach every mip the pyramid holds

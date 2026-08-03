@@ -55,16 +55,16 @@ namespace
     }
     bool nearly(double a, double b, double eps = 1e-4) { return std::fabs(a - b) <= eps; }
 
-    Vector3 model_position(const Mat4& m) { return Vector3{m.m[12], m.m[13], m.m[14]}; }
+    Vector3 model_position(const Matrix4& m) { return Vector3{m.m[12], m.m[13], m.m[14]}; }
 }
 
 int main()
 {
-    SkeletonDesc skeleton_desc;
-    JointDesc root;
+    SkeletonDescription skeleton_desc;
+    JointDescription root;
     root.name = "root";
     root.parent = -1;
-    JointDesc child;
+    JointDescription child;
     child.name = "child";
     child.parent = 0;
     child.bind_translation = Vector3f{1.0f, 0.0f, 0.0f};
@@ -78,12 +78,12 @@ int main()
     const SkeletonView skeleton = database.skeleton(skeleton_id);
 
     auto bind_pose_context = [&](std::vector<Vector3f>& t, std::vector<Quaternionf>& r,
-                                 std::vector<Vector3f>& s, std::vector<Mat4>& model)
+                                 std::vector<Vector3f>& s, std::vector<Matrix4>& model)
     {
         t.assign(skeleton.joint_count, Vector3f{});
         r.assign(skeleton.joint_count, Quaternionf{});
         s.assign(skeleton.joint_count, Vector3f{1, 1, 1});
-        model.assign(skeleton.joint_count, Mat4{});
+        model.assign(skeleton.joint_count, Matrix4{});
         for (std::uint32_t j = 0; j < skeleton.joint_count; ++j)
         {
             t[j] = skeleton.bind_translations[j];
@@ -98,7 +98,7 @@ int main()
         std::vector<Vector3f> t;
         std::vector<Quaternionf> r;
         std::vector<Vector3f> s;
-        std::vector<Mat4> model;
+        std::vector<Matrix4> model;
         bind_pose_context(t, r, s, model);
         PoseModifierContext context;
         context.skeleton = skeleton;
@@ -125,7 +125,7 @@ int main()
         std::vector<Vector3f> t;
         std::vector<Quaternionf> r;
         std::vector<Vector3f> s;
-        std::vector<Mat4> model;
+        std::vector<Matrix4> model;
         bind_pose_context(t, r, s, model);
         PoseModifierContext context;
         context.skeleton = skeleton;
@@ -152,7 +152,7 @@ int main()
         std::vector<Vector3f> t;
         std::vector<Quaternionf> r;
         std::vector<Vector3f> s;
-        std::vector<Mat4> model;
+        std::vector<Matrix4> model;
         bind_pose_context(t, r, s, model);
         PoseModifierContext context;
         context.skeleton = skeleton;
@@ -179,7 +179,7 @@ int main()
         std::vector<Vector3f> t;
         std::vector<Quaternionf> r;
         std::vector<Vector3f> s;
-        std::vector<Mat4> model;
+        std::vector<Matrix4> model;
         bind_pose_context(t, r, s, model);
         PoseModifierContext context;
         context.skeleton = skeleton;

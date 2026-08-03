@@ -34,7 +34,7 @@
  * uploads the CompiledEmitter array plus the atlas bytes verbatim, and the deterministic CPU
  * integrator reads the identical layout — so an effect looks the same in either domain. It is
  * the particle system's equivalent of resolving authored @c RenderSettings into a POD
- * @c QualityParams: rich intent in, flat data out.
+ * @c QualityParameters: rich intent in, flat data out.
  *
  * The per-particle working layout (@ref GPUParticle) is defined here too so the CPU backend,
  * the GPU system, and the compute shader share one 64-byte record.

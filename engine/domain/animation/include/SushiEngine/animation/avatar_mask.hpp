@@ -112,7 +112,7 @@ namespace SushiEngine
         };
 
         /** @brief An avatar mask as authored: the input to @ref build_mask_blob. */
-        struct MaskDesc
+        struct MaskDescription
         {
             /** @brief One authored joint entry: the joint name and the weight it admits. */
             struct Entry
@@ -131,13 +131,13 @@ namespace SushiEngine
          * @param out  Receives the blob bytes; cleared first, empty on failure.
          * @return True on success; false only if a section overflows the size type.
          */
-        inline bool build_mask_blob(const MaskDesc& desc, std::vector<std::byte>& out)
+        inline bool build_mask_blob(const MaskDescription& desc, std::vector<std::byte>& out)
         {
             out.clear();
 
             std::vector<MaskEntryRecord> entries;
             entries.reserve(desc.entries.size());
-            for (const MaskDesc::Entry& e : desc.entries)
+            for (const MaskDescription::Entry& e : desc.entries)
             {
                 MaskEntryRecord record;
                 record.name = hash_name(e.joint.c_str());

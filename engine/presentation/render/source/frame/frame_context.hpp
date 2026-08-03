@@ -224,7 +224,8 @@ namespace SushiEngine
                 Graph::BufferHandle decal_index;  /**< Per-cluster decal index list. */
                 Graph::BufferHandle readback;   /**< Host-visible copy of the id target. */
                 /**
-                 * @brief GPU-driven geometry buffers, valid only when @c QualityParams::gpu_driven.
+                 * @brief GPU-driven geometry buffers, valid only when
+                 * @c QualityParameters::gpu_driven.
                  *
                  * @c draw_commands holds one `VkDrawIndexedIndirectCommand` per bucket whose
                  * instance count the cull pass wrote; @c compacted is the per-bucket survivor
@@ -313,7 +314,7 @@ namespace SushiEngine
                 RenderSettings settings;
 
                 /** @brief The tier-resolved per-pass knobs with no home in @c settings. */
-                QualityParams quality;
+                QualityParameters quality;
 
                 const CameraView* camera = nullptr;
                 const Environment* environment = nullptr;
@@ -339,7 +340,7 @@ namespace SushiEngine
                  * The number of distinct meshes (buckets) and the total instances the frame
                  * packed. The target declaration sizes the indirect-command and compacted
                  * buffers from these, and the cull pass dispatches over them; both are zero
-                 * when the GPU-driven path is off (@c QualityParams::gpu_driven false).
+                 * when the GPU-driven path is off (@c QualityParameters::gpu_driven false).
                  */
                 std::uint32_t gpu_bucket_count = 0;
                 std::uint32_t gpu_instance_count = 0;

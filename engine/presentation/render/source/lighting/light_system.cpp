@@ -57,9 +57,9 @@ namespace SushiEngine
                  * No Y-flip, because the map is sampled by this very matrix (uv = ndc*0.5
                  * + 0.5), so render and sample stay self-consistent.
                  */
-                Mat4 shadow_perspective(double fovy, double near_plane, double far_plane)
+                Matrix4 shadow_perspective(double fovy, double near_plane, double far_plane)
                 {
-                    Mat4 m;
+                    Matrix4 m;
                     for (int i = 0; i < 16; ++i)
                         m.m[i] = 0.0;
                     const double f = 1.0 / std::tan(fovy * 0.5);
@@ -73,9 +73,9 @@ namespace SushiEngine
 
                 /** @brief A conventional orthographic projection matching @ref shadow_perspective's
                  * depth 0→1, no-Y-flip convention, so it lands in the same atlas the same way. */
-                Mat4 shadow_ortho(double half_extent, double near_plane, double far_plane)
+                Matrix4 shadow_ortho(double half_extent, double near_plane, double far_plane)
                 {
-                    Mat4 m;
+                    Matrix4 m;
                     for (int i = 0; i < 16; ++i)
                         m.m[i] = 0.0;
                     m.m[0] = 1.0 / half_extent;
@@ -422,9 +422,9 @@ namespace SushiEngine
                                             eye_rel.z - look_dir.z * half_extent};
                     const Vector3 up = std::abs(look_dir.y) > 0.99 ? Vector3{0.0, 0.0, 1.0}
                                                                     : Vector3{0.0, 1.0, 0.0};
-                    const Mat4 view = look_at(light_pos, eye_rel, up);
-                    const Mat4 proj = shadow_ortho(half_extent, near_d, far_d);
-                    const Mat4 view_proj = mul(proj, view);
+                    const Matrix4 view = look_at(light_pos, eye_rel, up);
+                    const Matrix4 proj = shadow_ortho(half_extent, near_d, far_d);
+                    const Matrix4 view_proj = mul(proj, view);
 
                     const std::uint32_t col = slot_index % SHADOW_TILES_PER_SIDE;
                     const std::uint32_t row = slot_index / SHADOW_TILES_PER_SIDE;
@@ -530,9 +530,9 @@ namespace SushiEngine
                         }
                         const Vector3 center{pos_rel.x + look_dir.x, pos_rel.y + look_dir.y,
                                              pos_rel.z + look_dir.z};
-                        const Mat4 view = look_at(pos_rel, center, up);
-                        const Mat4 proj = shadow_perspective(fov, near_d, far_d);
-                        const Mat4 view_proj = mul(proj, view);
+                        const Matrix4 view = look_at(pos_rel, center, up);
+                        const Matrix4 proj = shadow_perspective(fov, near_d, far_d);
+                        const Matrix4 view_proj = mul(proj, view);
 
                         const std::size_t base = shadow_packed_.size();
                         shadow_packed_.resize(base + SHADOW_RECORD_FLOATS);

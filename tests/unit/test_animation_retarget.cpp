@@ -92,7 +92,7 @@ namespace
         public:
             explicit Rig(const std::vector<Joint>& joints)
             {
-                SkeletonDesc description;
+                SkeletonDescription description;
                 description.joints.resize(joints.size());
                 for (std::size_t i = 0; i < joints.size(); ++i)
                 {
@@ -147,9 +147,9 @@ namespace
     }
 
     /** @brief A clip seeded to @p rig's bind pose, ready for a caller to animate one joint. */
-    ClipDesc bind_clip(const Rig& rig, std::uint32_t frame_count)
+    ClipDescription bind_clip(const Rig& rig, std::uint32_t frame_count)
     {
-        ClipDesc clip;
+        ClipDescription clip;
         clip.joint_count = rig.view().joint_count;
         clip.frame_count = frame_count;
         clip.sample_rate = 30.0f;
@@ -193,7 +193,7 @@ TEST(Unit_AnimationRetarget,AnAuthoredMappingReachesRigsTheHeuristicCannot)
 
     EXPECT_EQ(build_avatar_heuristic(rig.view()).mapped_count(), 0u);
 
-    AvatarDesc desc;
+    AvatarDescription desc;
     desc.entries.push_back({HumanBone::Hips, "root_00"});
     desc.entries.push_back({HumanBone::Spine, "seg_a"});
     desc.entries.push_back({HumanBone::Head, "seg_b"});
@@ -257,11 +257,11 @@ TEST(Unit_AnimationRetarget,ARetargetedJointBendsByTheSameDeltaAndNotToTheSameRo
     const std::uint32_t source_arm = source.joint("LeftUpperArm");
     const std::uint32_t target_arm = target.joint("LeftUpperArm");
 
-    ClipDesc clip = bind_clip(source, 1);
+    ClipDescription clip = bind_clip(source, 1);
     const Quaternionf lift = axis_angle(0.0f, 0.0f, 1.0f, 35.0f);
     clip.rotations[source_arm] = normalize(mul(source.view().bind_rotations[source_arm], lift));
 
-    ClipDesc retargeted;
+    ClipDescription retargeted;
     ASSERT_TRUE(retarget_clip(clip, source_avatar, source.view(), target_avatar, target.view(),
                               retargeted));
     ASSERT_EQ(retargeted.joint_count, target.view().joint_count);
@@ -299,11 +299,11 @@ TEST(Unit_AnimationRetarget,RootTranslationScalesWithHipHeightSoStrideFollowsPro
     const std::uint32_t source_hips = source.joint("Hips");
     const std::uint32_t target_hips = target.joint("Hips");
 
-    ClipDesc clip = bind_clip(source, 1);
+    ClipDescription clip = bind_clip(source, 1);
     clip.translations[source_hips] =
         source.view().bind_translations[source_hips] + Vector3f{0.4f, 0.0f, 0.0f};
 
-    ClipDesc retargeted;
+    ClipDescription retargeted;
     ASSERT_TRUE(retarget_clip(clip, source_avatar, source.view(), target_avatar, target.view(),
                               retargeted));
 
@@ -325,7 +325,7 @@ TEST(Unit_AnimationRetarget,RetargetingBetweenIdenticalRigsIsTheIdentity)
     const Avatar avatar = build_avatar_heuristic(rig.view());
 
     const std::uint32_t arm = rig.joint("LeftUpperArm");
-    ClipDesc clip = bind_clip(rig, 3);
+    ClipDescription clip = bind_clip(rig, 3);
     for (std::uint32_t f = 0; f < 3; ++f)
     {
         const std::uint32_t index = f * clip.joint_count + arm;
@@ -333,7 +333,7 @@ TEST(Unit_AnimationRetarget,RetargetingBetweenIdenticalRigsIsTheIdentity)
             mul(rig.view().bind_rotations[arm], axis_angle(0.0f, 0.0f, 1.0f, 10.0f * float(f))));
     }
 
-    ClipDesc retargeted;
+    ClipDescription retargeted;
     ASSERT_TRUE(retarget_clip(clip, avatar, rig.view(), avatar, rig.view(), retargeted));
     for (std::uint32_t f = 0; f < 3; ++f)
     {
@@ -355,11 +355,11 @@ TEST(Unit_AnimationRetarget,MirroringMovesTheGestureToTheOtherSideAndBackAgain)
     const std::uint32_t left = rig.joint("LeftUpperArm");
     const std::uint32_t right = rig.joint("RightUpperArm");
 
-    ClipDesc clip = bind_clip(rig, 1);
+    ClipDescription clip = bind_clip(rig, 1);
     const Quaternionf lift = axis_angle(0.0f, 0.0f, 1.0f, 40.0f);
     clip.rotations[left] = normalize(mul(rig.view().bind_rotations[left], lift));
 
-    ClipDesc mirrored;
+    ClipDescription mirrored;
     ASSERT_TRUE(mirror_clip(clip, avatar, rig.view(), mirrored));
 
     // The right arm now carries the reflected delta; the left is back at its bind pose because
@@ -373,7 +373,7 @@ TEST(Unit_AnimationRetarget,MirroringMovesTheGestureToTheOtherSideAndBackAgain)
     EXPECT_NEAR(angle_between(mirrored.rotations[left], rig.view().bind_rotations[left]), 0.0f,
                 1e-4f);
 
-    ClipDesc twice;
+    ClipDescription twice;
     ASSERT_TRUE(mirror_clip(mirrored, avatar, rig.view(), twice));
     EXPECT_NEAR(angle_between(twice.rotations[left], clip.rotations[left]), 0.0f, 1e-3f);
 }
@@ -387,11 +387,11 @@ TEST(Unit_AnimationRetarget,MirroringNegatesLateralTranslationAndLeavesTheOtherT
     const Avatar avatar = build_avatar_heuristic(rig.view());
     const std::uint32_t hips = rig.joint("Hips");
 
-    ClipDesc clip = bind_clip(rig, 1);
+    ClipDescription clip = bind_clip(rig, 1);
     clip.translations[hips] =
         rig.view().bind_translations[hips] + Vector3f{0.3f, 0.1f, -0.2f};
 
-    ClipDesc mirrored;
+    ClipDescription mirrored;
     ASSERT_TRUE(mirror_clip(clip, avatar, rig.view(), mirrored));
 
     const Vector3f offset = mirrored.translations[hips] - rig.view().bind_translations[hips];
@@ -408,18 +408,18 @@ TEST(Unit_AnimationRetarget,BothTransfersRefuseAClipThatDoesNotMatchItsSkeleton)
     ASSERT_TRUE(rig.built());
     const Avatar avatar = build_avatar_heuristic(rig.view());
 
-    ClipDesc wrong_joint_count = bind_clip(rig, 1);
+    ClipDescription wrong_joint_count = bind_clip(rig, 1);
     wrong_joint_count.joint_count += 1;
-    ClipDesc out;
+    ClipDescription out;
     EXPECT_FALSE(retarget_clip(wrong_joint_count, avatar, rig.view(), avatar, rig.view(), out));
     EXPECT_FALSE(mirror_clip(wrong_joint_count, avatar, rig.view(), out));
 
-    ClipDesc truncated = bind_clip(rig, 2);
+    ClipDescription truncated = bind_clip(rig, 2);
     truncated.rotations.pop_back();
     EXPECT_FALSE(retarget_clip(truncated, avatar, rig.view(), avatar, rig.view(), out));
     EXPECT_FALSE(mirror_clip(truncated, avatar, rig.view(), out));
 
-    ClipDesc no_frames = bind_clip(rig, 0);
+    ClipDescription no_frames = bind_clip(rig, 0);
     EXPECT_FALSE(retarget_clip(no_frames, avatar, rig.view(), avatar, rig.view(), out));
     EXPECT_FALSE(mirror_clip(no_frames, avatar, rig.view(), out));
 }
@@ -434,7 +434,7 @@ TEST(Unit_AnimationRetarget,SkeletonIndependentTracksSurviveBothTransfers)
     ASSERT_TRUE(source.built());
     ASSERT_TRUE(target.built());
 
-    ClipDesc clip = bind_clip(source, 2);
+    ClipDescription clip = bind_clip(source, 2);
     clip.morph_names = {"jawOpen"};
     clip.morph_weights = {0.25f, 0.75f};
     clip.generic_names = {"handIkWeight"};
@@ -443,7 +443,7 @@ TEST(Unit_AnimationRetarget,SkeletonIndependentTracksSurviveBothTransfers)
     const Avatar source_avatar = build_avatar_heuristic(source.view());
     const Avatar target_avatar = build_avatar_heuristic(target.view());
 
-    ClipDesc retargeted;
+    ClipDescription retargeted;
     ASSERT_TRUE(retarget_clip(clip, source_avatar, source.view(), target_avatar, target.view(),
                               retargeted));
     EXPECT_EQ(retargeted.morph_names, clip.morph_names);
@@ -451,7 +451,7 @@ TEST(Unit_AnimationRetarget,SkeletonIndependentTracksSurviveBothTransfers)
     EXPECT_EQ(retargeted.generic_names, clip.generic_names);
     EXPECT_EQ(retargeted.generic_values, clip.generic_values);
 
-    ClipDesc mirrored;
+    ClipDescription mirrored;
     ASSERT_TRUE(mirror_clip(clip, source_avatar, source.view(), mirrored));
     EXPECT_EQ(mirrored.morph_weights, clip.morph_weights);
     EXPECT_EQ(mirrored.generic_values, clip.generic_values);
@@ -474,7 +474,7 @@ TEST(Unit_AnimationRetarget,TheRuntimePathAgreesWithTheBakedOne)
     const std::uint32_t source_arm = source.joint("LeftUpperArm");
     const std::uint32_t source_hips = source.joint("Hips");
 
-    ClipDesc description = bind_clip(source, 2);
+    ClipDescription description = bind_clip(source, 2);
     for (std::uint32_t f = 0; f < 2; ++f)
     {
         const std::uint32_t arm = f * description.joint_count + source_arm;
@@ -485,7 +485,7 @@ TEST(Unit_AnimationRetarget,TheRuntimePathAgreesWithTheBakedOne)
             source.view().bind_translations[source_hips] + Vector3f{0.2f * float(f), 0.0f, 0.0f};
     }
 
-    ClipDesc baked;
+    ClipDescription baked;
     ASSERT_TRUE(retarget_clip(description, source_avatar, source.view(), target_avatar,
                               target.view(), baked));
 
@@ -539,7 +539,7 @@ TEST(Unit_AnimationRetarget,AnUnmappedTargetBoneIsPosedByItsParentAndNotLeftUnin
     const Avatar target_avatar = build_avatar_heuristic(target.view());
     ASSERT_FALSE(target_avatar.has(HumanBone::LeftUpperArm));
 
-    ClipDesc description = bind_clip(source, 1);
+    ClipDescription description = bind_clip(source, 1);
     description.rotations[source.joint("LeftUpperArm")] = axis_angle(0, 0, 1, 45.0f);
     std::vector<std::byte> blob;
     ASSERT_TRUE(build_clip_blob(description, blob));

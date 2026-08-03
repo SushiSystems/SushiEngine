@@ -55,7 +55,7 @@ namespace
     // Model-space position of a joint (translation column of its composed matrix).
     Vector3 joint_position(const ClipEvaluator& evaluator, std::uint32_t joint)
     {
-        const Mat4& m = evaluator.model()[joint];
+        const Matrix4& m = evaluator.model()[joint];
         return Vector3{m.m[12], m.m[13], m.m[14]};
     }
 }
@@ -63,9 +63,9 @@ namespace
 int main()
 {
     // --- Skeleton: root at the origin, child one unit down +X ------------------------
-    SkeletonDesc skeleton_desc;
-    JointDesc root;  root.name = "root";  root.parent = -1;
-    JointDesc child; child.name = "child"; child.parent = 0;
+    SkeletonDescription skeleton_desc;
+    JointDescription root;  root.name = "root";  root.parent = -1;
+    JointDescription child; child.name = "child"; child.parent = 0;
     child.bind_translation = Vector3f{1.0f, 0.0f, 0.0f};
     skeleton_desc.joints = {root, child};
 
@@ -76,7 +76,7 @@ int main()
     const Quaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
     const QuaternionT<float> turn = quaternion_axis_angle(Vector3T<float>{0, 0, 1},
                                                           static_cast<float>(PI * 0.5));
-    ClipDesc clip_desc;
+    ClipDescription clip_desc;
     clip_desc.joint_count = 2;
     clip_desc.frame_count = 2;
     clip_desc.sample_rate = 1.0f;

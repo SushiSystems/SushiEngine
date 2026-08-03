@@ -61,12 +61,12 @@ namespace
 
     void bind_pose_context(const SkeletonView& skeleton, std::vector<Vector3f>& t,
                            std::vector<Quaternionf>& r, std::vector<Vector3f>& s,
-                           std::vector<Mat4>& model)
+                           std::vector<Matrix4>& model)
     {
         t.assign(skeleton.joint_count, Vector3f{});
         r.assign(skeleton.joint_count, Quaternionf{});
         s.assign(skeleton.joint_count, Vector3f{1, 1, 1});
-        model.assign(skeleton.joint_count, Mat4{});
+        model.assign(skeleton.joint_count, Matrix4{});
         for (std::uint32_t j = 0; j < skeleton.joint_count; ++j)
         {
             t[j] = skeleton.bind_translations[j];
@@ -79,11 +79,11 @@ namespace
 
 int main()
 {
-    SkeletonDesc desc;
-    JointDesc root;
+    SkeletonDescription desc;
+    JointDescription root;
     root.name = "root";
     root.parent = -1;
-    JointDesc tip;
+    JointDescription tip;
     tip.name = "jiggle";
     tip.parent = 0;
     tip.bind_translation = Vector3f{0.0f, -1.0f, 0.0f};
@@ -98,7 +98,7 @@ int main()
     std::vector<Vector3f> t;
     std::vector<Quaternionf> r;
     std::vector<Vector3f> s;
-    std::vector<Mat4> model;
+    std::vector<Matrix4> model;
     bind_pose_context(skeleton, t, r, s, model);
     PoseModifierContext context;
     context.skeleton = skeleton;

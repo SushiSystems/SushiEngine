@@ -27,7 +27,7 @@
  * @file skeleton_blob.hpp
  * @brief Cook and load of the relocatable `.sushiskel` skeleton blob.
  *
- * The cook takes a host-side @ref SkeletonDesc — joints in any order, parents by index
+ * The cook takes a host-side @ref SkeletonDescription — joints in any order, parents by index
  * — and produces a versioned, little-endian, self-contained byte buffer: it
  * topologically sorts the joints so `parent[i] < i` (kills the non-topological
  * hierarchy liability at import), remaps every reference, derives inverse-bind
@@ -89,7 +89,7 @@ namespace SushiEngine
         };
 
         /** @brief One joint as authored, before the cook sorts and remaps it. */
-        struct JointDesc
+        struct JointDescription
         {
             std::string name;                          /**< Hashed into the blob at cook. */
             int parent = -1;                           /**< Index into the desc's joints, -1 for a root. */
@@ -100,12 +100,12 @@ namespace SushiEngine
         };
 
         /** @brief A skeleton as authored: the input to @ref build_skeleton_blob. */
-        struct SkeletonDesc
+        struct SkeletonDescription
         {
-            std::vector<JointDesc> joints;
+            std::vector<JointDescription> joints;
 
             /**
-             * @brief Whether @ref JointDesc::inverse_bind carries real matrices.
+             * @brief Whether @ref JointDescription::inverse_bind carries real matrices.
              *
              * glTF supplies inverse-bind matrices, so the importer sets this true. A
              * hand-authored skeleton leaves it false and the cook derives them from the
@@ -124,7 +124,7 @@ namespace SushiEngine
             }
 
             /** @brief Depth of a joint in the desc hierarchy, or -1 if the parent chain cycles. */
-            inline int joint_depth(const std::vector<JointDesc>& joints, int index) noexcept
+            inline int joint_depth(const std::vector<JointDescription>& joints, int index) noexcept
             {
                 int depth = 0;
                 int cursor = joints[static_cast<std::size_t>(index)].parent;
@@ -146,7 +146,7 @@ namespace SushiEngine
          * Sorts the joints by (depth, original index) so `parent[i] < i` holds for the
          * output — a stable order that keeps siblings in their authored sequence — remaps
          * all parent references, derives inverse-bind matrices from the bind pose when
-         * @ref SkeletonDesc::has_inverse_bind is false, and writes the SoA sections at
+         * @ref SkeletonDescription::has_inverse_bind is false, and writes the SoA sections at
          * 16-byte-aligned offsets. A single full-detail LOD level is emitted (the bone-LOD
          * ladder is a later phase); the format already carries the array.
          *
@@ -158,7 +158,8 @@ namespace SushiEngine
          * @return True on success; false if the joint count is out of range or the
          *         hierarchy contains a cycle.
          */
-        inline bool build_skeleton_blob(const SkeletonDesc& desc, std::vector<std::byte>& out,
+        inline bool build_skeleton_blob(const SkeletonDescription& desc,
+                                        std::vector<std::byte>& out,
                                         std::vector<int>* out_order = nullptr)
         {
             out.clear();
@@ -198,7 +199,8 @@ namespace SushiEngine
             std::vector<std::string> name_strings(count);
             for (std::size_t new_index = 0; new_index < count; ++new_index)
             {
-                const JointDesc& joint = desc.joints[static_cast<std::size_t>(order[new_index])];
+                const JointDescription& joint =
+                    desc.joints[static_cast<std::size_t>(order[new_index])];
                 parents[new_index] = joint.parent < 0
                                          ? NO_PARENT
                                          : static_cast<std::uint16_t>(remap[static_cast<std::size_t>(joint.parent)]);
@@ -224,10 +226,10 @@ namespace SushiEngine
             // parent[i] < i lets globals be a single forward scan.
             if (!desc.has_inverse_bind)
             {
-                std::vector<Mat4> global(count);
+                std::vector<Matrix4> global(count);
                 for (std::size_t i = 0; i < count; ++i)
                 {
-                    const Mat4 local = compose_transform(
+                    const Matrix4 local = compose_transform(
                         Vector3{translations[i].x, translations[i].y, translations[i].z},
                         Quaternion{rotations[i].x, rotations[i].y, rotations[i].z, rotations[i].w},
                         Vector3{scales[i].x, scales[i].y, scales[i].z});

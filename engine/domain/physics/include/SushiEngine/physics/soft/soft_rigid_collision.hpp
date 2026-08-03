@@ -179,7 +179,7 @@ namespace SushiEngine
                 std::size_t surface_vertex_count = 0;
 
                 /** @brief The combined coefficients; `rest_offset` is the surface's thickness. */
-                ContactSolveParams<T> params{};
+                ContactSolveParameters<T> params{};
 
                 /**
                  * @brief How far beyond the rest offset a contact is still generated.
@@ -350,7 +350,7 @@ namespace SushiEngine
          * @return Parameters ready to assign to @ref SoftRigidCollider::params.
          */
         template <typename T>
-        inline ContactSolveParams<T> make_soft_rigid_params(
+        inline ContactSolveParameters<T> make_soft_rigid_params(
             const SoftBodyCollisionSettings<T>& settings,
             const PhysicsMaterialT<T>& rigid_material, T restitution_threshold) noexcept
         {

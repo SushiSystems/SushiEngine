@@ -143,7 +143,7 @@ namespace SushiEngine
                                            std::size_t budget_bytes)
                 : device_(device), heap_(heap), budget_bytes_(budget_bytes)
             {
-                Resources::SamplerDesc desc;
+                Resources::SamplerDescription desc;
                 desc.address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
                 desc.max_anisotropy = 16.0f;
                 desc.max_lod = 16.0f;

@@ -54,9 +54,10 @@ namespace
         return quaternion_axis_angle(Vector3T<float>{0.0f, 0.0f, 1.0f}, radians);
     }
 
-    JointDesc joint(const char* name, int parent, Vector3f bind_translation = Vector3f{0, 0, 0})
+    JointDescription joint(const char* name, int parent,
+                           Vector3f bind_translation = Vector3f{0, 0, 0})
     {
-        JointDesc description;
+        JointDescription description;
         description.name = name;
         description.parent = parent;
         description.bind_translation = bind_translation;
@@ -64,18 +65,18 @@ namespace
     }
 
     // A two-joint arm: root at the origin, child one unit down +X.
-    SkeletonDesc arm_skeleton()
+    SkeletonDescription arm_skeleton()
     {
-        SkeletonDesc description;
+        SkeletonDescription description;
         description.joints = {joint("root", -1), joint("child", 0, Vector3f{1.0f, 0.0f, 0.0f})};
         return description;
     }
 
     // A clip over that arm whose only motion is the root turning 90 degrees about Z, so the
     // child's model-space position traces a quarter circle and every sample has a closed form.
-    ClipDesc quarter_turn_clip()
+    ClipDescription quarter_turn_clip()
     {
-        ClipDesc clip;
+        ClipDescription clip;
         clip.joint_count = 2;
         clip.frame_count = 2;
         clip.sample_rate = 1.0f;
@@ -88,7 +89,7 @@ namespace
 
     Vector3 model_position(const ClipEvaluator& evaluator, std::uint32_t index)
     {
-        const Mat4& matrix = evaluator.model()[index];
+        const Matrix4& matrix = evaluator.model()[index];
         return Vector3{matrix.m[12], matrix.m[13], matrix.m[14]};
     }
 
@@ -98,10 +99,10 @@ namespace
     // range reduction to matter. `swing` is the rotation amplitude in radians and
     // `moving_translation` decides whether translation is rig-fixed (the usual case for a
     // character) or animated every frame (hostile to range reduction).
-    ClipDesc synthetic_clip(std::uint32_t joints, std::uint32_t frames, float swing,
+    ClipDescription synthetic_clip(std::uint32_t joints, std::uint32_t frames, float swing,
                            bool moving_translation)
     {
-        ClipDesc description;
+        ClipDescription description;
         description.joint_count = joints;
         description.frame_count = frames;
         description.sample_rate = 30.0f;
@@ -128,7 +129,7 @@ namespace
     // The claim "transparent quality" rests on: the decoded clip must stay inside the
     // threshold it was solved for at every frame and every joint, measured against the raw
     // clip rather than against the compressor's own idea of its error.
-    void expect_reconstruction_within_threshold(const ClipDesc& description,
+    void expect_reconstruction_within_threshold(const ClipDescription& description,
                                                const std::vector<std::byte>& raw_blob,
                                                const std::vector<std::byte>& compressed_blob)
     {
@@ -177,7 +178,7 @@ namespace
 TEST(Unit_AnimationClip, SkeletonCookSortsEveryParentBeforeItsChild)
 {
     // Authored deepest-first, the worst case for the cook: nothing is already in order.
-    SkeletonDesc description;
+    SkeletonDescription description;
     description.joints = {joint("hand", 1), joint("forearm", 2), joint("shoulder", -1)};
 
     std::vector<std::byte> blob;
@@ -216,10 +217,10 @@ TEST(Unit_AnimationClip, SkeletonCookSortsEveryParentBeforeItsChild)
 TEST(Unit_AnimationClip, SkeletonCookRefusesWhatItCannotRepresent)
 {
     std::vector<std::byte> blob;
-    EXPECT_FALSE(build_skeleton_blob(SkeletonDesc{}, blob)) << "an empty skeleton";
+    EXPECT_FALSE(build_skeleton_blob(SkeletonDescription{}, blob)) << "an empty skeleton";
     EXPECT_TRUE(blob.empty());
 
-    SkeletonDesc too_many;
+    SkeletonDescription too_many;
     too_many.joints.resize(MAX_JOINTS + 1, joint("j", -1));
     EXPECT_FALSE(build_skeleton_blob(too_many, blob)) << "more joints than MAX_JOINTS";
 }
@@ -253,7 +254,7 @@ TEST(Unit_AnimationClip, SkeletonBlobValidationRejectsDamagedBytes)
 
 TEST(Unit_AnimationClip, ClipCookRoundTripsEveryTrackKind)
 {
-    ClipDesc clip = quarter_turn_clip();
+    ClipDescription clip = quarter_turn_clip();
     clip.morph_names = {"jawOpen", "eyeBlinkLeft"};
     clip.morph_weights = {0.0f, 1.0f, 1.0f, 0.5f}; // frame-major over two tracks
     clip.generic_names = {"emission"};
@@ -289,20 +290,20 @@ TEST(Unit_AnimationClip, ClipCookRefusesMissizedOrDegenerateDescriptions)
 {
     std::vector<std::byte> blob;
 
-    ClipDesc short_track = quarter_turn_clip();
+    ClipDescription short_track = quarter_turn_clip();
     short_track.rotations.pop_back();
     EXPECT_FALSE(build_clip_blob(short_track, blob)) << "a track shorter than frames * joints";
 
-    ClipDesc no_frames = quarter_turn_clip();
+    ClipDescription no_frames = quarter_turn_clip();
     no_frames.frame_count = 0;
     EXPECT_FALSE(build_clip_blob(no_frames, blob));
 
-    ClipDesc bad_rate = quarter_turn_clip();
+    ClipDescription bad_rate = quarter_turn_clip();
     bad_rate.sample_rate = 0.0f;
     EXPECT_FALSE(build_clip_blob(bad_rate, blob));
 
     // A morph name with no weights behind it is a mis-sized clip, not an empty track.
-    ClipDesc dangling_morph = quarter_turn_clip();
+    ClipDescription dangling_morph = quarter_turn_clip();
     dangling_morph.morph_names = {"jawOpen"};
     EXPECT_FALSE(build_clip_blob(dangling_morph, blob));
 }
@@ -339,7 +340,7 @@ TEST(Unit_AnimationClip, SamplingClampsWhenItDoesNotLoopAndWrapsWhenItDoes)
 
 TEST(Unit_AnimationClip, SamplingInterpolatesBetweenAuthoredFrames)
 {
-    ClipDesc description = quarter_turn_clip();
+    ClipDescription description = quarter_turn_clip();
     // Three frames so there is an interior frame to land on exactly as well as between.
     description.frame_count = 3;
     description.translations = {Vector3f{0, 0, 0}, Vector3f{1, 0, 0}, Vector3f{0, 0, 0},
@@ -438,7 +439,8 @@ TEST(Unit_AnimationClip, CompressionReachesAclClassRatiosOnLocomotionContent)
     // shape real character animation has: a long chain of joints whose translation is fixed
     // by the rig and whose rotation swings gently. That is what per-segment range reduction
     // and the three-smallest-component quaternion encoding are built to exploit.
-    const ClipDesc description = synthetic_clip(80, 181, 0.35f, /*moving_translation=*/false);
+    const ClipDescription description =
+        synthetic_clip(80, 181, 0.35f, /*moving_translation=*/false);
 
     std::vector<std::byte> raw_blob;
     std::vector<std::byte> compressed_blob;
@@ -459,7 +461,7 @@ TEST(Unit_AnimationClip, CompressionHoldsItsErrorBoundOnContentThatCompressesBad
     // the per-segment ranges stay wide and the bit-rate solver cannot economize. The ratio
     // is expected to be far worse than above — what must *not* degrade is the error bound,
     // since a compressor that met its ratio by exceeding its threshold would be wrong.
-    const ClipDesc description = synthetic_clip(40, 121, 0.9f, /*moving_translation=*/true);
+    const ClipDescription description = synthetic_clip(40, 121, 0.9f, /*moving_translation=*/true);
 
     std::vector<std::byte> raw_blob;
     std::vector<std::byte> compressed_blob;
@@ -477,7 +479,7 @@ TEST(Unit_AnimationClip, ClipLoadingRecognizesTheFormatFromTheBytes)
 {
     // A consumer holds bytes, not a flag saying which cook produced them, so the loader has
     // to tell raw from compressed itself — and refuse anything that is neither.
-    const ClipDesc description = synthetic_clip(4, 16, 0.4f, false);
+    const ClipDescription description = synthetic_clip(4, 16, 0.4f, false);
     std::vector<std::byte> raw_blob;
     std::vector<std::byte> compressed_blob;
     ASSERT_TRUE(build_clip_blob(description, raw_blob));

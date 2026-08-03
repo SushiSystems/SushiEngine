@@ -44,16 +44,16 @@ namespace SushiEngine
         namespace
         {
             using SushiEngine::Animation::AssetId;
-            using SushiEngine::Animation::BlendChildDesc;
-            using SushiEngine::Animation::BlendTreeNodeDesc;
+            using SushiEngine::Animation::BlendChildDescription;
+            using SushiEngine::Animation::BlendTreeNodeDescription;
             using SushiEngine::Animation::BlendTreeType;
-            using SushiEngine::Animation::ControllerDesc;
+            using SushiEngine::Animation::ControllerDescription;
             using SushiEngine::Animation::INVALID_ASSET;
-            using SushiEngine::Animation::LayerDesc;
-            using SushiEngine::Animation::ParameterDesc;
+            using SushiEngine::Animation::LayerDescription;
+            using SushiEngine::Animation::ParameterDescription;
             using SushiEngine::Animation::ParameterType;
-            using SushiEngine::Animation::StateDesc;
-            using SushiEngine::Animation::TransitionDesc;
+            using SushiEngine::Animation::StateDescription;
+            using SushiEngine::Animation::TransitionDescription;
 
             constexpr float NODE_W = 128.0f;
             constexpr float NODE_H = 44.0f;
@@ -66,29 +66,29 @@ namespace SushiEngine
                 if (g.seeded)
                     return;
                 g.seeded = true;
-                LayerDesc layer;
+                LayerDescription layer;
                 layer.name = "Base Layer";
                 layer.default_state = "Idle";
-                StateDesc idle;
+                StateDescription idle;
                 idle.name = "Idle";
-                StateDesc move;
+                StateDescription move;
                 move.name = "Move";
-                TransitionDesc to_move;
+                TransitionDescription to_move;
                 to_move.destination = "Move";
                 to_move.duration = 0.15f;
                 idle.transitions.push_back(to_move);
-                TransitionDesc to_idle;
+                TransitionDescription to_idle;
                 to_idle.destination = "Idle";
                 move.transitions.push_back(to_idle);
                 layer.states = {idle, move};
                 g.controller.layers.push_back(layer);
-                g.controller.parameters.push_back(ParameterDesc{"speed", ParameterType::Float, 0.0f});
+                g.controller.parameters.push_back(ParameterDescription{"speed", ParameterType::Float, 0.0f});
             }
 
-            LayerDesc& current_layer(GraphState& g)
+            LayerDescription& current_layer(GraphState& g)
             {
                 if (g.controller.layers.empty())
-                    g.controller.layers.push_back(LayerDesc{});
+                    g.controller.layers.push_back(LayerDescription{});
                 g.layer = std::min(g.layer, static_cast<int>(g.controller.layers.size()) - 1);
                 if (g.layer < 0)
                     g.layer = 0;
@@ -99,7 +99,7 @@ namespace SushiEngine
             // per-state clip-path list the same length as the states.
             void ensure_positions(GraphState& g)
             {
-                LayerDesc& layer = current_layer(g);
+                LayerDescription& layer = current_layer(g);
                 if (g.clip_paths.size() != layer.states.size())
                     g.clip_paths.resize(layer.states.size());
                 if (g.positions_layer == g.layer && g.positions.size() == layer.states.size())
@@ -112,7 +112,7 @@ namespace SushiEngine
                                             60.0f + static_cast<float>(i / 4) * 90.0f);
             }
 
-            int state_index(const LayerDesc& layer, const std::string& name)
+            int state_index(const LayerDescription& layer, const std::string& name)
             {
                 for (std::size_t i = 0; i < layer.states.size(); ++i)
                     if (layer.states[i].name == name)
@@ -154,7 +154,7 @@ namespace SushiEngine
                 nlohmann::json json = SushiEngine::Animation::controller_to_json(g.controller);
                 // Editor-only side data (ignored by the runtime): per-state clip file paths.
                 nlohmann::json paths = nlohmann::json::object();
-                const LayerDesc& layer = current_layer(g);
+                const LayerDescription& layer = current_layer(g);
                 for (std::size_t i = 0; i < layer.states.size() && i < g.clip_paths.size(); ++i)
                     if (!g.clip_paths[i].empty())
                         paths[layer.states[i].name] = g.clip_paths[i];
@@ -188,7 +188,7 @@ namespace SushiEngine
                     // Restore the editor-only per-state clip paths, keyed by state name.
                     g.layer = 0;
                     g.clip_paths.clear();
-                    const LayerDesc& layer = current_layer(g);
+                    const LayerDescription& layer = current_layer(g);
                     g.clip_paths.resize(layer.states.size());
                     if (json.contains("editor") && json["editor"].contains("clip_paths"))
                     {
@@ -206,13 +206,13 @@ namespace SushiEngine
             }
 
             // A dropdown of the controller's parameters that writes the chosen name.
-            void param_combo(const char* label, std::string& value, const ControllerDesc& controller)
+            void param_combo(const char* label, std::string& value, const ControllerDescription& controller)
             {
                 if (ImGui::BeginCombo(label, value.empty() ? "(none)" : value.c_str()))
                 {
                     if (ImGui::Selectable("(none)", value.empty()))
                         value.clear();
-                    for (const ParameterDesc& p : controller.parameters)
+                    for (const ParameterDescription& p : controller.parameters)
                         if (ImGui::Selectable(p.name.c_str(), value == p.name))
                             value = p.name;
                     ImGui::EndCombo();
@@ -220,7 +220,7 @@ namespace SushiEngine
             }
 
             // A small blend-space picture: 1D thresholds on a bar, or 2D positions on a pad.
-            void draw_blend_visualization(const BlendTreeNodeDesc& node)
+            void draw_blend_visualization(const BlendTreeNodeDescription& node)
             {
                 const bool one_d = node.type == BlendTreeType::Simple1D;
                 const ImVec2 origin = ImGui::GetCursorScreenPos();
@@ -233,7 +233,7 @@ namespace SushiEngine
                 if (one_d)
                 {
                     float lo = 0.0f, hi = 1.0f;
-                    for (const BlendChildDesc& c : node.children)
+                    for (const BlendChildDescription& c : node.children)
                     {
                         lo = std::min(lo, c.threshold);
                         hi = std::max(hi, c.threshold);
@@ -243,7 +243,7 @@ namespace SushiEngine
                     const float y = origin.y + height * 0.5f;
                     draw->AddLine(ImVec2(origin.x + 6.0f, y), ImVec2(origin.x + width - 6.0f, y),
                                   IM_COL32(90, 90, 100, 255));
-                    for (const BlendChildDesc& c : node.children)
+                    for (const BlendChildDescription& c : node.children)
                     {
                         const float x = origin.x + 6.0f +
                                         (c.threshold - lo) / (hi - lo) * (width - 12.0f);
@@ -257,7 +257,7 @@ namespace SushiEngine
                 else
                 {
                     float range = 1.0f;
-                    for (const BlendChildDesc& c : node.children)
+                    for (const BlendChildDescription& c : node.children)
                     {
                         range = std::max(range, std::fabs(c.position_x));
                         range = std::max(range, std::fabs(c.position_y));
@@ -267,7 +267,7 @@ namespace SushiEngine
                                   IM_COL32(60, 60, 70, 255));
                     draw->AddLine(ImVec2(center.x, origin.y), ImVec2(center.x, origin.y + height),
                                   IM_COL32(60, 60, 70, 255));
-                    for (const BlendChildDesc& c : node.children)
+                    for (const BlendChildDescription& c : node.children)
                     {
                         const float x = center.x + c.position_x / range * (width * 0.45f);
                         const float y = center.y - c.position_y / range * (height * 0.45f);
@@ -278,7 +278,8 @@ namespace SushiEngine
             }
 
             // The Motion editor for a state: a single clip, or a blend tree with children.
-            void draw_motion(StateDesc& s, const ControllerDesc& controller, std::string& clip_path)
+            void draw_motion(StateDescription& s, const ControllerDescription& controller,
+                             std::string& clip_path)
             {
                 ImGui::SeparatorText("Motion");
                 if (!s.blend_tree)
@@ -295,7 +296,7 @@ namespace SushiEngine
                         s.clip = clip < 0 ? INVALID_ASSET : static_cast<AssetId>(clip);
                     if (ImGui::Button("Convert to Blend Tree"))
                     {
-                        s.blend_tree = std::make_shared<BlendTreeNodeDesc>();
+                        s.blend_tree = std::make_shared<BlendTreeNodeDescription>();
                         s.blend_tree->type = BlendTreeType::Simple1D;
                         if (!controller.parameters.empty())
                             s.blend_tree->parameter_x = controller.parameters[0].name;
@@ -303,7 +304,7 @@ namespace SushiEngine
                     return;
                 }
 
-                BlendTreeNodeDesc& node = *s.blend_tree;
+                BlendTreeNodeDescription& node = *s.blend_tree;
                 int type = static_cast<int>(node.type);
                 if (ImGui::Combo("Type", &type,
                                  "1D\0" "2D Simple Dir\0" "2D Freeform Dir\0" "2D Freeform Cart\0"
@@ -318,7 +319,7 @@ namespace SushiEngine
                 int remove = -1;
                 for (int i = 0; i < static_cast<int>(node.children.size()); ++i)
                 {
-                    BlendChildDesc& child = node.children[i];
+                    BlendChildDescription& child = node.children[i];
                     ImGui::PushID(i);
                     int clip = child.clip == INVALID_ASSET ? -1 : static_cast<int>(child.clip);
                     ImGui::SetNextItemWidth(70.0f);
@@ -350,7 +351,7 @@ namespace SushiEngine
                 if (remove >= 0)
                     node.children.erase(node.children.begin() + remove);
                 if (ImGui::Button("Add Child"))
-                    node.children.push_back(BlendChildDesc{});
+                    node.children.push_back(BlendChildDescription{});
                 ImGui::SameLine();
                 if (ImGui::Button("Convert to Clip"))
                 {
@@ -366,7 +367,7 @@ namespace SushiEngine
                 ensure_positions(g); // keep clip_paths sized to the states before indexing
 
                 // Layer selector.
-                LayerDesc& layer = current_layer(g);
+                LayerDescription& layer = current_layer(g);
                 if (ImGui::BeginCombo("Layer", layer.name.c_str()))
                 {
                     for (int i = 0; i < static_cast<int>(g.controller.layers.size()); ++i)
@@ -381,7 +382,7 @@ namespace SushiEngine
                 ImGui::SameLine();
                 if (ImGui::Button("Add") && g.new_state[0] != '\0')
                 {
-                    StateDesc s;
+                    StateDescription s;
                     s.name = g.new_state;
                     layer.states.push_back(s);
                     if (layer.default_state.empty())
@@ -390,7 +391,7 @@ namespace SushiEngine
                 }
                 if (g.selected_state >= 0 && g.selected_state < static_cast<int>(layer.states.size()))
                 {
-                    StateDesc& s = layer.states[g.selected_state];
+                    StateDescription& s = layer.states[g.selected_state];
                     char buffer[64];
                     std::snprintf(buffer, sizeof(buffer), "%s", s.name.c_str());
                     if (ImGui::InputText("Name", buffer, sizeof(buffer)))
@@ -418,11 +419,11 @@ namespace SushiEngine
                 ImGui::SameLine();
                 if (ImGui::Button("Add##p") && g.new_param[0] != '\0')
                     g.controller.parameters.push_back(
-                        ParameterDesc{g.new_param, ParameterType::Float, 0.0f});
+                        ParameterDescription{g.new_param, ParameterType::Float, 0.0f});
                 int remove_param = -1;
                 for (int i = 0; i < static_cast<int>(g.controller.parameters.size()); ++i)
                 {
-                    ParameterDesc& p = g.controller.parameters[i];
+                    ParameterDescription& p = g.controller.parameters[i];
                     ImGui::PushID(i);
                     char buffer[64];
                     std::snprintf(buffer, sizeof(buffer), "%s", p.name.c_str());
@@ -459,7 +460,7 @@ namespace SushiEngine
             // Removes a state and every transition (in any state or Any-State) that targets it.
             void delete_state(GraphState& g, int index)
             {
-                LayerDesc& layer = current_layer(g);
+                LayerDescription& layer = current_layer(g);
                 if (index < 0 || index >= static_cast<int>(layer.states.size()))
                     return;
                 const std::string name = layer.states[index].name;
@@ -469,14 +470,14 @@ namespace SushiEngine
                     g.positions.erase(g.positions.begin() + index);
                 if (index < static_cast<int>(g.clip_paths.size()))
                     g.clip_paths.erase(g.clip_paths.begin() + index);
-                const auto strip = [&](std::vector<TransitionDesc>& list)
+                const auto strip = [&](std::vector<TransitionDescription>& list)
                 {
                     list.erase(std::remove_if(list.begin(), list.end(),
-                                              [&](const TransitionDesc& t)
+                                              [&](const TransitionDescription& t)
                                               { return t.destination == name; }),
                                list.end());
                 };
-                for (StateDesc& s : layer.states)
+                for (StateDescription& s : layer.states)
                     strip(s.transitions);
                 strip(layer.any_state_transitions);
                 if (layer.default_state == name)
@@ -503,7 +504,7 @@ namespace SushiEngine
             {
                 ImGui::BeginChild("graph", ImVec2(0.0f, 0.0f), true,
                                   ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoMove);
-                LayerDesc& layer = current_layer(g);
+                LayerDescription& layer = current_layer(g);
                 ensure_positions(g);
 
                 const ImVec2 origin = ImGui::GetCursorScreenPos();
@@ -606,7 +607,7 @@ namespace SushiEngine
                     {
                         if (g.linking && g.link_source != i)
                         {
-                            TransitionDesc transition;
+                            TransitionDescription transition;
                             transition.destination = layer.states[i].name;
                             transition.duration = 0.1f;
                             if (g.link_source == -2)
@@ -629,7 +630,7 @@ namespace SushiEngine
                             for (int j = 0; j < count; ++j)
                                 if (j != i && ImGui::MenuItem(layer.states[j].name.c_str()))
                                 {
-                                    TransitionDesc t;
+                                    TransitionDescription t;
                                     t.destination = layer.states[j].name;
                                     t.duration = 0.1f;
                                     layer.states[i].transitions.push_back(t);
@@ -637,7 +638,7 @@ namespace SushiEngine
                             ImGui::Separator();
                             if (ImGui::MenuItem("Exit"))
                             {
-                                TransitionDesc t;
+                                TransitionDescription t;
                                 t.destination = "Exit";
                                 layer.states[i].transitions.push_back(t);
                             }
@@ -700,7 +701,7 @@ namespace SushiEngine
                     if (g.link_source >= 0 && g.link_source < count &&
                         (target >= 0 || over_exit) && target != g.link_source)
                     {
-                        TransitionDesc transition;
+                        TransitionDescription transition;
                         transition.destination = over_exit ? std::string("Exit")
                                                            : layer.states[target].name;
                         transition.duration = 0.1f;
@@ -802,7 +803,7 @@ namespace SushiEngine
                     int ht = -1;
                     if (hit_transition(mouse, hs, ht))
                     {
-                        std::vector<TransitionDesc>& list = layer.states[hs].transitions;
+                        std::vector<TransitionDescription>& list = layer.states[hs].transitions;
                         if (ht < static_cast<int>(list.size()))
                             list.erase(list.begin() + ht);
                         g.selected_transition_state = -1;
@@ -819,7 +820,7 @@ namespace SushiEngine
                 {
                     if (ImGui::MenuItem("Add State Here"))
                     {
-                        StateDesc s;
+                        StateDescription s;
                         s.name = "State " + std::to_string(layer.states.size());
                         layer.states.push_back(s);
                         if (layer.default_state.empty())
@@ -895,8 +896,8 @@ namespace SushiEngine
 
             if (ImGui::Button("Add State"))
             {
-                LayerDesc& layer = current_layer(g);
-                StateDesc s;
+                LayerDescription& layer = current_layer(g);
+                StateDescription s;
                 s.name = "State " + std::to_string(layer.states.size());
                 layer.states.push_back(s);
                 if (layer.default_state.empty())
@@ -917,11 +918,11 @@ namespace SushiEngine
                 ImGui::BeginDisabled();
             if (ImGui::Button("Delete Transition"))
             {
-                LayerDesc& layer = current_layer(g);
+                LayerDescription& layer = current_layer(g);
                 if (g.selected_transition_state >= 0 &&
                     g.selected_transition_state < static_cast<int>(layer.states.size()))
                 {
-                    std::vector<TransitionDesc>& list =
+                    std::vector<TransitionDescription>& list =
                         layer.states[g.selected_transition_state].transitions;
                     if (g.selected_transition < static_cast<int>(list.size()))
                         list.erase(list.begin() + g.selected_transition);
@@ -940,11 +941,11 @@ namespace SushiEngine
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
                 ImGui::IsKeyPressed(ImGuiKey_Delete, false))
             {
-                LayerDesc& layer = current_layer(g);
+                LayerDescription& layer = current_layer(g);
                 if (g.selected_transition >= 0 && g.selected_transition_state >= 0 &&
                     g.selected_transition_state < static_cast<int>(layer.states.size()))
                 {
-                    std::vector<TransitionDesc>& list =
+                    std::vector<TransitionDescription>& list =
                         layer.states[g.selected_transition_state].transitions;
                     if (g.selected_transition < static_cast<int>(list.size()))
                         list.erase(list.begin() + g.selected_transition);

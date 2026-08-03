@@ -182,7 +182,7 @@ int main()
     auto runtime = SushiRuntime::API::Runtime::create();
 
     // --- Single-player: a deterministic run matched to a closed-form reference ---
-    Loop::AppConfig config;
+    Loop::AppConfiguration config;
     config.fixed_dt_seconds = FIXED_DT;
     config.chunk_capacity = CHUNK_CAPACITY;
 
@@ -215,7 +215,7 @@ int main()
     server.run_for(TOTAL_TICKS);
     const Vector3 server_position = server.world().get<Position>(server_player).value;
 
-    Loop::AppConfig client_config = config;
+    Loop::AppConfiguration client_config = config;
     client_config.rollback_capacity = TOTAL_TICKS; // retain enough ticks to rewind
     Loop::App<MoveCommand> client(runtime, client_config);
     Entity client_player{};

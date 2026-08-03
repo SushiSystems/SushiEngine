@@ -53,16 +53,16 @@ namespace SushiEngine
          */
         inline void compose_model(const SkeletonView& skeleton, const Vector3f* local_translations,
                                   const Quaternionf* local_rotations, const Vector3f* local_scales,
-                                  Mat4* model) noexcept
+                                  Matrix4* model) noexcept
         {
             for (std::uint32_t i = 0; i < skeleton.joint_count; ++i)
             {
                 const Vector3f& t = local_translations[i];
                 const Quaternionf& r = local_rotations[i];
                 const Vector3f& s = local_scales[i];
-                const Mat4 local = compose_transform(Vector3{t.x, t.y, t.z},
-                                                     Quaternion{r.x, r.y, r.z, r.w},
-                                                     Vector3{s.x, s.y, s.z});
+                const Matrix4 local = compose_transform(Vector3{t.x, t.y, t.z},
+                                                        Quaternion{r.x, r.y, r.z, r.w},
+                                                        Vector3{s.x, s.y, s.z});
                 model[i] = skeleton.parents[i] == NO_PARENT
                                ? local
                                : mul(model[skeleton.parents[i]], local);
@@ -83,7 +83,7 @@ namespace SushiEngine
             Vector3f* local_translations = nullptr; /**< Per-joint local translation (mutable). */
             Quaternionf* local_rotations = nullptr; /**< Per-joint local rotation (mutable). */
             Vector3f* local_scales = nullptr;       /**< Per-joint local scale (mutable). */
-            Mat4* model = nullptr;                  /**< Per-joint model-space matrix (object space). */
+            Matrix4* model = nullptr;                  /**< Per-joint model-space matrix (object space). */
 
             /** @brief Re-composes @ref model from the current local pose. */
             void recompose() noexcept

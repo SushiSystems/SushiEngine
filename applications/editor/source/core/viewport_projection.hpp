@@ -54,7 +54,7 @@ namespace SushiEngine
          * @return False when the point is at or behind the near plane, in which case @p out is
          *         untouched — a caller that draws anyway would draw a line to nowhere.
          */
-        inline bool project_to_screen(const Mat4& view_projection, const Vector3& point,
+        inline bool project_to_screen(const Matrix4& view_projection, const Vector3& point,
                                       const ImVec2& origin, float width, float height, ImVec2& out)
         {
             const Scalar* m = view_projection.m;
@@ -75,7 +75,7 @@ namespace SushiEngine
          * @param point  The position to transform.
          * @return The transformed position.
          */
-        inline Vector3 transform_point(const Mat4& matrix, const Vector3& point)
+        inline Vector3 transform_point(const Matrix4& matrix, const Vector3& point)
         {
             const Scalar* m = matrix.m;
             return Vector3{m[0] * point.x + m[4] * point.y + m[8] * point.z + m[12],

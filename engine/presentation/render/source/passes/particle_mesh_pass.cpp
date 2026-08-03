@@ -105,7 +105,7 @@ namespace SushiEngine
 
             void ParticleMeshPass::create_pipeline()
             {
-                Resources::GraphicsPipelineDesc desc;
+                Resources::GraphicsPipelineDescription desc;
                 desc.layout = pipeline_layout_;
                 desc.vertex_shader = shaders_.module("particle_mesh.vert");
                 desc.fragment_shader = shaders_.module("particle_mesh.frag");
@@ -180,7 +180,7 @@ namespace SushiEngine
                     [this, &frame](VkCommandBuffer cmd, const Graph::PassContext& context)
                     {
                         Push push{};
-                        const Mat4 view_projection =
+                        const Matrix4 view_projection =
                             mul(frame.camera->projection, frame.camera->view);
                         for (int i = 0; i < 16; ++i)
                             push.view_projection[i] = static_cast<float>(view_projection.m[i]);
