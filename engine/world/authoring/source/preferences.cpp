@@ -39,7 +39,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Authoring
     {
         namespace
         {
@@ -711,5 +711,5 @@ namespace SushiEngine
         {
             return std::make_unique<JSONPreferencesStore>(fs::path(path));
         }
-    } // namespace Editor
+    } // namespace Authoring
 } // namespace SushiEngine

@@ -144,8 +144,10 @@ namespace SushiEngine
              * edits it in place; `draw` reports whether it changed.
              */
             SushiEngine::Simulation::EntityTransform* gizmo_target = nullptr;
-            GizmoMode gizmo_mode = GizmoMode::Translate;  /**< Which handle set to draw. */
-            GizmoSpace gizmo_space = GizmoSpace::World;   /**< Local or world axis frame. */
+            /** @brief Which handle set to draw. */
+            Authoring::GizmoMode gizmo_mode = Authoring::GizmoMode::Translate;
+            /** @brief Local or world axis frame. */
+            Authoring::GizmoSpace gizmo_space = Authoring::GizmoSpace::World;
             const GizmoSnap* gizmo_snap = nullptr;        /**< Optional drag snapping. */
 
             /**
@@ -179,7 +181,7 @@ namespace SushiEngine
              *
              * Six floats per segment, in the asset's frame. Segments rather than an asset,
              * because building them means rebuilding hull faces from the stored point set and
-             * that is not a per-frame cost; `CookBakeState` rebuilds them on selection.
+             * that is not a per-frame cost; `Authoring::CookBakeState` rebuilds them on selection.
              */
             const std::vector<float>* collision_wireframe = nullptr;
 
@@ -190,14 +192,14 @@ namespace SushiEngine
              * collision wireframe above: this changes every tick because it *is* the
              * simulation, so caching it would be caching the thing the view exists to
              * watch. Null or empty draws nothing, as does a @ref soft_body_view of
-             * @c SoftBodyDebugView::Off.
+             * @c Authoring::SoftBodyDebugView::Off.
              */
             const std::vector<SushiEngine::Vector3>* soft_body_positions = nullptr;
             const std::vector<SushiEngine::Simulation::SoftBodyElementSample>* soft_body_elements =
                 nullptr;
             /** The selected body's material, which the heat scales normalize against. */
             SushiEngine::Physics::SoftBodyMaterialT<SushiEngine::Scalar> soft_body_material{};
-            SoftBodyDebugView soft_body_view = SoftBodyDebugView::Off;
+            Authoring::SoftBodyDebugView soft_body_view = Authoring::SoftBodyDebugView::Off;
 
             /**
              * @brief Which §14 physics debug categories to draw, and the world to read them from.
@@ -253,7 +255,7 @@ namespace SushiEngine
              * fullscreen undocks the panel to cover the whole editor viewport (Unity's
              * "Maximize on Play"). Null draws no toolbar and fills the panel exactly.
              */
-            GameViewSettings* game_view = nullptr;
+            Authoring::GameViewSettings* game_view = nullptr;
 
             /**
              * Crowd characters extracted from the live world this frame, concatenated with
@@ -311,7 +313,7 @@ namespace SushiEngine
                  * @param open     Visibility flag, bound to the panel's close button.
                  * @param settings The Game view toolbar state this draws and edits in place.
                  */
-                void draw_no_camera(bool& open, GameViewSettings& settings);
+                void draw_no_camera(bool& open, Authoring::GameViewSettings& settings);
 
                 /**
                  * @brief Requests (or releases) fullscreen for this panel.

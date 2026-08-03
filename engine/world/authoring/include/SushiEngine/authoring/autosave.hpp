@@ -21,12 +21,12 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#ifndef SUSHIENGINE_EDITOR_AUTOSAVE_HPP
-#define SUSHIENGINE_EDITOR_AUTOSAVE_HPP
+#ifndef SUSHIENGINE_AUTHORING_AUTOSAVE_HPP
+#define SUSHIENGINE_AUTHORING_AUTOSAVE_HPP
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Authoring
     {
         /**
          * @brief The autosave decision, as a tickable timer free of the editor loop.
@@ -69,7 +69,7 @@ namespace SushiEngine
             private:
                 double accumulated_seconds_ = 0.0;
         };
-    } // namespace Editor
+    } // namespace Authoring
 } // namespace SushiEngine
 
 #endif

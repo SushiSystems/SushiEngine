@@ -31,7 +31,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Authoring
     {
         namespace
         {
@@ -416,5 +416,5 @@ namespace SushiEngine
                 return;
             Physics::Cooking::collision_asset_wireframe(view, wireframe_);
         }
-    } // namespace Editor
+    } // namespace Authoring
 } // namespace SushiEngine

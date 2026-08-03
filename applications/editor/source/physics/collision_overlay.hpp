@@ -32,9 +32,9 @@
  * useful; seeing *where* is what stops somebody spending an afternoon on an invisible wall.
  *
  * Takes line segments rather than an asset, because turning an asset into segments is a
- * cook-time-shaped job — the hull faces have to be rebuilt from the stored point set — and
- * doing it per frame would be paying that cost at frame rate. @ref CookBakeState rebuilds
- * them when the selection changes and hands the result here.
+ * cook-time-shaped job — the hull faces have to be rebuilt from the stored point set — and doing it
+ * per frame would be paying that cost at frame rate. @ref Authoring::CookBakeState rebuilds them
+ * when the selection changes and hands the result here.
  */
 
 #include <cstddef>

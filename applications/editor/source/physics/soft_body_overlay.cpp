@@ -38,11 +38,11 @@ namespace SushiEngine
             /** @brief Packs a `[0, 1]` channel into ImGui's 8-bit representation. */
             int channel(float value) noexcept
             {
-                const int scaled = static_cast<int>(clamp_unit(value) * 255.0f + 0.5f);
+                const int scaled = static_cast<int>(Authoring::clamp_unit(value) * 255.0f + 0.5f);
                 return scaled > 255 ? 255 : scaled;
             }
 
-            ImU32 pack(const HeatColour& colour, int alpha) noexcept
+            ImU32 pack(const Authoring::HeatColour& colour, int alpha) noexcept
             {
                 return IM_COL32(channel(colour.r), channel(colour.g), channel(colour.b), alpha);
             }
@@ -51,12 +51,12 @@ namespace SushiEngine
         std::size_t draw_soft_body_overlay(
             const std::vector<Vector3>& positions,
             const std::vector<Simulation::SoftBodyElementSample>& elements,
-            const Physics::SoftBodyMaterialT<Scalar>& material, SoftBodyDebugView view,
+            const Physics::SoftBodyMaterialT<Scalar>& material, Authoring::SoftBodyDebugView view,
             const Render::CameraView& camera_view, const ImVec2& image_origin, float width,
             float height, ImDrawList* draw_list)
         {
-            if (draw_list == nullptr || view == SoftBodyDebugView::Off || elements.empty() ||
-                positions.empty())
+            if (draw_list == nullptr || view == Authoring::SoftBodyDebugView::Off ||
+                elements.empty() || positions.empty())
                 return 0;
 
             const Matrix4 view_projection = mul(camera_view.projection, camera_view.view);
@@ -75,10 +75,10 @@ namespace SushiEngine
                     continue;
 
                 const ImU32 colour =
-                    view == SoftBodyDebugView::Wireframe
+                    view == Authoring::SoftBodyDebugView::Wireframe
                         ? wireframe_colour
-                        : pack(heat_colour(
-                                   soft_body_element_intensity(view, element, material)),
+                        : pack(Authoring::heat_colour(
+                                   Authoring::soft_body_element_intensity(view, element, material)),
                                200);
 
                 for (const auto& edge : TETRAHEDRON_EDGES)

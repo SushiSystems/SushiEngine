@@ -21,8 +21,8 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#ifndef SUSHIENGINE_EDITOR_GIZMO_STATE_HPP
-#define SUSHIENGINE_EDITOR_GIZMO_STATE_HPP
+#ifndef SUSHIENGINE_AUTHORING_GIZMO_STATE_HPP
+#define SUSHIENGINE_AUTHORING_GIZMO_STATE_HPP
 
 /**
  * @file gizmo_state.hpp
@@ -36,7 +36,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Authoring
     {
         /**
          * @brief Which transform channel the viewport gizmo manipulates.
@@ -66,7 +66,7 @@ namespace SushiEngine
             Local,
             World
         };
-    } // namespace Editor
+    } // namespace Authoring
 } // namespace SushiEngine
 
 #endif

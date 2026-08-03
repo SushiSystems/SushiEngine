@@ -49,7 +49,7 @@ namespace SushiEngine
          * resolves the playback shortcuts (Ctrl+P play/stop, Ctrl+Shift+P pause) and the
          * W/E/R tool hotkeys, so every playback and tool entry point lives in one place.
          * Rendered with `BeginViewportSideBar` like the status bar — always present, no
-         * close button, which is why it no longer has a @ref PanelVisibility flag.
+         * close button, which is why it no longer has a @ref Authoring::PanelVisibility flag.
          *
          * @param context Shared editor state; updates playback and gizmo state.
          */
@@ -79,11 +79,11 @@ namespace SushiEngine
          * @brief Apply a theme to ImGui's active style.
          *
          * Kept as a free function so both startup (from the loaded preferences) and the
-         * Preferences window can apply the same mapping without duplicating it.
+         * Authoring::Preferences window can apply the same mapping without duplicating it.
          *
          * @param theme The theme to install.
          */
-        void apply_theme(EditorTheme theme);
+        void apply_theme(Authoring::EditorTheme theme);
 
         /**
          * @brief Build the default Unity-style dock layout, docking every editor window.

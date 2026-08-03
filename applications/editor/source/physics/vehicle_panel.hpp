@@ -63,9 +63,9 @@ namespace SushiEngine
         /**
          * @brief The vehicle being authored, and what the panel remembers about editing it.
          *
-         * Held by the editor's frame loop rather than by the panel, like
-         * @ref CookBakeState: a panel is a function over state and owning state would make
-         * it impossible to draw twice or to serialize what it holds.
+         * Held by the editor's frame loop rather than by the panel, like @ref
+         * Authoring::CookBakeState: a panel is a function over state and owning state would make it
+         * impossible to draw twice or to serialize what it holds.
          */
         struct VehicleAuthoringState
         {

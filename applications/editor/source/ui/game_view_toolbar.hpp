@@ -41,7 +41,7 @@ namespace SushiEngine
          *
          * @param settings The settings this row edits in place.
          */
-        inline void draw_game_view_toolbar(GameViewSettings& settings)
+        inline void draw_game_view_toolbar(Authoring::GameViewSettings& settings)
         {
             static const char* ASPECT_LABELS[] = {"Free Aspect", "Standard (4:3)", "Widescreen (16:9)",
                                                   "Ultrawide (21:9)", "Square (1:1)"};
@@ -53,7 +53,7 @@ namespace SushiEngine
                 {
                     const bool selected = i == aspect_index;
                     if (ImGui::Selectable(ASPECT_LABELS[i], selected))
-                        settings.aspect = static_cast<GameViewAspectPreset>(i);
+                        settings.aspect = static_cast<Authoring::GameViewAspectPreset>(i);
                     if (selected)
                         ImGui::SetItemDefaultFocus();
                 }
@@ -62,11 +62,12 @@ namespace SushiEngine
 
             // Orientation has no effect on a square aspect and none at all on Free, so it
             // is hidden rather than shown disabled — nothing for the user to set either way.
-            if (settings.aspect != GameViewAspectPreset::Free &&
-                settings.aspect != GameViewAspectPreset::Square1x1)
+            if (settings.aspect != Authoring::GameViewAspectPreset::Free &&
+                settings.aspect != Authoring::GameViewAspectPreset::Square1x1)
             {
                 ImGui::SameLine();
-                const bool portrait = settings.orientation == GameViewOrientation::Portrait;
+                const bool portrait =
+                    settings.orientation == Authoring::GameViewOrientation::Portrait;
                 static const char* ORIENTATION_LABELS[] = {"Landscape", "Portrait"};
                 int orientation_index = portrait ? 1 : 0;
                 ImGui::SetNextItemWidth(110.0f);
@@ -76,8 +77,9 @@ namespace SushiEngine
                     {
                         const bool selected = i == orientation_index;
                         if (ImGui::Selectable(ORIENTATION_LABELS[i], selected))
-                            settings.orientation = i == 1 ? GameViewOrientation::Portrait
-                                                          : GameViewOrientation::Landscape;
+                            settings.orientation =
+                                i == 1 ? Authoring::GameViewOrientation::Portrait
+                                       : Authoring::GameViewOrientation::Landscape;
                         if (selected)
                             ImGui::SetItemDefaultFocus();
                     }

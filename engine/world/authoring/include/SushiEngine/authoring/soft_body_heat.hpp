@@ -42,7 +42,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Authoring
     {
         /** @brief Which of §9.3/§9.4's debug views the viewport draws for a soft body. */
         enum class SoftBodyDebugView : std::uint32_t
@@ -152,5 +152,5 @@ namespace SushiEngine
             }
             return 0.0f;
         }
-    } // namespace Editor
+    } // namespace Authoring
 } // namespace SushiEngine

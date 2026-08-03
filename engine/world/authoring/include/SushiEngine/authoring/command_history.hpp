@@ -21,8 +21,8 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#ifndef SUSHIENGINE_EDITOR_COMMAND_HISTORY_HPP
-#define SUSHIENGINE_EDITOR_COMMAND_HISTORY_HPP
+#ifndef SUSHIENGINE_AUTHORING_COMMAND_HISTORY_HPP
+#define SUSHIENGINE_AUTHORING_COMMAND_HISTORY_HPP
 
 #include <cstdint>
 #include <optional>
@@ -34,7 +34,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Authoring
     {
         /**
          * @brief Undo/redo over whole-world JSON snapshots (`scene_serializer`'s format).
@@ -118,7 +118,7 @@ namespace SushiEngine
                 std::optional<nlohmann::json> pending_;
                 std::uint64_t revision_ = 0;
         };
-    } // namespace Editor
+    } // namespace Authoring
 } // namespace SushiEngine
 
 #endif

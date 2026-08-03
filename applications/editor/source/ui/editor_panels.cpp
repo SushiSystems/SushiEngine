@@ -150,7 +150,7 @@ namespace SushiEngine
 
             if (ImGui::BeginMenu("Edit"))
             {
-                // Undo/redo replaces the world wholesale (see CommandHistory), so entity
+                // Undo/redo replaces the world wholesale (see Authoring::CommandHistory), so entity
                 // ids from before the swap are no longer valid; drop the selection rather
                 // than risk it aliasing an unrelated new entity.
                 if (menu_item_for_action(context, "Undo", "Undo", context.history.can_undo()) &&
@@ -186,7 +186,7 @@ namespace SushiEngine
             {
                 // Domain submenus, alphabetized within each group, so 20+ windows stay
                 // scannable and a new panel has one obvious home instead of a flat list
-                // that grows past the screen. Every item toggles its PanelVisibility
+                // that grows past the screen. Every item toggles its Authoring::PanelVisibility
                 // flag; a reopened window lands in its dock home (build_default_layout
                 // docks all windows, open or not).
                 if (ImGui::BeginMenu("General"))
@@ -247,16 +247,17 @@ namespace SushiEngine
                     // would be one hiding the other.
                     if (ImGui::BeginMenu("Soft Body View"))
                     {
-                        const auto item = [&context](const char* label, SoftBodyDebugView view)
+                        const auto item = [&context](const char* label,
+                                                     Authoring::SoftBodyDebugView view)
                         {
                             if (ImGui::MenuItem(label, nullptr,
                                                 context.soft_body_debug_view == view))
                                 context.soft_body_debug_view = view;
                         };
-                        item("Off", SoftBodyDebugView::Off);
-                        item("Tetrahedra", SoftBodyDebugView::Wireframe);
-                        item("Stress", SoftBodyDebugView::Stress);
-                        item("Plastic Strain", SoftBodyDebugView::PlasticStrain);
+                        item("Off", Authoring::SoftBodyDebugView::Off);
+                        item("Tetrahedra", Authoring::SoftBodyDebugView::Wireframe);
+                        item("Stress", Authoring::SoftBodyDebugView::Stress);
+                        item("Plastic Strain", Authoring::SoftBodyDebugView::PlasticStrain);
                         ImGui::EndMenu();
                     }
                     ImGui::EndMenu();
@@ -429,8 +430,9 @@ namespace SushiEngine
                 ImGui::SameLine();
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextDisabled("|");
-                const GizmoMode modes[3] = {GizmoMode::Translate, GizmoMode::Rotate,
-                                            GizmoMode::Scale};
+                const Authoring::GizmoMode modes[3] = {Authoring::GizmoMode::Translate,
+                                                       Authoring::GizmoMode::Rotate,
+                                                       Authoring::GizmoMode::Scale};
                 const ToolbarIcon mode_icons[3] = {ToolbarIcon::Move, ToolbarIcon::Rotate,
                                                    ToolbarIcon::Scale};
                 const char* mode_ids[3] = {"tool_move", "tool_rotate", "tool_scale"};
@@ -451,13 +453,13 @@ namespace SushiEngine
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextDisabled("|");
                 ImGui::SameLine();
-                ImGui::BeginDisabled(context.gizmo_mode == GizmoMode::Scale);
+                ImGui::BeginDisabled(context.gizmo_mode == Authoring::GizmoMode::Scale);
                 const char* space_label =
-                    context.gizmo_space == GizmoSpace::Local ? "Local" : "World";
+                    context.gizmo_space == Authoring::GizmoSpace::Local ? "Local" : "World";
                 if (ImGui::Button(space_label))
-                    context.gizmo_space = context.gizmo_space == GizmoSpace::Local
-                                              ? GizmoSpace::World
-                                              : GizmoSpace::Local;
+                    context.gizmo_space = context.gizmo_space == Authoring::GizmoSpace::Local
+                                              ? Authoring::GizmoSpace::World
+                                              : Authoring::GizmoSpace::Local;
                 ImGui::EndDisabled();
 
                 // Overall Quality: a *derived* preset over the per-domain tiers, never
@@ -514,11 +516,11 @@ namespace SushiEngine
                     !ImGui::IsMouseDown(ImGuiMouseButton_Right))
                 {
                     if (context.input_snapshot->pressed("GizmoTranslate"))
-                        context.gizmo_mode = GizmoMode::Translate;
+                        context.gizmo_mode = Authoring::GizmoMode::Translate;
                     else if (context.input_snapshot->pressed("GizmoRotate"))
-                        context.gizmo_mode = GizmoMode::Rotate;
+                        context.gizmo_mode = Authoring::GizmoMode::Rotate;
                     else if (context.input_snapshot->pressed("GizmoScale"))
-                        context.gizmo_mode = GizmoMode::Scale;
+                        context.gizmo_mode = Authoring::GizmoMode::Scale;
                 }
             }
             ImGui::End();
@@ -959,20 +961,20 @@ namespace SushiEngine
             }
         } // namespace
 
-        void apply_theme(EditorTheme theme)
+        void apply_theme(Authoring::EditorTheme theme)
         {
             // The base palette first, then the shell's own geometry and accent over it: the
             // theme choice stays a choice about lightness, and the parts of the look that are
             // the editor's identity rather than the user's preference do not fork three ways.
             switch (theme)
             {
-                case EditorTheme::Light:   ImGui::StyleColorsLight(); break;
-                case EditorTheme::Classic: ImGui::StyleColorsClassic(); break;
-                case EditorTheme::Dark:    ImGui::StyleColorsDark(); break;
+                case Authoring::EditorTheme::Light:   ImGui::StyleColorsLight(); break;
+                case Authoring::EditorTheme::Classic: ImGui::StyleColorsClassic(); break;
+                case Authoring::EditorTheme::Dark:    ImGui::StyleColorsDark(); break;
             }
             ImGuiStyle& style = ImGui::GetStyle();
             apply_metrics(style);
-            apply_accent(style, theme == EditorTheme::Light);
+            apply_accent(style, theme == Authoring::EditorTheme::Light);
         }
 
 

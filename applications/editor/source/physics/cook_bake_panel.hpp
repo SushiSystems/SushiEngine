@@ -29,11 +29,12 @@
  *
  * §14's collider and soft-body inspectors, as one window rather than two, because they show
  * the same thing about the same asset: what the cook made and what it cost. Splitting them
- * would mean two panels reading one @ref CookBakeState and an artist checking two places to
- * find out whether a crate is solid.
+ * would mean two panels reading one @ref Authoring::CookBakeState and an artist
+ * checking two places to find out whether a crate is solid.
  *
  * Widgets only. Every decision — which profile applies, whether Re-cook has to evict, when
- * the overlay's geometry is rebuilt — is in @ref CookBakeState, which links no UI and is
+ * the overlay's geometry is rebuilt — is in @ref Authoring::CookBakeState, which links no UI
+ * and is
  * tested. This file is the part that cannot be tested, and it is kept small for exactly that
  * reason.
  */
@@ -55,6 +56,6 @@ namespace SushiEngine
          * @param context Editor state (the panel-open flag).
          * @param state   The bake model; polled every frame.
          */
-        void draw_cook_bake_panel(EditorContext& context, CookBakeState& state);
+        void draw_cook_bake_panel(EditorContext& context, Authoring::CookBakeState& state);
     } // namespace Editor
 } // namespace SushiEngine

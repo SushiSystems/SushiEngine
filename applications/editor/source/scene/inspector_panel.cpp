@@ -1022,7 +1022,7 @@ namespace SushiEngine
                         ImGui::SameLine();
                         if (ImGui::Button("Load") && context.cook_bake_state != nullptr)
                         {
-                            const BakedAssetEntry* entry =
+                            const Authoring::BakedAssetEntry* entry =
                                 context.cook_bake_state->entry(context.soft_body_source_path);
                             if (entry != nullptr && entry->has_soft_body())
                             {

@@ -28,12 +28,12 @@
  * @file editor_contexts.hpp
  * @brief The editor's shortcut and tool keys, as rebindable input contexts.
  *
- * These replace the ad-hoc `ImGui::IsKeyPressed` polls that were scattered across
- * `main.cpp` and `editor_panels.cpp`: every shortcut is now one binding, in data, resolved
- * once by the `ActionMapper` and gated in one place (the ImGui capture gate). Consumers query
- * the resolved `ActionSnapshot` by action name and never touch a key code, so W/E/R and Ctrl+Z
- * become rebindable from the Preferences page without any consumer change. Both Left and Right
- * Control are bound so either modifier satisfies a `Ctrl+*` shortcut, matching ImGui's `KeyCtrl`.
+ * These replace the ad-hoc `ImGui::IsKeyPressed` polls that were scattered across `main.cpp` and
+ * `editor_panels.cpp`: every shortcut is now one binding, in data, resolved once by the
+ * `ActionMapper` and gated in one place (the ImGui capture gate). Consumers query the resolved
+ * `ActionSnapshot` by action name and never touch a key code, so W/E/R and Ctrl+Z become rebindable
+ * from the Authoring::Preferences page without any consumer change. Both Left and Right Control are
+ * bound so either modifier satisfies a `Ctrl+*` shortcut, matching ImGui's `KeyCtrl`.
  */
 
 #include <SushiEngine/input/action_map.hpp>
@@ -117,10 +117,10 @@ namespace SushiEngine
          * shell can push and pop, so "the arrow keys steer while a car is selected and are
          * ordinary keys otherwise" is a push, not a condition every consumer repeats.
          *
-         * Arrow keys rather than WASD, deliberately: W, E and R are the gizmo keys and a
-         * driving binding that stole them would make the tool keys stop working the moment
-         * an author selected a car — which is exactly the kind of modal surprise a rebindable
-         * context exists to avoid. They are rebindable from Preferences like everything else.
+         * Arrow keys rather than WASD, deliberately: W, E and R are the gizmo keys and a driving
+         * binding that stole them would make the tool keys stop working the moment an author
+         * selected a car — which is exactly the kind of modal surprise a rebindable context exists
+         * to avoid. They are rebindable from Authoring::Preferences like everything else.
          *
          * @param context The (empty) context to populate; the caller owns it.
          */

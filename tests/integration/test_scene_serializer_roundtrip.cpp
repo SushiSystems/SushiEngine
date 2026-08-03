@@ -26,7 +26,7 @@
 // component the capture forgets is a component all four silently destroy.
 // These tests pin the components that were once missing (lights, decals,
 // materials and their texture paths) through the real simulation, plus the
-// CommandHistory path that turns the same snapshots into undo steps.
+// Authoring::CommandHistory path that turns the same snapshots into undo steps.
 
 #include <string>
 
@@ -277,7 +277,7 @@ TEST(Integration_SceneSerializer, UndoRestoresLightsDecalsMaterials)
 
     // The editor's delete path: snapshot, then mutate. Undo must bring back the
     // whole authored scene, not the entity skeletons.
-    Editor::CommandHistory history;
+    Authoring::CommandHistory history;
     history.record(world);
     world.destroy(find_by_name(world, "KeyLight"));
     world.destroy(find_by_name(world, "Splash"));
@@ -376,7 +376,7 @@ TEST(Integration_SceneSerializer, UndoRestoresTheEnvironment)
 
     // The editor's environment-edit path: snapshot, then write (see
     // commit_environment_edit) — one Ctrl+Z must bring the authored sky back.
-    Editor::CommandHistory history;
+    Authoring::CommandHistory history;
     history.record(world);
     world.set_environment(SushiEngine::Render::Environment{});
 

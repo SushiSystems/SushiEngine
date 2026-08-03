@@ -44,7 +44,7 @@ namespace SushiEngine
                 return;
             }
 
-            Preferences& preferences = context.preferences;
+            Authoring::Preferences& preferences = context.preferences;
             bool changed = false;
 
             if (ImGui::CollapsingHeader("General", ImGuiTreeNodeFlags_DefaultOpen))
@@ -53,7 +53,7 @@ namespace SushiEngine
                 int theme_index = static_cast<int>(preferences.theme);
                 if (ImGui::Combo("Theme", &theme_index, theme_items, 3))
                 {
-                    preferences.theme = static_cast<EditorTheme>(theme_index);
+                    preferences.theme = static_cast<Authoring::EditorTheme>(theme_index);
                     apply_theme(preferences.theme);
                     changed = true;
                 }

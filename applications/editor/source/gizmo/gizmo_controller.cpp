@@ -119,7 +119,8 @@ namespace SushiEngine
         }
 
         GizmoController::Result GizmoController::manipulate(
-            GizmoMode mode, GizmoSpace space, SushiEngine::Simulation::EntityTransform& transform,
+            Authoring::GizmoMode mode, Authoring::GizmoSpace space,
+            SushiEngine::Simulation::EntityTransform& transform,
             const SushiEngine::Render::CameraView& camera_view, const ImVec2& image_origin,
             float width, float height, bool hovered, const GizmoSnap& snap)
         {
@@ -150,8 +151,10 @@ namespace SushiEngine
             }
             const float gizmo_scale = frustum_height * 0.15f; // Increased from 0.08f for better visibility
 
-            // Scale always drags in local axes (see GizmoSpace); Translate/Rotate honour space_.
-            const bool use_local = mode == GizmoMode::Scale || space == GizmoSpace::Local;
+            // Scale always drags in local axes (see Authoring::GizmoSpace); Translate/Rotate honour
+            // space_.
+            const bool use_local =
+                mode == Authoring::GizmoMode::Scale || space == Authoring::GizmoSpace::Local;
 
             ImVec2 origin_screen;
             const bool origin_ok =
@@ -166,13 +169,13 @@ namespace SushiEngine
             if (axis_ >= 0 && (!left_down || mode_ != mode || space_ != space))
                 axis_ = -1;
 
-            // The handle basis: world axes, or the selection's own axes when Local (always
-            // for Scale, per GizmoSpace). Drawn live so the handles turn with the object.
+            // The handle basis: world axes, or the selection's own axes when Local (always for
+            // Scale, per Authoring::GizmoSpace). Drawn live so the handles turn with the object.
             const Vector3 draw_axes[3] = {use_local ? rotate_vector(transform.rotation, AXES[0]) : AXES[0],
                                        use_local ? rotate_vector(transform.rotation, AXES[1]) : AXES[1],
                                        use_local ? rotate_vector(transform.rotation, AXES[2]) : AXES[2]};
 
-            if (mode == GizmoMode::Rotate)
+            if (mode == Authoring::GizmoMode::Rotate)
             {
                 // Three axis rings sampled as polylines around the pivot. A drag intersects
                 // the mouse ray with the axis's own plane through the pivot each frame and
@@ -304,13 +307,13 @@ namespace SushiEngine
                     if (tip_ok[a])
                     {
                         draw_list->AddLine(origin_screen, tip_screen[a], AXIS_COLORS[a], 3.0f);
-                        if (mode == GizmoMode::Scale)
+                        if (mode == Authoring::GizmoMode::Scale)
                             draw_list->AddRectFilled(
                                 ImVec2(tip_screen[a].x - 4.0f, tip_screen[a].y - 4.0f),
                                 ImVec2(tip_screen[a].x + 4.0f, tip_screen[a].y + 4.0f), AXIS_COLORS[a]);
                     }
                 }
-            if (mode == GizmoMode::Scale && origin_ok)
+            if (mode == Authoring::GizmoMode::Scale && origin_ok)
                 draw_list->AddRectFilled(ImVec2(origin_screen.x - 5.0f, origin_screen.y - 5.0f),
                                          ImVec2(origin_screen.x + 5.0f, origin_screen.y + 5.0f),
                                          IM_COL32(220, 220, 220, 255));
@@ -336,7 +339,7 @@ namespace SushiEngine
                     const float along = (mouse.x - start_mouse_.x) * axis_screen_.x +
                                         (mouse.y - start_mouse_.y) * axis_screen_.y;
                     float world = along * world_per_pixel_;
-                    if (mode == GizmoMode::Translate)
+                    if (mode == Authoring::GizmoMode::Translate)
                     {
                         if (snap.enabled)
                             world = snap_to(world, snap.translate);
@@ -365,7 +368,7 @@ namespace SushiEngine
             else if (origin_ok && hovered && left_clicked)
             {
                 // Uniform centre handle (scale only) wins if the cursor is over the pivot.
-                if (mode == GizmoMode::Scale)
+                if (mode == Authoring::GizmoMode::Scale)
                 {
                     const float cdx = mouse.x - origin_screen.x, cdy = mouse.y - origin_screen.y;
                     if (std::sqrt(cdx * cdx + cdy * cdy) < 6.0f)

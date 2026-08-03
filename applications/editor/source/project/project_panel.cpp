@@ -67,11 +67,11 @@ namespace SushiEngine
                 return ext == ".gltf" || ext == ".glb";
             }
 
-            // Queues a mesh for the physics cooking pipeline the moment the project panel
-            // actually opens it, rather than only when an artist finds the Bake panel and
-            // presses its button. `CookBakeState::bake` is a no-op past the first call for
-            // an unchanged asset (§8.1's cache), so opening the same file twice costs one
-            // cache lookup, not a second cook.
+            // Queues a mesh for the physics cooking pipeline the moment the project panel actually
+            // opens it, rather than only when an artist finds the Bake panel and presses its
+            // button. `Authoring::CookBakeState::bake` is a no-op past the first call for an
+            // unchanged asset (§8.1's cache), so opening the same file twice costs one cache
+            // lookup, not a second cook.
             void queue_mesh_for_cooking(EditorContext& context, const fs::path& path)
             {
                 if (context.cook_bake_state == nullptr)

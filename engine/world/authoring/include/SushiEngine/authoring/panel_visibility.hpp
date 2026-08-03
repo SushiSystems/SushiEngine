@@ -21,12 +21,12 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#ifndef SUSHIENGINE_EDITOR_PANEL_VISIBILITY_HPP
-#define SUSHIENGINE_EDITOR_PANEL_VISIBILITY_HPP
+#ifndef SUSHIENGINE_AUTHORING_PANEL_VISIBILITY_HPP
+#define SUSHIENGINE_AUTHORING_PANEL_VISIBILITY_HPP
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Authoring
     {
         /**
          * @brief Which editor windows are currently shown.
@@ -94,7 +94,7 @@ namespace SushiEngine
             /** @brief The floating Input Manager window (Edit ▸ Input Manager...). */
             bool input_manager = false;
         };
-    } // namespace Editor
+    } // namespace Authoring
 } // namespace SushiEngine
 
 #endif

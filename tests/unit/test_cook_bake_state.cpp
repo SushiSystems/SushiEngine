@@ -24,7 +24,7 @@
 // The bake surface's decisions, which is everything about it that can be wrong: whether
 // Re-cook actually gets past the cache, whether the overlay follows the selection, whether a
 // re-bake updates a row or adds one. None of that is reachable through an ImGui call, which
-// is why `CookBakeState` links no UI and the panel over it is only widgets.
+// is why `Authoring::CookBakeState` links no UI and the panel over it is only widgets.
 
 #include <cstddef>
 #include <cstdint>
@@ -40,7 +40,7 @@
 #include <SushiEngine/authoring/cook_bake_state.hpp>
 
 using namespace SushiEngine;
-using namespace SushiEngine::Editor;
+using namespace SushiEngine::Authoring;
 
 namespace
 {
@@ -88,7 +88,7 @@ namespace
     }
 
     /** @brief Makes the state's project default cook quickly. */
-    void make_quick(CookBakeState& state, bool soft_body)
+    void make_quick(Authoring::CookBakeState& state, bool soft_body)
     {
         Physics::Cooking::ImportProfile profile;
         profile.parameters.fidelity = 0.0f;
@@ -102,7 +102,8 @@ namespace
     }
 
     /** @brief Bakes @p path and waits for it, the way a build machine would. */
-    void bake_and_settle(CookBakeState& state, const std::string& path, bool rebake = false)
+    void bake_and_settle(Authoring::CookBakeState& state, const std::string& path,
+                         bool rebake = false)
     {
         if (rebake)
             state.rebake(path);
@@ -117,13 +118,13 @@ namespace
 
 TEST(Unit_CookBakeState, FilesACookAndBuildsTheOverlayForIt)
 {
-    CookBakeState state(table_loader(), std::string());
+    Authoring::CookBakeState state(table_loader(), std::string());
     make_quick(state, false);
 
     bake_and_settle(state, "crate.gltf");
     ASSERT_EQ(state.entries().size(), 1u);
 
-    const BakedAssetEntry* entry = state.entry("crate.gltf");
+    const Authoring::BakedAssetEntry* entry = state.entry("crate.gltf");
     ASSERT_NE(entry, nullptr);
     EXPECT_TRUE(entry->loaded);
     EXPECT_EQ(entry->source_triangle_count, 12u);
@@ -148,7 +149,7 @@ TEST(Unit_CookBakeState, FilesACookAndBuildsTheOverlayForIt)
 
 TEST(Unit_CookBakeState, ReBakesIntoTheSameRowRatherThanASecondOne)
 {
-    CookBakeState state(table_loader(), std::string());
+    Authoring::CookBakeState state(table_loader(), std::string());
     make_quick(state, false);
 
     bake_and_settle(state, "crate.gltf");
@@ -165,7 +166,7 @@ TEST(Unit_CookBakeState, ReBakesIntoTheSameRowRatherThanASecondOne)
 
 TEST(Unit_CookBakeState, ReCookGetsPastTheCacheAndAPlainBakeDoesNot)
 {
-    CookBakeState state(table_loader(), std::string());
+    Authoring::CookBakeState state(table_loader(), std::string());
     make_quick(state, false);
 
     bake_and_settle(state, "crate.gltf");
@@ -188,7 +189,7 @@ TEST(Unit_CookBakeState, ReCookGetsPastTheCacheAndAPlainBakeDoesNot)
 
 TEST(Unit_CookBakeState, TheOverlayFollowsTheSelection)
 {
-    CookBakeState state(table_loader(), std::string());
+    Authoring::CookBakeState state(table_loader(), std::string());
     make_quick(state, false);
 
     bake_and_settle(state, "crate.gltf");
@@ -215,11 +216,11 @@ TEST(Unit_CookBakeState, TheOverlayFollowsTheSelection)
 
 TEST(Unit_CookBakeState, ReportsAnAssetItCouldNotLoadAndDrawsNothingForIt)
 {
-    CookBakeState state(table_loader(), std::string());
+    Authoring::CookBakeState state(table_loader(), std::string());
     make_quick(state, false);
 
     bake_and_settle(state, "missing.gltf");
-    const BakedAssetEntry* entry = state.entry("missing.gltf");
+    const Authoring::BakedAssetEntry* entry = state.entry("missing.gltf");
     // Filed, not dropped: an artist has to be able to see that the import failed.
     ASSERT_NE(entry, nullptr);
     EXPECT_FALSE(entry->loaded);
@@ -229,11 +230,11 @@ TEST(Unit_CookBakeState, ReportsAnAssetItCouldNotLoadAndDrawsNothingForIt)
 
 TEST(Unit_CookBakeState, CooksBothKindsWhenTheProfileAsksForThem)
 {
-    CookBakeState state(table_loader(), std::string());
+    Authoring::CookBakeState state(table_loader(), std::string());
     make_quick(state, true);
 
     bake_and_settle(state, "crate.gltf");
-    const BakedAssetEntry* entry = state.entry("crate.gltf");
+    const Authoring::BakedAssetEntry* entry = state.entry("crate.gltf");
     ASSERT_NE(entry, nullptr);
     ASSERT_TRUE(entry->has_collision());
     ASSERT_TRUE(entry->has_soft_body());
@@ -246,7 +247,7 @@ TEST(Unit_CookBakeState, CooksBothKindsWhenTheProfileAsksForThem)
     state.profiles().set_override("pillar.gltf", rigid_only);
 
     bake_and_settle(state, "pillar.gltf");
-    const BakedAssetEntry* pillar = state.entry("pillar.gltf");
+    const Authoring::BakedAssetEntry* pillar = state.entry("pillar.gltf");
     ASSERT_NE(pillar, nullptr);
     EXPECT_TRUE(pillar->has_collision());
     EXPECT_FALSE(pillar->has_soft_body());
@@ -256,14 +257,14 @@ TEST(Unit_CookBakeState, TheProjectDefaultAndAnOverrideSurviveASaveAndLoad)
 {
     // §16.45.3: the Bake panel's settings had no storage path at all — every edit made in a
     // session was gone the moment the editor closed. This is the claim that they are not,
-    // written the way an editor restart actually exercises it: a fresh `CookBakeState`,
+    // written the way an editor restart actually exercises it: a fresh `Authoring::CookBakeState`,
     // pointed at the same path, must read back exactly what the first one wrote.
     const std::filesystem::path path =
         std::filesystem::temp_directory_path() / "sushiengine_cook_bake_state_test.json";
     std::filesystem::remove(path);
 
     {
-        CookBakeState writer(table_loader(), std::string());
+        Authoring::CookBakeState writer(table_loader(), std::string());
         writer.set_profile_storage_path(path.string());
 
         Physics::Cooking::ImportProfile project;
@@ -280,7 +281,7 @@ TEST(Unit_CookBakeState, TheProjectDefaultAndAnOverrideSurviveASaveAndLoad)
         ASSERT_TRUE(writer.save_profiles());
     }
 
-    CookBakeState reader(table_loader(), std::string());
+    Authoring::CookBakeState reader(table_loader(), std::string());
     reader.set_profile_storage_path(path.string());
     ASSERT_TRUE(reader.load_profiles());
 
@@ -302,7 +303,7 @@ TEST(Unit_CookBakeState, TheProjectDefaultAndAnOverrideSurviveASaveAndLoad)
 
 TEST(Unit_CookBakeState, AnUnsetStoragePathIsANoOpRatherThanAFailure)
 {
-    CookBakeState state(table_loader(), std::string());
+    Authoring::CookBakeState state(table_loader(), std::string());
     EXPECT_TRUE(state.save_profiles());
     EXPECT_TRUE(state.load_profiles());
 }
@@ -311,7 +312,7 @@ TEST(Unit_CollisionWireframe, DrawsStaticGeometryAsItsOwnTriangles)
 {
     // A static asset's collider *is* the mesh, so the overlay is the cooked triangles rather
     // than a rebuilt hull — and the segment count reflects a whole box, not one hull edge set.
-    CookBakeState state(table_loader(), std::string());
+    Authoring::CookBakeState state(table_loader(), std::string());
     Physics::Cooking::ImportProfile profile;
     profile.parameters.fidelity = 0.0f;
     profile.parameters.distance_field_resolution = 8;
@@ -320,7 +321,7 @@ TEST(Unit_CollisionWireframe, DrawsStaticGeometryAsItsOwnTriangles)
     state.profiles().set_project_default(profile);
 
     bake_and_settle(state, "crate.gltf");
-    const BakedAssetEntry* entry = state.entry("crate.gltf");
+    const Authoring::BakedAssetEntry* entry = state.entry("crate.gltf");
     ASSERT_NE(entry, nullptr);
     ASSERT_TRUE(entry->has_collision());
 

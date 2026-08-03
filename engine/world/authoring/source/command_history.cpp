@@ -27,7 +27,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Authoring
     {
         namespace
         {
@@ -90,5 +90,5 @@ namespace SushiEngine
             ++revision_;
             return true;
         }
-    } // namespace Editor
+    } // namespace Authoring
 } // namespace SushiEngine

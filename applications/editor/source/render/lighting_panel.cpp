@@ -116,7 +116,7 @@ namespace SushiEngine
             if (env_changed)
                 // The environment is scene content: the write lands in the world (and so
                 // in the scene file, the undo history, and the play snapshot), bracketed
-                // as one undo step per gesture. Preferences keep only the *default* for
+                // as one undo step per gesture. Authoring::Preferences keep only the *default* for
                 // new scenes, which editing a live scene deliberately does not touch.
                 commit_environment_edit(context, *world, environment);
             finish_environment_edit(context);

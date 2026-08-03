@@ -25,7 +25,7 @@
 
 /**
  * @file preferences_window.hpp
- * @brief The Preferences window: the editor's own settings, not the scene's.
+ * @brief The Authoring::Preferences window: the editor's own settings, not the scene's.
  *
  * Beside `preferences.{hpp,cpp}` because it is the one surface that edits that
  * aggregate wholesale. Any change here raises `preferences_dirty`, and the main loop
@@ -39,7 +39,7 @@ namespace SushiEngine
     namespace Editor
     {
         /**
-         * @brief Draws the Preferences window when its panel flag is set.
+         * @brief Draws the Authoring::Preferences window when its panel flag is set.
          *
          * Edits @ref EditorContext::preferences in place across its General / Editor /
          * Scene sections. The precision control is compile-time, so it records intent and

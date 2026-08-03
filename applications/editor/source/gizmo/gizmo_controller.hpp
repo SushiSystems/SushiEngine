@@ -34,7 +34,7 @@ namespace SushiEngine
     namespace Editor
     {
         /**
-         * @brief Optional grid snapping applied to a gizmo drag, from Preferences.
+         * @brief Optional grid snapping applied to a gizmo drag, from Authoring::Preferences.
          *
          * When enabled, a drag's accumulated delta is quantised: translation to a world
          * step, rotation to a degree step, scale to a step. Off by default so free drags
@@ -51,7 +51,7 @@ namespace SushiEngine
         /**
          * @brief The interactive transform gizmo for a viewport, one responsibility.
          *
-         * Draws the handle set for the current @ref GizmoMode at a selection's transform
+         * Draws the handle set for the current @ref Authoring::GizmoMode at a selection's transform
          * and turns a left-mouse drag into an edit of that transform, projecting through
          * the panel's camera. It owns only the drag state captured at grab time so the
          * pixel-to-world mapping stays stable while the object moves; the panel owns the
@@ -82,7 +82,7 @@ namespace SushiEngine
                  * @param snap          Optional snapping applied to the drag.
                  * @return Whether the transform changed and whether the click was consumed.
                  */
-                Result manipulate(GizmoMode mode, GizmoSpace space,
+                Result manipulate(Authoring::GizmoMode mode, Authoring::GizmoSpace space,
                                   SushiEngine::Simulation::EntityTransform& transform,
                                   const SushiEngine::Render::CameraView& camera_view,
                                   const ImVec2& image_origin, float width, float height,
@@ -100,8 +100,8 @@ namespace SushiEngine
                 // Active-drag state. axis_ is the grabbed axis (0=X,1=Y,2=Z, 3=uniform for
                 // scale, -1=none); the rest is captured at grab time.
                 int axis_ = -1;
-                GizmoMode mode_ = GizmoMode::Translate;
-                GizmoSpace space_ = GizmoSpace::World;
+                Authoring::GizmoMode mode_ = Authoring::GizmoMode::Translate;
+                Authoring::GizmoSpace space_ = Authoring::GizmoSpace::World;
                 ImVec2 start_mouse_{};
                 ImVec2 axis_screen_{};
                 SushiEngine::Vector3 axis_world_{};

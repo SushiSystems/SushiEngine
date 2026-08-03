@@ -39,7 +39,7 @@
 #include <SushiEngine/authoring/soft_body_heat.hpp>
 
 using namespace SushiEngine;
-using namespace SushiEngine::Editor;
+using namespace SushiEngine::Authoring;
 
 namespace
 {
@@ -67,17 +67,17 @@ TEST(Unit_SoftBodyHeat, TheRampRunsColdToHotAndHitsItsCornersExactly)
 {
     // The corner colours are what makes the ramp readable without a legend, so a
     // formula that only approaches them would turn every reading into a guess.
-    const HeatColour cold = heat_colour(0.0f);
+    const Authoring::HeatColour cold = Authoring::heat_colour(0.0f);
     EXPECT_FLOAT_EQ(cold.b, 1.0f);
     EXPECT_FLOAT_EQ(cold.r, 0.0f);
     EXPECT_FLOAT_EQ(cold.g, 0.0f);
 
-    const HeatColour green = heat_colour(0.5f);
+    const Authoring::HeatColour green = Authoring::heat_colour(0.5f);
     EXPECT_FLOAT_EQ(green.g, 1.0f);
     EXPECT_FLOAT_EQ(green.r, 0.0f);
     EXPECT_FLOAT_EQ(green.b, 0.0f);
 
-    const HeatColour hot = heat_colour(1.0f);
+    const Authoring::HeatColour hot = Authoring::heat_colour(1.0f);
     EXPECT_FLOAT_EQ(hot.r, 1.0f);
     EXPECT_FLOAT_EQ(hot.g, 0.0f);
     EXPECT_FLOAT_EQ(hot.b, 0.0f);
@@ -88,7 +88,8 @@ TEST(Unit_SoftBodyHeat, TheRampRunsColdToHotAndHitsItsCornersExactly)
     float previous_blue = 2.0f;
     for (int step = 0; step <= 40; ++step)
     {
-        const HeatColour colour = heat_colour(static_cast<float>(step) / 40.0f);
+        const Authoring::HeatColour colour =
+            Authoring::heat_colour(static_cast<float>(step) / 40.0f);
         EXPECT_GE(colour.r, previous_red - 1e-6f) << "red fell at step " << step;
         EXPECT_LE(colour.b, previous_blue + 1e-6f) << "blue rose at step " << step;
         previous_red = colour.r;
@@ -100,18 +101,19 @@ TEST(Unit_SoftBodyHeat, AReadingPastFullScaleClampsRatherThanWrapping)
 {
     // The failure this rules out is specific and nasty: a wrapped ramp paints the
     // most broken element the same colour as the calmest one.
-    const HeatColour over = heat_colour(4.0f);
+    const Authoring::HeatColour over = Authoring::heat_colour(4.0f);
     EXPECT_FLOAT_EQ(over.r, 1.0f);
     EXPECT_FLOAT_EQ(over.b, 0.0f);
 
-    const HeatColour under = heat_colour(-2.0f);
+    const Authoring::HeatColour under = Authoring::heat_colour(-2.0f);
     EXPECT_FLOAT_EQ(under.b, 1.0f);
     EXPECT_FLOAT_EQ(under.r, 0.0f);
 
     // NaN reads as the coldest rather than as an arbitrary channel value. A stress
     // that went non-finite is a simulation that has already failed, and the view
     // should not be the thing that decides what colour that is.
-    const HeatColour nan_colour = heat_colour(std::numeric_limits<float>::quiet_NaN());
+    const Authoring::HeatColour nan_colour =
+        Authoring::heat_colour(std::numeric_limits<float>::quiet_NaN());
     EXPECT_FLOAT_EQ(nan_colour.b, 1.0f);
     EXPECT_FLOAT_EQ(nan_colour.r, 0.0f);
 }
@@ -123,14 +125,14 @@ TEST(Unit_SoftBodyHeat, FullScaleIsTheMaterialsYieldAndNotTheBodysWorstElement)
     // maximum-relative scale would say and which would be red on a body at rest.
     const Physics::SoftBodyMaterialT<Scalar> material = steel_like();
 
-    EXPECT_NEAR(soft_body_element_intensity(SoftBodyDebugView::Stress,
+    EXPECT_NEAR(Authoring::soft_body_element_intensity(Authoring::SoftBodyDebugView::Stress,
                                             sample(Scalar(2.5e7), Scalar(0)), material),
                 0.1f, 1e-5f);
-    EXPECT_NEAR(soft_body_element_intensity(SoftBodyDebugView::Stress,
+    EXPECT_NEAR(Authoring::soft_body_element_intensity(Authoring::SoftBodyDebugView::Stress,
                                             sample(material.yield_stress, Scalar(0)), material),
                 1.0f, 1e-5f);
     // Past yield still reads as full scale rather than beyond it.
-    EXPECT_NEAR(soft_body_element_intensity(SoftBodyDebugView::Stress,
+    EXPECT_NEAR(Authoring::soft_body_element_intensity(Authoring::SoftBodyDebugView::Stress,
                                             sample(Scalar(1e10), Scalar(0)), material),
                 1.0f, 1e-5f);
 }
@@ -140,20 +142,20 @@ TEST(Unit_SoftBodyHeat, ABodyAtRestIsNotPaintedRed)
     // Stated as its own case because it is the observable consequence of the
     // decision above, and the one a reviewer would actually notice was wrong.
     const Physics::SoftBodyMaterialT<Scalar> material = steel_like();
-    const float intensity = soft_body_element_intensity(
-        SoftBodyDebugView::Stress, sample(Scalar(0), Scalar(0)), material);
+    const float intensity = Authoring::soft_body_element_intensity(
+        Authoring::SoftBodyDebugView::Stress, sample(Scalar(0), Scalar(0)), material);
     EXPECT_FLOAT_EQ(intensity, 0.0f);
-    EXPECT_FLOAT_EQ(heat_colour(intensity).r, 0.0f);
+    EXPECT_FLOAT_EQ(Authoring::heat_colour(intensity).r, 0.0f);
 }
 
 TEST(Unit_SoftBodyHeat, PlasticStrainScalesAgainstTheHardeningCeiling)
 {
     const Physics::SoftBodyMaterialT<Scalar> material = steel_like();
-    EXPECT_NEAR(soft_body_element_intensity(SoftBodyDebugView::PlasticStrain,
+    EXPECT_NEAR(Authoring::soft_body_element_intensity(Authoring::SoftBodyDebugView::PlasticStrain,
                                             sample(Scalar(0), Scalar(0.05)), material),
                 0.25f, 1e-5f);
-    EXPECT_NEAR(soft_body_element_intensity(
-                    SoftBodyDebugView::PlasticStrain,
+    EXPECT_NEAR(Authoring::soft_body_element_intensity(
+                    Authoring::SoftBodyDebugView::PlasticStrain,
                     sample(Scalar(0), material.maximum_plastic_strain), material),
                 1.0f, 1e-5f);
 }
@@ -167,11 +169,12 @@ TEST(Unit_SoftBodyHeat, APurelyElasticMaterialHasNoScaleAndSaysSo)
     elastic.yield_stress = Scalar(0);
     elastic.maximum_plastic_strain = Scalar(0);
 
-    EXPECT_FLOAT_EQ(soft_body_element_intensity(SoftBodyDebugView::Stress,
+    EXPECT_FLOAT_EQ(Authoring::soft_body_element_intensity(Authoring::SoftBodyDebugView::Stress,
                                                 sample(Scalar(1e9), Scalar(0)), elastic),
                     0.0f);
-    EXPECT_FLOAT_EQ(soft_body_element_intensity(SoftBodyDebugView::PlasticStrain,
-                                                sample(Scalar(0), Scalar(0.5)), elastic),
+    EXPECT_FLOAT_EQ(Authoring::soft_body_element_intensity(
+                        Authoring::SoftBodyDebugView::PlasticStrain,
+                        sample(Scalar(0), Scalar(0.5)), elastic),
                     0.0f);
 }
 
@@ -182,7 +185,12 @@ TEST(Unit_SoftBodyHeat, TheStructuralViewsCarryNoReading)
     // happened to be non-zero.
     const Physics::SoftBodyMaterialT<Scalar> material = steel_like();
     const Simulation::SoftBodyElementSample hot = sample(Scalar(1e10), Scalar(1));
-    EXPECT_FLOAT_EQ(soft_body_element_intensity(SoftBodyDebugView::Off, hot, material), 0.0f);
-    EXPECT_FLOAT_EQ(soft_body_element_intensity(SoftBodyDebugView::Wireframe, hot, material),
-                    0.0f);
+    EXPECT_FLOAT_EQ(
+        Authoring::soft_body_element_intensity(Authoring::SoftBodyDebugView::Off, hot,
+                                               material),
+        0.0f);
+    EXPECT_FLOAT_EQ(
+        Authoring::soft_body_element_intensity(Authoring::SoftBodyDebugView::Wireframe, hot,
+                                               material),
+        0.0f);
 }

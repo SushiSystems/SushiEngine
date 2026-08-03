@@ -85,10 +85,10 @@ namespace SushiEngine
             using SushiEngine::Render::AntiAliasingMode;
             using SushiEngine::Render::RenderQuality;
 
-            // RenderSettings is plain trivially-copyable data (render_settings.hpp), so a
-            // memcmp against a snapshot taken before the widgets run is a cheap, exhaustive
-            // way to detect any edit below and persist it via Preferences — without hooking
-            // a dirty flag into every slider individually.
+            // RenderSettings is plain trivially-copyable data (render_settings.hpp), so a memcmp
+            // against a snapshot taken before the widgets run is a cheap, exhaustive way to detect
+            // any edit below and persist it via Authoring::Preferences — without hooking a dirty
+            // flag into every slider individually.
             const SushiEngine::Render::RenderSettings settings_before = settings;
 
             const char* const QUALITY[] = {"Low", "Medium", "High", "Ultra"};

@@ -65,7 +65,7 @@ namespace SushiEngine
         /**
          * @brief Captures the scene — every live entity plus the environment — as JSON.
          *
-         * The in-memory counterpart of @ref save_scene, reused by `CommandHistory` for
+         * The in-memory counterpart of @ref save_scene, reused by `Authoring::CommandHistory` for
          * undo/redo and by play mode's enter/exit snapshot, without touching disk. The
          * environment rides beside the entity array because it is scene content: an
          * undo or a Play→Stop that restored only the entities would leave the lighting,

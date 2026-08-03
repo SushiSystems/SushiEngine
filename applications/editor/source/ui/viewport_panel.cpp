@@ -427,7 +427,7 @@ namespace SushiEngine
             return window_flags;
         }
 
-        void ViewportPanel::draw_no_camera(bool& open, GameViewSettings& settings)
+        void ViewportPanel::draw_no_camera(bool& open, Authoring::GameViewSettings& settings)
         {
             const ImGuiWindowFlags window_flags =
                 apply_fullscreen_transition(fullscreen_requested_ || settings.fullscreen);
@@ -524,8 +524,9 @@ namespace SushiEngine
             float image_h = available_h;
             float aspect_ratio = 0.0f;
             const bool constrained = inputs.game_view != nullptr &&
-                                     resolve_game_view_aspect_ratio(inputs.game_view->aspect,
-                                                                    inputs.game_view->orientation,
+                                     Authoring::resolve_game_view_aspect_ratio(
+                                         inputs.game_view->aspect,
+                                         inputs.game_view->orientation,
                                                                     aspect_ratio);
             if (constrained)
             {
@@ -957,7 +958,7 @@ namespace SushiEngine
             // The selected soft body's interior (P6-G5). Already in world space — these
             // are the live particles, not an asset in its own frame — so unlike the
             // collider above there is no placement to apply.
-            if (inputs.soft_body_view != SoftBodyDebugView::Off &&
+            if (inputs.soft_body_view != Authoring::SoftBodyDebugView::Off &&
                 inputs.soft_body_positions != nullptr && inputs.soft_body_elements != nullptr)
                 draw_soft_body_overlay(*inputs.soft_body_positions, *inputs.soft_body_elements,
                                        inputs.soft_body_material, inputs.soft_body_view,
@@ -995,7 +996,8 @@ namespace SushiEngine
                     transform_point(character_world, inputs.animated_mesh->two_bone_ik().target);
                 static const GizmoSnap no_snap;
                 const GizmoController::Result ik_result = ik_gizmo_.manipulate(
-                    GizmoMode::Translate, GizmoSpace::World, ik_transform, camera_view,
+                    Authoring::GizmoMode::Translate, Authoring::GizmoSpace::World,
+                    ik_transform, camera_view,
                     image_origin, static_cast<float>(width), static_cast<float>(height),
                     image_hovered, no_snap);
                 if (ik_result.modified)

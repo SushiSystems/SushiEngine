@@ -56,7 +56,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Authoring
     {
         /** @brief One asset's most recent cook, as the panel shows it. */
         struct BakedAssetEntry
@@ -237,5 +237,5 @@ namespace SushiEngine
             std::string selected_;
             std::vector<float> wireframe_;
         };
-    } // namespace Editor
+    } // namespace Authoring
 } // namespace SushiEngine

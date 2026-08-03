@@ -81,7 +81,7 @@ namespace SushiEngine
             }
 
             /** @brief §14's collider readout: piece count, error, mass, inertia. */
-            void draw_collision_report(const BakedAssetEntry& entry)
+            void draw_collision_report(const Authoring::BakedAssetEntry& entry)
             {
                 const CookingReport& report = entry.collision_report;
                 status_row(report);
@@ -122,7 +122,7 @@ namespace SushiEngine
             }
 
             /** @brief §14's soft-body readout: elements, quality, bindings, levels. */
-            void draw_soft_body_report(const BakedAssetEntry& entry)
+            void draw_soft_body_report(const Authoring::BakedAssetEntry& entry)
             {
                 const CookingReport& report = entry.soft_body_report;
                 status_row(report);
@@ -168,7 +168,7 @@ namespace SushiEngine
             }
 
             /** @brief §14's node-beam readout: nodes, beams, bracing, and the mass they carry. */
-            void draw_node_beam_report(const BakedAssetEntry& entry)
+            void draw_node_beam_report(const Authoring::BakedAssetEntry& entry)
             {
                 const CookingReport& report = entry.node_beam_report;
                 status_row(report);
@@ -485,7 +485,7 @@ namespace SushiEngine
             }
         } // namespace
 
-        void draw_cook_bake_panel(EditorContext& context, CookBakeState& state)
+        void draw_cook_bake_panel(EditorContext& context, Authoring::CookBakeState& state)
         {
             // Polled before the open check: a bake the artist started and then closed the
             // window on must still finish and still be there when it is reopened.
@@ -591,7 +591,7 @@ namespace SushiEngine
                                     "report what they produced.");
             }
 
-            for (const BakedAssetEntry& entry : state.entries())
+            for (const Authoring::BakedAssetEntry& entry : state.entries())
             {
                 ImGui::PushID(entry.asset_path.c_str());
                 const bool selected = state.selected() == entry.asset_path;

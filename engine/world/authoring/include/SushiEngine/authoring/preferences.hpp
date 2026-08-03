@@ -21,8 +21,8 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#ifndef SUSHIENGINE_EDITOR_PREFERENCES_HPP
-#define SUSHIENGINE_EDITOR_PREFERENCES_HPP
+#ifndef SUSHIENGINE_AUTHORING_PREFERENCES_HPP
+#define SUSHIENGINE_AUTHORING_PREFERENCES_HPP
 
 #include <memory>
 #include <string>
@@ -37,7 +37,7 @@
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Authoring
     {
         /** @brief The ImGui colour theme applied to the editor. */
         enum class EditorTheme
@@ -204,7 +204,7 @@ namespace SushiEngine
          * @return A store owning that path.
          */
         std::unique_ptr<IPreferencesStore> create_preferences_store(const std::string& path);
-    } // namespace Editor
+    } // namespace Authoring
 } // namespace SushiEngine
 
 #endif

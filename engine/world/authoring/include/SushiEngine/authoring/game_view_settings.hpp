@@ -21,12 +21,12 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#ifndef SUSHIENGINE_EDITOR_GAME_VIEW_SETTINGS_HPP
-#define SUSHIENGINE_EDITOR_GAME_VIEW_SETTINGS_HPP
+#ifndef SUSHIENGINE_AUTHORING_GAME_VIEW_SETTINGS_HPP
+#define SUSHIENGINE_AUTHORING_GAME_VIEW_SETTINGS_HPP
 
 namespace SushiEngine
 {
-    namespace Editor
+    namespace Authoring
     {
         /** @brief The Game view's target orientation, applied to every aspect preset but Free. */
         enum class GameViewOrientation
@@ -88,7 +88,7 @@ namespace SushiEngine
             out_ratio = orientation == GameViewOrientation::Portrait ? 1.0f / ratio : ratio;
             return true;
         }
-    } // namespace Editor
+    } // namespace Authoring
 } // namespace SushiEngine
 
 #endif

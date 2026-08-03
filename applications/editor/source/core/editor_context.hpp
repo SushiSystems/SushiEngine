@@ -75,7 +75,7 @@ namespace SushiEngine
         class AudioEditorSystem;
 
         /** @brief The Bake surface's model, owned by main() (see physics/cook_bake_state.hpp). */
-        class CookBakeState;
+        class Authoring::CookBakeState;
 
         /**
          * @brief Editor playback state, mirroring a game engine's play controls.
@@ -237,7 +237,7 @@ namespace SushiEngine
             // brings a mesh into the project (today: the Project panel's glTF open/preview
             // flow) can queue it for cooking without owning a worker thread itself. Null in
             // a headless editor, which is why every use is guarded.
-            CookBakeState* cook_bake_state = nullptr;
+            Authoring::CookBakeState* cook_bake_state = nullptr;
 
             // The asset the Cooking Override modal is open for; empty means closed. Staged
             // here rather than as a modal-local static so a right-click on a second asset
@@ -276,8 +276,8 @@ namespace SushiEngine
             std::string open_scene_path;
 
             // Undo/redo over whole-world snapshots; panels record before a mutation (see
-            // CommandHistory) and the menu/keyboard shortcuts drive undo()/redo().
-            CommandHistory history;
+            // Authoring::CommandHistory) and the menu/keyboard shortcuts drive undo()/redo().
+            Authoring::CommandHistory history;
 
             // The history revision as of the last successful save/load, so `scene_is_dirty`
             // can tell "changed since save" apart from "never changed" without diffing
@@ -352,7 +352,7 @@ namespace SushiEngine
             // answered, so closing a dirty buffer can no longer discard it silently.
             int closing_document = -1;
 
-            PanelVisibility panels;
+            Authoring::PanelVisibility panels;
 
             // Between-frame scratch for the panels that keep any (see panel_state.hpp).
             PanelState panel_state;
@@ -489,25 +489,26 @@ namespace SushiEngine
             std::uint32_t game_display = 0;
 
             // The Game view's aspect/orientation/fullscreen toolbar state.
-            GameViewSettings game_view_settings;
+            Authoring::GameViewSettings game_view_settings;
 
             // The active Scene-view transform tool (W/E/R) and axis frame (Local/World),
             // shared between the toolbar that sets them and the viewport that draws the
             // matching gizmo.
-            GizmoMode gizmo_mode = GizmoMode::Translate;
-            GizmoSpace gizmo_space = GizmoSpace::World;
+            Authoring::GizmoMode gizmo_mode = Authoring::GizmoMode::Translate;
+            Authoring::GizmoSpace gizmo_space = Authoring::GizmoSpace::World;
 
             // Which of the soft-body debug views the Scene view draws over the selected
             // body (§9.3/§9.4, P6-G5). Off by default: an overlay that is always on is an
             // overlay nobody reads, and this one draws over the surface it is explaining.
             // Scene view only, like the collider overlay — the Game view is what the
             // player sees, and a debug view there would be showing them the workings.
-            SoftBodyDebugView soft_body_debug_view = SoftBodyDebugView::Off;
+            Authoring::SoftBodyDebugView soft_body_debug_view = Authoring::SoftBodyDebugView::Off;
 
             // Input (Phase 6): the device-abstracted action layer the editor consumes instead of
             // polling ImGui keys. main() sets these each frame after folding input, so panels read
-            // resolved actions (input_snapshot) by name and the Preferences page rebinds against
-            // the live contexts (via input_manager). All non-owning; main() owns the objects.
+            // resolved actions (input_snapshot) by name and the Authoring::Preferences page rebinds
+            // against the live contexts (via input_manager). All non-owning; main() owns the
+            // objects.
             const SushiEngine::Input::ActionSnapshot* input_snapshot = nullptr;
             SushiEngine::Input::InputManager* input_manager = nullptr;
             SushiEngine::Input::InputContext* editor_global_context = nullptr;
@@ -525,10 +526,10 @@ namespace SushiEngine
             // The persisted editor/project settings and their store. The store is owned by
             // main() and injected; panels read and edit `preferences` and set
             // `preferences_dirty` so the loop persists the change once per frame rather
-            // than on every widget tick. The Preferences and Input Manager windows are
+            // than on every widget tick. The Authoring::Preferences and Input Manager windows are
             // toggled through `panels` like every other window.
-            Preferences preferences;
-            IPreferencesStore* preferences_store = nullptr;
+            Authoring::Preferences preferences;
+            Authoring::IPreferencesStore* preferences_store = nullptr;
             bool preferences_dirty = false;
 
             // How the viewports trade fidelity against frame time: anti-aliasing mode,

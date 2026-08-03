@@ -67,7 +67,8 @@ namespace SushiEngine
          * @param positions    World-space particle positions (`soft_body_surface`'s first output).
          * @param elements     The body's tetrahedra and their readouts.
          * @param material     The body's constitutive parameters, for the colour scale.
-         * @param view         Which view to draw; @ref SoftBodyDebugView::Off draws nothing.
+         * @param view         Which view to draw; @ref Authoring::SoftBodyDebugView::Off
+         *                     draws nothing.
          * @param camera_view  The frame's camera.
          * @param image_origin Top-left of the viewport image, in screen pixels.
          * @param width        Image width in pixels.
@@ -79,7 +80,7 @@ namespace SushiEngine
         std::size_t draw_soft_body_overlay(
             const std::vector<Vector3>& positions,
             const std::vector<Simulation::SoftBodyElementSample>& elements,
-            const Physics::SoftBodyMaterialT<Scalar>& material, SoftBodyDebugView view,
+            const Physics::SoftBodyMaterialT<Scalar>& material, Authoring::SoftBodyDebugView view,
             const Render::CameraView& camera_view, const ImVec2& image_origin, float width,
             float height, ImDrawList* draw_list);
     } // namespace Editor
