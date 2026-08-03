@@ -960,6 +960,16 @@ namespace SushiEngine
                         if (record == nullptr)
                             return;
                         record->crowd_parameters = parameters;
+                        // The paths are the component's persistent half and the handles are
+                        // only what this session's registry answered for them, so a write
+                        // re-derives rather than trusting a number another session may have
+                        // written. Registration is cached by path: the file is read once and
+                        // every later write is a map lookup.
+                        CrowdParameters& stored = record->crowd_parameters;
+                        if (!stored.skeleton_path.empty())
+                            stored.skeleton = register_crowd_skeleton(stored.skeleton_path);
+                        if (!stored.clip_path.empty())
+                            stored.clip = register_crowd_clip(stored.clip_path, stored.skeleton);
                     }
 
                     void set_has_crowd(EntityId id, bool value) override

@@ -96,6 +96,12 @@ namespace SushiEngine
                     select_only(context, world->create_cloth("Cloth"));
                     editor_log(context, "Created object 'Cloth'.");
                 }
+                if (ImGui::MenuItem("Crowd"))
+                {
+                    context.history.record(*world);
+                    select_only(context, world->create_crowd("Crowd"));
+                    editor_log(context, "Created object 'Crowd'.");
+                }
                 if (ImGui::MenuItem("Particle System"))
                 {
                     context.history.record(*world);
@@ -243,6 +249,8 @@ namespace SushiEngine
                 entry.cloth_parameters = world->cloth_parameters(id);
                 entry.has_soft_body = world->has_soft_body(id);
                 entry.soft_body_parameters = world->soft_body_parameters(id);
+                entry.has_crowd = world->has_crowd(id);
+                entry.crowd_parameters = world->crowd_parameters(id);
                 entry.has_light = world->has_light(id);
                 entry.light_parameters = world->light_parameters(id);
                 entry.has_decal = world->has_decal(id);
@@ -336,6 +344,9 @@ namespace SushiEngine
                 world->set_has_soft_body(id, entry.has_soft_body);
                 if (entry.has_soft_body)
                     world->set_soft_body_parameters(id, entry.soft_body_parameters);
+                world->set_has_crowd(id, entry.has_crowd);
+                if (entry.has_crowd)
+                    world->set_crowd_parameters(id, entry.crowd_parameters);
                 world->set_has_light(id, entry.has_light);
                 if (entry.has_light)
                     world->set_light_parameters(id, entry.light_parameters);

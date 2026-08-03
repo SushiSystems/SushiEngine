@@ -148,6 +148,16 @@ namespace SushiEngine
              */
             bool has_soft_body = false;
             SushiEngine::Simulation::SoftBodyParameters soft_body_parameters;
+            /**
+             * @brief The crowd character, its asset paths included.
+             *
+             * The paths travel with the ids rather than instead of them, because a paste is
+             * replayed through `set_crowd_parameters` — which re-registers the skeleton and
+             * clip from the paths. So a duplicate is bound to the same rig as its original
+             * even when the clipboard outlives the session that filled it.
+             */
+            bool has_crowd = false;
+            SushiEngine::Simulation::CrowdParameters crowd_parameters;
             bool has_light = false;
             SushiEngine::Simulation::LightParameters light_parameters;
             bool has_decal = false;

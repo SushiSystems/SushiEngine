@@ -327,19 +327,35 @@ namespace SushiEngine
          * pinned, matching `build_cloth_grid`'s only supported topology today —
          * pinning just the corners is not yet exposed (see ARCHITECTURE.md §4.2).
          */
+        struct ClothParameters
+        {
+            std::size_t rows = 4;      /**< Grid rows (>= 1); row 0 is pinned. */
+            std::size_t cols = 4;      /**< Grid columns (>= 1). */
+            Scalar spacing = Scalar(0.5); /**< Distance between adjacent grid points. */
+            Scalar compliance = Scalar(0); /**< XPBD compliance of every constraint; 0 is rigid. */
+        };
+
         /**
          * @brief The authorable parameters of a "Crowd" entity: one skinned character
          * batched with every other crowd entity for SYCL device-side sampling (design
          * §12.3/§12.4).
          *
          * `skeleton`/`clip` are opaque handles from `ISimulation::register_crowd_skeleton`/
-         * `register_crowd_clip` — the same "id the host factory resolves" shape
-         * `AudioEmitterParameters::sound` already uses, so this seam never carries a raw file
-         * path or touches the render asset library directly (the sim seam's own rule:
-         * "none of that leaks across this interface"). `mesh`/`material` are `Render::`
-         * handles a host mesh/material system already resolved, exactly like every other
-         * entity kind's visual (`RenderInstance::material` already crosses this boundary
-         * the same way; only *loading* stays outside the sim).
+         * `register_crowd_clip`; `mesh`/`material` are `Render::` handles a host mesh/material
+         * system already resolved, exactly like every other entity kind's visual
+         * (`RenderInstance::material` already crosses this boundary the same way; only
+         * *loading* stays outside the sim). Every one of those ids — and the texture ids
+         * inside `material` — means something only in the session that produced it, so each
+         * of the three assets is paired with the file it came from: the same id-plus-path
+         * split `DecalParameters` makes, and the half of the component a scene file
+         * round-trips. The maps get no paths of their own because a character file is where
+         * they are named, so they come back with the mesh.
+         *
+         * The split is what makes the two halves resolvable by whoever can resolve them:
+         * `set_crowd_parameters` re-registers `skeleton`/`clip` from their paths on every
+         * write, so a crowd restored from a file or pasted from another session is bound to
+         * this session's handles without its caller registering anything, while `mesh` needs
+         * the render asset library and stays the host's to re-import from @ref mesh_path.
          *
          * Every crowd entity extracted in the same frame must share one `skeleton` handle
          * — `Animation::DeviceBatchEvaluator` batches one shared skeleton per call
@@ -353,17 +369,12 @@ namespace SushiEngine
             std::uint32_t clip = 0;         /**< A handle from register_crowd_clip (0 = none). */
             Render::MeshId mesh = Render::INVALID_MESH; /**< The skinned mesh to draw with. */
             Render::Material material{};    /**< Surface to shade with. */
+            std::string skeleton_path;      /**< glTF @ref skeleton is registered from. */
+            std::string clip_path;          /**< glTF @ref clip is registered from. */
+            std::string mesh_path;          /**< glTF @ref mesh is imported from. */
             float time_seconds = 0.0f;      /**< Playback time; `tick()` advances it while playing. */
             bool loop = true;               /**< Whether playback wraps at the clip's end. */
             bool playing = true;            /**< Whether `tick()` advances @ref time_seconds. */
-        };
-
-        struct ClothParameters
-        {
-            std::size_t rows = 4;      /**< Grid rows (>= 1); row 0 is pinned. */
-            std::size_t cols = 4;      /**< Grid columns (>= 1). */
-            Scalar spacing = Scalar(0.5); /**< Distance between adjacent grid points. */
-            Scalar compliance = Scalar(0); /**< XPBD compliance of every constraint; 0 is rigid. */
         };
 
         /**
@@ -1513,9 +1524,17 @@ namespace SushiEngine
                 virtual CrowdParameters crowd_parameters(EntityId id) const = 0;
 
                 /**
-                 * @brief Writes a crowd entity's parameters; a no-op for non-crowd entities.
-                 * @param id         The entity to update.
-                 * @param parameters The new skeleton/clip/mesh/material/playback state.
+                 * @brief Writes a crowd entity's parameters, re-binding its animation assets.
+                 *
+                 * `skeleton`/`clip` are re-registered from `skeleton_path`/`clip_path` on the
+                 * way in whenever those are set, so a caller restoring a component another
+                 * session wrote — a scene load, a paste — hands over the paths and reads this
+                 * session's handles back from @ref crowd_parameters. Registration is cached by
+                 * path, so a write that changes nothing else costs a lookup; a path naming no
+                 * loadable file leaves its handle at 0, which the extract skips.
+                 *
+                 * @param id         The entity to update; a no-op if it does not exist.
+                 * @param parameters The new skeleton/clip/mesh/material/path/playback state.
                  */
                 virtual void set_crowd_parameters(EntityId id,
                                                   const CrowdParameters& parameters) = 0;
@@ -1705,8 +1724,8 @@ namespace SushiEngine
                  * Equivalent to creating an empty entity and `set_has_crowd(id, true)`,
                  * bundled so the Entity menu can offer Crowd as a first-class object. The
                  * new entity's `crowd_parameters` are all defaults (no skeleton/clip/mesh bound
-                 * yet) until `set_crowd_parameters` names ids from
-                 * `register_crowd_skeleton`/`register_crowd_clip`.
+                 * yet) until `set_crowd_parameters` names the glTF files to register them from,
+                 * or the ids `register_crowd_skeleton`/`register_crowd_clip` already handed out.
                  *
                  * @param name Display name for the new entity.
                  * @return The new entity's stable id.

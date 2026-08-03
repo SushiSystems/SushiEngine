@@ -129,6 +129,42 @@ namespace SushiEngine
             ImVec4 warning_color() { return ImVec4(1.0f, 0.75f, 0.3f, 1.0f); }
 
             /**
+             * @brief Imports a crowd's skinned mesh and the material that came with it.
+             *
+             * The character file is where a crowd's geometry *and* its maps are named, so a
+             * bind takes both: keeping the previous material would leave texture ids that
+             * belong to a different character. The mesh and material are cleared first, so a
+             * file that does not import leaves the component visibly unbound and reports why,
+             * rather than drawing on with whatever was there before.
+             *
+             * @param context Editor state; supplies the asset library and the console.
+             * @param values  The crowd being authored; its mesh and material are written from
+             *                @c mesh_path.
+             */
+            void bind_crowd_mesh(EditorContext& context,
+                                 SushiEngine::Simulation::CrowdParameters& values)
+            {
+                values.mesh = SushiEngine::Render::INVALID_MESH;
+                values.material = SushiEngine::Render::Material{};
+                if (context.assets == nullptr || values.mesh_path.empty())
+                    return;
+                // Skin 0, the one register_crowd_skeleton cooks its rig from: geometry taken
+                // from a different skin would be posed by the wrong joints.
+                SushiEngine::Render::MeshId meshes[1] = {SushiEngine::Render::INVALID_MESH};
+                SushiEngine::Render::Material materials[1]{};
+                if (context.assets->load_gltf_skinned_mesh(values.mesh_path.c_str(), 0, meshes,
+                                                           materials, 1) == 0)
+                {
+                    editor_log(context,
+                               "No skinned mesh imported from '" + values.mesh_path + "'.",
+                               LogLevel::Warning);
+                    return;
+                }
+                values.mesh = meshes[0];
+                values.material = materials[0];
+            }
+
+            /**
              * @brief Draws the partner picker: which body this entity is jointed to.
              *
              * Only entities that carry a Rigid Body are offered, because only they can be an
@@ -1012,6 +1048,25 @@ namespace SushiEngine
                             ImGui::TextDisabled("Cooked asset loaded (%zu bytes).",
                                                 values.asset.size());
 
+                        // A live readout rather than an authored field: the largest von
+                        // Mises stress any element in this body carried at the end of the
+                        // last completed tick (§9.3). It sits beside the cook status because
+                        // both answer "what is this body doing now" rather than "what was it
+                        // set to", and it is read against the Yield stress authored further
+                        // down — which is the comparison the number exists for.
+                        const Scalar peak_stress = world->soft_body_maximum_stress(id);
+                        ImGui::TextDisabled("Measured peak stress %.3e Pa (last tick)",
+                                            double(peak_stress));
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Read off the simulated body every frame, not "
+                                              "authored. Zero until the body has been built "
+                                              "and stepped.");
+                        if (values.material.yield_stress > Scalar(0) &&
+                            peak_stress > values.material.yield_stress)
+                            ImGui::TextColored(warning_color(),
+                                               "Past yield: elements are taking permanent "
+                                               "strain.");
+
                         ImGui::SetNextItemWidth(-80.0f);
                         ImGui::InputText("Source Mesh", &context.soft_body_source_path);
                         if (ImGui::IsItemHovered())
@@ -1160,6 +1215,172 @@ namespace SushiEngine
 
                         if (changed)
                             editor.write_primary();
+                    }
+                }
+            }
+
+            if (world->has_crowd(id))
+            {
+                // §12.3/§12.4's device-batched skinned character. Its three assets are bound
+                // here and nowhere else: the extract skips any crowd whose skeleton or mesh
+                // is unset, so without this section the component can only ever draw nothing.
+                const ComponentSection section = component_header(context, "Crowd");
+                if (section.remove)
+                {
+                    set_presence(&IWorldEditor::set_has_crowd, false);
+                }
+                else
+                {
+                    using SushiEngine::Simulation::CrowdParameters;
+
+                    const ComponentAccess<CrowdParameters> access{
+                        &IWorldEditor::has_crowd, &IWorldEditor::crowd_parameters,
+                        &IWorldEditor::set_crowd_parameters};
+                    ComponentEditor<CrowdParameters> editor(context, *world, access, id);
+
+                    // The header's value actions carry the playback state but never the bound
+                    // assets, on the Decal's reasoning: a mesh id and a material's maps are
+                    // references the asset library counts, and handing one entity's ids to
+                    // another would let the first release free what the second is still
+                    // drawing with. The files stay each crowd's own.
+                    if (section.reset || section.paste)
+                    {
+                        CrowdParameters source;
+                        const bool have =
+                            section.reset || paste_component_values(context, "Crowd", source);
+                        if (have)
+                        {
+                            CrowdParameters merged = editor.values();
+                            merged.time_seconds = source.time_seconds;
+                            merged.loop = source.loop;
+                            merged.playing = source.playing;
+                            editor.write_all(merged);
+                        }
+                    }
+                    if (section.copy)
+                        copy_component_values(context, "Crowd", editor.values());
+
+                    if (section.open)
+                    {
+                        // The surface rows below carry a material's field labels, which the
+                        // Renderer's own material editor already uses in this same window —
+                        // and an ImGui id is the label, not the header it sits under.
+                        ImGui::PushID("Crowd");
+                        CrowdParameters& values = editor.mutable_values();
+                        bool changed = false;
+
+                        if (values.skeleton == 0)
+                            ImGui::TextColored(warning_color(),
+                                               "No skeleton bound -- this crowd draws "
+                                               "nothing.");
+                        else if (values.clip == 0)
+                            ImGui::TextColored(warning_color(),
+                                               "No clip bound -- this crowd draws nothing.");
+                        else if (values.mesh == SushiEngine::Render::INVALID_MESH)
+                            ImGui::TextColored(warning_color(),
+                                               "No skinned mesh bound -- this crowd draws "
+                                               "nothing.");
+                        else
+                            ImGui::TextDisabled("Bound: skeleton %u, clip %u, mesh %u.",
+                                                unsigned(values.skeleton),
+                                                unsigned(values.clip), unsigned(values.mesh));
+
+                        // One asset row: type a path and press Enter, press Bind, or drop a
+                        // file from the Project browser. The typed path commits on one of
+                        // those three rather than per keystroke, because a component that
+                        // took every prefix of a path would ask the registry to open each one
+                        // and would unbind a working rig in the middle of a rename.
+                        const auto asset_row = [&](const char* label, std::string& stored,
+                                                   const char* tooltip)
+                        {
+                            ImGui::PushID(label);
+                            char buffer[512] = {};
+                            stored.copy(buffer, sizeof(buffer) - 1);
+                            ImGui::SetNextItemWidth(-140.0f);
+                            const bool enter =
+                                ImGui::InputText(label, buffer, sizeof(buffer),
+                                                 ImGuiInputTextFlags_EnterReturnsTrue);
+                            // Read now, shown at the end of the row: a tooltip opens a window
+                            // of its own, and drawing one between the field and its drop
+                            // target would leave the target attached to the tooltip's text.
+                            const bool hovered = ImGui::IsItemHovered();
+                            std::string dropped;
+                            const bool drop = accept_asset_drop(dropped);
+                            ImGui::SameLine();
+                            const bool bind = ImGui::SmallButton("Bind");
+                            const bool commit = enter || bind || drop;
+                            if (commit)
+                            {
+                                context.history.record(*world);
+                                stored = drop ? dropped : std::string(buffer);
+                                changed = true;
+                            }
+                            if (hovered)
+                                ImGui::SetTooltip("%s", tooltip);
+                            ImGui::PopID();
+                            return commit;
+                        };
+
+                        asset_row("Skeleton", values.skeleton_path,
+                                  "glTF naming the rig. Every crowd drawn in one frame shares "
+                                  "one skeleton; the rest are skipped that frame. Enter or "
+                                  "Bind applies the path.");
+                        asset_row("Clip", values.clip_path,
+                                  "glTF naming the animation this character plays. Its joint "
+                                  "order must match the skeleton above.");
+                        if (asset_row("Skinned Mesh", values.mesh_path,
+                                      "glTF naming the skinned geometry. Binding it also takes "
+                                      "that file's material, replacing the surface below."))
+                            bind_crowd_mesh(context, values);
+
+                        editor.number("Time", &decltype(editor)::Values::time_seconds, 0.01f,
+                                      0.0f, 3600.0f, "%.3f s",
+                                      "Playback position in the clip; the fixed tick advances "
+                                      "it while Playing.");
+                        editor.toggle("Loop", &decltype(editor)::Values::loop,
+                                      "Whether playback wraps at the clip's end instead of "
+                                      "holding its last pose.");
+                        editor.toggle("Playing", &decltype(editor)::Values::playing,
+                                      "Whether the fixed tick advances Time.");
+
+                        ImGui::SeparatorText("Surface");
+                        ImGui::TextDisabled("The maps come from the character file; these tune "
+                                            "the shading over them.");
+                        float albedo[3] = {float(values.material.albedo.x),
+                                           float(values.material.albedo.y),
+                                           float(values.material.albedo.z)};
+                        if (ImGui::ColorEdit3("Albedo", albedo))
+                        {
+                            values.material.albedo = Vector3{
+                                Scalar(albedo[0]), Scalar(albedo[1]), Scalar(albedo[2])};
+                            changed = true;
+                        }
+                        if (ImGui::SliderFloat("Metallic", &values.material.metallic, 0.0f,
+                                               1.0f, "%.2f"))
+                            changed = true;
+                        if (ImGui::SliderFloat("Roughness", &values.material.roughness, 0.0f,
+                                               1.0f, "%.2f"))
+                            changed = true;
+                        if (ImGui::Checkbox("Cast Shadows", &values.material.cast_shadows))
+                            changed = true;
+                        if (ImGui::Checkbox("Receive Shadows",
+                                            &values.material.receive_shadows))
+                            changed = true;
+
+                        if (changed)
+                        {
+                            // Primary only, like the Decal's maps: a rig, a clip and a mesh
+                            // are what this entity *is*, not a setting to fan across a
+                            // selection. The world re-registers the skeleton and clip from
+                            // their paths as it takes the write, so the handles shown above
+                            // are read back from it rather than guessed here.
+                            editor.write_primary();
+                            values = world->crowd_parameters(id);
+                        }
+                        if (multi)
+                            ImGui::TextDisabled("Assets and surface are authored on the "
+                                                "primary selection only.");
+                        ImGui::PopID();
                     }
                 }
             }
@@ -1527,6 +1748,8 @@ namespace SushiEngine
                     set_presence(&IWorldEditor::set_has_cloth, true);
                 if (!world->has_soft_body(id) && ImGui::MenuItem("Soft Body"))
                     set_presence(&IWorldEditor::set_has_soft_body, true);
+                if (!world->has_crowd(id) && ImGui::MenuItem("Crowd"))
+                    set_presence(&IWorldEditor::set_has_crowd, true);
                 if (!world->has_particle_emitter(id) && ImGui::MenuItem("Particle System"))
                     set_presence(&IWorldEditor::set_has_particle_emitter, true);
                 if (!world->has_light(id) && ImGui::MenuItem("Light"))

@@ -379,7 +379,7 @@ namespace SushiEngine
             // Texture ids ride along with the scalar fields for the same reason the
             // particle effect's do (see capture_effect): the in-memory snapshots
             // undo/redo and play-mode take restore them directly, while a load from
-            // disk re-resolves every id from its path (resolve_scene_textures), so a
+            // disk re-resolves every id from its path (resolve_scene_assets), so a
             // stale handle never survives into another session.
             json material_to_json(const SushiEngine::Render::Material& m)
             {
@@ -686,6 +686,28 @@ namespace SushiEngine
                         soft_body["asset"] = Detail::encode_base64(parameters.asset);
                     }
                     entry["soft_body"] = std::move(soft_body);
+                }
+
+                const bool has_crowd = world.has_crowd(id);
+                entry["has_crowd"] = has_crowd;
+                if (has_crowd)
+                {
+                    // Ids and paths both, on the decal/material live-handle convention: an
+                    // in-memory snapshot restores the ids it was written with, while a load
+                    // from disk re-derives every one of them from the paths beside them —
+                    // the skeleton and clip inside `set_crowd_parameters`, the mesh and the
+                    // material's maps in `resolve_scene_assets`.
+                    const auto p = world.crowd_parameters(id);
+                    entry["crowd"] = json{{"skeleton", p.skeleton},
+                                          {"clip", p.clip},
+                                          {"mesh", p.mesh},
+                                          {"skeleton_path", p.skeleton_path},
+                                          {"clip_path", p.clip_path},
+                                          {"mesh_path", p.mesh_path},
+                                          {"material", material_to_json(p.material)},
+                                          {"time_seconds", p.time_seconds},
+                                          {"loop", p.loop},
+                                          {"playing", p.playing}};
                 }
 
                 const bool has_particle_emitter = world.has_particle_emitter(id);
@@ -1023,6 +1045,31 @@ namespace SushiEngine
                     }
                 }
 
+                if (entry.value("has_crowd", false))
+                {
+                    // Presence first: `set_crowd_parameters` re-registers the skeleton and
+                    // clip from their paths as it writes, so the component is bound by the
+                    // time this returns and a scene load needs no second pass for them.
+                    world.set_has_crowd(id, true);
+                    if (entry.contains("crowd"))
+                    {
+                        const json& c = entry["crowd"];
+                        SushiEngine::Simulation::CrowdParameters p;
+                        p.skeleton = c.value("skeleton", p.skeleton);
+                        p.clip = c.value("clip", p.clip);
+                        p.mesh = c.value("mesh", p.mesh);
+                        p.skeleton_path = c.value("skeleton_path", std::string{});
+                        p.clip_path = c.value("clip_path", std::string{});
+                        p.mesh_path = c.value("mesh_path", std::string{});
+                        if (c.contains("material"))
+                            p.material = material_from_json(c["material"]);
+                        p.time_seconds = c.value("time_seconds", p.time_seconds);
+                        p.loop = c.value("loop", p.loop);
+                        p.playing = c.value("playing", p.playing);
+                        world.set_crowd_parameters(id, p);
+                    }
+                }
+
                 if (entry.value("has_particle_emitter", false))
                 {
                     world.set_has_particle_emitter(id, true);
@@ -1325,17 +1372,47 @@ namespace SushiEngine
         namespace
         {
             /**
-             * @brief Re-resolves every file-backed texture handle after a load from disk.
+             * @brief Replaces every texture slot of @p target with @p source's.
+             *
+             * A crowd character's maps are named only inside its own glTF, so they come back
+             * off a re-import of that file rather than from nine paths beside them. Only the
+             * slots move: the authored values around them — tint, roughness, blend state —
+             * stay exactly as the scene wrote them.
+             *
+             * @param target The material whose slots are overwritten.
+             * @param source The freshly imported material the ids are taken from.
+             */
+            void adopt_material_maps(SushiEngine::Render::Material& target,
+                                     const SushiEngine::Render::Material& source)
+            {
+                target.albedo_map = source.albedo_map;
+                target.metallic_roughness_map = source.metallic_roughness_map;
+                target.normal_map = source.normal_map;
+                target.height_map = source.height_map;
+                target.occlusion_map = source.occlusion_map;
+                target.emissive_map = source.emissive_map;
+                target.detail_albedo_map = source.detail_albedo_map;
+                target.detail_normal_map = source.detail_normal_map;
+                target.detail_mask_map = source.detail_mask_map;
+            }
+
+            /**
+             * @brief Re-resolves every file-backed render handle after a load from disk.
              *
              * The capture carries both a path and the handle it had when written; only the path
              * survives a session, so the handles a file was written with are re-derived here —
-             * particle sprites, material maps, and decal maps alike, an empty path resolving to
-             * no texture rather than keeping the stale handle. A post-pass rather than a hook
-             * inside `apply_scene` because the in-memory snapshots that share that function are
-             * same-session, where the captured handles are still the right ones.
+             * particle sprites, material maps, decal maps, and a crowd's skinned mesh alike, an
+             * empty path resolving to no asset rather than keeping the stale handle. A post-pass
+             * rather than a hook inside `apply_scene` because the in-memory snapshots that share
+             * that function are same-session, where the captured handles are still the right
+             * ones. A crowd's skeleton and clip are absent here on purpose: those need no render
+             * library, so `set_crowd_parameters` has already re-registered them.
+             *
+             * @param world  The freshly loaded world whose components are re-pointed.
+             * @param assets The library every path is resolved through.
              */
-            void resolve_scene_textures(IWorldEditor& world,
-                                        SushiEngine::Render::IAssetLibrary& assets)
+            void resolve_scene_assets(IWorldEditor& world,
+                                      SushiEngine::Render::IAssetLibrary& assets)
             {
                 using SushiEngine::Render::INVALID_TEXTURE;
                 using SushiEngine::Render::TextureColorSpace;
@@ -1405,6 +1482,26 @@ namespace SushiEngine
                             world.set_decal_parameters(id, decal);
                         }
                     }
+
+                    if (world.has_crowd(id))
+                    {
+                        SushiEngine::Simulation::CrowdParameters crowd =
+                            world.crowd_parameters(id);
+                        // Skin 0, the one `register_crowd_skeleton` cooks its rig from: a mesh
+                        // taken from a different skin would be posed by the wrong joints. An
+                        // unnamed or unimportable file leaves the invalid mesh and empty maps
+                        // seeded here, so the crowd draws nothing rather than drawing with
+                        // whatever now holds the ids the scene was written with.
+                        SushiEngine::Render::MeshId meshes[1] = {
+                            SushiEngine::Render::INVALID_MESH};
+                        SushiEngine::Render::Material imported[1]{};
+                        if (!crowd.mesh_path.empty())
+                            (void)assets.load_gltf_skinned_mesh(crowd.mesh_path.c_str(), 0,
+                                                                meshes, imported, 1);
+                        crowd.mesh = meshes[0];
+                        adopt_material_maps(crowd.material, imported[0]);
+                        world.set_crowd_parameters(id, crowd);
+                    }
                 }
             }
         } // namespace
@@ -1432,7 +1529,7 @@ namespace SushiEngine
             {
                 apply_scene(world, root);
                 if (assets != nullptr)
-                    resolve_scene_textures(world, *assets);
+                    resolve_scene_assets(world, *assets);
                 return true;
             }
 
@@ -1443,7 +1540,7 @@ namespace SushiEngine
             // object shape capture_scene produces); the file-only extras follow.
             apply_scene(world, root);
             if (assets != nullptr)
-                resolve_scene_textures(world, *assets);
+                resolve_scene_assets(world, *assets);
             if (root.contains("weather"))
                 weather_from_json(root["weather"], world, path);
             if (sky != nullptr && root.contains("sky"))

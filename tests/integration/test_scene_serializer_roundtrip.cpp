@@ -34,6 +34,12 @@
 // snapshot names it into a caller-owned blob table (fifty undo steps must not
 // hold fifty cooks). Both halves are asserted, and so is the refusal in between —
 // a snapshot whose asset cannot be resolved restores no body at all.
+//
+// The crowd cases pin the other end of that spectrum: a component made entirely of
+// handles, none of which mean anything in the session that reopens the file. What
+// round-trips is the path beside each handle, and the assertion is that a reloaded
+// crowd comes back with *live* handles registered from those paths — a crowd that
+// carried its numbers across but not its bindings would be one the extract skips.
 
 #include <cstddef>
 #include <cstdint>
@@ -667,4 +673,189 @@ TEST(Integration_SceneSerializer, UndoRestoresASoftBody)
 
     ASSERT_TRUE(history.redo(world));
     EXPECT_EQ(find_by_name(world, "Jelly"), NULL_ENTITY);
+}
+
+namespace
+{
+    /** @brief The rigged glTF the crowd cases register a skeleton and a clip from. */
+    const char* crowd_character_path()
+    {
+        return SE_TEST_ASSET_DIR "/rigged_arm_anim.gltf";
+    }
+
+    /**
+     * @brief The one authored crowd every case starts from, named "Marchers".
+     *
+     * The paths are real, so `set_crowd_parameters` registers a skeleton and a clip from
+     * them and the handles this returns are the live ones rather than numbers a test made
+     * up. The mesh id is made up on purpose: the render asset library is a Vulkan object
+     * this binary does not build, so the id stands in for one a session had handed out —
+     * which is exactly the case the persistence has to survive.
+     *
+     * @param world The world the crowd is created in.
+     * @return The new entity, or NULL_ENTITY if it could not be created.
+     */
+    EntityId build_crowd_scene(IWorldEditor& world)
+    {
+        clear_world(world);
+        const EntityId crowd = world.create_crowd("Marchers");
+        if (crowd == NULL_ENTITY)
+            return crowd;
+
+        CrowdParameters p;
+        p.skeleton_path = crowd_character_path();
+        p.clip_path = crowd_character_path();
+        p.mesh_path = "models/marcher_skinned.gltf";
+        p.mesh = 11u;
+        p.material = reference_material();
+        p.time_seconds = 1.75f;
+        p.loop = false;
+        p.playing = false;
+        world.set_crowd_parameters(crowd, p);
+        return crowd;
+    }
+
+    void expect_crowd_equal(const CrowdParameters& actual, const CrowdParameters& expected)
+    {
+        EXPECT_EQ(actual.skeleton, expected.skeleton);
+        EXPECT_EQ(actual.clip, expected.clip);
+        EXPECT_EQ(actual.mesh, expected.mesh);
+        EXPECT_EQ(actual.skeleton_path, expected.skeleton_path);
+        EXPECT_EQ(actual.clip_path, expected.clip_path);
+        EXPECT_EQ(actual.mesh_path, expected.mesh_path);
+        EXPECT_FLOAT_EQ(actual.time_seconds, expected.time_seconds);
+        EXPECT_EQ(actual.loop, expected.loop);
+        EXPECT_EQ(actual.playing, expected.playing);
+        expect_material_equal(actual.material, expected.material);
+    }
+} // namespace
+
+TEST(Integration_SceneSerializer, ACrowdSurvivesCaptureApply)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    const EntityId crowd = build_crowd_scene(world);
+    ASSERT_NE(crowd, NULL_ENTITY);
+
+    // The paths are what make the component authorable at all: without a registered
+    // skeleton and clip the extract skips the entity, so a crowd that round-trips its
+    // numbers but not its bindings is a crowd that comes back invisible.
+    const CrowdParameters authored = world.crowd_parameters(crowd);
+    ASSERT_NE(authored.skeleton, 0u) << "the skeleton never registered from its path";
+    ASSERT_NE(authored.clip, 0u) << "the clip never registered from its path";
+
+    const nlohmann::json snapshot = Scene::capture_scene(world);
+    ASSERT_TRUE(snapshot.contains("entities"));
+    ASSERT_EQ(snapshot["entities"].size(), 1u);
+    ASSERT_TRUE(snapshot["entities"].front().value("has_crowd", false));
+
+    clear_world(world);
+    Scene::apply_scene(world, snapshot);
+
+    const EntityId restored = find_by_name(world, "Marchers");
+    ASSERT_NE(restored, NULL_ENTITY);
+    ASSERT_TRUE(world.has_crowd(restored));
+    expect_crowd_equal(world.crowd_parameters(restored), authored);
+}
+
+TEST(Integration_SceneSerializer, ACrowdRebindsItsRigThroughTheSceneFile)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    ASSERT_NE(build_crowd_scene(world), NULL_ENTITY);
+    const CrowdParameters authored = world.crowd_parameters(find_by_name(world, "Marchers"));
+    ASSERT_NE(authored.skeleton, 0u);
+
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "sushiengine_crowd_roundtrip.sushiscene";
+    std::error_code error;
+    std::filesystem::remove(path, error);
+
+    ASSERT_TRUE(Scene::save_scene(world, path.string()));
+
+    // The file has to name the files, not just the handles: a handle written by one
+    // session means nothing in the next, and re-registering from the path is the only
+    // thing that gives the reopened crowd a rig to be posed by.
+    {
+        std::ifstream file(path.string());
+        ASSERT_TRUE(static_cast<bool>(file));
+        nlohmann::json written;
+        ASSERT_NO_THROW(file >> written);
+        const nlohmann::json& entry = written["entities"].front();
+        ASSERT_TRUE(entry.contains("crowd"));
+        EXPECT_EQ(entry["crowd"].value("skeleton_path", std::string{}), crowd_character_path());
+        EXPECT_EQ(entry["crowd"].value("clip_path", std::string{}), crowd_character_path());
+        EXPECT_EQ(entry["crowd"].value("mesh_path", std::string{}),
+                  std::string("models/marcher_skinned.gltf"));
+    }
+
+    clear_world(world);
+    ASSERT_TRUE(Scene::load_scene(world, path.string()));
+
+    const EntityId restored = find_by_name(world, "Marchers");
+    ASSERT_NE(restored, NULL_ENTITY);
+    ASSERT_TRUE(world.has_crowd(restored));
+    expect_crowd_equal(world.crowd_parameters(restored), authored);
+
+    std::filesystem::remove(path, error);
+    std::filesystem::remove(std::filesystem::path(path.string() + ".atmos"), error);
+}
+
+TEST(Integration_SceneSerializer, ACrowdWithAnUnloadableRigComesBackUnbound)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+
+    clear_world(world);
+    const EntityId crowd = world.create_crowd("Ghosts");
+    ASSERT_NE(crowd, NULL_ENTITY);
+
+    // A handle from a session that is gone, with a path that names nothing. The handle
+    // must not survive: it would address whatever this session's registry now holds at
+    // that index, which is a wrong rig rather than a missing one.
+    CrowdParameters p;
+    p.skeleton = 4u;
+    p.clip = 7u;
+    p.skeleton_path = "models/not_a_file.gltf";
+    p.clip_path = "models/not_a_file.gltf";
+    world.set_crowd_parameters(crowd, p);
+
+    const CrowdParameters stored = world.crowd_parameters(crowd);
+    EXPECT_EQ(stored.skeleton, 0u);
+    EXPECT_EQ(stored.clip, 0u);
+
+    const nlohmann::json snapshot = Scene::capture_scene(world);
+    clear_world(world);
+    Scene::apply_scene(world, snapshot);
+
+    const EntityId restored = find_by_name(world, "Ghosts");
+    ASSERT_NE(restored, NULL_ENTITY);
+    ASSERT_TRUE(world.has_crowd(restored));
+    EXPECT_EQ(world.crowd_parameters(restored).skeleton, 0u);
+    EXPECT_EQ(world.crowd_parameters(restored).clip, 0u);
+}
+
+TEST(Integration_SceneSerializer, UndoRestoresACrowd)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    ASSERT_NE(build_crowd_scene(world), NULL_ENTITY);
+    const CrowdParameters authored = world.crowd_parameters(find_by_name(world, "Marchers"));
+
+    Authoring::CommandHistory history;
+    history.record(world);
+    world.destroy(find_by_name(world, "Marchers"));
+
+    ASSERT_TRUE(history.undo(world));
+    const EntityId restored = find_by_name(world, "Marchers");
+    ASSERT_NE(restored, NULL_ENTITY);
+    ASSERT_TRUE(world.has_crowd(restored));
+    expect_crowd_equal(world.crowd_parameters(restored), authored);
+
+    ASSERT_TRUE(history.redo(world));
+    EXPECT_EQ(find_by_name(world, "Marchers"), NULL_ENTITY);
 }
