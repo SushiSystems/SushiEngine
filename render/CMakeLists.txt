@@ -359,8 +359,8 @@ add_library(sushi_render STATIC
     rhi/vulkan/vma_impl.cpp
     material/stb_impl.cpp
     # Planetary terrain: set 2 and the height slot pool. The bookkeeping these wrap --
-    # selection, residency, the inheritance rectangle -- is neutral header code under
-    # include/SushiEngine/terrain/ and is tested without a device.
+    # selection, residency, the inheritance rectangle -- is neutral header code in the
+    # terrain module and is tested without a device.
     terrain/terrain_layout.cpp
     terrain/tile_cache.cpp
     terrain/planet_terrain.cpp
@@ -461,6 +461,12 @@ target_compile_definitions(sushi_render PRIVATE
 target_link_libraries(sushi_render PUBLIC
     sushiengine_core
     sushiengine_ecs
+    # Public because each is spelled in a header this target publishes: scene_view.hpp carries
+    # a UI draw list, planet_terrain.hpp a terrain quadtree and layer stack, and
+    # particle_system.hpp the compiled emitter table.
+    sushiengine_ui
+    sushiengine_terrain
+    sushiengine_vfx
     sushi_geometry
     sushi_import
     Vulkan::Headers
@@ -468,6 +474,8 @@ target_link_libraries(sushi_render PUBLIC
     GPUOpen::VulkanMemoryAllocator
     vk-bootstrap::vk-bootstrap)
 target_link_libraries(sushi_render PRIVATE
+    # The glTF importer fills in skeleton and skin-vertex blobs; no header here exposes them.
+    sushiengine_animation
     glslang::glslang
     glslang::glslang-default-resource-limits
     glslang::SPIRV

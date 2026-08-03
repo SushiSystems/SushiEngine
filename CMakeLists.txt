@@ -48,6 +48,24 @@ else()
     include(NativeExecutionTarget)  # add_sushiengine_native_executable() helper
 endif()
 
+# What a shell implies, settled here because engine/domain/{audio,input} read these options to
+# decide whether to declare their compiled backend, and the module tree is added next. The
+# editor presents through the Vulkan renderer, feeds its window into the input translator, and
+# runs a live audio system (S9), so turning it on turns all three on. The player presents and
+# takes input the same way; audio is not forced on because PlayerApp's S5 skeleton has no live
+# audio system yet. Both shells exist on the runtime lane only, so the implication does too.
+if(SE_EXECUTION_BACKEND STREQUAL "runtime")
+    if(SE_BUILD_EDITOR)
+        set(SE_BUILD_RENDER ON)
+        set(SE_BUILD_INPUT ON)
+        set(SE_BUILD_AUDIO ON)
+    endif()
+    if(SE_BUILD_PLAYER)
+        set(SE_BUILD_RENDER ON)
+        set(SE_BUILD_INPUT ON)
+    endif()
+endif()
+
 # The engine's modules. Before the SushiEngine target below, which links what is
 # declared here — sushi_exec_native among them on the native lane. sushiengine_add_module()
 # grants each module its own include/ and checks its dependencies against the tier order
@@ -67,8 +85,15 @@ target_link_libraries(SushiEngine INTERFACE
     sushiengine_core
     sushiengine_ecs
     sushiengine_execution
+    sushiengine_animation
+    sushiengine_atmosphere
+    sushiengine_audio
     sushiengine_geometry
-    sushiengine_physics)
+    sushiengine_input
+    sushiengine_physics
+    sushiengine_terrain
+    sushiengine_ui
+    sushiengine_vfx)
 
 # Publish the execution-backend choice (see cmake/ProjectOptions.cmake) to every
 # consumer, so which implementation Execution::Context/Graph/Buffer denote is settled
@@ -254,40 +279,10 @@ target_link_libraries(authoring_demo PRIVATE nlohmann_json::nlohmann_json)
 add_sushi_sycl_executable(keyframe_demo examples/keyframe_demo.cpp)
 
 # --- Optional subdirectories --------------------------------------------------
-# The editor presents through the Vulkan renderer, so turning the editor on turns
-# the renderer on too. Render must be added before the editor so the sushi_render
-# target exists when the editor links it.
-if(SE_BUILD_EDITOR)
-    set(SE_BUILD_RENDER ON)
-    set(SE_BUILD_INPUT ON)
-    set(SE_BUILD_AUDIO ON) # the editor's live audio system links sushi_audio (S9)
-endif()
-
-# The player presents through the same Vulkan renderer and needs the same input
-# translator as the editor, minus ImGui — see se_player/CMakeLists.txt's own header
-# for the point of that split. Audio is not forced on: PlayerApp's S5 skeleton has
-# no live audio system yet (a follow-up, not this session's scope).
-if(SE_BUILD_PLAYER)
-    set(SE_BUILD_RENDER ON)
-    set(SE_BUILD_INPUT ON)
-endif()
-
-# The compiled input backend (input/): the SDL event translator behind the header-only
-# action layer. A plain compiled target (no runtime link, no SYCL); the editor forces
-# it on because its window feeds the translator. Added before the editor so the
-# sushi_input target exists when the editor links it.
-if(SE_BUILD_INPUT)
-    add_subdirectory(input)
-endif()
-
-# The compiled audio backend (audio/): the SDL device that drives the from-scratch DSP
-# mix, behind the header-only DSP core and action layer. A plain STATIC target (no
-# runtime link, no SYCL) needing only SDL2. OFF by default; `se audio` (or
-# -DSE_BUILD_AUDIO=ON) turns it on. audio_demo, the S0 silent-block vertical slice, is
-# declared here (not with the other examples above) because it links sushi_audio, which
-# only exists once this subdirectory is added.
+# The audio demos are declared here, not with the other examples above, because they link
+# sushi_audio — the compiled device backend engine/domain/audio declares behind this same
+# option. audio_demo is the S0 silent-block vertical slice.
 if(SE_BUILD_AUDIO)
-    add_subdirectory(audio)
     add_sushi_sycl_executable(audio_demo examples/audio_demo.cpp)
     target_link_libraries(audio_demo PRIVATE sushi_audio)
 
@@ -442,13 +437,8 @@ if(SE_BUILD_AUDIO)
     endif()
 endif()
 
-# The engine-neutral atmosphere module (atmosphere/): T1, the global dynamical
-# core, and the Fourier transform its elliptic inversion is built on. Linking
-# nothing, for the same reason geometry does: its consumers are the simulation's
-# gameplay queries, the regional nest's parent forcing, and a headless probe, and
-# none of the three should have to bring up a device to ask what the weather is
-# (docs/slop/atmosphere_system.md §5). The nest itself is a Vulkan service and
-# stays in render/atmosphere.
+# The global dynamical core's headless acceptance probe. On this lane only, because that is
+# where it has always been built and the native lane carries no target it has not proved out.
 add_subdirectory(atmosphere)
 
 # The engine-neutral asset importers (import/): glTF in, engine blob out, linking

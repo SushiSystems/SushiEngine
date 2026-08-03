@@ -35,6 +35,9 @@ target_include_directories(sushi_import PUBLIC
 # The imported blobs are spelled in core's scalar and vector types, and the mesh importer
 # fills in a Geometry::TriangleMesh.
 target_link_libraries(sushi_import PUBLIC sushiengine_core sushiengine_geometry)
+# Private: the skeleton and clip blobs are what the two glTF importers write, and neither
+# header this target publishes names one.
+target_link_libraries(sushi_import PRIVATE sushiengine_animation)
 target_compile_features(sushi_import PUBLIC cxx_std_17)
 set_target_properties(sushi_import PROPERTIES
     CXX_STANDARD 17
