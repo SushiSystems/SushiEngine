@@ -43,6 +43,7 @@
 #include <vk_mem_alloc.h>
 
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/geometry/mesh_vertex.hpp>
 #include <SushiEngine/material/material.hpp>
 #include <SushiEngine/render/scene_view.hpp>
 
@@ -59,22 +60,11 @@ namespace SushiEngine
 
         namespace Geometry
         {
-            /**
-             * @brief The renderer's single vertex format, 60 bytes.
-             *
-             * @c tangent's w is the bitangent handedness (+1 or -1). A zero tangent is
-             * legal and means "none authored": the shader then derives a tangent frame
-             * from screen-space derivatives, so a mesh without tangents still normal-maps.
-             */
-            struct MeshVertex
-            {
-                float position[3];
-                float normal[3];
-                float tangent[4];
-                float uv0[2];
-                float uv1[2];
-                std::uint8_t color[4];
-            };
+            // The format the renderer draws with is a plain memory layout, so it belongs to
+            // the geometry module, where meshlet clustering and the distance-field bake can
+            // read it without a device. Named here because this is where the renderer's own
+            // geometry code and every pass's vertex-input description reach for it.
+            using SushiEngine::Geometry::MeshVertex;
 
             /** @brief One drawable mesh: its buffers and the counts to draw them with. */
             struct Mesh

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* mesh_sdf_baker.cpp                                                     */
+/* mesh_vertex.hpp                                                        */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -21,34 +21,46 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#include "gi/mesh_sdf_baker.hpp"
+#pragma once
 
-#include "geometry/mesh_registry.hpp"
+/**
+ * @file mesh_vertex.hpp
+ * @brief The engine's drawable vertex format.
+ *
+ * Position, normal, tangent, two UV sets and a vertex colour — enough for normal
+ * mapping, parallax and a detail set, which is what makes the material system
+ * possible. The renderer uploads it verbatim and every pass describes its vertex
+ * input from these offsets, so the layout is a contract: changing a field changes
+ * the pipelines.
+ *
+ * It lives here rather than with the renderer's mesh registry because it is a plain
+ * memory layout, and the things that read one — meshlet clustering, the distance
+ * field bake, an importer — are CPU work that must not need a device to compile.
+ */
+
+#include <cstdint>
 
 namespace SushiEngine
 {
-    namespace Render
+    namespace Geometry
     {
-        namespace GI
+        /**
+         * @brief One drawable vertex, 60 bytes.
+         *
+         * @c tangent's w is the bitangent handedness (+1 or -1). A zero tangent is
+         * legal and means "none authored": the shader then derives a tangent frame
+         * from screen-space derivatives, so a mesh without tangents still normal-maps.
+         */
+        struct MeshVertex
         {
-            MeshSDFBrick bake_mesh_sdf(const SushiEngine::Geometry::MeshVertex* vertices,
-                                       std::size_t vertex_count,
-                                       const std::uint32_t* indices,
-                                       std::size_t index_count, std::int32_t resolution)
-            {
-                // The only renderer-specific fact in the whole bake: where a position
-                // sits inside a MeshVertex, and how far apart two of them are. The
-                // vertex struct is included here rather than in the header so the
-                // header stays free of the registry.
-                SushiEngine::Geometry::TriangleMeshView mesh;
-                mesh.positions = vertices != nullptr ? vertices[0].position : nullptr;
-                mesh.position_stride = sizeof(SushiEngine::Geometry::MeshVertex);
-                mesh.vertex_count = vertex_count;
-                mesh.indices = indices;
-                mesh.index_count = index_count;
+            float position[3];
+            float normal[3];
+            float tangent[4];
+            float uv0[2];
+            float uv1[2];
+            std::uint8_t color[4];
+        };
 
-                return SushiEngine::Geometry::bake_signed_distance_field(mesh, resolution);
-            }
-        } // namespace GI
-    } // namespace Render
+        static_assert(sizeof(MeshVertex) == 60, "MeshVertex must stay the 60-byte draw layout");
+    } // namespace Geometry
 } // namespace SushiEngine

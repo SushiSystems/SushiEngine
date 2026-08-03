@@ -27,7 +27,7 @@
 #include <cstring>
 #include <utility>
 
-#include "geometry/meshlet.hpp"
+#include <SushiEngine/geometry/meshlet.hpp>
 #include "gi/sdf_clipmap.hpp"
 #include "rhi/vulkan/vulkan_check.hpp"
 #include "rhi/vulkan/vulkan_device.hpp"
@@ -369,6 +369,12 @@ namespace SushiEngine
             {
                 if (!device_.supports_mesh_shader())
                     return;
+                // The clustering itself is device-independent and lives in the geometry
+                // module; only the upload below is the renderer's.
+                using SushiEngine::Geometry::build_meshlets;
+                using SushiEngine::Geometry::MeshletData;
+                using SushiEngine::Geometry::MeshletDescriptor;
+
                 const MeshletData meshlets =
                     build_meshlets(vertices, vertex_count, indices, index_count);
                 if (meshlets.empty())

@@ -34,7 +34,7 @@
  * physics could only reach by depending upward.
  *
  * What stays here is the one thing that is genuinely the renderer's: knowing that
- * *its* vertices are 60-byte @ref Geometry::MeshVertex records whose first three
+ * *its* vertices are 60-byte @ref SushiEngine::Geometry::MeshVertex records whose first three
  * floats are the position. That is expressed as a stride, so nothing is copied — the
  * shared baker walks the renderer's own array in place.
  */
@@ -47,13 +47,13 @@
 
 namespace SushiEngine
 {
+    namespace Geometry
+    {
+        struct MeshVertex;
+    }
+
     namespace Render
     {
-        namespace Geometry
-        {
-            struct MeshVertex;
-        }
-
         namespace GI
         {
             /**
@@ -79,7 +79,7 @@ namespace SushiEngine
              * @param resolution   Voxels per axis of the cube brick (e.g. 32).
              * @return The baked brick; distances empty if the mesh was degenerate.
              */
-            MeshSDFBrick bake_mesh_sdf(const Geometry::MeshVertex* vertices,
+            MeshSDFBrick bake_mesh_sdf(const SushiEngine::Geometry::MeshVertex* vertices,
                                        std::size_t vertex_count,
                                        const std::uint32_t* indices,
                                        std::size_t index_count, std::int32_t resolution);
