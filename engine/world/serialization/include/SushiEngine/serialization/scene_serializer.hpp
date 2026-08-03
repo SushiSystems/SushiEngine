@@ -31,6 +31,8 @@
 #include <SushiEngine/astro/julian_date.hpp>
 #include <SushiEngine/simulation/simulation.hpp>
 
+#include "scene_blob_table.hpp"
+
 namespace SushiEngine
 {
     namespace Render
@@ -71,10 +73,21 @@ namespace SushiEngine
          * undo or a Play→Stop that restored only the entities would leave the lighting,
          * fog, and weather physics carrying edits the user believes were rolled back.
          *
+         * A soft body's cooked asset is the one thing this shape will not always
+         * inline. Given @p blobs it writes the blob's content hash and puts the bytes in
+         * the table, so fifty undo snapshots of the same body cost fifty integers rather
+         * than fifty copies of a multi-megabyte cook; given none it writes the bytes
+         * themselves as base64, which is what @ref save_scene wants — a scene file has to
+         * stand on its own.
+         *
          * @param world The world to snapshot.
+         * @param blobs Where cooked soft-body assets are put, the snapshot naming each by
+         *     its content hash. Null inlines them instead. The same table must be handed
+         *     to @ref apply_scene, and must outlive every snapshot taken through it.
          * @return An object `{ "entities": [...], "environment": {...} }`.
          */
-        nlohmann::json capture_scene(SushiEngine::Simulation::IWorldEditor& world);
+        nlohmann::json capture_scene(SushiEngine::Simulation::IWorldEditor& world,
+                                     ISceneBlobTable* blobs = nullptr);
 
         /**
          * @brief Restores @p world to the scene described by @p root.
@@ -86,11 +99,19 @@ namespace SushiEngine
          * entity-only capture shape — is still accepted and leaves the environment
          * untouched.
          *
+         * A soft body's cooked asset is resolved inline first (the base64 a scene file
+         * carries), then out of @p blobs by content hash. An entity whose asset resolves
+         * neither way comes back with no soft body at all rather than with an empty blob,
+         * which would be a body that can never be built.
+         *
          * @param world The world to repopulate.
          * @param root An object in the shape @ref capture_scene produces (or a bare
          *     entity array).
+         * @param blobs The table @p root's snapshot was captured through, holding the
+         *     cooked assets it names by hash. Null when the snapshot inlines them.
          */
-        void apply_scene(SushiEngine::Simulation::IWorldEditor& world, const nlohmann::json& root);
+        void apply_scene(SushiEngine::Simulation::IWorldEditor& world, const nlohmann::json& root,
+                         const ISceneBlobTable* blobs = nullptr);
 
         /**
          * @brief Writes every live entity in @p world, its environment, and (optionally)

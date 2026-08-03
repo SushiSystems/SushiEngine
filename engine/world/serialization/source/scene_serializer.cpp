@@ -36,6 +36,7 @@
 
 #include <SushiEngine/render/asset_library_interface.hpp>
 
+#include "byte_encoding.hpp"
 #include "effect_serializer.hpp"
 #include "environment_serializer.hpp"
 
@@ -534,9 +535,48 @@ namespace SushiEngine
                        p.detail_albedo_map.empty() && p.detail_normal_map.empty() &&
                        p.detail_mask_map.empty();
             }
+
+            json soft_body_material_to_json(
+                const SushiEngine::Physics::SoftBodyMaterialT<SushiEngine::Scalar>& material)
+            {
+                return json{{"young_modulus", material.young_modulus},
+                            {"poisson_ratio", material.poisson_ratio},
+                            {"density", material.density},
+                            {"damping", material.damping},
+                            {"yield_stress", material.yield_stress},
+                            {"plastic_creep", material.plastic_creep},
+                            {"maximum_plastic_strain", material.maximum_plastic_strain},
+                            {"fracture_stress", material.fracture_stress}};
+            }
+
+            /**
+             * @brief Reads a soft-body material, keeping @p material's values for absent fields.
+             *
+             * Same convention as `joint_limit_from_json`: a file written by an older build
+             * is missing fields rather than asserting zeros for them, and a zero
+             * `young_modulus` is a body with no stiffness at all.
+             */
+            SushiEngine::Physics::SoftBodyMaterialT<SushiEngine::Scalar>
+            soft_body_material_from_json(
+                const json& j,
+                SushiEngine::Physics::SoftBodyMaterialT<SushiEngine::Scalar> material)
+            {
+                if (!j.is_object())
+                    return material;
+                material.young_modulus = j.value("young_modulus", material.young_modulus);
+                material.poisson_ratio = j.value("poisson_ratio", material.poisson_ratio);
+                material.density = j.value("density", material.density);
+                material.damping = j.value("damping", material.damping);
+                material.yield_stress = j.value("yield_stress", material.yield_stress);
+                material.plastic_creep = j.value("plastic_creep", material.plastic_creep);
+                material.maximum_plastic_strain =
+                    j.value("maximum_plastic_strain", material.maximum_plastic_strain);
+                material.fracture_stress = j.value("fracture_stress", material.fracture_stress);
+                return material;
+            }
         } // namespace
 
-        json capture_scene(IWorldEditor& world)
+        json capture_scene(IWorldEditor& world, ISceneBlobTable* blobs)
         {
             const std::vector<EntityId> ids = world.entities();
             std::unordered_map<EntityId, int> index_of;
@@ -618,6 +658,34 @@ namespace SushiEngine
                                           {"cols", parameters.cols},
                                           {"spacing", parameters.spacing},
                                           {"compliance", parameters.compliance}};
+                }
+
+                const bool has_soft_body = world.has_soft_body(id);
+                entry["has_soft_body"] = has_soft_body;
+                if (has_soft_body)
+                {
+                    const auto parameters = world.soft_body_parameters(id);
+                    json soft_body = json{{"level", parameters.level},
+                                          {"thickness", parameters.thickness},
+                                          {"self_collision", parameters.self_collision},
+                                          {"cosmetic", parameters.cosmetic},
+                                          {"material",
+                                           soft_body_material_to_json(parameters.material)}};
+                    // The cook *is* the body — nothing re-derives a tetrahedral lattice at
+                    // runtime — so the blob travels with the entity either as its own bytes
+                    // or as a name for bytes the caller is holding. Which of the two, and
+                    // why, is capture_scene's own documentation.
+                    if (blobs != nullptr)
+                    {
+                        const std::uint64_t key = Detail::content_hash(parameters.asset);
+                        blobs->put(key, parameters.asset);
+                        soft_body["asset_hash"] = key;
+                    }
+                    else
+                    {
+                        soft_body["asset"] = Detail::encode_base64(parameters.asset);
+                    }
+                    entry["soft_body"] = std::move(soft_body);
                 }
 
                 const bool has_particle_emitter = world.has_particle_emitter(id);
@@ -827,7 +895,7 @@ namespace SushiEngine
             return capture;
         }
 
-        void apply_scene(IWorldEditor& world, const json& root)
+        void apply_scene(IWorldEditor& world, const json& root, const ISceneBlobTable* blobs)
         {
             // A capture is an object {entities, environment}; a bare array is the older
             // entity-only shape (pre-environment captures, and clipboard-era files) and
@@ -920,6 +988,38 @@ namespace SushiEngine
                         parameters.spacing = c.value("spacing", parameters.spacing);
                         parameters.compliance = c.value("compliance", parameters.compliance);
                         world.set_cloth_parameters(id, parameters);
+                    }
+                }
+
+                if (entry.value("has_soft_body", false) && entry.contains("soft_body"))
+                {
+                    const json& s = entry["soft_body"];
+                    SushiEngine::Simulation::SoftBodyParameters parameters;
+                    // Inline bytes first, then the table: a scene file carries its own
+                    // blob, and only an in-memory snapshot names one. An asset that
+                    // resolves neither way leaves the entity without a soft body, since
+                    // an empty blob is a Soft Body that can never become one — the same
+                    // refusal create_soft_body makes at the other end of the path.
+                    bool resolved = false;
+                    if (s.contains("asset") && s["asset"].is_string())
+                        resolved =
+                            Detail::decode_base64(s["asset"].get<std::string>(), parameters.asset);
+                    else if (blobs != nullptr && s.contains("asset_hash") &&
+                             s["asset_hash"].is_number_unsigned())
+                        resolved = blobs->get(s["asset_hash"].get<std::uint64_t>(),
+                                              parameters.asset);
+
+                    if (resolved)
+                    {
+                        parameters.level = s.value("level", parameters.level);
+                        parameters.thickness = s.value("thickness", parameters.thickness);
+                        parameters.self_collision =
+                            s.value("self_collision", parameters.self_collision);
+                        parameters.cosmetic = s.value("cosmetic", parameters.cosmetic);
+                        parameters.material = soft_body_material_from_json(
+                            s.value("material", json{}), parameters.material);
+                        world.set_has_soft_body(id, true);
+                        world.set_soft_body_parameters(id, parameters);
                     }
                 }
 
@@ -1209,6 +1309,10 @@ namespace SushiEngine
             // capture_scene already carries the entities and the environment; the file
             // adds only what a disk scene has that an in-memory snapshot does not — the
             // weather sidecar reference and the sky authoring state.
+            //
+            // No blob table on purpose: a cooked soft-body asset goes into the file by
+            // value, as base64. A `.sushiscene` has to be openable on its own, and a hash
+            // into a table that lives in the editor session that wrote it is not that.
             json root = capture_scene(world);
             root["weather"] = weather_to_json(world, path);
             if (sky != nullptr)

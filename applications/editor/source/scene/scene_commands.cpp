@@ -241,6 +241,8 @@ namespace SushiEngine
                 entry.physics_body_parameters = world->physics_body_parameters(id);
                 entry.has_cloth = world->has_cloth(id);
                 entry.cloth_parameters = world->cloth_parameters(id);
+                entry.has_soft_body = world->has_soft_body(id);
+                entry.soft_body_parameters = world->soft_body_parameters(id);
                 entry.has_light = world->has_light(id);
                 entry.light_parameters = world->light_parameters(id);
                 entry.has_decal = world->has_decal(id);
@@ -331,6 +333,9 @@ namespace SushiEngine
                 world->set_has_cloth(id, entry.has_cloth);
                 if (entry.has_cloth)
                     world->set_cloth_parameters(id, entry.cloth_parameters);
+                world->set_has_soft_body(id, entry.has_soft_body);
+                if (entry.has_soft_body)
+                    world->set_soft_body_parameters(id, entry.soft_body_parameters);
                 world->set_has_light(id, entry.has_light);
                 if (entry.has_light)
                     world->set_light_parameters(id, entry.light_parameters);

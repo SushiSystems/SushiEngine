@@ -8,6 +8,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ## [Unreleased]
 
+### Fixed
+- 2026-08-04 — Fixed `capture_scene` never capturing a `SoftBodyParameters` component, which made Save→Load, Undo/Redo and Play→Stop each destroy every soft body in the scene.
+  - Added `Scene::ISceneBlobTable`/`Scene::SceneBlobTable`, plus optional `blobs` parameters on `capture_scene`/`apply_scene`: a scene file inlines the cooked `.sushisoft` blob as base64 so it stays self-contained, while an in-memory snapshot names it by content hash so fifty undo steps hold one copy rather than fifty.
+  - Changed `CommandHistory` and the editor's play-mode snapshot to each own a blob table beside their snapshots.
+  - Changed a soft body whose asset resolves neither inline nor from the table to restore as an entity with no soft body, rather than one holding an empty blob the physics can never build.
+
 ### Changed
 - 2026-08-03 — Moved the world-tier authoring types out of `SushiEngine::Editor`, which the editor application also used for its panels, into `SushiEngine::Authoring`.
 - 2026-08-03 — Restored the truncated Apache licence banner in 246 files, removed all 216 separator comments, and rewrote the comments that narrated what the code used to be into statements of what it does.
@@ -125,6 +131,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   identical row.
 
 ### Fixed
+- 2026-08-04 — Fixed `.sushieffect` silently reverting an emitter's `RenderAlignment::Beam` to `FaceCamera` on load: the reader range-checked the alignment against four enumerators when there are five.
+  - Added the missing `beam` object to the effect shape, so `BeamModule`'s seven fields (`enabled`, `start`, `end`, `width`, `sag`, `noise_amplitude`, `noise_frequency`) survive a save and load at all — they were never written.
+  - Moved every enumerator count the reader checks against out of the call site and next to its enum (`VFX::RENDER_ALIGNMENT_COUNT` and five siblings), so adding an enumerator is one edit rather than two distant ones. Audited the other five call sites: only the alignment was wrong.
+  - Added `tests/unit/test_vfx_effect_serializer.cpp`, which round-trips every enumerator of every persisted enum by enumeration rather than by example, and every `BeamModule` field.
+- 2026-08-04 — Fixed `VFX::SortMode` deciding nothing: it was authored, serialized and uploaded to the GPU, while the particle depth sort was gated on blend mode instead. `ParticleSortPass` now runs its bitonic stages only when an active emitter both blends true-alpha and asks for `ViewDistance`.
+  - Changed `RenderModule::sort`'s default to `ViewDistance`, so every existing effect keeps the ordering it had and `None` becomes a deliberate opt-out; the sort is a whole-pass decision because the alpha bucket is shared across emitters.
+  - Renamed `ParticleSystem::has_alpha()` to `needs_alpha_sort()`, which is what it now answers.
+- 2026-08-04 — Added the Particle Inspector's Beam and Sort controls, the two VFX features that were implemented end to end and reachable by no author: `RenderAlignment::Beam` joins the Alignment combo with a detail block for every `BeamModule` field, and a Sort combo sits beside Blend.
+  - Each particle combo now asserts its label list against its enum's enumerator count at compile time, so an enumerator added without a label is a build error rather than a mode nobody can select.
+
 - 2026-08-02 — **The march's budget coarsening was quantised by a loop counter, which drew concentric rings around the sub-camera point.** Introduced earlier the same day by the fix for the truncated ray: the step scaled by `exp2(0.5 * (real_samples - STEPS))`, geometric in the number of samples already spent. `real_samples` is an **integer**, so the step size took discrete values and two adjacent pixels landing on different overdraft counts marched a factor of √2 apart — a difference the accumulated density shows. The set of pixels sharing an overdraft count is a curve of constant chord length through the shell, which from orbit is a circle centred on the sub-camera point.
   - Bisected rather than guessed: with `Clouds Enabled` cleared the globe is spotless, so the rings are cloud-path and the terrain is innocent. From orbit every *pre-existing* distance-driven term in the march is saturated — `detail_fade` (14–42 km), `near_field` (16 km), `CARVE_END_METERS` (80 km), both step clamps — because the shell entry is a thousand kilometres away, so none of them can draw a contour there at all. The coarsening was the only candidate left, and it was new.
   - The budget is a **distance** now, not a count. The natural step is geometric, so the distance at which `STEPS` of them would be spent is the closed form `t₀ · (1 + march_angular)^STEPS`, computed once and continuous in `t₀`; past it the step scales by how far past it the sample is. Nothing integer enters the step size, so no contour can form. `real_samples` is deleted rather than left implying a limit nothing enforces.

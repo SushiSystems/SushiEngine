@@ -10,6 +10,9 @@ sushiengine_add_module(NAME serialization LAYER world
         source/scene_serializer.cpp
         source/effect_serializer.cpp
         source/environment_serializer.cpp
+        # Base64 and the content hash the scene shape names a cooked blob by. Private to
+        # this module: JSON is the only reason either exists, and there is one consumer.
+        source/byte_encoding.cpp
     # Public because each is spelled in a header this target publishes: the scene shape is written
     # against IWorldEditor and carries the sky's epoch as a Julian date, the effect shape against a
     # ParticleEffect, and the environment shape against the environment itself.

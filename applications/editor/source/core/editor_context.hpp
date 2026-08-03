@@ -48,6 +48,8 @@
 #include <SushiEngine/simulation/simulation.hpp>
 #include <SushiEngine/simulation/simulation_settings.hpp>
 
+#include "scene_blob_table.hpp"
+
 #include "console.hpp"
 #include "../gizmo/gizmo_controller.hpp"
 #include "meteorology_log.hpp"
@@ -137,6 +139,15 @@ namespace SushiEngine
             SushiEngine::Simulation::PhysicsBodyParameters physics_body_parameters;
             bool has_cloth = false;
             SushiEngine::Simulation::ClothParameters cloth_parameters;
+            /**
+             * @brief The soft body, cooked asset included.
+             *
+             * The blob is copied rather than shared: a pasted entity is a second body
+             * from the moment it exists, and a clipboard that handed out a reference
+             * would tie the duplicate's lifetime to an original the artist may delete.
+             */
+            bool has_soft_body = false;
+            SushiEngine::Simulation::SoftBodyParameters soft_body_parameters;
             bool has_light = false;
             SushiEngine::Simulation::LightParameters light_parameters;
             bool has_decal = false;
@@ -377,6 +388,11 @@ namespace SushiEngine
             // Unity's edit-mode-is-never-mutated-by-play-mode guarantee. Empty means no
             // Play session is in progress.
             std::optional<nlohmann::json> play_mode_snapshot;
+
+            // The cooked soft-body assets `play_mode_snapshot` names by content hash
+            // rather than inlining. Owned beside the snapshot because the two are one
+            // thing: a snapshot restored against a different table restores no bodies.
+            Scene::SceneBlobTable play_mode_blobs;
 
             // One-shot request from the toolbar's Step button: advance the world exactly
             // one tick this frame regardless of play_state (typically pressed while

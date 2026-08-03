@@ -12,13 +12,11 @@ sushiengine_add_module(NAME authoring LAYER world
         source/preferences.cpp
         source/cook_bake_state.cpp
     # Public because each is spelled in a header this target publishes: command_history.hpp
-    # snapshots a world through IWorldEditor, preferences.hpp holds the environment a new scene
-    # starts from and the simulation's own quality budgets, cook_bake_state.hpp the mesh a cook
-    # starts at, and soft_body_heat.hpp the material a stress reading is scaled against.
-    PUBLIC_DEPENDS core environment geometry physics simulation
-    # The two shapes the undo stack and the preferences store persist through; no header here
-    # names either.
-    PRIVATE_DEPENDS serialization
+    # snapshots a world through IWorldEditor and owns the Scene::SceneBlobTable its snapshots
+    # name cooked assets by, preferences.hpp holds the environment a new scene starts from and
+    # the simulation's own quality budgets, cook_bake_state.hpp the mesh a cook starts at, and
+    # soft_body_heat.hpp the material a stress reading is scaled against.
+    PUBLIC_DEPENDS core environment geometry physics serialization simulation
     # nlohmann_json is public because command_history.hpp holds a snapshot as a json document.
     # sushiengine_physics_cooking is public for the same reason: cook_bake_state.hpp is written
     # against the cooking service and the three cooked asset kinds it produces.

@@ -27,14 +27,30 @@
 // These tests pin the components that were once missing (lights, decals,
 // materials and their texture paths) through the real simulation, plus the
 // Authoring::CommandHistory path that turns the same snapshots into undo steps.
+//
+// The soft-body cases at the end also pin the *shape* the capture takes, which is
+// the one place this format is not uniform: a cooked asset is megabytes, so a
+// scene file inlines it (the file has to open on its own) while an in-memory
+// snapshot names it into a caller-owned blob table (fifty undo steps must not
+// hold fifty cooks). Both halves are asserted, and so is the refusal in between —
+// a snapshot whose asset cannot be resolved restores no body at all.
 
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <system_error>
+#include <vector>
 
 #include <gtest/gtest.h>
 
+#include <SushiEngine/geometry/triangle_mesh.hpp>
+#include <SushiEngine/physics/cooking/soft_body_cooker.hpp>
 #include <SushiEngine/simulation/simulation.hpp>
 
 #include <SushiEngine/authoring/command_history.hpp>
+#include "scene_blob_table.hpp"
 #include "scene_serializer.hpp"
 
 using namespace SushiEngine;
@@ -386,4 +402,269 @@ TEST(Integration_SceneSerializer, UndoRestoresTheEnvironment)
     // Redo re-applies the reset, so the pair is symmetric.
     ASSERT_TRUE(history.redo(world));
     expect_environment_equal(world.environment(), SushiEngine::Render::Environment{});
+}
+
+namespace
+{
+    /** @brief A unit box as a closed, outward-wound triangle mesh — the cooker's input. */
+    Geometry::TriangleMesh box_mesh(float half_x, float half_y, float half_z)
+    {
+        Geometry::TriangleMesh mesh;
+        const float corners[8][3] = {
+            {-half_x, -half_y, -half_z}, {half_x, -half_y, -half_z}, {half_x, half_y, -half_z},
+            {-half_x, half_y, -half_z},  {-half_x, -half_y, half_z}, {half_x, -half_y, half_z},
+            {half_x, half_y, half_z},    {-half_x, half_y, half_z}};
+        for (const auto& corner : corners)
+        {
+            mesh.positions.push_back(corner[0]);
+            mesh.positions.push_back(corner[1]);
+            mesh.positions.push_back(corner[2]);
+        }
+        const std::uint32_t faces[12][3] = {{0, 2, 1}, {0, 3, 2}, {4, 5, 6}, {4, 6, 7},
+                                            {0, 1, 5}, {0, 5, 4}, {3, 7, 6}, {3, 6, 2},
+                                            {0, 4, 7}, {0, 7, 3}, {1, 2, 6}, {1, 6, 5}};
+        for (const auto& face : faces)
+        {
+            mesh.indices.push_back(face[0]);
+            mesh.indices.push_back(face[1]);
+            mesh.indices.push_back(face[2]);
+        }
+        return mesh;
+    }
+
+    /**
+     * @brief A real `.sushisoft` blob, cooked once and shared by every case here.
+     *
+     * Cooked rather than synthesized: the asset is what a soft body *is*, and a
+     * hand-written stand-in would round-trip through a path production does not have.
+     * The parameters are the cheapest cook the pipeline accepts, since what is under
+     * test is whether the bytes survive rather than what they describe.
+     */
+    const std::vector<std::byte>& cooked_box()
+    {
+        static const std::vector<std::byte> bytes = []
+        {
+            Physics::Cooking::SoftBodyCooker cooker;
+            Physics::Cooking::CookingParameters parameters;
+            parameters.fidelity = 0.0f;
+            parameters.voxel_resolution = 6;
+            parameters.target_tetrahedron_count = Physics::Cooking::DERIVE_FROM_FIDELITY;
+            parameters.simulation_level_count = 2;
+            parameters.distance_field_resolution = 8;
+            parameters.surface_conforming_passes = 0;
+            parameters.accuracy_lattice_order = 2;
+            parameters.cook_soft_body = true;
+            parameters.cook_collision = false;
+
+            const Geometry::TriangleMesh box = box_mesh(0.5f, 0.5f, 0.5f);
+            std::vector<std::byte> out;
+            cooker.cook(box.view(), parameters, nullptr, nullptr, out);
+            return out;
+        }();
+        return bytes;
+    }
+
+    /**
+     * @brief The authored soft body every case round-trips.
+     *
+     * Every field differs from its default, including all eight material parameters:
+     * a capture that forgets one of them restores a body that looks right and behaves
+     * like a different substance, which is the failure this whole file exists to catch.
+     */
+    SoftBodyParameters reference_soft_body()
+    {
+        SoftBodyParameters p;
+        p.asset = cooked_box();
+        // The authored simulation level. Whether the cook's chain actually reached a
+        // second level is `test_soft_body_cooker`'s subject; here it is a number the
+        // capture either carries or loses.
+        p.level = 1;
+        p.thickness = Scalar(0.037);
+        p.self_collision = true;
+        p.cosmetic = true;
+        p.material.young_modulus = Scalar(3.25e6);
+        p.material.poisson_ratio = Scalar(0.27);
+        p.material.density = Scalar(1234.5);
+        p.material.damping = Scalar(0.75);
+        p.material.yield_stress = Scalar(4.5e7);
+        p.material.plastic_creep = Scalar(0.35);
+        p.material.maximum_plastic_strain = Scalar(0.19);
+        p.material.fracture_stress = Scalar(6.75e8);
+        return p;
+    }
+
+    void expect_soft_body_equal(const SoftBodyParameters& actual,
+                                const SoftBodyParameters& expected)
+    {
+        // Size first, then the bytes as one boolean: a byte-by-byte report over a
+        // multi-megabyte cook would bury every other failure in the file.
+        EXPECT_EQ(actual.asset.size(), expected.asset.size());
+        EXPECT_TRUE(actual.asset == expected.asset)
+            << "the cooked asset came back as different bytes";
+        EXPECT_EQ(actual.level, expected.level);
+        EXPECT_DOUBLE_EQ(static_cast<double>(actual.thickness),
+                         static_cast<double>(expected.thickness));
+        EXPECT_EQ(actual.self_collision, expected.self_collision);
+        EXPECT_EQ(actual.cosmetic, expected.cosmetic);
+        EXPECT_DOUBLE_EQ(static_cast<double>(actual.material.young_modulus),
+                         static_cast<double>(expected.material.young_modulus));
+        EXPECT_DOUBLE_EQ(static_cast<double>(actual.material.poisson_ratio),
+                         static_cast<double>(expected.material.poisson_ratio));
+        EXPECT_DOUBLE_EQ(static_cast<double>(actual.material.density),
+                         static_cast<double>(expected.material.density));
+        EXPECT_DOUBLE_EQ(static_cast<double>(actual.material.damping),
+                         static_cast<double>(expected.material.damping));
+        EXPECT_DOUBLE_EQ(static_cast<double>(actual.material.yield_stress),
+                         static_cast<double>(expected.material.yield_stress));
+        EXPECT_DOUBLE_EQ(static_cast<double>(actual.material.plastic_creep),
+                         static_cast<double>(expected.material.plastic_creep));
+        EXPECT_DOUBLE_EQ(static_cast<double>(actual.material.maximum_plastic_strain),
+                         static_cast<double>(expected.material.maximum_plastic_strain));
+        EXPECT_DOUBLE_EQ(static_cast<double>(actual.material.fracture_stress),
+                         static_cast<double>(expected.material.fracture_stress));
+    }
+
+    /** @brief The one authored soft body every case starts from, named "Jelly". */
+    EntityId build_soft_body_scene(IWorldEditor& world)
+    {
+        clear_world(world);
+        const EntityId body = world.create_soft_body("Jelly", cooked_box());
+        if (body != NULL_ENTITY)
+            world.set_soft_body_parameters(body, reference_soft_body());
+        return body;
+    }
+} // namespace
+
+TEST(Integration_SceneSerializer, ASoftBodySurvivesCaptureApplyThroughABlobTable)
+{
+    ASSERT_FALSE(cooked_box().empty()) << "the cook this whole section depends on produced none";
+
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    ASSERT_NE(build_soft_body_scene(world), NULL_ENTITY);
+
+    Scene::SceneBlobTable blobs;
+    const nlohmann::json snapshot = Scene::capture_scene(world, &blobs);
+    EXPECT_EQ(blobs.size(), 1u) << "the cooked asset never reached the table";
+
+    // The point of the table: the snapshot names the blob instead of holding it, so
+    // fifty undo steps over one body cost fifty integers rather than fifty cooks.
+    ASSERT_TRUE(snapshot.contains("entities"));
+    ASSERT_EQ(snapshot["entities"].size(), 1u);
+    const nlohmann::json& entry = snapshot["entities"].front();
+    ASSERT_TRUE(entry.value("has_soft_body", false));
+    ASSERT_TRUE(entry.contains("soft_body"));
+    EXPECT_TRUE(entry["soft_body"].contains("asset_hash"));
+    EXPECT_FALSE(entry["soft_body"].contains("asset"));
+
+    clear_world(world);
+    Scene::apply_scene(world, snapshot, &blobs);
+
+    const EntityId restored = find_by_name(world, "Jelly");
+    ASSERT_NE(restored, NULL_ENTITY);
+    ASSERT_TRUE(world.has_soft_body(restored));
+    expect_soft_body_equal(world.soft_body_parameters(restored), reference_soft_body());
+}
+
+TEST(Integration_SceneSerializer, ASoftBodySurvivesTheSceneFileByValue)
+{
+    ASSERT_FALSE(cooked_box().empty());
+
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    ASSERT_NE(build_soft_body_scene(world), NULL_ENTITY);
+
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "sushiengine_soft_body_roundtrip.sushiscene";
+    std::error_code error;
+    std::filesystem::remove(path, error);
+
+    ASSERT_TRUE(Scene::save_scene(world, path.string()));
+
+    // A scene file has to open on its own machine and on anyone else's, so the blob
+    // is in it rather than named by it — the opposite of the snapshot path above.
+    {
+        std::ifstream file(path.string());
+        ASSERT_TRUE(static_cast<bool>(file));
+        nlohmann::json written;
+        ASSERT_NO_THROW(file >> written);
+        ASSERT_TRUE(written.contains("entities"));
+        ASSERT_EQ(written["entities"].size(), 1u);
+        const nlohmann::json& entry = written["entities"].front();
+        ASSERT_TRUE(entry.contains("soft_body"));
+        EXPECT_TRUE(entry["soft_body"].contains("asset"));
+        EXPECT_FALSE(entry["soft_body"].contains("asset_hash"));
+    }
+
+    clear_world(world);
+    ASSERT_TRUE(Scene::load_scene(world, path.string()));
+
+    const EntityId restored = find_by_name(world, "Jelly");
+    ASSERT_NE(restored, NULL_ENTITY);
+    ASSERT_TRUE(world.has_soft_body(restored));
+    expect_soft_body_equal(world.soft_body_parameters(restored), reference_soft_body());
+
+    std::filesystem::remove(path, error);
+    // save_scene may drop an atmosphere sidecar beside the scene; the test owns both.
+    std::filesystem::remove(std::filesystem::path(path.string() + ".atmos"), error);
+}
+
+TEST(Integration_SceneSerializer, ASoftBodyWithNoResolvableAssetComesBackWithoutABody)
+{
+    ASSERT_FALSE(cooked_box().empty());
+
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    ASSERT_NE(build_soft_body_scene(world), NULL_ENTITY);
+
+    Scene::SceneBlobTable blobs;
+    const nlohmann::json snapshot = Scene::capture_scene(world, &blobs);
+
+    // A snapshot that outlived its table. The entity must come back as an entity and
+    // nothing more: a soft body holding an empty blob is one the physics will never
+    // build, and it would sit in the scene looking authored.
+    clear_world(world);
+    Scene::SceneBlobTable unrelated;
+    Scene::apply_scene(world, snapshot, &unrelated);
+
+    const EntityId restored = find_by_name(world, "Jelly");
+    ASSERT_NE(restored, NULL_ENTITY);
+    EXPECT_FALSE(world.has_soft_body(restored));
+    EXPECT_TRUE(world.soft_body_parameters(restored).asset.empty());
+
+    // And with no table offered at all, which is what a hash-bearing snapshot handed
+    // to the file path would be.
+    clear_world(world);
+    Scene::apply_scene(world, snapshot);
+
+    const EntityId again = find_by_name(world, "Jelly");
+    ASSERT_NE(again, NULL_ENTITY);
+    EXPECT_FALSE(world.has_soft_body(again));
+}
+
+TEST(Integration_SceneSerializer, UndoRestoresASoftBody)
+{
+    ASSERT_FALSE(cooked_box().empty());
+
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    ASSERT_NE(build_soft_body_scene(world), NULL_ENTITY);
+
+    // The editor's delete path, on the component that used to be destroyed by it.
+    Authoring::CommandHistory history;
+    history.record(world);
+    world.destroy(find_by_name(world, "Jelly"));
+
+    ASSERT_TRUE(history.undo(world));
+    const EntityId restored = find_by_name(world, "Jelly");
+    ASSERT_NE(restored, NULL_ENTITY);
+    ASSERT_TRUE(world.has_soft_body(restored));
+    expect_soft_body_equal(world.soft_body_parameters(restored), reference_soft_body());
+
+    ASSERT_TRUE(history.redo(world));
+    EXPECT_EQ(find_by_name(world, "Jelly"), NULL_ENTITY);
 }

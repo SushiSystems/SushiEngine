@@ -579,6 +579,18 @@ Scene`/`Save Scene As...`/`New Scene` and the Project panel's double-click/`Open
 functions `save_scene`/`load_scene` wrap around file I/O, and are reused directly by
 undo/redo below.
 
+One component does not fit the "write every field inline" rule: `SoftBodyParameters`
+holds a whole cooked `.sushisoft` blob by value, megabytes of it, because nothing can
+re-derive a tetrahedral lattice at runtime. So `capture_scene`/`apply_scene` take an
+optional `Scene::ISceneBlobTable*` (`scene/scene_blob_table.hpp`). Given none — the
+file path — the blob is written into the entry as base64, since a `.sushiscene` has to
+open without whatever session wrote it. Given a table, the entry carries only the
+blob's FNV-1a 64 content hash and the bytes go in the table once, which is what makes
+`CommandHistory`'s fifty-deep snapshot stack and the play-mode snapshot affordable:
+keying on content means the table holds one entry per *distinct* cook, not one per
+snapshot. An entry whose asset resolves neither way restores as an entity with no soft
+body rather than one holding an empty blob, matching `create_soft_body`'s own refusal.
+
 Undo/redo (`editor/command_history.*`, `CommandHistory`) is whole-world snapshot-based
 rather than a per-field command hierarchy: every step is a full
 `capture_scene`/`apply_scene` round-trip, which is simple and correct at this entity
@@ -2578,7 +2590,13 @@ one `{-distance², index}` key per pool slot from the alpha list's camera distan
 the end); mode 1 is one bitonic compare-exchange stage, dispatched `log2(N)*(log2(N)+1)/2` times by the
 host over the power-of-two pool capacity — the engine's "dispatch a host-known max, read the alive count
 on the GPU" idiom, so no indirect dispatch is needed (the tree's first GPU sort). The seed stage always
-runs so the key buffer has a producer; the bitonic stages run only when `ParticleSystem::has_alpha()`.
+runs so the key buffer has a producer; the bitonic stages run only when
+`ParticleSystem::needs_alpha_sort()` — that is, when at least one active emitter both blends true-alpha
+and asks for `VFX::SortMode::ViewDistance`, which is the authored `RenderModule::sort` field and
+defaults to sorting. `SortMode::None` is the opt-out, and it is a whole-pass one: the alpha bucket is
+shared across emitters and the bitonic pass costs the padded pool whatever fraction of it is occupied,
+so excluding one emitter's particles from the bucket would save nothing and cost their blending (the
+only other bucket composites additively).
 The alpha draw uses `particle_sorted.vert`, which indexes the alpha list through the sorted keys
 (binding 2 on the draw pass's set), so `gl_InstanceIndex` walks particles far-to-near; the additive and
 billboard draws keep the direct `particle.vert`. The pool capacity was set to 2^16 to keep the sort
@@ -2669,6 +2687,19 @@ Because the bucket is keyed on geometry it mixes authored blends, so ribbons com
 premultiplied "over" whatever the emitter asked for; splitting the bucket by blend is the increment
 that would lift that. Shading is no longer part of the limitation — §15.11 moved the lit flag onto
 the emitter, so a trail is lit if its author said so. Ribbons remain outside the alpha sort.
+
+`RenderAlignment::Beam` shares that bucket outright rather than opening a fourth one. A beam is a
+strip between two authored endpoints instead of through a particle's own recent positions, and that
+is the only difference — the strip expansion, the texturing and the draw are the ribbon's, so the
+two differ by which function `particle_ribbon.vert` samples and by the tail taper, which a beam
+does not apply because both its ends are authored. The endpoints, width,
+sag and lateral jitter live in `VFX::BeamModule` on the emitter descriptor, emitter-local so the
+span travels with its emitter; `ParticleSystem::prepare` bakes them to world space by the same
+transform it applies to a force field's centre, and `particle_beam_sample` evaluates a point along
+the span for a given `t`. Sag bends the line under an imagined gravity and the jitter — seeded from
+the drawing particle, so several live particles draw several distinct arcs between the same two
+points — displaces it laterally; with both at zero the beam is exactly straight. It is cosmetic
+only: the deterministic CPU backend draws nothing, so a beam never affects simulation state.
 
 ### 15.5 Mesh particles (VFX4)
 

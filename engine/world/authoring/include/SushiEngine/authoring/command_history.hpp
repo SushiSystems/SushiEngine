@@ -32,6 +32,8 @@
 
 #include <SushiEngine/simulation/simulation.hpp>
 
+#include "scene_blob_table.hpp"
+
 namespace SushiEngine
 {
     namespace Authoring
@@ -46,6 +48,12 @@ namespace SushiEngine
          * @ref record for a single discrete action (create, delete, reparent), and the
          * @ref begin_change / @ref end_change pair for a continuous drag (a slider held
          * across several frames), which must only cost one undo step.
+         *
+         * A whole-world snapshot is cheap only because the one thing in a scene that is
+         * not cheap stays out of it: a cooked soft-body asset runs to megabytes, and this
+         * class keeps up to fifty undo steps plus a redo stack. So each snapshot holds the
+         * asset's content hash and the blob table below holds the bytes — once per
+         * distinct cook, however many snapshots name it.
          */
         class CommandHistory
         {
@@ -116,6 +124,10 @@ namespace SushiEngine
                 std::vector<nlohmann::json> undo_stack_;
                 std::vector<nlohmann::json> redo_stack_;
                 std::optional<nlohmann::json> pending_;
+                // The bytes every stack above refers to by hash. Owned here because its
+                // lifetime is exactly this history's: a snapshot that outlived it would
+                // name an asset nothing holds.
+                Scene::SceneBlobTable blobs_;
                 std::uint64_t revision_ = 0;
         };
     } // namespace Authoring

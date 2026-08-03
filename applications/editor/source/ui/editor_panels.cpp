@@ -326,8 +326,8 @@ namespace SushiEngine
                 {
                     context.play_state = PlayState::Playing;
                     if (context.simulation != nullptr)
-                        context.play_mode_snapshot =
-                            Scene::capture_scene(context.simulation->world());
+                        context.play_mode_snapshot = Scene::capture_scene(
+                            context.simulation->world(), &context.play_mode_blobs);
                     editor_log(context, "Playback started.");
                 }
                 else
@@ -335,7 +335,9 @@ namespace SushiEngine
                     context.play_state = PlayState::Stopped;
                     if (context.simulation != nullptr && context.play_mode_snapshot.has_value())
                     {
-                        Scene::apply_scene(context.simulation->world(), *context.play_mode_snapshot);
+                        Scene::apply_scene(context.simulation->world(),
+                                           *context.play_mode_snapshot,
+                                           &context.play_mode_blobs);
                         context.play_mode_snapshot.reset();
                         select_only(context, SushiEngine::Simulation::NULL_ENTITY);
                     }
