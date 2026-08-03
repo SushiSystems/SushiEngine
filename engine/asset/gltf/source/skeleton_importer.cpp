@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* gltf_skeleton_importer.cpp                                            */
+/* skeleton_importer.cpp                                                  */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#include <SushiEngine/animation/gltf_skeleton_import.hpp>
+#include <SushiEngine/gltf/skeleton_import.hpp>
 
 #include <cstddef>
 #include <string>

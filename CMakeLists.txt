@@ -96,7 +96,8 @@ target_link_libraries(SushiEngine INTERFACE
     sushiengine_physics
     sushiengine_terrain
     sushiengine_ui
-    sushiengine_vfx)
+    sushiengine_vfx
+    sushiengine_gltf)
 
 # Publish the execution-backend choice (see cmake/ProjectOptions.cmake) to every
 # consumer, so which implementation Execution::Context/Graph/Buffer denote is settled
@@ -443,13 +444,6 @@ endif()
 # The global dynamical core's headless acceptance probe. On this lane only, because that is
 # where it has always been built and the native lane carries no target it has not proved out.
 add_subdirectory(atmosphere)
-
-# The engine-neutral asset importers (import/): glTF in, engine blob out, linking
-# nothing — and the one translation unit that defines cgltf's implementation. Before
-# the renderer for the same reason geometry is: the renderer reads it, and a target
-# that only wants to load a skeleton must not have to bring up a graphics stack to
-# find `import_gltf_skeleton` (docs/slop/physics_system.md §3.4).
-add_subdirectory(import)
 
 # The Vulkan renderer. OFF by default (see ProjectOptions); a plain compiled target
 # (no runtime link, no SYCL) that pulls Vulkan/VMA/vk-bootstrap from vcpkg.

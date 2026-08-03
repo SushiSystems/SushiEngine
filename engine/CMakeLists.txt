@@ -3,3 +3,4 @@
 # this file never has to know what a tier contains.
 add_subdirectory(foundation)
 add_subdirectory(domain)
+add_subdirectory(asset)

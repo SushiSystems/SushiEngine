@@ -31,9 +31,9 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/animation/clip_blob.hpp>
-#include <SushiEngine/animation/gltf_skeleton_import.hpp>
 #include <SushiEngine/animation/hash.hpp>
 #include <SushiEngine/animation/morph.hpp>
+#include <SushiEngine/gltf/skeleton_import.hpp>
 
 using namespace SushiEngine;
 

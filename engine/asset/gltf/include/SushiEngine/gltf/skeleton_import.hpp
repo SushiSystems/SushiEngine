@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* gltf_skeleton_import.hpp                                              */
+/* skeleton_import.hpp                                                    */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -24,7 +24,7 @@
 #pragma once
 
 /**
- * @file gltf_skeleton_import.hpp
+ * @file skeleton_import.hpp
  * @brief Import a skeleton from a glTF file's node hierarchy and skin.
  *
  * The engine's mesh importer bakes every primitive into its node's world transform and

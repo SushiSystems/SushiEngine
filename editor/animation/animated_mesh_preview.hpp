@@ -32,9 +32,9 @@
 #include <SushiEngine/animation/animator_evaluator.hpp>
 #include <SushiEngine/animation/asset_id.hpp>
 #include <SushiEngine/animation/avatar_mask.hpp>
-#include <SushiEngine/animation/gltf_skeleton_import.hpp>
 #include <SushiEngine/animation/ik_two_bone.hpp>
 #include <SushiEngine/core/types.hpp>
+#include <SushiEngine/gltf/skeleton_import.hpp>
 #include <SushiEngine/material/material.hpp>
 #include <SushiEngine/render/asset_library_interface.hpp>
 #include <SushiEngine/render/scene_view.hpp>

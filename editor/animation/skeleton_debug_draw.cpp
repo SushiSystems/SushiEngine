@@ -21,7 +21,7 @@
 
 #include <cmath>
 
-#include <SushiEngine/animation/gltf_skeleton_import.hpp>
+#include <SushiEngine/gltf/skeleton_import.hpp>
 
 #include "../core/viewport_projection.hpp"
 

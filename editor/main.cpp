@@ -83,7 +83,7 @@
 #include "audio/audio_authoring_panel.hpp"
 #include "audio/audio_editor_system.hpp"
 #include "audio/audio_panels.hpp"
-#include <SushiEngine/geometry/gltf_mesh_import.hpp>
+#include <SushiEngine/gltf/mesh_import.hpp>
 
 #include "physics/cook_bake_panel.hpp"
 #include "physics/physics_statistics_panel.hpp"

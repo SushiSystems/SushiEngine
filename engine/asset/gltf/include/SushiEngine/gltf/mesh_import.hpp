@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* gltf_mesh_import.hpp                                                   */
+/* mesh_import.hpp                                                        */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -24,7 +24,7 @@
 #pragma once
 
 /**
- * @file gltf_mesh_import.hpp
+ * @file mesh_import.hpp
  * @brief A glTF file's triangles, with no renderer between the file and them.
  *
  * §8.1's `MeshImporter` box, and the piece that was missing for the cooking pipeline to

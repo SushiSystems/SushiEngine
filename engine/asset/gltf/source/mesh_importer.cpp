@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* gltf_mesh_importer.cpp                                                 */
+/* mesh_importer.cpp                                                      */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-#include <SushiEngine/geometry/gltf_mesh_import.hpp>
+#include <SushiEngine/gltf/mesh_import.hpp>
 
 #include <cstddef>
 #include <cstdint>

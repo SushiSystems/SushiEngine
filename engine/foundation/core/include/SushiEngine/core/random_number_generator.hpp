@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* rng.hpp                                                                */
+/* random_number_generator.hpp                                            */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -24,7 +24,7 @@
 #pragma once
 
 /**
- * @file rng.hpp
+ * @file random_number_generator.hpp
  * @brief A determinism guard rail: seeded RNG state that lives in the world.
  *
  * docs/slop/SUSHILOOP.md requires that "the only source of nondeterminism is

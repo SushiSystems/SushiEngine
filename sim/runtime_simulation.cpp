@@ -50,10 +50,10 @@
 
 #include <SushiEngine/SushiEngine.hpp>
 #include <SushiEngine/animation/device_batch_evaluator.hpp>
-#include <SushiEngine/animation/gltf_skeleton_import.hpp>
 #include <SushiEngine/astro/astro_dynamics.hpp>
 #include <SushiEngine/astro/scene_frame.hpp>
 #include <SushiEngine/astro/surface_frame.hpp>
+#include <SushiEngine/gltf/skeleton_import.hpp>
 #include <SushiEngine/loop/fixed_timestep.hpp>
 #include <SushiEngine/physics/cooking/soft_body_asset.hpp>
 #include <SushiEngine/physics/soft/cloth.hpp>
