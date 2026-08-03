@@ -616,7 +616,8 @@ target_link_libraries(se_functional_tests PRIVATE sushi_sim sushi_scene)
 target_include_directories(se_functional_tests PRIVATE "${CMAKE_SOURCE_DIR}/editor")
 # The terrain frame maths, by include path only -- it is header-only and Vulkan-free on
 # purpose, so this buys the coverage without linking the renderer into the test binary.
-target_include_directories(se_functional_tests PRIVATE "${CMAKE_SOURCE_DIR}/render")
+target_include_directories(se_functional_tests
+    PRIVATE "${CMAKE_SOURCE_DIR}/engine/presentation/render/source")
 # The glTF importers `sushi_sim` needs, as a module that links nothing rather than as
 # three of the renderer's translation units compiled in by hand. It carries cgltf's
 # include directory and its one implementation unit with it, so neither is named here.

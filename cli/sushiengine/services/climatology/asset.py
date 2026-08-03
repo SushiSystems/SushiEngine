@@ -1,6 +1,6 @@
 """The `SET0` blob: the one place this side of the seam knows the byte layout.
 
-`Climatology::adopt` in `atmosphere/climatology.cpp` is the reader, and it is the
+`Climatology::adopt` in `engine/domain/atmosphere/source/climatology.cpp` is the reader, and it is the
 authority. This module is deliberately a transcription of it -- same magic, same version,
 same field order -- rather than a shared schema, because a shared schema between a Python
 tool and an engine static library would be a third thing to keep in step with both.

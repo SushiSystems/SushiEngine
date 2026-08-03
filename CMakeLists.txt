@@ -441,15 +441,10 @@ if(SE_BUILD_AUDIO)
     endif()
 endif()
 
-# The global dynamical core's headless acceptance probe. On this lane only, because that is
-# where it has always been built and the native lane carries no target it has not proved out.
-add_subdirectory(atmosphere)
-
-# The Vulkan renderer. OFF by default (see ProjectOptions); a plain compiled target
-# (no runtime link, no SYCL) that pulls Vulkan/VMA/vk-bootstrap from vcpkg.
-if(SE_BUILD_RENDER)
-    add_subdirectory(render)
-endif()
+# The host shader compiler and the headless probes. After the module tree because three of the
+# probes link the renderer, and on this lane only, because that is where they have always been
+# built and the native lane carries no target it has not proved out.
+add_subdirectory(tools)
 
 # The live world behind the ISimulation seam: a SYCL static library owning the
 # runtime, world, and schedule. The editor links it to tick and draw a real world,

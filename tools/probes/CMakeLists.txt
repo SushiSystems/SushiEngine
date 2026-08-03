@@ -1,0 +1,59 @@
+# probes — headless measuring instruments, run on purpose rather than by ctest. Each brings a
+# subsystem up on its own and reports a number or a comparison; none of them asserts, because
+# what they measure depends on the GPU and driver underneath and a suite that goes red on the
+# hardware it happens to run on is a suite people learn to ignore.
+
+# The global dynamical core's acceptance is a measurement, not a screenshot: baroclinic
+# instability either grows out of the mean state at the textbook rate or it does not, and that is
+# settled headlessly over simulated weeks.
+add_executable(atmosphere_global_probe atmosphere_global/main.cpp)
+# It reads a baked climatology through the simulation's asset header, which has no module of its
+# own yet and is still reached through the central include tree.
+target_include_directories(atmosphere_global_probe PRIVATE "${CMAKE_SOURCE_DIR}/include")
+target_link_libraries(atmosphere_global_probe PRIVATE sushi_atmosphere)
+set_target_properties(atmosphere_global_probe PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON)
+
+if(SE_BUILD_RENDER)
+    # Where the renderer's own headers live. All three probes below construct the Vulkan device
+    # themselves and reach past the RHI seam into the caches, the asset library and the regional
+    # nest behind it: a probe measures the implementation, not the abstraction over it.
+    set(SUSHIENGINE_RENDER_SOURCE_DIR "${CMAKE_SOURCE_DIR}/engine/presentation/render/source")
+
+    # Brings the device up, renders the triangle offscreen and reads the pixels back to prove the
+    # pipeline path — the render analogue of the ECS sandbox, and it runs in CI without a display.
+    add_executable(render_probe render/main.cpp)
+    target_include_directories(render_probe PRIVATE "${SUSHIENGINE_RENDER_SOURCE_DIR}")
+    target_link_libraries(render_probe PRIVATE sushi_render)
+    set_target_properties(render_probe PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON)
+
+    # RHI0's golden-image harness: renders a fixed scene headlessly and compares the frame, whole
+    # and per pass, against a recorded reference. Run before and after a render refactor, which is
+    # the only time it can answer the question it exists for; `--goldens` overrides where it reads
+    # the references from.
+    add_executable(render_golden render_golden/main.cpp)
+    target_include_directories(render_golden PRIVATE "${SUSHIENGINE_RENDER_SOURCE_DIR}")
+    target_link_libraries(render_golden PRIVATE sushi_render)
+    target_compile_definitions(render_golden PRIVATE
+        SE_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/tests/goldens/render")
+    set_target_properties(render_golden PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON)
+
+    # Steps the regional nest through hours of simulated weather in seconds of wall clock and
+    # prints the observer column's vertical profile, taking the editor out of the loop for the
+    # questions docs/slop/atmosphere_system.md §11's Phase B2c leaves open.
+    add_executable(atmosphere_probe atmosphere/main.cpp)
+    # The nest is configured from the simulation's settings header, which has no module of its own
+    # yet and is still reached through the central include tree.
+    target_include_directories(atmosphere_probe PRIVATE
+        "${SUSHIENGINE_RENDER_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/include")
+    target_link_libraries(atmosphere_probe PRIVATE sushi_render)
+    set_target_properties(atmosphere_probe PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON)
+endif()

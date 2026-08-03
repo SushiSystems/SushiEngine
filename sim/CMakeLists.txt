@@ -25,6 +25,12 @@ add_library(sushi_sim STATIC runtime_simulation.cpp)
 # and import_gltf_animated directly to build crowd skeletons/clips from glTF.
 target_link_libraries(sushi_sim PUBLIC SushiEngine sushi_atmosphere sushi_cooking sushi_import)
 target_include_directories(sushi_sim PUBLIC "${CMAKE_SOURCE_DIR}/include")
+# `simulation.hpp` hands the renderer a Render::SceneView, so every consumer of this target
+# resolves the renderer's published headers through it. The include root rather than the library:
+# nothing here calls into the renderer, and a build with SE_BUILD_RENDER off has no library to
+# link. It becomes a plain PUBLIC_DEPENDS once this directory is a module of its own.
+target_include_directories(sushi_sim
+    PUBLIC "${CMAKE_SOURCE_DIR}/engine/presentation/render/include")
 set_target_properties(sushi_sim PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON

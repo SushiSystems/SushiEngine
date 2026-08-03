@@ -26,7 +26,7 @@ option(SE_BUILD_PLAYER "Build the SushiEngine player" OFF)
 # Windows.
 option(SE_BUILD_TESTS "Build the SushiEngine test suite" OFF)
 
-# The Vulkan renderer (render/). A plain compiled target — no runtime link, no SYCL —
+# The Vulkan renderer (engine/presentation/render/). A plain compiled target — no runtime link, no SYCL —
 # so it builds on a stock toolchain, but it needs the Vulkan/VMA/vk-bootstrap vcpkg
 # packages. OFF so a plain configure needs none of them; `se build --render` (or
 # -DSE_BUILD_RENDER=ON) turns it on.

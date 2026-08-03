@@ -21,8 +21,8 @@ if(NOT TARGET sushi_render)
 endif()
 
 find_package(SDL2 CONFIG REQUIRED)
-# The imported Vulkan targets are directory-scoped; the renderer's find_package in
-# render/ does not export them here, so the editor resolves them itself.
+# The imported Vulkan targets are directory-scoped; the renderer's own find_package does not
+# export them here, so the editor resolves them itself.
 find_package(VulkanHeaders CONFIG REQUIRED)
 find_package(VulkanLoader CONFIG REQUIRED)
 # Header-only JSON for the editor's persisted Preferences and the .sushiscene format.

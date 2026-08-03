@@ -14,7 +14,7 @@ configure and the `sushi_render` build — and differ only in which executable c
   writes the observer column's vertical profile. A measuring instrument rather than a
   smoke test, so it takes arguments; see `--help`.
 * `render_golden` renders a fixed scene and compares it — whole frame and per pass —
-  against the references in `render/probe/goldens/` (RHI0). Run it before and after a
+  against the references in `tests/goldens/render/` (RHI0). Run it before and after a
   render change; `--update` re-records, which is a deliberate act and not a remedy for
   a red run. It takes arguments, so `se render --probe golden -- --dump` works.
 """
