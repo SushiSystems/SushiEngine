@@ -4,19 +4,19 @@
 // The surface energy balance: the ground's own temperature, and the sensible and latent heat it
 // hands to the air.
 //
-// docs/slop/atmosphere_system.md §6's `ISurfaceModel`, Phase B3. This replaces three authored
-// numbers — a peak sensible flux, a peak latent flux and a night-time cooling rate, each scaled
-// by the sine of the sun's elevation — and the difference is not that the old form was crude. It
-// is that a prescribed flux is not a *balance*, so nothing in it could close:
+// docs/slop/atmosphere_system.md §6's `ISurfaceModel`. Three authored numbers — a peak sensible
+// flux, a peak latent flux and a night-time cooling rate, each scaled by the sine of the sun's
+// elevation — would be far cheaper, and the objection to them is not that they are crude. It is
+// that a prescribed flux is not a *balance*, so nothing in it can close:
 //
-//   * The fluxes peaked exactly at solar noon, because there was no heat capacity to lag them.
+//   * The fluxes peak exactly at solar noon, because there is no heat capacity to lag them.
 //     A real surface peaks an hour or two later, and the whole shape of a convective afternoon
 //     hangs off that lag.
-//   * The ground could not respond to the air. Air warms, the temperature difference driving the
+//   * The ground cannot respond to the air. Air warms, the temperature difference driving the
 //     sensible flux shrinks, the flux falls — that negative feedback is what makes a boundary
 //     layer settle at a depth instead of growing forever, and a prescribed flux has none of it.
-//   * The Bowen ratio was fixed by construction. A drying surface kept moistening the air at the
-//     rate it did when it was wet.
+//   * The Bowen ratio is fixed by construction. A drying surface keeps moistening the air at
+//     the rate it would when wet.
 //
 // What is here instead is the textbook slab, integrated over one column:
 //
@@ -151,8 +151,8 @@ void main()
     // Brutsaert (1975) for the clear-sky emissivity of the air: it goes as the seventh root of
     // the vapour pressure over the temperature, so a humid night radiates far more back down
     // than a dry one — which is the whole reason a desert freezes after dark and a coast does
-    // not. This is what *ends* convection in the evening rather than merely starving it, and it
-    // is a term the old prescribed form had to fake with a constant.
+    // not. This is what *ends* convection in the evening rather than merely starving it, and a
+    // prescribed form can only fake it with a constant.
     float vapour_pressure = max(air_vapour * pressure / (0.622 + air_vapour), 1.0);
     float air_emissivity = clamp(1.24 * pow(vapour_pressure * 0.01 / max(air_temperature, 1.0),
                                             1.0 / 7.0),

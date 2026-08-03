@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* voice_manager.hpp                                                     */
+/* voice_manager.hpp                                                      */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -290,7 +290,7 @@ namespace SushiEngine
                         slot->occlusion.set_targets(obstruction, occlusion, transmission);
                 }
 
-                // --- Concurrency-safe control→audio command API (§0) ----------------------
+                // Concurrency-safe control→audio command API (§0).
                 //
                 // These are the thread-safe counterparts of play/stop/set_voice_*: the
                 // control (game/ECS) thread calls them at any time while the audio thread

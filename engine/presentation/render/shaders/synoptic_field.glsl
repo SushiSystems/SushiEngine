@@ -64,8 +64,8 @@ float synoptic_coverage(vec3 radial, vec3 pole, out float convective)
 {
     if (scene.synoptic_params.z < 0.5)
     {
-        // No atmosphere published a structure. Uniform is the honest answer, and it is what the
-        // deck stack alone used to give everywhere.
+        // No atmosphere published a structure. Uniform is the honest answer, and it is what
+        // the deck stack alone gives everywhere.
         convective = 0.5;
         return 1.0;
     }

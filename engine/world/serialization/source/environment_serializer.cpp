@@ -356,9 +356,9 @@ namespace SushiEngine
                 n.pressure_iterations = a.value("pressure_iterations", n.pressure_iterations);
                 n.thermal_seed_amplitude =
                     a.value("thermal_seed_amplitude", n.thermal_seed_amplitude);
-                // Absent from every scene written before 2026-07-28, and `value` leaving the
-                // default in place is exactly right for those: the seed used to be white, and
-                // the default is the correlation it should have had.
+                // `value` leaving the default in place is exactly right for a scene that omits
+                // the key: an unspecified thermal seed is a white one, and the default is the
+                // correlation it ought to have.
                 n.thermal_seed_length_m =
                     a.value("thermal_seed_length_m", n.thermal_seed_length_m);
                 n.thermal_seed_period_s =

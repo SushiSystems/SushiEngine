@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* audio_profiler_demo.cpp                                              */
+/* audio_profiler_demo.cpp                                                */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -67,7 +71,7 @@ int main()
     const double sample_rate = 48000.0;
     const int block = 512;
 
-    // --- 1. Headless self-checks on the telemetry channel ----------------------------
+    // 1. Headless self-checks on the telemetry channel.
     AudioEngine engine(16, 4);
     const int master = engine.mixer().add_bus(NO_BUS);
     const int music_bus = engine.mixer().add_bus(master);
@@ -117,7 +121,7 @@ int main()
 
     std::printf("headless profiler checks passed\n");
 
-    // --- 2. Best-effort playback with a live profiler readout ------------------------
+    // 2. Best-effort playback with a live profiler readout.
     SDLAudioDevice device;
     AudioStreamFormat desired;
     desired.sample_rate = 48000;

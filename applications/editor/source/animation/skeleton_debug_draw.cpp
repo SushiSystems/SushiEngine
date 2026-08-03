@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* skeleton_debug_draw.cpp                                               */
+/* skeleton_debug_draw.cpp                                                */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -34,7 +38,8 @@ namespace SushiEngine
         using SushiEngine::Animation::SkeletonView;
 
         // `project_to_screen` and `transform_point` come from ../core/viewport_projection.hpp:
-        // every overlay the editor draws needs them, and each one had grown its own copy.
+        // every overlay the editor draws needs them, and one definition keeps the near-plane
+        // rule the same in all of them.
 
         bool SkeletonPreview::load_gltf(const char* path)
         {

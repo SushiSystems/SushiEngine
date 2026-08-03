@@ -29,10 +29,10 @@
  *
  * The panels are one-per-domain translation units that must still agree on how an
  * edit becomes an undo step, how a `Scalar` reaches a float widget, and how an
- * inline rename behaves. Without a shared home each of those was hand-written per
+ * inline rename behaves. Without a shared home each of those is hand-written per
  * panel — the same three-line undo bracket around thirty widgets, the same
  * `static_cast` pair around ninety, three rename fields with three private buffers —
- * and each copy was free to drift. This header is that home: the mechanism lives
+ * and every copy is free to drift. This header is that home: the mechanism lives
  * once, and a panel spells its intent instead of its implementation.
  */
 
@@ -107,9 +107,9 @@ namespace SushiEngine
          *
          * Lays itself out according to where it finds itself: inside an ImGui table it emits
          * a row (label column, field column); outside one it draws a plain labelled drag.
-         * It used to open a table row unconditionally, which made calling it from a panel
-         * that draws no table an access violation rather than a layout glitch — so the
-         * widget carries the test instead of every caller carrying a precondition.
+         * Opening a table row unconditionally would make calling it from a panel that draws
+         * no table an access violation rather than a layout glitch, so the widget carries
+         * the test instead of every caller carrying a precondition.
          *
          * Brackets the drag as one undo step via @ref track_item_undo.
          *

@@ -21,11 +21,11 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Pins the atmosphere tier table — the grid ladder that used to ride the render
-// quality resolver and moved to the simulation's own tier so a rendering knob can
-// never rebuild the weather. Every row here is a value the Phase B measurements
-// were taken against; changing one is changing what a tier costs and simulates,
-// and must be a deliberate act that updates this test with its rationale.
+// Pins the atmosphere tier table — the grid ladder that rides the simulation's own
+// tier rather than the render quality resolver, so a rendering knob can never rebuild
+// the weather. Every row here is a value the Phase B measurements were taken against;
+// changing one is changing what a tier costs and simulates, and must be a deliberate
+// act that updates this test with its rationale.
 
 #include <gtest/gtest.h>
 

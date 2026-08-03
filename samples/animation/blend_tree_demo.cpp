@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* blend_tree_demo.cpp                                                   */
+/* blend_tree_demo.cpp                                                    */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -136,7 +140,7 @@ int main()
 
     BlendContribution contributions[MAX_BLEND_CONTRIBUTIONS];
 
-    // --- 1D locomotion: idle(0) / walk(1) / run(2) over "speed" ----------------------
+    // 1D locomotion: idle(0) / walk(1) / run(2) over "speed".
     {
         auto tree = leaf_tree(BlendTreeType::Simple1D, "speed", nullptr);
         tree->children.push_back(BlendChildDescription{idle, nullptr, 0.0f, 0, 0, "", 1});
@@ -162,7 +166,7 @@ int main()
         check(nearly(weight_of(contributions, n, run), 1.0f), "1D above range -> all run");
     }
 
-    // --- 2D freeform cartesian strafe: four cardinal clips ---------------------------
+    // 2D freeform cartesian strafe: four cardinal clips.
     const auto strafe_children = [&](std::shared_ptr<BlendTreeNodeDescription>& tree)
     {
         tree->children.push_back(
@@ -195,7 +199,7 @@ int main()
         check(nearly(sum, 1.0f), "cartesian centre weights sum to 1");
     }
 
-    // --- 2D freeform directional strafe ----------------------------------------------
+    // 2D freeform directional strafe.
     {
         auto tree = leaf_tree(BlendTreeType::FreeformDirectional2D, "x", "y");
         strafe_children(tree);
@@ -210,7 +214,7 @@ int main()
               "directional at right -> all right clip");
     }
 
-    // --- 2D simple directional: centre + ring ----------------------------------------
+    // 2D simple directional: centre + ring.
     {
         auto tree = leaf_tree(BlendTreeType::SimpleDirectional2D, "x", "y");
         tree->children.push_back(
@@ -237,7 +241,7 @@ int main()
               "simple-directional at ring -> ring clip");
     }
 
-    // --- Direct: parameter-per-child, normalised -------------------------------------
+    // Direct: parameter-per-child, normalised.
     {
         auto tree = leaf_tree(BlendTreeType::Direct, nullptr, nullptr);
         tree->normalize = true;
@@ -256,7 +260,7 @@ int main()
         check(nearly(weight_of(contributions, n, walk), 0.25f), "direct normalises walk to 0.25");
     }
 
-    // --- Nested: a 1D whose top child is a Direct sub-tree ----------------------------
+    // Nested: a 1D whose top child is a Direct sub-tree.
     {
         auto sub = leaf_tree(BlendTreeType::Direct, nullptr, nullptr);
         sub->children = {BlendChildDescription{walk, nullptr, 0, 0, 0, "w_walk", 1},
@@ -279,7 +283,7 @@ int main()
         check(nearly(weight_of(contributions, n, idle), 0.0f), "nested top child excludes idle");
     }
 
-    // --- End to end: a blend-tree state posed by the evaluator ------------------------
+    // End to end: a blend-tree state posed by the evaluator.
     {
         auto tree = leaf_tree(BlendTreeType::Simple1D, "speed", nullptr);
         tree->children.push_back(BlendChildDescription{idle, nullptr, 0.0f, 0, 0, "", 1});

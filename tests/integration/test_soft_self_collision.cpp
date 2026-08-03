@@ -189,8 +189,8 @@ TEST(Unit_SoftSelfCollision, NeighbouringTrianglesNeverContactEachOther)
     // share no vertex still pass within 0.05/sqrt(3) = 0.0289 m of each other,
     // because the closest approach of a face diagonal and a cube edge is not
     // along an axis. A combined thickness above that would make the cube
-    // genuinely, correctly self-intersecting — and an earlier version of this
-    // case set exactly that and read the correct answer as a bug.
+    // genuinely, correctly self-intersecting, so the contacts it found would be
+    // right answers rather than defects.
     //
     // At 0.01 each, 0.02 combined, the only contacts reachable are the
     // topological ones, which is what makes an empty result meaningful.

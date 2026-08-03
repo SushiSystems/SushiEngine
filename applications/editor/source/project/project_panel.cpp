@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* project_panel.cpp                                                     */
+/* project_panel.cpp                                                      */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -376,7 +376,7 @@ namespace SushiEngine
             {
                 // A search descends: an asset the user is looking for is almost never in the
                 // folder they happen to be standing in, and a filter that only hid the
-                // current folder's contents was a search that could not find anything.
+                // current folder's contents would be a search that could not find anything.
                 // Capped, because a deep project tree walked every frame is a stutter — and
                 // a result list too long to read is not a result list.
                 constexpr std::size_t MAX_SEARCH_RESULTS = 400;
@@ -772,8 +772,8 @@ namespace SushiEngine
                     if (!open && document.dirty)
                     {
                         // A dirty tab asks before it goes. ImGui's UnsavedDocument flag only
-                        // draws the dot; closing still discarded the buffer, which is the
-                        // one place in the editor where typed work vanished without a word.
+                        // draws the dot, so without this prompt closing would discard the
+                        // buffer and typed work would vanish without a word.
                         context.closing_document = static_cast<int>(i);
                         ++i;
                     }

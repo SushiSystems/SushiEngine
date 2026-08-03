@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* ik_demo.cpp                                                           */
+/* ik_demo.cpp                                                            */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -137,7 +141,7 @@ int main()
 {
     AnimationDatabase database;
 
-    // --- Two-bone: reach a target, keep both bone lengths -----------------------------
+    // Two-bone: reach a target, keep both bone lengths.
     {
         const AssetId id = build_chain(database, 3, Vector3f{1, 0, 0}); // shoulder-elbow-hand, reach 2
         PoseScratch scratch(database.skeleton(id));
@@ -162,7 +166,7 @@ int main()
         check(scratch.position(1).y > 0.1, "two-bone bends the elbow toward the pole (+y)");
     }
 
-    // --- Two-bone: an out-of-reach target soft-clamps to full extension ---------------
+    // Two-bone: an out-of-reach target soft-clamps to full extension.
     {
         const AssetId id = build_chain(database, 3, Vector3f{1, 0, 0});
         PoseScratch scratch(database.skeleton(id));
@@ -178,7 +182,7 @@ int main()
         check(std::fabs(hand_distance - 2.0) < 2e-2, "two-bone out-of-reach extends to near full length");
     }
 
-    // --- Look-at: aim the tip's forward axis at a target ------------------------------
+    // Look-at: aim the tip's forward axis at a target.
     {
         const AssetId id = build_chain(database, 3, Vector3f{0, 1, 0}); // base-neck-head up the y axis
         PoseScratch scratch(database.skeleton(id));
@@ -201,7 +205,7 @@ int main()
         check(dot(forward, desired) > 0.999, "look-at aims the head's forward at the target");
     }
 
-    // --- FABRIK: converge a long chain onto a reachable target ------------------------
+    // FABRIK: converge a long chain onto a reachable target.
     {
         const AssetId id = build_chain(database, 5, Vector3f{1, 0, 0}); // 4 bones, reach 4
         PoseScratch scratch(database.skeleton(id));
@@ -220,7 +224,7 @@ int main()
         check(tip_error < 1e-2, "FABRIK tip converges onto the target");
     }
 
-    // --- Foot placement: ray to the ground and plant the ankle ------------------------
+    // Foot placement: ray to the ground and plant the ankle.
     {
         // Leg down the -y axis: hip at (0,2,0), knee (0,1,0), ankle (0,0,0).
         SkeletonDescription description;
@@ -255,7 +259,7 @@ int main()
         check(std::fabs(planted.y - 0.3) < 1e-2, "foot placement plants the ankle on the ground plane");
     }
 
-    // --- Stack integration: a two-bone modifier through the AnimatorEvaluator ---------
+    // Stack integration: a two-bone modifier through the AnimatorEvaluator.
     {
         const AssetId id = build_chain(database, 3, Vector3f{1, 0, 0});
         const SkeletonView skeleton = database.skeleton(id);

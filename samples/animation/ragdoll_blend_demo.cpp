@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* ragdoll_blend_demo.cpp                                                */
+/* ragdoll_blend_demo.cpp                                                 */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -93,7 +97,7 @@ int main()
         compose_model(skeleton, t.data(), r.data(), s.data(), model.data());
     };
 
-    // --- weight 0: pure animation, no change -------------------------------------------
+    // weight 0: pure animation, no change.
     {
         std::vector<Vector3f> t;
         std::vector<Quaternionf> r;
@@ -120,7 +124,7 @@ int main()
              "weight 0 leaves the child at its animated (1,0,0)");
     }
 
-    // --- weight 1: fully physics-driven --------------------------------------------------
+    // weight 1: fully physics-driven.
     {
         std::vector<Vector3f> t;
         std::vector<Quaternionf> r;
@@ -147,7 +151,7 @@ int main()
              "weight 1 places the child exactly at the physics target (5,0,0)");
     }
 
-    // --- weight 0.5: halfway blend --------------------------------------------------------
+    // weight 0.5: halfway blend.
     {
         std::vector<Vector3f> t;
         std::vector<Quaternionf> r;
@@ -174,7 +178,7 @@ int main()
              "weight 0.5 blends the child halfway to (3,0,0)");
     }
 
-    // --- targeting the PARENT cascades correctly to the untouched CHILD -------------------
+    // targeting the PARENT cascades correctly to the untouched CHILD.
     {
         std::vector<Vector3f> t;
         std::vector<Quaternionf> r;

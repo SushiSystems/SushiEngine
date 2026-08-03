@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* body_orientation.hpp                                                  */
+/* body_orientation.hpp                                                   */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -35,9 +35,9 @@
  * (the body's spin); @ref ecliptic_to_body_equatorial rotates an ecliptic direction into
  * the body's own equatorial frame (the plane its spin axis is normal to).
  *
- * Earth is kept bit-identical to the original path (its equatorial conversion is the
- * fixed-obliquity one, and its meridian is driven by sidereal time in the ephemeris), so
- * the home sky does not shift; every other body picks up its true pole and spin.
+ * Earth is special-cased to the exact arithmetic the ephemeris already uses — a
+ * fixed-obliquity equatorial conversion and a meridian driven by sidereal time — so the
+ * home sky does not shift; every other body picks up its true pole and spin.
  */
 
 #include <cmath>

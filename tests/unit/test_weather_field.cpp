@@ -22,11 +22,11 @@
 /**************************************************************************/
 
 // Unit_WeatherField: the spatial weather field (docs/slop/atmosphere_system.md §7), which
-// exists to close §1.1 — the simulation used to reach the renderer as one column sampled
-// under the observer, so nothing it computed could ever be seen as spatial structure. The
-// load-bearing claim these cases defend is therefore *that the field is not uniform when the
-// simulation is not uniform*, plus the addressing that decides where in the world each cell
-// lands. Pure host maths; no SushiRuntime needed, same reasoning as the other weather tests.
+// exists to close §1.1 — a simulation that reaches the renderer as one column sampled under
+// the observer has nothing it computes visible as spatial structure. The load-bearing claim
+// these cases defend is therefore *that the field is not uniform when the simulation is not
+// uniform*, plus the addressing that decides where in the world each cell lands. Pure host
+// maths; no SushiRuntime needed, same reasoning as the other weather tests.
 
 #include <algorithm>
 #include <vector>
@@ -181,13 +181,13 @@ TEST(Unit_WeatherField, GridAddressingIsTheMirrorsOwnAndNotASecondDerivation)
 {
     // Get this wrong and every cloud is drawn over the wrong part of the world.
     //
-    // The load-bearing claim changed with Phase B2 and this states the new one. The field used
-    // to build its own geodetic lattice, which made easting run faster than northing by
-    // 1/cos(latitude) on a plate-carree grid. It no longer does: the nest is square in *metres*
-    // and is centred on the observer by the renderer, and the mirror carries the scene-absolute
-    // mapping it was centred with. Passing that through rather than rebuilding it is the point
-    // -- two derivations of one lattice are two chances to disagree about where the weather is
-    // -- so what a test can check is that the field did not derive anything of its own.
+    // The field derives no lattice of its own. The nest is square in *metres* and is centred
+    // on the observer by the renderer, and the mirror carries the scene-absolute mapping it
+    // was centred with; passing that through rather than rebuilding it is the point, because
+    // two derivations of one lattice are two chances to disagree about where the weather is.
+    // A geodetic lattice built here would make easting run faster than northing by
+    // 1/cos(latitude) on a plate-carree grid, so what a test can check is that the field
+    // took the mirror's addressing unchanged.
     const GeodeticPosition observer{45.0 * DEGREES_TO_RADIANS, 10.0 * DEGREES_TO_RADIANS};
     const std::vector<Render::AtmosphereMirrorColumn> columns =
         mirror_columns(MIRROR_CELLS, [](int, int) { return 0.5f; });
@@ -231,8 +231,8 @@ TEST(Unit_WeatherField, GridAddressingIsTheMirrorsOwnAndNotASecondDerivation)
 TEST(Unit_WeatherField, EveryProviderPublishesAUsableField)
 {
     // The substitutability the seam claims, at the field half of the contract: whatever the
-    // host installs, the renderer gets something it can address. Previously the interface had
-    // no field at all and the host stored a concrete type, so this could not be asked.
+    // host installs, the renderer gets something it can address — which is only askable
+    // because the field is on the interface rather than on a concrete provider type.
     const GeodeticPosition observer{45.0 * DEGREES_TO_RADIANS, 10.0 * DEGREES_TO_RADIANS};
 
     Render::Cloudscape authored;

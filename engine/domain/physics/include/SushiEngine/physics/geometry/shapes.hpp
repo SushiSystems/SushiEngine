@@ -795,7 +795,6 @@ namespace SushiEngine
             return smallest < T(0) ? T(0) : smallest;
         }
 
-        // ------------------------------------------------------------------------
         // Support functions.
         //
         // A convex shape's support function returns its furthest point along a
@@ -808,7 +807,6 @@ namespace SushiEngine
         // Overloads rather than a switch on ShapeType, deliberately. A switch is a
         // file every new shape has to edit, which is the violation; an overload set
         // is resolved at the call site and a new one joins it by existing.
-        // ------------------------------------------------------------------------
 
         /** @brief A unit vector along @p direction, or a fixed axis when it has no length. */
         template <typename T>
@@ -854,11 +852,9 @@ namespace SushiEngine
             return furthest + safe_normalize(direction) * capsule.radius;
         }
 
-        // ------------------------------------------------------------------------
         // World bounds. Another overload set, for the same reason: the broadphase
         // and the mesh hierarchy both need a shape's box, and neither should have
         // to know what kinds of shape exist.
-        // ------------------------------------------------------------------------
 
         /** @brief The world-space box enclosing a sphere. */
         template <typename T>

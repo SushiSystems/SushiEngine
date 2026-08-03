@@ -372,8 +372,8 @@ namespace SushiEngine
 
             // A fixed strip under the menu bar (like the status bar), not a dockable
             // window: the Play button and tool selector are chrome, and a closable
-            // Toolbar was the "closed the Toolbar, lost the Play button" failure. The
-            // side-bar height reserves its space before the dockspace claims the rest.
+            // Toolbar would mean closing it loses the Play button. The side-bar height
+            // reserves its space before the dockspace claims the rest.
             ImGuiViewport* viewport = ImGui::GetMainViewport();
             const float height =
                 ImGui::GetFrameHeight() + ImGui::GetStyle().WindowPadding.y * 2.0f;
@@ -987,9 +987,9 @@ namespace SushiEngine
             ImGui::DockBuilderSetNodeSize(dockspace_id,
                                           ImGui::GetMainViewport()->WorkSize);
 
-            // No top split for the Toolbar any more: it is a fixed viewport side bar
-            // (see draw_toolbar), so the dockspace starts below it and the old 6 %
-            // guess at its height is gone.
+            // No top split for the Toolbar: it is a fixed viewport side bar (see
+            // draw_toolbar), so the dockspace starts below it and nothing here has to
+            // guess at its height.
             ImGuiID center = dockspace_id;
             ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f,
                                                        nullptr, &center);

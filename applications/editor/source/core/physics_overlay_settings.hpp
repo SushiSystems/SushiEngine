@@ -41,12 +41,12 @@ namespace SushiEngine
         /**
          * @brief Which categories of physics debug draw are on.
          *
-         * All off by default, the joint gizmo included. It was on, on the argument that it
-         * is scoped to the selected entity and therefore costs nothing until one is
-         * selected — which is true and is not the point. A debug view that is on by default
-         * is a debug view everybody turns off once and never sees again, and an editor
-         * whose viewport draws things nobody asked for reads as broken. The same rule the
-         * Bake window follows: the panel is the readout, not the trigger.
+         * All off by default, the joint gizmo included. The argument for defaulting it on —
+         * that it is scoped to the selected entity and therefore costs nothing until one is
+         * selected — is true and is not the point. A debug view that is on by default is a
+         * debug view everybody turns off once and never sees again, and an editor whose
+         * viewport draws things nobody asked for reads as broken. The same rule the Bake
+         * window follows: the panel is the readout, not the trigger.
          */
         struct PhysicsOverlaySettings
         {

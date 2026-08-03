@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* player_app.cpp                                                        */
+/* player_app.cpp                                                         */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -133,12 +133,11 @@ namespace SushiEngine
                 render_description.height = height != 0 ? height : description_.height;
             }
             // Else headless: render_description.surface_factory stays empty, which is exactly
-            // what VulkanWindowRenderer now reads (PLATFORM0 S6) as "build no swapchain
-            // at all" — the same construction path render_probe/render_golden already use.
+            // what VulkanWindowRenderer reads (PLATFORM0 S6) as "build no swapchain at all" —
+            // the same construction path render_probe/render_golden use.
 
             // A shipped player's pipeline cache must not write into its own install
-            // directory (S3's fix: `AssetLibrary`'s old hardcoded default was exactly
-            // that bug) — a per-user path here is the one thing this skeleton differs
+            // directory, so a per-user path here is the one thing this skeleton differs
             // from the editor's own (source-tree-relative, correct for hot-reload) default.
             // Left empty (AssetLibrary's own compiled-in-default fallback) if SDL could
             // not resolve a per-user directory, rather than writing a bare relative

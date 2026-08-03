@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // §9.1's bending constraint (P6-H), and P6's acceptance clause for it: with the
-// stiffness at zero the cloth must behave exactly as it did before.
+// stiffness at zero the constraint must contribute nothing to the cloth at all.
 //
 // The weights are checked first and on their own, because everything else in the
 // constraint is one line of arithmetic over them. What they have to be is fixed

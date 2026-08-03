@@ -115,10 +115,10 @@ namespace SushiEngine
                  * follows. Appended after light_shadow_b so shaders reading only earlier
                  * fields keep their offsets.
                  *
-                 * Read by the cloudscape *bake* alone. Since `docs/slop/atmosphere_system.md`
-                 * §7.4 the field is what the bake resolves a genus and a coverage from, per
-                 * baked column — not a per-sample correction the march applies on top of a
-                 * globally compiled deck stack, which is what it was in phase A.
+                 * Read by the cloudscape *bake* alone (`docs/slop/atmosphere_system.md` §7.4):
+                 * the field is what the bake resolves a genus and a coverage from, per baked
+                 * column, not a per-sample correction the march applies on top of a globally
+                 * compiled deck stack.
                  */
                 float weather_field_map[4];
                 /**
@@ -128,8 +128,8 @@ namespace SushiEngine
                  * on, ascending, which is what lets a march sample climbing between two bands
                  * read a blend rather than snap at a bucket edge. `w` is 1 when a valid field
                  * was published this frame and 0 otherwise — at 0 every consumer skips the
-                 * fetch entirely and the cloudscape renders from its authored deck stack alone,
-                 * exactly as it did before the field existed.
+                 * fetch entirely and the cloudscape renders from its authored deck stack
+                 * alone.
                  */
                 float weather_field_levels[4];
                 /**

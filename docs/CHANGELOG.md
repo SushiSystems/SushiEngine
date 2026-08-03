@@ -9,6 +9,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Changed
+- 2026-08-03 — Moved the world-tier authoring types out of `SushiEngine::Editor`, which the editor application also used for its panels, into `SushiEngine::Authoring`.
+- 2026-08-03 — Restored the truncated Apache licence banner in 246 files, removed all 216 separator comments, and rewrote the comments that narrated what the code used to be into statements of what it does.
 - 2026-08-03 — Renamed every abbreviated variable, parameter, member and function name this repository owns to its full spelling (`desc` → `description`, `params` → `parameters`, `cmd` → `command`, `src`/`dst` → `source`/`destination`, and ten others); Vulkan, VMA, SDL, ImGui and standard-library names, the `.sushiscene` serializer's format keys, and the three `*_params.hpp` file names are untouched.
 - 2026-08-03 — Renamed every CMake target, function and macro this repository owns to the `sushiengine_` prefix, so none of them can collide with a SushiRuntime one in the single flat CMake namespace the two trees share.
   - Removed the seven bare-`sushi_` `ALIAS` shims; every consumer now names the module target directly (`sushi_sim` → `sushiengine_simulation`, `sushi_scene` → `sushiengine_serialization`, and so on).

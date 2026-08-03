@@ -472,12 +472,12 @@ TEST(Unit_AnimationKeyframe,GenericTracksDispatchByNameToTheirBoundTargets)
 
 TEST(Unit_AnimationKeyframe,AClipWithMoreTracksThanTheDispatchBoundStaysWithinIt)
 {
-    // A regression test for a real buffer overrun. `apply_generic_tracks` clamped its *dispatch
-    // loop* to MAX_GENERIC_TRACKS but sampled with `sample_generic`, which writes one value per
-    // track in the clip — so a clip with more tracks than the bound wrote past the end of a
-    // fixed-size stack array. Nothing caps a cooked clip's generic track count, so authoring 70
-    // named properties was all it took. The fix samples a track at a time; this asserts both that
-    // it stays in bounds and that the first MAX_GENERIC_TRACKS are still delivered correctly.
+    // `apply_generic_tracks` writes into a fixed-size stack array bounded by MAX_GENERIC_TRACKS,
+    // and nothing caps a cooked clip's generic track count — authoring 70 named properties is all
+    // it takes to exceed the bound. Sampling one track at a time is what keeps the writes inside
+    // it; a whole-clip sample would write one value per track in the clip and run off the end.
+    // This asserts both that the write stays in bounds and that the first MAX_GENERIC_TRACKS are
+    // delivered correctly.
     const std::uint32_t track_count = MAX_GENERIC_TRACKS + 6;
     ClipAuthoring authoring;
     authoring.joints.resize(1);

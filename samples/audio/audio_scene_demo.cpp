@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* audio_scene_demo.cpp                                                  */
+/* audio_scene_demo.cpp                                                   */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -114,7 +114,7 @@ int main()
         }
     };
 
-    // --- 1. Headless reconciliation self-check ---------------------------------------
+    // 1. Headless reconciliation self-check.
 
     const int frames = 120;          // "world" frames
     const int blocks_per_frame = 4;  // audio blocks rendered per world frame
@@ -190,7 +190,7 @@ int main()
 
     std::printf("headless scene checks passed\n");
 
-    // --- 2. Best-effort audible flyby ------------------------------------------------
+    // 2. Best-effort audible flyby.
 
     // Start from a clean pool, then create the flyby voice *before* opening the device:
     // like the other spatial demos, only position updates cross to the audio thread

@@ -81,12 +81,11 @@ void main()
     // column's energy balance; what is left here is the bookkeeping that turns a flux in W/m²
     // into a tendency, by the mass of air the lowest level actually contains.
     //
-    // The three things that used to be decided in this block — the diurnal shape, the surface
-    // heterogeneity, and the night-time cooling — all moved there, because all three are
-    // properties of the *ground* and none of them is a property of the air. What that bought is
-    // written up in that file; the short version is that a prescribed flux cannot lag solar
-    // noon, cannot respond to the air it is heating, and cannot change its Bowen ratio as the
-    // surface dries.
+    // The diurnal shape, the surface heterogeneity and the night-time cooling are all decided
+    // there rather than here, because all three are properties of the *ground* and none of them
+    // is a property of the air. The reasoning is written up in that file; the short version is
+    // that a prescribed flux cannot lag solar noon, cannot respond to the air it is heating, and
+    // cannot change its Bowen ratio as the surface dries.
     if (cell.y == 0)
     {
         float mass = max(base_density * thickness, 1.0); // kg/m^2 of air in this level
@@ -139,11 +138,10 @@ void main()
     // dries by bringing down air from where there is less water. Every limited-area model
     // receives it from its parent, because the mechanism that sets it is larger than the domain.
     //
-    // Phase B3e's acceptance run failed one clause on exactly this. With no subsidence a
-    // saturated layer aloft has *no sink at all* overnight -- too thin to rain, the mixed layer
-    // that fed it collapsed, nothing to mix it -- so an evening deck grew until dawn instead of
-    // decaying. Horizontal advection was measured and is far too slow: eight metres a second
-    // across 384 km is thirteen hours, against a night.
+    // With no subsidence a saturated layer aloft has *no sink at all* overnight -- too thin to
+    // rain, the mixed layer that fed it collapsed, nothing to mix it -- so an evening deck grows
+    // until dawn instead of decaying. Horizontal advection is measured far too slow to stand in:
+    // eight metres a second across 384 km is thirteen hours, against a night.
     //
     // Centimetres per second against a metre-per-second updraft, and it still matters, because
     // it acts over the whole domain for the whole day rather than over one cell for ten minutes.
@@ -205,8 +203,8 @@ void main()
     // the term it needs is the one that makes the air want to sink, not a flux invented to stand
     // in for the sinking.
     //
-    // Before this, the only sink a nocturnal deck had was the parent's subsidence (see the block
-    // above), so a deck under a quiescent parent persisted until dawn.
+    // Without this term the only sink a nocturnal deck has is the parent's subsidence (see the
+    // block above), so a deck under a quiescent parent persists until dawn.
     //
     // Only cloudy cells pay for the column march, and the flux is exhausted within a few cloudy
     // levels, so what looks like an O(levels) loop costs a couple of iterations in the cells that
@@ -319,17 +317,17 @@ void main()
 
         float theta_face = 0.5 * (theta_perturbation + theta_below);
         // The **departure** from the base state's own vapour, not the total. `theta` is stored
-        // as a perturbation and `moisture` is not (see MOISTURE_UNIT's note), and taking the
-        // moisture at face value here quietly made this a different equation from the one at
-        // the top of this file: the prime on theta_v' has to cover the vapour term too.
+        // as a perturbation and `moisture` is not (see MOISTURE_UNIT's note), so taking the
+        // moisture at face value here would quietly make this a different equation from the one
+        // at the top of this file: the prime on theta_v' has to cover the vapour term too.
         //
-        // What it cost. g * 0.61 * q_v is 0.043 m/s^2 for a 7 g/kg surface layer, against
-        // 0.0068 m/s^2 for a 0.2 K thermal — the spurious part was **six times the signal**.
+        // What that costs. g * 0.61 * q_v is 0.043 m/s^2 for a 7 g/kg surface layer, against
+        // 0.0068 m/s^2 for a 0.2 K thermal — the spurious part is **six times the signal**.
         // Being horizontally near-uniform it drives no updraft of its own; the pressure solve
         // cancels it, since that is precisely what a projection does to a term that is already
         // in hydrostatic balance. But the solve is a fixed number of relaxation sweeps, so what
         // it leaves behind scales with what it was asked to remove, and the convection this
-        // model exists to produce was being run underneath a six-fold larger residual.
+        // model exists to produce would run underneath a six-fold larger residual.
         float vapour_face = 0.5 * (q.x + q_below.x) - nest_base_vapour(face_altitude);
         float condensate_face = 0.5 * (q.y + q.z + q_below.y + q_below.z);
 

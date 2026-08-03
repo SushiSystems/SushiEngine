@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* animator_preview_panel.cpp                                            */
+/* animator_preview_panel.cpp                                             */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -226,8 +230,7 @@ namespace SushiEngine
             }
 
             // The character loader: type or paste a rigged .gltf/.glb path — or
-            // double-click one in the Project panel, which routes here. This replaced the
-            // hard-coded demo asset as the only way a character ever reached the preview.
+            // double-click one in the Project panel, which routes here.
             std::string& character_path = context.panel_state.character_path;
             ImGui::SetNextItemWidth(340.0f);
             ImGui::InputText("##character_path", &character_path);

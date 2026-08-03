@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* keyframe_demo.cpp                                                     */
+/* keyframe_demo.cpp                                                      */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -49,7 +53,7 @@ namespace
 
 int main()
 {
-    // --- Scalar curve: linear, constant, cubic ---------------------------------------
+    // Scalar curve: linear, constant, cubic.
     {
         ScalarCurve curve;
         curve.insert(0.0f, 0.0f);
@@ -74,7 +78,7 @@ int main()
         check(curve.keys.size() == 2, "remove drops the key");
     }
 
-    // --- Quaternion curve: slerp -----------------------------------------------------
+    // Quaternion curve: slerp.
     {
         QuaternionCurve curve;
         curve.insert(0.0f, Quaternionf{0, 0, 0, 1});
@@ -86,7 +90,7 @@ int main()
         check(std::fabs(dot(mid, expected)) > 0.999f, "quaternion curve slerps to the half angle");
     }
 
-    // --- Record a moving pose, bake, and read it back through the runtime clip --------
+    // Record a moving pose, bake, and read it back through the runtime clip.
     {
         AnimationDatabase database;
         SkeletonDescription skeleton_description;
@@ -133,7 +137,7 @@ int main()
         check(nearly(t[0].z, 2.0f, 5e-2f), "recorded+baked clip reproduces the end slide (z~2.0)");
     }
 
-    // --- Morph curve bakes into the clip's morph tracks ------------------------------
+    // Morph curve bakes into the clip's morph tracks.
     {
         ClipAuthoring authoring;
         authoring.joints.assign(1, JointChannels{}); // one joint so bake has a rig

@@ -169,13 +169,13 @@ namespace SushiEngine
          * `solve_ms` itself stays one number — it is one `run()`, and the one case
          * that is not the same device solve at all, the soft-body host schedule, is
          * already broken out below as @ref soft_body_ms rather than folded in here.
-         * What §18 R8 closed is the breakdown *inside* `solve_ms`, once it needed
-         * one: the runtime's ordinary `add()` overloads used to drop every node's label, so a node
-         * arrived as `unnamed_task` and the only way to attribute one was its plan
-         * index — a compile-time internal, and exactly the kind of engine-side claim
-         * about a runtime detail §18 records the cost of making. `add_parallel` /
-         * `add_host` (`runtime_backend.hpp`) now forward `NodeDescriptor::name`
-         * through, so `predict`, every projection kind, the two velocity passes and
+         * What §18 R8 addresses is the breakdown *inside* `solve_ms`. The runtime's
+         * ordinary `add()` overloads drop a node's label, so a node arrives as
+         * `unnamed_task` and the only way to attribute one is its plan index — a
+         * compile-time internal, and exactly the kind of engine-side claim about a
+         * runtime detail §18 records the cost of making. `add_parallel` / `add_host`
+         * (`runtime_backend.hpp`) forward `NodeDescriptor::name` through instead, so
+         * `predict`, every projection kind, the two velocity passes and
          * `motion_measure` each report under their real name, and @ref node_timings
          * below is that attribution, folded by name.
          */

@@ -35,8 +35,8 @@
  * One unit for all of it rather than one per category. They share a projection, a colour
  * convention and a culling rule, and the alternative — five small files each doing the
  * same three things — is how a near-plane rule ends up different in two of them and one
- * overlay draws a stripe across the viewport that the others do not. That duplication has
- * already been removed once here, which is why `viewport_projection.hpp` exists at all.
+ * overlay draws a stripe across the viewport that the others do not. `viewport_projection.hpp`
+ * exists so the projection itself has exactly one definition.
  *
  * Reads the world through `IWorldEditor` and writes nothing. The debug draw exists to say
  * what the simulation is doing; one that could reach back into it would sooner or later

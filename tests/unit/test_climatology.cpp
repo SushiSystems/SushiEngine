@@ -154,9 +154,7 @@ namespace
     }
 } // namespace
 
-// --------------------------------------------------------------------------------------
 // The analytic path: not a fallback that fails, but the mean state a non-Earth body uses.
-// --------------------------------------------------------------------------------------
 
 TEST(Unit_Climatology, WithNoAssetTheAnalyticBandsAnswerAndSayThatTheyAre)
 {
@@ -194,9 +192,7 @@ TEST(Unit_Climatology, TheAnalyticPathHasNoSeasonAndNoContinents)
               climatology.sea_surface_temperature_kelvin(at(85.0, 0.0), 0.0));
 }
 
-// --------------------------------------------------------------------------------------
 // The format: what it accepts, and -- more importantly -- what it refuses.
-// --------------------------------------------------------------------------------------
 
 TEST(Unit_Climatology, AWellFormedBlobIsAdoptedAndReadBack)
 {
@@ -332,9 +328,7 @@ TEST(Unit_Climatology, LatitudeClampsAtThePolesInsteadOfFoldingAcrossThem)
     EXPECT_TRUE(std::isfinite(climatology.saturation_kg_per_m2(-0.5 * PI, 0.0)));
 }
 
-// --------------------------------------------------------------------------------------
 // The data: what the shipped asset claims about the actual Earth.
-// --------------------------------------------------------------------------------------
 
 TEST(Unit_Climatology, TheShippedAssetPutsTheJetsWhereTheReanalysisDoes)
 {
@@ -450,8 +444,8 @@ TEST(Unit_Climatology, TheShippedAssetsSeaSurfaceIsColdAtThePolesEvenUnderTheIce
     ASSERT_TRUE(climatology.baked());
 
     // 80S is land at every longitude, so every cell there is *filled* rather than measured.
-    // An earlier bake filled it from the global ocean mean and wrote 287 K under the ice
-    // sheet; this is the regression that catches that returning.
+    // A fill taken from the global ocean mean would write 287 K under the ice sheet; the
+    // fill has to take its own latitude's water instead.
     const double antarctic = climatology.sea_surface_temperature_kelvin(at(-80.0, 0.0), 0.5);
     EXPECT_LT(antarctic, 278.0) << "a filled polar cell must take its own latitude's water";
     EXPECT_GT(antarctic, 265.0) << "and still be sea water, not an absolute zero sentinel";

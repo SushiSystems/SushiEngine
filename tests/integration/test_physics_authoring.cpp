@@ -23,13 +23,12 @@
 
 /**
  * @file test_physics_authoring.cpp
- * @brief What an author can now reach, proved by building it and stepping it.
+ * @brief What an author can reach, proved by building it and stepping it.
  *
- * Two things were built and unreachable before this: §5.3's surface materials, which
- * existed as a type nothing read — every contact in the world solved at one hard-coded
- * friction whatever a body's material said — and §7.7's collision filter, which the
- * physics honoured but nothing could author. Both are now fields on the Collider, and
- * these are the tests that they are fields with *consequences*.
+ * Two authored fields on the Collider, tested for being fields with *consequences*:
+ * §5.3's surface material, which decides the friction and restitution every contact
+ * on that body is solved at, and §7.7's collision filter, which decides whether a
+ * pair is considered at all.
  *
  * Built through the sample scene rather than by hand wherever possible, because that
  * scene is the exposure work's own claim — "everything P0 to P7 built is reachable
@@ -338,12 +337,12 @@ TEST(Integration_PhysicsAuthoring, TheSurfaceAndTheFilterSurviveTheSceneFile)
 
 TEST(Integration_PhysicsAuthoring, ATriggerVolumeReportsOverlapButNeverStopsTheBody)
 {
-    // §16.45.1: `Collider::flags` (trigger, continuous collision) has been read by the
-    // solver since the collision system was built — `record.trigger` skips resolving the
-    // contact (`physics_simulation.hpp`'s "reported, never resolved") and still reports it
-    // via `ContactEvent::trigger` — but nothing on `ColliderParameters` ever set the bit, so a
-    // trigger volume was solvable and not placeable. This is that field, proved both ways:
-    // the body passes straight through, and the overlap is still seen.
+    // §16.45.1: `Collider::flags` (trigger, continuous collision) is read by the solver —
+    // `record.trigger` skips resolving the contact (`physics_simulation.hpp`'s "reported,
+    // never resolved") and still reports it via `ContactEvent::trigger`. The authored bit on
+    // `ColliderParameters` is what makes a trigger volume placeable as well as solvable, and
+    // it is proved both ways here: the body passes straight through, and the overlap is
+    // still seen.
     const auto simulation = create_simulation();
     ASSERT_NE(simulation, nullptr);
     IWorldEditor& world = simulation->world();

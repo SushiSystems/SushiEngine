@@ -68,7 +68,7 @@ namespace SushiEngine
              * guarantees. The surface parameters live in the frame's material array and
              * the previous frame's transform in the frame's motion array; both travel as
              * one index, which is what keeps the push constant fixed-size as the
-             * material and temporal models grow. The legacy colour rows remain for the passes
+             * material and temporal models grow. The flat colour rows serve the passes
              * that shade flat (grid lines, the selection outline) and never look a
              * material up. Matrices and colours are explicit float arrays: GPU data is
              * 32-bit whatever the engine's Scalar precision, so a double build narrows
@@ -90,9 +90,9 @@ namespace SushiEngine
              * @brief Per-draw constants a meshlet draw hands its task and mesh shaders.
              *
              * 80 bytes. One mesh-shader draw is issued per instance, so the transform and the
-             * material/motion/pick indices that used to ride the classic push constant ride
-             * this one; @c meshlet_count bounds the task shader's meshlet loop. The camera-
-             * relative transform is built the same way the classic path builds it.
+             * material/motion/pick indices ride this push constant; @c meshlet_count bounds
+             * the task shader's meshlet loop. The camera-relative transform is built the same
+             * way the classic path builds it.
              */
             struct MeshletPushConstants
             {

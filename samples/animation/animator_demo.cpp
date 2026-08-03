@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* animator_demo.cpp                                                    */
+/* animator_demo.cpp                                                      */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -62,7 +66,7 @@ int main()
 {
     AnimationDatabase database;
 
-    // --- Skeleton: root + child ------------------------------------------------------
+    // Skeleton: root + child.
     SkeletonDescription skeleton_description;
     JointDescription root; root.name = "root"; root.parent = -1;
     JointDescription child; child.name = "child"; child.parent = 0;
@@ -72,7 +76,7 @@ int main()
     build_skeleton_blob(skeleton_description, skeleton_blob);
     const AssetId skeleton_id = database.add_skeleton(std::move(skeleton_blob));
 
-    // --- Clips: idle (root still) and walk (root advances +2 in z per loop) ----------
+    // Clips: idle (root still) and walk (root advances +2 in z per loop).
     const auto make_clip = [&](bool walking) -> AssetId
     {
         ClipDescription clip;
@@ -95,7 +99,7 @@ int main()
     const AssetId idle_clip = make_clip(false);
     const AssetId walk_clip = make_clip(true);
 
-    // --- Controller: Idle <-> Walk over a "moving" bool ------------------------------
+    // Controller: Idle <-> Walk over a "moving" bool.
     ControllerDescription controller_description;
     controller_description.parameters.push_back(
         ParameterDescription{"moving", ParameterType::Bool, 0.0f});
@@ -134,7 +138,7 @@ int main()
     const int moving_index = controller.find_parameter(hash_name("moving"));
     check(moving_index == 0, "parameter index resolves");
 
-    // --- Drive the animator ----------------------------------------------------------
+    // Drive the animator.
     const float dt = 1.0f / 60.0f;
     CountingSink sink;
 
@@ -163,7 +167,7 @@ int main()
     // After moving drops at tick 150, the animator ends in Idle.
     check(animator.layers[0].current_state == 0, "returned to Idle");
 
-    // --- Determinism: a fresh replay of the same inputs reproduces the final state ----
+    // Determinism: a fresh replay of the same inputs reproduces the final state.
     AnimatorInstance replay{};
     replay.controller = controller_id;
     replay.skeleton = skeleton_id;
@@ -178,7 +182,7 @@ int main()
           "deterministic: same inputs reproduce byte-exact animator state");
     check(replay_sink.footsteps == sink.footsteps, "deterministic event count");
 
-    // --- Rollback: snapshot at K, run to T, restore, replay K..T, compare -------------
+    // Rollback: snapshot at K, run to T, restore, replay K..T, compare.
     AnimatorInstance rb{};
     rb.controller = controller_id;
     rb.skeleton = skeleton_id;

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* net_demo.cpp                                                          */
+/* net_demo.cpp                                                           */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -144,20 +144,20 @@ int main()
     auto runtime = SushiRuntime::API::Runtime::create();
     Execution::Context execution(runtime);
 
-    // --- Baseline: an uninterrupted, authoritative-only run --------------------
+    // Baseline: an uninterrupted, authoritative-only run.
     World baseline_world(execution, CHUNK_CAPACITY);
     baseline_world.reserve<Position>(CHUNK_CAPACITY);
     const Entity baseline_player = baseline_world.spawn(Position{});
     for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
         apply_command(baseline_world, baseline_player, authoritative_command(tick));
 
-    // --- The server: driven straight through by its own authoritative stream ---
+    // The server: driven straight through by its own authoritative stream.
     World server_world(execution, CHUNK_CAPACITY);
     server_world.reserve<Position>(CHUNK_CAPACITY);
     server_world.reserve<Position, NetworkIdTag>(CHUNK_CAPACITY);
     const Entity server_player = server_world.spawn(Position{});
 
-    // --- The client: predicts locally, rolls back and replays on correction ----
+    // The client: predicts locally, rolls back and replays on correction.
     World client_world(execution, CHUNK_CAPACITY);
     client_world.reserve<Position>(CHUNK_CAPACITY);
     client_world.reserve<Position, NetworkIdTag>(CHUNK_CAPACITY);
@@ -174,7 +174,7 @@ int main()
 
     bool any_rollback_happened = false;
 
-    // --- Phase 1: predict / send / (batched) reconcile, no structural change ---
+    // Phase 1: predict / send / (batched) reconcile, no structural change.
     for (Loop::TickId tick = 0; tick < TOTAL_TICKS; ++tick)
     {
         rollback.capture(client_world, tick);
@@ -203,7 +203,7 @@ int main()
                             nearly_equal(client_position.y, expected_position.y) &&
                             nearly_equal(client_position.z, expected_position.z);
 
-    // --- Phase 2: deterministic network ids across a real client/server spawn --
+    // Phase 2: deterministic network ids across a real client/server spawn.
     // Outside the rollback window used above, so this never spawns between a
     // capture and its matching restore (RollbackBuffer's hard constraint).
     constexpr Loop::TickId SPAWN_TICK = TOTAL_TICKS;

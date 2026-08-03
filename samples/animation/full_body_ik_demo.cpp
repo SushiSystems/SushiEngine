@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* full_body_ik_demo.cpp                                                 */
+/* full_body_ik_demo.cpp                                                  */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -76,7 +80,7 @@ namespace
 
 int main()
 {
-    // --- Test 1: a single 3-joint chain reaches an out-of-plane target -----------------
+    // Test 1: a single 3-joint chain reaches an out-of-plane target.
     {
         SkeletonDescription description;
         JointDescription root;
@@ -132,7 +136,7 @@ int main()
         std::printf("[full_body_ik_demo] single-chain final error: %.6f\n", error);
     }
 
-    // --- Test 2: two independent limbs off a shared, never-rotated anchor --------------
+    // Test 2: two independent limbs off a shared, never-rotated anchor.
     {
         SkeletonDescription description;
         JointDescription root;

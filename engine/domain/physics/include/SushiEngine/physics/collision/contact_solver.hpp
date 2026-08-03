@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* contact_solver.hpp                                                    */
+/* contact_solver.hpp                                                     */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -401,14 +403,13 @@ namespace SushiEngine
          * toward lying flat instead of being lifted rigidly.
          *
          * This is the *same* projection @ref resolve_contact_bodies applies, with the
-         * plane contributing no generalized mass. It did not used to be: the impulse
-         * carried an extra `inv_mass / w` factor, chosen to reproduce the older
-         * purely-positional behaviour. That reproduced it only for a body of unit
-         * inverse mass — a heavier body cleared a fraction of its penetration per
-         * sweep and a lighter one overshot it — and the angular share did not
-         * conserve the correction, so a plane contact and a body-pair contact on the
-         * same geometry disagreed. One projection, used twice, cannot disagree with
-         * itself.
+         * plane contributing no generalized mass, and the sameness is the point.
+         * Scaling the impulse by an extra `inv_mass / w` factor here holds only for a
+         * body of unit inverse mass — a heavier body clears a fraction of its
+         * penetration per sweep and a lighter one overshoots it — and the angular
+         * share then fails to conserve the correction, so a plane contact and a
+         * body-pair contact on the same geometry disagree. One projection, used
+         * twice, cannot disagree with itself.
          */
         template <typename T>
         inline void resolve_contact_body_plane(ContactBody<T>& body,

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* audio_extract.hpp                                                     */
+/* audio_extract.hpp                                                      */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -185,7 +185,7 @@ namespace SushiEngine
             out.emitters.clear();
             out.has_reverb = false;
 
-            // --- The listener: pose from Transform + Orientation (mandatory pose). ---
+            // The listener: pose from Transform + Orientation (mandatory pose).
             WorldVector3 eye{0.0, 0.0, 0.0};
             bool have_listener = false;
             const Signature listener_sig = make_signature<Transform, Orientation, AudioListener>();
@@ -220,7 +220,7 @@ namespace SushiEngine
                     break;
             }
 
-            // --- The emitters: pose from Transform, relative to the listener. ---
+            // The emitters: pose from Transform, relative to the listener.
             const Signature emitter_sig = make_signature<Transform, AudioEmitter>();
             for (Archetype* a : world.query(emitter_sig))
             {
@@ -310,7 +310,7 @@ namespace SushiEngine
                 }
             }
 
-            // --- The reverb zone: highest-priority box containing the listener. ---
+            // The reverb zone: highest-priority box containing the listener.
             std::int32_t best_priority = INT_MIN;
             const Signature zone_sig = make_signature<Transform, ReverbZone>();
             for (Archetype* a : world.query(zone_sig))

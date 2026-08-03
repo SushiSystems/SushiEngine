@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -21,11 +23,11 @@
 
 // Unit_Manifold: contact manifold generation (physics/collision/manifold.hpp).
 //
-// The claim this file has to check is not "a contact was found" — the old
-// single-point narrowphase already did that. It is that a *resting* contact
-// produces the whole patch it rests on: four points at the corners of the
-// overlap, not one point that a box can rock about. So the tests measure the
-// shape of the manifold, not just its existence:
+// The claim this file has to check is not "a contact was found" — a single-point
+// narrowphase answers that much. It is that a *resting* contact produces the
+// whole patch it rests on: four points at the corners of the overlap, not one
+// point that a box can rock about. So the tests measure the shape of the
+// manifold, not just its existence:
 //
 //   - a box on a plane and a box on a box yield four points spanning the overlap;
 //   - the anchors are stored per body, so the separation re-derived from them
@@ -77,9 +79,9 @@ namespace
     }
 } // namespace
 
-// A box resting flat on the ground is the case the old single-point narrowphase
-// got wrong: it reported one corner, so the box rocked. The manifold must be the
-// whole face — four points, one per corner, each just touching.
+// A box resting flat on the ground is the case a single-point narrowphase gets
+// wrong: one corner reported, so the box rocks. The manifold must be the whole
+// face — four points, one per corner, each just touching.
 TEST(Unit_Manifold, BoxOnPlaneYieldsFourCornerPoints)
 {
     const PlaneCollider<Scalar> ground{Vector3{0.0, 1.0, 0.0}, 0.0};

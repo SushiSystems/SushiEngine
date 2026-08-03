@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* meteorology_panel.cpp                                                 */
+/* meteorology_panel.cpp                                                  */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -80,7 +80,7 @@ namespace SushiEngine
                 context.assets != nullptr ? context.assets->atmosphere_mirror()
                                           : SushiEngine::Render::AtmosphereMirror{};
 
-            // ---- The clock, and whether the atmosphere can keep up with it -----------------
+            // The clock, and whether the atmosphere can keep up with it.
             //
             // The most load-bearing readout here. The nest advances in *game* time by at most
             // `max_steps_per_frame` steps of its CFL-chosen length per frame; a sky animating
@@ -139,12 +139,11 @@ namespace SushiEngine
 
                     // The land cover, as the *properties* it implies.
                     //
-                    // These presets used to set a pair of fluxes directly. Since Phase B3 the
-                    // fluxes are solved, so what a preset sets is what a place actually is —
+                    // The fluxes are solved, so what a preset sets is what a place actually is —
                     // how bright it is, how much water it can give up, how much heat it stores,
-                    // and how moist the airmass over it is. The Bowen ratio it produces then
-                    // falls out of the balance and moves through the day as the ground dries,
-                    // instead of being pinned.
+                    // and how moist the airmass over it is. The Bowen ratio it produces falls
+                    // out of the balance and moves through the day as the ground dries, rather
+                    // than being pinned.
                     //
                     // The airmass humidity belongs here rather than only on the slider below,
                     // because a semi-desert is not merely a dry *surface*: with the base-state
@@ -251,11 +250,11 @@ namespace SushiEngine
                                           "the flux, so it cannot cool the ground and it\n"
                                           "stops at dusk.");
                     // The two scales below are what make the slider above do anything. Measured:
-                    // patchiness with no scales -- redrawn per cell per step, as it was -- gives
-                    // 1.22x the domain structure of switching the seed off entirely, against
-                    // 3.72x for these defaults. They are in metres and seconds rather than cells
-                    // and steps so that the quality tier and the frame rate are not physical
-                    // parameters of the weather.
+                    // patchiness with no scales -- redrawn per cell per step -- gives 1.22x the
+                    // domain structure of switching the seed off entirely, against 3.72x for
+                    // these defaults. They are in metres and seconds rather than cells and steps
+                    // so that the quality tier and the frame rate are not physical parameters of
+                    // the weather.
                     if (ImGui::SliderFloat("Patch Size", &nest.thermal_seed_length_m, 1000.0f,
                                            24000.0f, "%.0f m"))
                         changed = true;
@@ -337,8 +336,7 @@ namespace SushiEngine
                     // The closure that decides whether this nest can draw a cumulus at all. A
                     // 2 km cell's humidity is a *mean*, and a fair-weather cumulus is saturated
                     // air filling a fraction of it, so condensing only when the mean crosses
-                    // saturation produces fog and nothing else -- which is exactly what every
-                    // run did before this existed.
+                    // saturation produces fog and nothing else.
                     if (ImGui::SliderFloat("Cloud From RH", &nest.cloud_critical_humidity, 0.5f,
                                            1.0f, "%.2f"))
                         changed = true;
@@ -536,7 +534,7 @@ namespace SushiEngine
             // renderer, and the frame rate that results is the whole term. Kept only as the
             // estimate to fall back on before the first readback, because until then there is
             // nothing measured to prefer to it — and labelled as an assumption rather than
-            // stated as a fact, which is what it used to be.
+            // stated as a fact.
             const double nominal = double(step) * double(nest.max_steps_per_frame) * 60.0;
 
             // The measured lag, which is the ground truth the estimate above only guesses at.
@@ -545,12 +543,11 @@ namespace SushiEngine
             // nest takes at most `max_steps_per_frame` steps from the difference and **discards
             // the surplus** (§3.4 — weather that is briefly behind beats a frame that stalls to
             // simulate an hour of it). So a sky running faster than the nest can step does not
-            // slow the sky down, it throws weather away, and nothing said so.
+            // slow the sky down, it throws weather away, and only this readout says so.
             //
-            // This is the number to trust, and it is the one that showed the 60 fps assumption
-            // was wrong: a session was told "the atmosphere is keeping up with the sky" while
-            // four of every five seconds of weather were being dropped, because the editor was
-            // drawing at about twelve frames a second and the estimate did not know.
+            // This is the number to trust, because the 60 fps assumption can be badly wrong: at
+            // about twelve frames a second the estimate reports that the atmosphere is keeping
+            // up with the sky while four of every five seconds of weather are being dropped.
             const double asked = environment.atmosphere_forcing.total_seconds;
             const bool measured = mirror.valid() && asked > 60.0 &&
                                   mirror.simulated_seconds > 1.0;
@@ -616,13 +613,13 @@ namespace SushiEngine
             else
                 ImGui::TextDisabled("(estimated; press again once weather has been simulated)");
 
-            // ---- What a step costs, measured ------------------------------------------------
+            // What a step costs, measured.
             //
             // The rate above says how much weather is happening; this says what it is costing to
-            // make it happen, which is the other half of the same question and was for a long
-            // time not asked at all: §12 budgets the step at 2 ms and nothing had ever measured
-            // it. Timestamps around each stage of the step, resolved where the nest already
-            // waits on the submission's timeline value, so reading them stalls nothing.
+            // make it happen, which is the other half of the same question: §12 budgets the step
+            // at 2 ms, and this is what checks it against. Timestamps around each stage of the
+            // step, resolved where the nest already waits on the submission's timeline value, so
+            // reading them stalls nothing.
             //
             // Both numbers are stated because they answer different questions. The per-step cost
             // is what §12's budget is written against; the per-frame cost is what a dropped frame
@@ -698,18 +695,17 @@ namespace SushiEngine
             }
             else if (!procedural)
             {
-                // No longer "the sky is uniform everywhere" — Manual mode places weather over
-                // the whole planet from a seed now, so what it does not have is a *simulation*,
-                // not a *field*. Naming the wrong absence would send an author looking for a bug
-                // that was fixed.
+                // Manual mode places weather over the whole planet from a seed, so what it does
+                // not have is a *simulation*, not a *field*. Naming the wrong absence would send
+                // an author looking for a bug that is not there.
                 ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
                                    "Weather mode is Manual, so the sky is placed from a seed\n"
                                    "rather than simulated: nothing publishes the forcing the\n"
                                    "nest is driven by and no nest is ever built. There is real\n"
                                    "horizontal structure, but nothing below evolves.");
                 // The fix, next to the diagnosis. The alternative is a panel that names a
-                // control in a different panel and expects you to go find it, which is how the
-                // toggle stayed off long enough to be mistaken for a physics bug.
+                // control in a different panel and expects you to go find it, which leaves the
+                // toggle off long enough to be mistaken for a physics bug.
                 if (ImGui::Button("Switch to Procedural weather"))
                     world->set_weather_mode(SushiEngine::Simulation::WeatherMode::Procedural);
             }
@@ -739,7 +735,7 @@ namespace SushiEngine
                                    "seeded but never stepping -- check the clock above.");
             }
 
-            // ---- The sun: one number that carries both the hour and the season -------------
+            // The sun: one number that carries both the hour and the season.
             ImGui::SeparatorText("Solar forcing");
             const SushiEngine::Vector3& to_sun = environment.sun.direction;
             const SushiEngine::Vector3& up = environment.planet_pole;
@@ -756,10 +752,9 @@ namespace SushiEngine
                                 "sun is already in the ephemeris, so a July noon delivers more\n"
                                 "heat than a January one with nothing modelling \"summer\".");
 
-            // **Measured, not authored.** These were the two numbers a user typed in; since
-            // Phase B3 they are what the surface energy balance solved, read back off the
-            // observer's column. The difference shows the moment the sun moves: the fluxes lag
-            // it, because the ground has a heat capacity now.
+            // **Measured, not authored.** These are what the surface energy balance solved, read
+            // back off the observer's column. The difference shows the moment the sun moves: the
+            // fluxes lag it, because the ground has a heat capacity.
             const SushiEngine::Render::AtmosphereMirrorColumn* surface_column =
                 observer_column(mirror);
             if (surface_column == nullptr)
@@ -776,10 +771,10 @@ namespace SushiEngine
 
                 // The Bowen ratio, named. It is the single number that decides whether a heated
                 // boundary layer reaches its condensation level or simply gets hotter, and it is
-                // a *derived* quantity so nothing in the panel showed it. It is now derived from
-                // the solved fluxes rather than from two authored ones, which means it moves
-                // through the day as the surface dries — the fixed ratio was itself part of what
-                // made a scene heat all afternoon and stay clear.
+                // a *derived* quantity, so it has to be stated explicitly. Deriving it from the
+                // solved fluxes rather than from authored ones means it moves through the day as
+                // the surface dries; a fixed ratio makes a scene heat all afternoon and stay
+                // clear.
                 const float latent = surface_column->skin[2];
                 const float bowen = latent > 1.0f ? surface_column->skin[1] / latent : 0.0f;
                 if (latent <= 1.0f)
@@ -797,7 +792,7 @@ namespace SushiEngine
                                        "move it.");
             }
 
-            // ---- The column under the observer --------------------------------------------
+            // The column under the observer.
             ImGui::SeparatorText("Column under the observer");
             const SushiEngine::Render::AtmosphereMirrorColumn* column = observer_column(mirror);
             if (column == nullptr)
@@ -864,19 +859,18 @@ namespace SushiEngine
                 }
             }
 
-            // ---- The observer column, unreduced -------------------------------------------
+            // The observer column, unreduced.
             //
             // Everything above this line is a vertical *reduction*, which is what gameplay asks
             // for and is exactly what a sky that refuses to make cloud has already destroyed the
             // evidence in: a column of zeros says only that there is no cloud. The nest reads
-            // its centre column back level by level for this reason, and until now nothing in
-            // the editor showed it — the diagnosis lived only in the headless probe, so seeing
-            // it meant leaving the editor and rebuilding.
+            // its centre column back level by level for this reason, and this table shows it, so
+            // the diagnosis does not require leaving the editor for the headless probe.
             //
             // The two columns to read together are RH and Cloud. Cloud is the subgrid fraction,
             // so it rises off zero at the authored critical humidity and not at 100 %: a level
             // reading 88 % RH and 20 % cloud is a scattered cumulus deck, and that difference is
-            // the whole of what the closure added.
+            // what the subgrid closure expresses.
             ImGui::SeparatorText("Vertical profile under the observer");
             if (!mirror.valid() || mirror.profile == nullptr || mirror.profile_levels <= 0)
             {
@@ -961,7 +955,7 @@ namespace SushiEngine
                 }
             }
 
-            // ---- From condensate to pixels -------------------------------------------------
+            // From condensate to pixels.
             //
             // Everything above answers "is there cloud in the model". This answers the next
             // question, which is a different one and has its own ways of being no: the nest can
@@ -1008,7 +1002,7 @@ namespace SushiEngine
                 ImGui::TextDisabled("Observer column holds cloud from %.0f m to %.0f m.",
                                     double(column->surface[3]), double(column->extent[0]));
 
-            // ---- What the bake will publish for that cloud ---------------------------------
+            // What the bake will publish for that cloud.
             //
             // The green line above proves the plumbing; these prove the *numbers*. Three
             // scalars decide whether a healthy deck survives to the screen, each with its own
@@ -1079,7 +1073,7 @@ namespace SushiEngine
                 }
             }
 
-            // ---- Logging -------------------------------------------------------------------
+            // Logging.
             //
             // Sampled on the *nest's* clock rather than the wall clock, so a log line is a fixed
             // interval of simulated weather however fast or slow the sky is being animated --

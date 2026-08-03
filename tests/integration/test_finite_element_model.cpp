@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* test_finite_element_model.cpp                                         */
+/* test_finite_element_model.cpp                                          */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -16,7 +18,7 @@
 /* distributed under the License is distributed on an "AS IS" BASIS,      */
 /* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or        */
 /* implied. See the License for the specific language governing           */
-/* permissions and limitations under the License.                        */
+/* permissions and limitations under the License.                         */
 /**************************************************************************/
 
 // Integration_FiniteElementModel: P6's own acceptance criterion, the
@@ -92,17 +94,15 @@ TEST(Integration_FiniteElementModel, CantileverTipDeflectionMatchesEulerBernoull
                 Scalar(0);
 
     const Scalar dt = Scalar(1.0 / 60.0);
-    // §16.19's 9x mystery, resolved (2026-08-01): the deviatoric constraint was
-    // `||F|| - sqrt(3)`, which scales every deviatoric force by a factor that
-    // vanishes at small strain — see `evaluate_deviatoric_constraint`'s own
-    // documentation for the full account. With the constraint corrected to
-    // `||F||` (plus Smith et al.'s `lambda + mu` reparameterization in the
-    // hydrostatic term), what remains is ordinary single-iteration XPBD
+    // Why the substep count is what it is (§16.19). The deviatoric constraint
+    // is `||F||` and the hydrostatic term carries Smith et al.'s `lambda + mu`
+    // reparameterization — see `evaluate_deviatoric_constraint`'s own
+    // documentation — so what is left here is ordinary single-iteration XPBD
     // convergence: the rest state carries a residual contraction that shrinks
     // as h^2 (measured: -2.2e-2 m at 30 substeps, -5.9e-3 at 60, -1.5e-3 at
     // 120, on the axial version of this scene). 60 substeps is where the
     // remaining bias fits inside this test's 35% discretization tolerance
-    // without doubling the runtime again.
+    // without doubling the runtime.
     constexpr std::size_t SUBSTEPS = 60;
     constexpr int TICKS = 3000; // 50 s of simulated time, heavily damped
     for (int tick = 0; tick < TICKS; ++tick)

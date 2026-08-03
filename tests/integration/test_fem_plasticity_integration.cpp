@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* test_fem_plasticity_integration.cpp                                   */
+/* test_fem_plasticity_integration.cpp                                    */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -16,7 +18,7 @@
 /* distributed under the License is distributed on an "AS IS" BASIS,      */
 /* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or        */
 /* implied. See the License for the specific language governing           */
-/* permissions and limitations under the License.                        */
+/* permissions and limitations under the License.                         */
 /**************************************************************************/
 
 // Integration_FEMPlasticity: §9.4's own acceptance phrase — "a body past
@@ -84,9 +86,7 @@ TEST(Integration_FEMPlasticity, APulledElementKeepsAPermanentDentAfterTheLoadIsR
 
     // Load: pull hard, well past this material's low yield. 800 m/s^2 on three
     // 1 kg vertices puts a few kilopascals through the element — several times
-    // the 1 kPa yield at the correctly-mapped stiffness. (The original 50 was
-    // calibrated against the pre-§16.19-fix material, which was soft enough
-    // that even that gentle pull crossed yield.)
+    // the 1 kPa yield at this material's stiffness.
     model.external_acceleration = Vector3{800.0, 0.0, 0.0};
     for (int tick = 0; tick < 60; ++tick)
         model.step(dt, SUBSTEPS);

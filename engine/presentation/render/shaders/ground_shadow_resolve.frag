@@ -8,7 +8,7 @@
 // there is no motion vector to reproject and no real depth in the depth buffer at these
 // pixels to weight a bilateral kernel against. A wide plain blur is what is left: it
 // cannot respect a silhouette it cannot see, so the ground's horizon softens by a few
-// pixels, which reads as far cheaper than the raw 12-tap PCF speckle it replaces.
+// pixels, which reads as far cheaper than raw 12-tap PCF speckle.
 //
 // rgb (the direct-sun radiance term) passes through unblurred — it is already smooth,
 // only the alpha (raw shadow visibility) is noisy — but is sampled through the same

@@ -59,10 +59,10 @@ namespace SushiEngine
          * @brief Draws the Cooking Override modal when @ref EditorContext::cooking_override_target
          * names an asset.
          *
-         * §8.1's per-asset half of the import profile — `ImportProfileOverride`, implemented
-         * and unit-tested since P4 but never reachable from a running editor until now. Called
-         * unconditionally every frame, matching `draw_save_scene_as_modal`'s own convention: it
-         * is a no-op whenever the target is empty.
+         * §8.1's per-asset half of the import profile — the editor surface over
+         * `ImportProfileOverride`. Called unconditionally every frame, matching
+         * `draw_save_scene_as_modal`'s own convention: it is a no-op whenever the target is
+         * empty.
          *
          * @param context Editor state; reads and clears @ref EditorContext::cooking_override_target.
          */

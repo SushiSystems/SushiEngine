@@ -398,7 +398,7 @@ TEST(Integration_JointAssembly, AJointNeedsBothOfItsBodiesToExist)
     EXPECT_NE(physics->create_joint(door_hinge(0)), NULL_JOINT);
 }
 
-// -- The assembly, instanced and simulated ---------------------------------
+// The assembly, instanced and simulated.
 //
 // The unit tests hold the assembly asset and the ragdoll rig to their translation:
 // blob round trips, world placement, mass distribution, and the bind offset that

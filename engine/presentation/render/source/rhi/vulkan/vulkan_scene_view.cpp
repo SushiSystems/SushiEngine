@@ -663,7 +663,7 @@ namespace SushiEngine
                                        effective.lights.shadow_atlas_size,
                                        effective.lights.max_shadow_casters, camera.near_plane);
 
-                // --- Stochastic shadows for the lights the atlas had no tile for ----------
+                // Stochastic shadows for the lights the atlas had no tile for.
                 // The GI tracer's distance field is the thing a shadow ray marches, so this
                 // path exists only where that field is live. It is registered in the bindless
                 // heap once — the field's image is created with the device and never
@@ -701,7 +701,7 @@ namespace SushiEngine
                                                field_config.origin_voxel,
                                                field_config.resolution);
 
-                // --- GPU-driven geometry: pack this frame's instances for the cull pass -----
+                // GPU-driven geometry: pack this frame's instances for the cull pass.
                 // The path is permitted by the tier and the author, and needs the bindless
                 // heap (its instance set rides set 2). A selection falls back to the classic
                 // per-instance draw so the outline's stencil mask still works, but the cull

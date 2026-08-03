@@ -4,10 +4,10 @@
 // Resolves the cloud buffer's own dedicated TAA (CloudTAAPass) over the full-resolution
 // sky, producing the linear HDR image the rest of the frame works on.
 //
-// This used to be two lines at the top of the tonemap pass. It is its own pass now
-// because the temporal resolve has to run on a complete scene — clouds included — and
-// the display transform has to run after that, so nothing may sit on both sides of it.
-// Splitting it also gives the post-processing stack one obvious place to attach.
+// A pass of its own rather than two lines at the top of the tonemap pass, because the
+// temporal resolve has to run on a complete scene — clouds included — and the display
+// transform has to run after that, so nothing may sit on both sides of it. Keeping it
+// separate also gives the post-processing stack one obvious place to attach.
 //
 // W3 adds the cloud's own aerial perspective: the Hillaire froxel volume sampled once
 // per pixel at the cloud march's own transmittance-weighted mean depth, so a distant
@@ -19,9 +19,9 @@
 // Truncated prefix of the shared scene block, declared through `misc` — the one member
 // this pass reads. misc.w is the cloudscape master switch, and the composite has to
 // consult it because CloudTAAPass's history is pass-owned and outlives a disable:
-// without the gate below, switching clouds off left the last resolved frame glued to
-// the screen (the march stops, the TAA early-outs, but this pass kept sampling the
-// stale accumulation) until clouds were switched back on.
+// without the gate below, switching clouds off would leave the last resolved frame glued
+// to the screen (the march stops, the TAA early-outs, but this pass would keep sampling
+// the stale accumulation) until clouds were switched back on.
 layout(set = 0, binding = 0) uniform SceneBlock
 {
     mat4 view;

@@ -4,12 +4,12 @@
 //
 // **Why the chain exists.** The view march carves cloud shape per sample out of this volume,
 // at a world scale that is fixed in metres — so a sample a hundred kilometres away, whose own
-// integration step spans a kilometre, was reading a texel eighteen metres across. That is not
-// filtering, it is a point sample of a field varying sixty times faster than the sampler, and
-// it is what made distant cloud read as white: whichever peaks the lattice happened to land on
-// survived the threshold at full strength. The chain gives `cloud.frag` a real band limit to
-// select with `textureLod`, which is what a LOD is supposed to be — the previous "LOD" inflated
-// the *feature scale* instead, turning distant cumuli into three-to-five kilometre blobs.
+// integration step spans a kilometre, would otherwise read a texel eighteen metres across.
+// That is not filtering, it is a point sample of a field varying sixty times faster than the
+// sampler, and it makes distant cloud read as white: whichever peaks the lattice happens to
+// land on survive the threshold at full strength. The chain gives `cloud.frag` a real band
+// limit to select with `textureLod`, which is what a LOD is supposed to be. A "LOD" that
+// inflated the *feature scale* instead only turns distant cumuli into kilometre-wide blobs.
 //
 // **Why a compute pass rather than vkCmdBlitImage.** Two reasons, both about exactness.
 // The volume tiles: it is sampled with REPEAT addressing, so its filter must wrap. A blit's

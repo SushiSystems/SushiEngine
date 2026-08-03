@@ -132,15 +132,15 @@ namespace SushiEngine
                         world_.reserve<Transform, Orientation, Camera>(CHUNK_CAPACITY);
                         world_.reserve<Transform, Orientation, Tint, Camera>(CHUNK_CAPACITY);
                         register_systems();
-                        // Manual mode has a provider from the first frame. It used to have none
-                        // — "manual" was *defined* as the absence of one — which is what left an
-                        // authored deck stack applied uniformly to an entire planet with no way
-                        // for the sky to differ from one place to another.
+                        // Manual mode has a provider from the first frame. Defining "manual" as
+                        // the *absence* of one would leave an authored deck stack applied
+                        // uniformly to an entire planet, with no way for the sky to differ from
+                        // one place to another.
                         install_mode_provider();
                         extract(); // a valid (empty) snapshot before the first tick
                     }
 
-                    // --- ISimulation -------------------------------------------------
+                    // ISimulation.
 
                     void tick(Scalar real_delta_seconds) override
                     {
@@ -214,7 +214,7 @@ namespace SushiEngine
                         scene_.environment.observer.julian_date = epoch;
                     }
 
-                    // --- IWorldEditor ------------------------------------------------
+                    // IWorldEditor.
 
                     std::vector<EntityId> entities() const override { return order_; }
 
@@ -632,12 +632,12 @@ namespace SushiEngine
                         // never learns about it would answer from the base state forever.
                         provider->set_atmosphere_mirror(atmosphere_mirror_);
                         install_weather_provider(std::move(provider));
-                        // Deliberately *not* switching the author's fog on. That nudge used to
-                        // exist so rain could be seen through something, and its cost was that
-                        // enabling weather silently added the full authored fog density to a
-                        // scene that had left fog off on purpose. VolumetricFogPass now runs on
-                        // the weather's own bias alone, so reduced visibility under rain still
-                        // shows up and an author who wanted no fog still has none.
+                        // Deliberately *not* switching the author's fog on. Such a nudge would
+                        // let rain be seen through something, at the cost of enabling weather
+                        // silently adding the full authored fog density to a scene that left
+                        // fog off on purpose. VolumetricFogPass runs on the weather's own bias
+                        // alone, so reduced visibility under rain still shows up and an author
+                        // who wanted no fog still has none.
                     }
 
                     /**

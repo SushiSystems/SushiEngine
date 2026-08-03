@@ -538,8 +538,8 @@ namespace SushiEngine
                 const std::size_t levels = volumes_[MARCH].mip_views.size();
                 // Entry 0 is zero by construction — no filter has been applied there — and
                 // leaving the whole array zero is also the honest fallback if the readback
-                // failed: the carve then behaves exactly as it did before this measurement
-                // existed, hard threshold and all, rather than on a fabricated spread.
+                // failed: the carve then falls back to a plain hard threshold rather than
+                // working from a fabricated spread.
                 march_carve_spread_.assign(levels, 0.0f);
                 if (level_zero == nullptr || resolution == 0 || levels == 0)
                     return;

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* weather_provider.hpp                                                  */
+/* weather_provider.hpp                                                   */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -34,13 +34,11 @@
  * host branches on); `IngestedWeather` (`sim/ingested_weather.hpp`) fills the same contract
  * from METAR-sourced data.
  *
- * Substitutability here used to be nominal: the interface existed, but the host stored the
- * concrete `ProceduralWeather` and the abstract simulation interface returned it, so no other
- * implementation could actually be installed — see `docs/slop/atmosphere_system.md` §1.6, and
- * the CHANGELOG entry that admitted `IngestedWeather` was written, tested, and unreachable.
- * The two additions that close it are @ref IWeatherProvider::tick (the host can advance time
- * without knowing what it installed) and @ref IWeatherAuthoring (the editor reaches authoring
- * through a capability, not through a concrete type).
+ * Substitutability here is real rather than nominal, and two members are what make it so:
+ * @ref IWeatherProvider::tick lets the host advance time without knowing what it installed,
+ * and @ref IWeatherAuthoring lets the editor reach authoring through a capability rather than
+ * a concrete type. A host that stored `ProceduralWeather` directly would leave every other
+ * implementation of this seam unreachable — see `docs/slop/atmosphere_system.md` §1.6.
  */
 
 #include <algorithm>
@@ -253,8 +251,8 @@ namespace SushiEngine
          * weather has no business placing pressure systems, and a provider fed by real
          * observations has no meaningful way to honour such a request. The host offers this as
          * a capability — present or absent — instead of widening the one interface every
-         * provider must satisfy, which is what previously forced the concrete type into
-         * `ISimulation` and locked every other implementation out.
+         * provider must satisfy, which would force the concrete type into `ISimulation`
+         * and lock every other implementation out.
          */
         class IWeatherAuthoring
         {

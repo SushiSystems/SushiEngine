@@ -138,11 +138,9 @@ TEST(Unit_JulianDate, LocalSiderealTimeAddsEastLongitude)
     EXPECT_NEAR(local_mean_sidereal_time(jd, east), expected, 1e-9);
 }
 
-// --------------------------------------------------------------------------------------
 // The inverse. `year_fraction_from_julian_date` reads a month out of an epoch to index T0's
 // climatology, so a date that comes back one day out puts the weather in the wrong month --
 // and the failure would look like a slightly wrong jet rather than like a calendar bug.
-// --------------------------------------------------------------------------------------
 
 TEST(Unit_JulianDate, CalendarSurvivesTheRoundTripThroughJulianDate)
 {

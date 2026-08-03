@@ -8,6 +8,10 @@
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
+/*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
 /* Unless required by applicable law or agreed to in writing, software    */
@@ -25,9 +29,9 @@
  *
  * Runs just before the opaque pass. For each deformable mesh the host packed positions for,
  * it dispatches one thread per vertex to gather the area-weighted normal and write the
- * MeshVertex — the work the CPU used to do every frame. The indices are not touched: they
- * are uploaded mesh-local and the draw supplies the vertex offset, so what used to be a
- * second dispatch mode is now a memcpy the buffers do.
+ * MeshVertex, keeping that per-frame work off the CPU. The indices are not touched: they
+ * are uploaded mesh-local and the draw supplies the vertex offset, so no second dispatch
+ * mode is needed to rebase them — the buffers memcpy them across.
  *
  * The vertex buffer it fills is the one the opaque pass draws, so it hand-barriers the
  * compute write to the vertex-input read — the buffer is DeformableBuffers-owned, not a

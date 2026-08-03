@@ -169,17 +169,17 @@ namespace SushiEngine
             }
 
             /**
-             * @brief W4's procedural weather state, as of the Phase C swap.
+             * @brief W4's procedural weather state.
              *
-             * **The system list is gone because the systems are gone.** What used to be written
-             * here was a dozen ellipses with headings and radii — an object model that could be
-             * spelled in JSON because it was authored data pretending to be weather. The global
-             * core has no such objects: its state is two potential-vorticity fields and a
-             * moisture field on a 512x256 grid, several megabytes of numbers that mean nothing
-             * individually. Writing that into the scene JSON would bloat a human-editable text
-             * file past the point of being human-editable, for a payload no human would ever
-             * edit, so it goes to a binary sidecar beside the scene and the JSON keeps only the
-             * fact that one exists.
+             * **There is no system list, because there are no systems.** A dozen ellipses with
+             * headings and radii is an object model that can be spelled in JSON only because
+             * it is authored data pretending to be weather. The global core has no such
+             * objects: its state is two potential-vorticity fields and a moisture field on a
+             * 512x256 grid, several megabytes of numbers that mean nothing individually.
+             * Writing that into the scene JSON would bloat a human-editable text file past the
+             * point of being human-editable, for a payload no human would ever edit, so it
+             * goes to a binary sidecar beside the scene and the JSON keeps only the fact that
+             * one exists.
              *
              * T2's regional grid is still deliberately not captured: it reseeds from the
              * restored parent solution and the current observer on the next tick. That was a
@@ -818,9 +818,9 @@ namespace SushiEngine
 
             // The environment rides every capture beside the entities. This is what makes
             // undo, Save Scene, and Play→Stop agree that lighting/sky/weather physics are
-            // scene content: a snapshot that carried only the entity array could not
-            // restore what its callers claimed it restored (fixed 2026-07-29 — a single
-            // Ctrl+Z used to leave the environment as-is while rewinding the world).
+            // scene content: a snapshot of the entity array alone cannot restore what its
+            // callers claim it restores, and a single Ctrl+Z would rewind the world while
+            // leaving the environment exactly as it was.
             json capture;
             capture["entities"] = std::move(root);
             capture["environment"] = environment_to_json(world.environment());

@@ -40,9 +40,8 @@
  * 1. @ref collider_from_parameters turns the authoring component into the record.
  * 2. @ref scaled_collider applies the entity's scale to it.
  * 3. @ref collider_mass_properties derives mass and inertia from the *scaled*
- *    shape and a density, which is P0 carry-over 2: `mass_properties.hpp` has been
- *    complete and unused since P0 precisely because there was no scaled shape to
- *    hand it.
+ *    shape and a density, which is what P0 carry-over 2 asks for:
+ *    `mass_properties.hpp` is only usable once there is a scaled shape to hand it.
  *
  * **On `ColliderParameters`.** §5.5 says this record supersedes it, and it does for
  * everything downstream: the extract reads `Collider`, and the physics never sees
@@ -127,8 +126,8 @@ namespace SushiEngine
          * @brief The authoring component, as a collider.
          *
          * The one place `PrimitiveKind`'s meaning for physics is decided, and the
-         * place a mapping that used to be a silent approximation is now a stated
-         * one: a `Cylinder` becomes a **capsule**, not a sphere. That is still an
+         * place each approximation is stated rather than left silent: a `Cylinder`
+         * becomes a **capsule**, not a sphere. That is still an
          * approximation — a capsule has round ends and a barrel does not — but it
          * is one that rolls about the right axis and stands up on the ground, which
          * a sphere of the cylinder's radius does neither of (§1.2 item 4). A true
@@ -284,11 +283,10 @@ namespace SushiEngine
         /**
          * @brief Mass and inertia from a scaled collider and a density.
          *
-         * P0 carry-over 2, closed. What made this worth waiting for rather than
-         * wiring in P0 is the word *scaled*: deriving mass from the authored shape
-         * would have given a doubled crate the mass of a single one, which is a
-         * worse failure than the hand-authored number it replaced, because it looks
-         * derived.
+         * P0 carry-over 2. The load-bearing word is *scaled*: deriving mass
+         * from the authored shape would give a doubled crate the mass of a single
+         * one, which is a worse failure than a hand-authored number, because it
+         * looks derived.
          *
          * A cooked asset reports nothing: its mass properties are integrated over
          * its faces by the cooker and travel in the asset (§8.4). A plane reports

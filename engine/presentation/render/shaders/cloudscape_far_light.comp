@@ -7,12 +7,11 @@
 // Why the far window needs a light term of its own: CloudLightVolumePass covers the *near*
 // window, which is where a march sample's self-shadowing detail actually matters, and
 // stretching it across the far window's eight-times-wider span would cost the near field the
-// resolution the whole volume exists for. Before phase B a sample past the near window did
-// not care — the sky was globally uniform, so reading the near window's clamped edge was
-// reading the truth. It is not any more: with the simulation deciding coverage per column
-// (docs/slop/atmosphere_system.md §7.4), a distant storm and a distant fair-weather field are
-// different amounts of cloud, and lighting both from one edge value would show the front's
-// shape while lighting it flat.
+// resolution the whole volume exists for. Reading the near window's clamped edge out there
+// would be reading the truth only if the sky were globally uniform. It is not: with the
+// simulation deciding coverage per column (docs/slop/atmosphere_system.md §7.4), a distant
+// storm and a distant fair-weather field are different amounts of cloud, and lighting both
+// from one edge value would show the front's shape while lighting it flat.
 //
 // Source and destination are two images rather than one read-modify-write, because the march
 // reads texels its neighbouring invocations are writing; ping-ponging is what makes that

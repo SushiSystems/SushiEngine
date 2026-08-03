@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* retarget_demo.cpp                                                     */
+/* retarget_demo.cpp                                                      */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -130,7 +134,7 @@ int main()
     const Quaternionf elbow_bend = rotation_z(45.0f);
     clip.rotations[1 * n + source_elbow] = elbow_bend; // source elbow bind is identity, so delta == 45 deg
 
-    // --- Retarget onto the differently-proportioned rig -------------------------------
+    // Retarget onto the differently-proportioned rig.
     {
         ClipDescription retargeted;
         check(retarget_clip(clip, source_avatar, source_skeleton, target_avatar, target_skeleton,
@@ -152,7 +156,7 @@ int main()
               "undriven joint keeps the target bind pose");
     }
 
-    // --- Mirror the clip left-to-right ------------------------------------------------
+    // Mirror the clip left-to-right.
     {
         ClipDescription mirrored;
         check(mirror_clip(clip, source_avatar, source_skeleton, mirrored), "mirror succeeds");

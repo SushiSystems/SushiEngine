@@ -10,14 +10,13 @@
 // sliders move. Amortized by row group across 8 frames — the same cadence
 // CloudLightVolumePass refreshes at, since both exist to track the same slowly drifting sun.
 //
-// Phase B moved it off the wrapping tile and onto the camera-centred window, for the reason
-// spelled out in cloud_light_volume.comp's header: a `fract()`-addressed bake holds a `uv`
-// with no recoverable world position, so it could not carry spatial weather and shadowed the
-// whole world with the observer's own column. On the window it shadows the ground with the
-// cloud that is actually overhead — a clearing stops casting, a squall line casts a moving
-// band. The map covers exactly the near window; past its rim the consumer fades the shadow
-// out rather than repeating this one reading across the horizon
-// (see cloud_shadow_common.glsl).
+// Baked over the camera-centred window rather than a wrapping tile, for the reason spelled
+// out in cloud_light_volume.comp's header: a `fract()`-addressed bake holds a `uv` with no
+// recoverable world position, so it cannot carry spatial weather and would shadow the whole
+// world with the observer's own column. On the window it shadows the ground with the cloud
+// that is actually overhead — a clearing stops casting, a squall line casts a moving band.
+// The map covers exactly the near window; past its rim the consumer fades the shadow out
+// rather than repeating this one reading across the horizon (see cloud_shadow_common.glsl).
 
 layout(local_size_x = 8, local_size_y = 8) in;
 

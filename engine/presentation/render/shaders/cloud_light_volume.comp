@@ -8,16 +8,15 @@
 // without ever forcing a full-volume stall; the resulting up-to-8-frame lag is invisible at
 // the sun's own angular rate.
 //
-// **What phase B changed, and why it is the whole point.** This volume used to be addressed
-// in the field's *tile* space: a `uv` reached by `fract(world / tile)`, which is many-to-one
-// and therefore holds no recoverable world position. That is exactly why phase A had to defer
-// it — a volume that cannot say where it is cannot consult a spatial weather field, so sun
-// energy through cloud reflected the observer's own column everywhere, and a cleared region
-// still received cloud shadow. The field is now a camera-centred, non-wrapping window
-// (docs/slop/atmosphere_system.md §7.2), so this volume's `uv` names one place in the world —
-// and the fix turns out not to be "look the weather up here" at all: the field it marches
-// *already* carries the simulation's coverage per column, so the light term becomes spatially
-// correct simply by addressing the right texels.
+// **Why the addressing is the whole point.** Addressed in the field's *tile* space — a `uv`
+// reached by `fract(world / tile)` — the volume would be many-to-one and therefore hold no
+// recoverable world position, and a volume that cannot say where it is cannot consult a
+// spatial weather field: sun energy through cloud would reflect the observer's own column
+// everywhere, and a cleared region would still receive cloud shadow. The field is a
+// camera-centred, non-wrapping window (docs/slop/atmosphere_system.md §7.2), so this volume's
+// `uv` names one place in the world — and that is the whole of it, not "look the weather up
+// here": the field it marches *already* carries the simulation's coverage per column, so the
+// light term is spatially correct simply by addressing the right texels.
 //
 // The march happens entirely in the flat-window approximation the whole T3 tier already
 // accepts (regional scale, planet curvature invisible): `planet_frame.xyz` stands in for local

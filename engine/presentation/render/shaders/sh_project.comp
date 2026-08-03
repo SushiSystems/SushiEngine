@@ -5,8 +5,8 @@
 // coefficients — the diffuse ambient the shading reads instead of sampling an irradiance
 // cubemap. The cosine-lobe convolution (Ramamoorthi A0=pi, A1=2pi/3, A2=pi/4) and the 1/pi
 // that turns irradiance into the pre-albedo diffuse term are baked into the stored
-// coefficients, so evaluate_sh(n) in the shading pass returns exactly what the irradiance
-// cube used to: for a uniform environment of radiance L it returns L. One workgroup reduces
+// coefficients, so evaluate_sh(n) in the shading pass returns exactly what an irradiance
+// cube would: for a uniform environment of radiance L it returns L. One workgroup reduces
 // the whole coarse cube, so this is a single tiny dispatch appended to the IBL build.
 
 #include "ibl_common.glsl"

@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -391,7 +393,7 @@ TEST(Unit_ContactProjection, TwoBoxStackHoldsItsShape)
 
 // An immovable body takes none of a correction, which is what makes the same
 // projection usable for a pair and for static geometry — one code path, so the
-// plane case cannot disagree with the pair case the way it used to (§1.3).
+// plane case cannot disagree with the pair case (§1.3).
 TEST(Unit_ContactProjection, ImmovableBodyAbsorbsNothing)
 {
     RigidBody ground_body = immovable_body<Scalar>();

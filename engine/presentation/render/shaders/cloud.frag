@@ -8,8 +8,8 @@
 // relief) stays full resolution. Outputs premultiplied cloud lighting and the view-ray
 // transmittance as (scattered.rgb, transmittance); the tonemap pass upsamples this and
 // composites it over the full-res sky with `sky * transmittance + scattered`. The march
-// is bounded by the opaque depth and the analytic ground exactly as before, so clouds sit
-// correctly in front of and behind geometry and terrain.
+// is bounded by the opaque depth and the analytic ground, so clouds sit correctly in front
+// of and behind geometry and terrain.
 
 layout(set = 0, binding = 0) uniform SceneBlock
 {
@@ -67,21 +67,21 @@ layout(set = 0, binding = 24) uniform sampler2D transmittance_lut;
 layout(set = 0, binding = 26) uniform sampler2D sky_view_lut;
 // The T3-baked cloudscape *envelope* (CloudscapeCompilePass, reshaped by CloudsV2 —
 // docs/slop/atmosphere_system.md §7.6): r = coverage envelope, g = the contributing deck's
-// vertical profile, a = in-cloud water amplitude (half-encoded). The cloud's actual shape is
-// no longer in any texture: this march carves it out of the envelope analytically, per
-// sample, in the same world-anchored pattern frame the bake evaluates its weather in — so
-// the shape's effective resolution is this march's own sample spacing, not a bake lattice.
-// `cloudscape_skip` is the coarser max-pooled envelope*water product the cheap/coarse probe
-// reads. Both cover the **near window** — a camera-centred, non-wrapping span of world
-// (§7.2), no longer a periodic tile; `cloudscape_far` carries the same simulated structure
-// out past the horizon at a coarser texel, plus its own optical-depth-toward-the-sun channel,
-// for the part of the march that leaves the near window.
+// vertical profile, a = in-cloud water amplitude (half-encoded). The cloud's actual shape is in
+// no texture: this march carves it out of the envelope analytically, per sample, in the same
+// world-anchored pattern frame the bake evaluates its weather in — so the shape's effective
+// resolution is this march's own sample spacing, not a bake lattice. `cloudscape_skip` is the
+// coarser max-pooled envelope*water product the cheap/coarse probe reads. Both cover the **near
+// window** — a camera-centred, non-wrapping span of world (§7.2), not a periodic tile;
+// `cloudscape_far` carries the same simulated structure out past the horizon at a coarser
+// texel, plus its own optical-depth-toward-the-sun channel, for the part of the march that
+// leaves the near window.
 // Bindings 2-6: the shared SceneLayout reserves 7/8/9/10 by name (MATERIAL_BINDING,
 // MOTION_BINDING, TEMPORAL_BINDING, SHADOW_BINDING — see scene_layout.hpp) as a
 // different descriptor type each; only 1-6 are genuinely free per-pass image slots, so
 // every image this pass owns outright lives there instead. The far field fits because the
-// weather field itself no longer needs one: the bake resolves coverage per column now (§7.4),
-// so the march reads the answer rather than the meteorology.
+// weather field itself does not need one: the bake resolves coverage per column (§7.4), so
+// the march reads the answer rather than the meteorology.
 layout(set = 0, binding = 2) uniform sampler3D cloudscape_field;
 layout(set = 0, binding = 3) uniform sampler3D cloudscape_skip;
 // The precombined march noise volume (Textures::CloudNoise::march, cloud_noise_volume.comp
@@ -127,8 +127,7 @@ layout(push_constant) uniform CloudBudget
     uint steps_far;     // far-field sampling density: scales the march's angular step
                         // rate, so one tier means one density in every direction
     uint light_steps;   // self-shadow steps toward the sun
-    // The field's own geometry used to ride here as a wrap period and a skip cell. It moved
-    // into the scene block (`cloud_field_*`) when the field became a camera-centred window,
+    // The field's own geometry lives in the scene block (`cloud_field_*`) rather than here,
     // because the light volume, the shadow map, the panorama and the ground shadow all need
     // the same mapping and only this pass has a push block to put it in.
     uint light_taps;    // tiered inline light-march correction cadence, 0-3 (Low..Ultra)
@@ -251,9 +250,9 @@ float cloud_shell_height(vec3 p, out float altitude)
 // dominant feature near 300 km — the scale of a real synoptic cloud mass, and what a weather
 // satellite image reads as.
 const float GLOBE_PATTERN_TILES = 5.0;
-// How far the pattern may cut into the coverage the weather gives. **Multiplicative**, unlike
-// the additive swing this replaces, and the difference is the whole of what a planet looks like
-// from orbit: a multiplier cannot manufacture cloud where the synoptic field says the sky is
+// How far the pattern may cut into the coverage the weather gives. **Multiplicative**, not
+// additive, and the difference is the whole of what a planet looks like from orbit: a
+// multiplier cannot manufacture cloud where the synoptic field says the sky is
 // clear, so a subtropical high stays genuinely empty instead of being veiled back over by
 // noise. What it still does is break a synoptic mass into the mesoscale pieces a satellite
 // image shows, which is a scale the placement itself does not carry.
@@ -291,11 +290,11 @@ float cloud_globe_envelope(vec3 p, float altitude, out float water, out float pr
     vec3 sp = unit_radial * GLOBE_PATTERN_TILES;
     float pattern = textureLod(cloud_march_noise, sp, GLOBE_PATTERN_LOD).r;
 
-    // **Where the weather actually is.** This is what turned the planet from a uniformly milky
-    // sphere into something that reads like an orbital photograph, and the reason is that the
-    // deck stack it used to read cannot answer the question: `cloud_deck_a[i].z` is the coverage
-    // compiled from the *camera's own column*, so using it out here restated the weather over
-    // the observer's head as the weather everywhere on the body. The synoptic field is defined
+    // **Where the weather actually is.** This is what makes the planet read like an orbital
+    // photograph rather than a uniformly milky sphere, and the reason is that the deck stack
+    // cannot answer the question: `cloud_deck_a[i].z` is the coverage compiled from the
+    // *camera's own column*, so using it out here would restate the weather over the
+    // observer's head as the weather everywhere on the body. The synoptic field is defined
     // at every point on the planet, and — the half that matters — it reaches **zero**, which is
     // what a subtropical high looks like and what most of an orbital photograph is made of.
     bool placed = scene.synoptic_params.z >= 0.5;
@@ -328,11 +327,11 @@ float cloud_globe_envelope(vec3 p, float altitude, out float water, out float pr
             // The étage ceilings are `CLOUD_LEVEL_LOW_CEILING_METERS` and its mid counterpart,
             // so a deck lands in the same bucket the simulation would have put it in.
             float deck_mid = 0.5 * (la.x + la.y);
-            // The cirrus term's constant used to be an additive 0.12 floor, which is what a
-            // *mean* cirrus cover looks like and not what a cleared sky looks like: it survived
-            // every high the seed could place, so the one region meant to read as empty ocean
-            // kept a permanent veil across it and the globe stayed milky. Scaling the floor by
-            // the placement instead keeps ordinary skies capped with thin cirrus while letting
+            // The cirrus floor scales with the placement rather than being added on top of it.
+            // An additive floor is what a *mean* cirrus cover looks like and not what a cleared
+            // sky looks like: it survives every high the seed can place, so the one region
+            // meant to read as empty ocean keeps a permanent veil across it and the globe
+            // stays milky. Scaling keeps ordinary skies capped with thin cirrus while letting
             // a subsiding high take the whole column — including its top — to nothing, which is
             // the state a subtropical high actually produces.
             coverage = deck_mid > 6000.0
@@ -539,11 +538,10 @@ float cloud_light_march(vec3 p, vec3 sun)
 // Cross-faded on exactly the same weight cloud_density uses, so a sample never reads its
 // density from one window and its light from the other.
 //
-// Both windows are needed because they answer different questions. Before phase B a sample
-// past the near window could reuse the near reading — the sky was uniform, so it was the same
-// answer. With coverage resolved per column it is not: a distant storm and a distant fair
-// weather field are different amounts of cloud, and lighting them alike would show the
-// front's shape while lighting it flat.
+// Both windows are needed because they answer different questions. A sample past the near
+// window cannot reuse the near reading: with coverage resolved per column, a distant storm
+// and a distant fair-weather field are different amounts of cloud, and lighting them alike
+// would show the front's shape while lighting it flat.
 // Past both windows neither source exists, so the third term is the globe field's own analytic
 // slant depth — without it a planet seen from orbit would be lit as a flat unshadowed sheet,
 // which is the one thing a cloud layer never looks like.
@@ -581,21 +579,21 @@ float cloud_light_volume_sample(vec3 p, float ambient_h, vec3 sun)
 // ---- Band-limiting the carve ---------------------------------------------------------------
 //
 // The carve reads one volume at world scales fixed in metres, from a march whose own step
-// grows with distance. Nothing reconciled those two: every tap was an implicit-LOD `texture()`
-// against a volume with a single mip level and a sampler clamped to it, so a sample a hundred
-// kilometres out — whose integration step spans a kilometre — point-sampled an eighteen-metre
-// texel. That is not a cloud, it is whichever noise peak the lattice happened to land on, and
-// at full amplitude through the threshold it is the reported "distant clouds render white".
+// grows with distance. Reconciling those two is what the mip chain and the explicit levels
+// below are for: an unfiltered tap a hundred kilometres out — whose integration step spans a
+// kilometre — point-samples an eighteen-metre texel. That is not a cloud, it is whichever
+// noise peak the lattice happens to land on, and at full amplitude through the threshold it
+// renders as a white smear.
 //
-// (An implicit LOD would have been wrong here even with a chain. A fragment shader derives it
+// (An implicit LOD would be wrong here even with a chain. A fragment shader derives it
 // from screen-space derivatives of the coordinate, which are undefined inside the non-uniform
 // control flow a ray march is made of. Every tap below is `textureLod` with a stated level.)
 //
-// What the previous code had instead was `carve_scale = max(carve_scale, footprint * 4)`: a
-// band limit applied to the *feature size* rather than to the sampling. It kept the sampler
-// inside its Nyquist limit — by making distant cumuli three to five kilometres across, at full
-// solidity, which is a wall rather than a cloud. That floor is gone; the mip chain does the job
-// it was standing in for, and distant clouds keep the size the meteorology gave them.
+// Band-limiting the *feature size* instead — `carve_scale = max(carve_scale, footprint * 4)`
+// — also keeps the sampler inside its Nyquist limit, but only by making distant cumuli three
+// to five kilometres across at full solidity, which is a wall rather than a cloud.
+// Band-limiting the *sampling* is what lets distant clouds keep the size the meteorology
+// gave them.
 
 // The march volume's extent, mirrored from Textures::CloudNoise's MARCH_RESOLUTION. The same
 // kind of mirrored engine constant as CLOUD_SKIP_RESOLUTION_Y in cloud_field_window.glsl, and
@@ -674,8 +672,8 @@ const float JITTER_FREEZE_METERS = 250.0;
 // factor is closer to pi times a mean radiance; this is deliberately below that because the
 // march's ambient term is a stand-in for multiple scattering that the octave ladder in
 // `cloud_sun_energy` already accounts for part of, and doubling it would brighten every
-// daylight cloud. Calibrated so the daylight level lands near the `sun_radiance * 0.02` proxy
-// this replaces, which is what the sky was balanced against.
+// daylight cloud. Calibrated so the daylight level lands near 2 % of the beam, which is the
+// magnitude the rest of the sky is balanced against.
 const float CLOUD_SKY_AMBIENT = 1.0;
 
 // The same, for the reflected bodies. 1.0 is the ephemeris' own physically derived irradiance,
@@ -765,9 +763,9 @@ float cloud_daylight(float mu)
 
 // ---- The two step sizes ---------------------------------------------------------------
 //
-// Searching for cloud and integrating one are different jobs with different error terms, and
-// the old march gave them a single shared `seg_min`. That one constant could not be right for
-// both, and being wrong for the second is most of why a cloud read as a smear:
+// Searching for cloud and integrating one are different jobs with different error terms, so
+// they get separate step rules. One constant shared between them cannot be right for both,
+// and being wrong for the second is most of what makes a cloud read as a smear:
 //
 //   * A search step costs one skip-volume fetch. Its only error is overshooting a cloud's
 //     leading edge, and `cloud_skip_exit` below bounds that exactly — so it should be as long
@@ -776,18 +774,18 @@ float cloud_daylight(float mu)
 //     exponential. Its error is the quadrature error of the transmittance integral, which is
 //     precisely what decides whether a cloud reads as a body or as a smudge.
 //
-// `seg_min` was `max(shell_thick * 0.12, 40)` — twelve per cent of the *union* of every
-// enabled deck, which is 1344 m in the default 800..12 000 m sky. A fair-weather cumulus is
-// about 1.5 km across, so every cloud in the sky was integrated by roughly *one* sample. No
-// amount of carving detail survives that: the shape is evaluated, multiplied by a kilometre
-// of path length, and folded into the transmittance as a single slab.
+// A step derived from the shell thickness cannot serve the integration: twelve per cent of
+// the *union* of every enabled deck is 1344 m in the default 800..12 000 m sky, and a
+// fair-weather cumulus is about 1.5 km across, so every cloud in the sky would be integrated
+// by roughly *one* sample. No amount of carving detail survives that: the shape is evaluated,
+// multiplied by a kilometre of path length, and folded into the transmittance as a single slab.
 //
 // The rate is angular, so the sample spacing is a constant fraction of a screen pixel and the
 // error is uniform across the frame rather than concentrated at whatever distance a metric
-// step size happened to disagree with. It is also where the tier's `steps_far` knob now lands:
-// that knob used to divide the *march length*, so the same tier resolved a horizon ray at 5 km
-// per sample and a ray straight up at 500 m — the step depended on where the ray happened to
-// leave the shell rather than on the quality setting. A rate is scale-free, so one tier means
+// step size happens to disagree with. It is also where the tier's `steps_far` knob lands.
+// Dividing the *march length* by that knob would make one tier resolve a horizon ray at 5 km
+// per sample and a ray straight up at 500 m — the step would depend on where the ray leaves
+// the shell rather than on the quality setting. A rate is scale-free, so one tier means
 // one sampling density in every direction. Calibrated at the reference below and scaled
 // inversely, which puts the shipped tiers at 0.040 / 0.027 / 0.020 / 0.013.
 const float MARCH_STEP_ANGULAR = 0.020;
@@ -796,9 +794,9 @@ const float MARCH_ANGULAR_REFERENCE_STEPS = 32.0;
 // fifty samples — affordable against the tier budgets (8..160) — and above which the angular
 // rate takes over on its own.
 const float MARCH_STEP_MIN_METERS = 20.0;
-// The ceiling replaces the old `march_len / far_steps`, which reached 5 km on a horizon ray:
-// past about a kilometre the step exceeds any cloud the field can hold, so the integral stops
-// resolving cloud and starts resolving deck.
+// Past about a kilometre the step exceeds any cloud the field can hold, so the integral stops
+// resolving cloud and starts resolving deck. A step derived from `march_len / far_steps`
+// instead would reach 5 km on a horizon ray.
 const float MARCH_STEP_MAX_METERS = 1200.0;
 // Only to guarantee forward progress: a hop that starts exactly on a lattice boundary computes
 // an exit of zero and would otherwise spin. This is the one length the march does advance
@@ -808,20 +806,20 @@ const float SEARCH_ADVANCE_EPSILON_METERS = 0.5;
 
 // ---- Spending the budget without truncating the ray -----------------------------------------
 //
-// `steps_near` is a *cost* bound. It used to be spent as a *domain* bound: the loop ran while
-// `real_samples < STEPS` and simply stopped, leaving the rest of the ray — however much cloud
-// stood along it — contributing nothing. That is the reported hard edge in the middle of the
-// sky, and the reason it slides across the frame as the camera moves: which pixels exhaust
+// `steps_near` is a *cost* bound, not a *domain* bound. Spending it as a domain bound — a loop
+// that runs while `real_samples < STEPS` and then simply stops — would leave the rest of the
+// ray, however much cloud stands along it, contributing nothing. That draws a hard edge in the
+// middle of the sky which slides across the frame as the camera moves: which pixels exhaust
 // first is a function of where the eye is, so the boundary is anchored to the observer rather
-// than to anything in the world. A pixel one step to the left of it marched its whole ray and
-// its neighbour stopped a kilometre out, and nothing between the two values interpolates.
+// than to anything in the world. A pixel one step to the left of it marches its whole ray and
+// its neighbour stops a kilometre out, and nothing between the two values interpolates.
 //
-// It bit hardest exactly where the user found it — close to the camera. The budget is charged
-// per *envelope* sample, and the envelope is nonzero across far more sky than the carve ever
-// fills, so ordinary hazy-but-clear air is charged full price. With the near step floored at
-// MARCH_STEP_MIN_METERS the first 500 m of a ray costs 25 of the tier's samples outright, and
-// the cheap tier's 48 are gone by ~1.2 km — so an observer standing under a deck could see the
-// far field fine and the air in front of their face not at all.
+// It bites hardest close to the camera. The budget is charged per *envelope* sample, and the
+// envelope is nonzero across far more sky than the carve ever fills, so ordinary hazy-but-clear
+// air is charged full price. With the near step floored at MARCH_STEP_MIN_METERS the first
+// 500 m of a ray costs 25 of the tier's samples outright, and the cheap tier's 48 would be gone
+// by ~1.2 km — so an observer standing under a deck would see the far field fine and the air in
+// front of their face not at all.
 //
 // A cost bound should degrade *resolution*, not reach. Past the budget the march therefore
 // coarsens geometrically instead of stopping: each overdrawn sample doubles the step every
@@ -834,14 +832,13 @@ const float SEARCH_ADVANCE_EPSILON_METERS = 0.5;
 // rather than as its absence.
 //
 // **The coarsening is driven by a distance, not by a sample count, and that is the whole
-// design.** The first version of this computed `exp2(0.5 * (real_samples - STEPS))` — geometric
-// in the number of samples already spent. It removed the hard edge it was written for and
-// introduced a subtler artifact in its place: `real_samples` is an *integer*, so the step size
-// took discrete values, and two adjacent pixels whose rays happened to land on different
-// overdraft counts marched at step sizes a factor of sqrt(2) apart. The accumulated density
-// differs visibly across that boundary, and the set of pixels sharing an overdraft count is a
-// curve of constant chord length through the shell — which, seen from orbit, is a **circle
-// centred on the sub-camera point**. Concentric rings, exactly as reported.
+// design.** Coarsening geometrically in the samples already spent — `exp2(0.5 * (real_samples
+// - STEPS))` — removes the hard edge but introduces a subtler artifact in its place:
+// `real_samples` is an *integer*, so the step size takes discrete values, and two adjacent
+// pixels whose rays land on different overdraft counts march at step sizes a factor of
+// sqrt(2) apart. The accumulated density differs visibly across that boundary, and the set of
+// pixels sharing an overdraft count is a curve of constant chord length through the shell —
+// which, seen from orbit, is a **circle centred on the sub-camera point**. Concentric rings.
 //
 // The lesson generalises past this shader: anything derived from a loop counter is quantised by
 // construction, and a quantised quantity that varies across the frame is a visible contour
@@ -860,11 +857,11 @@ const float SEARCH_ADVANCE_EPSILON_METERS = 0.5;
 //
 // How far the march may advance once the coarse probe has proved the block at p empty.
 //
-// The old answer was the block's *side length*, floored by the current step: `t += max(
-// dist_step, cell)`. Both halves of that were unsafe. A hop of one side length starting from a
-// point already part-way through a block lands up to a full block *past* that block's exit
-// face, so it can cross an entirely untested block; and with the old seg_min at 1344 m against
-// a 512 m near cell, a near-horizontal ray hopped 2.6 blocks on the strength of one probe,
+// Not the block's *side length* floored by the current step (`t += max(dist_step, cell)`):
+// both halves of that are unsafe. A hop of one side length starting from a point already
+// part-way through a block lands up to a full block *past* that block's exit face, so it can
+// cross an entirely untested block; and a step floor longer than the cell — 1344 m against a
+// 512 m near cell — lets a near-horizontal ray hop 2.6 blocks on the strength of one probe,
 // every step of the way to the horizon. That is not a conservative skip, it is a distant cloud
 // that exists or not depending on where the ray happened to be when it last looked.
 //
@@ -941,27 +938,27 @@ float cloud_skip_exit(vec3 p, vec3 rd)
 
 // ---- The CloudsV2 analytic carve ---------------------------------------------------------
 //
-// This is where a cloud gets its shape, at every distance — the successor to both the bake's
-// texel-bound carve (whose 128 m lattice could never hold a cauliflower edge) and the old
-// march's <200 m near-band erosion (which left everything past 200 m untextured). Every scale
-// is in world metres in the pattern frame, so the shapes stand still in the world and advect
-// with the wind, exactly like the envelope.
+// This is where a cloud gets its shape, at every distance, and it runs per march sample rather
+// than out of a bake: a texel-bound carve on a 128 m lattice cannot hold a cauliflower edge,
+// and a near-band erosion leaves everything past its cut-off untextured. Every scale is in
+// world metres in the pattern frame, so the shapes stand still in the world and advect with
+// the wind, exactly like the envelope.
 //
-// **The operator, not the noise.** Every version of this carve until now built a cloud by
-// *subtraction*: threshold a base field, then remove material where an erosion noise is high.
-// That can only ever produce concave features — bites, channels, holes — because subtracting
-// from a solid is how you dig. A cumulus congestus top is the exact opposite: a bunch of
-// *convex* protrusions, self-similar bulging turrets packed against each other, with the
-// darkness living in the creases *between* the bulges. No amount of tuning an erosion strength
-// produces that, because it is the wrong sign. It is why the tops always read either as smooth
-// lumps (weak erosion) or as shredded filaments (strong erosion), and never as cauliflower.
+// **The operator, not the noise.** Building a cloud by *subtraction* — threshold a base field,
+// then remove material where an erosion noise is high — can only ever produce concave features
+// (bites, channels, holes), because subtracting from a solid is how you dig. A cumulus
+// congestus top is the exact opposite: a bunch of *convex* protrusions, self-similar bulging
+// turrets packed against each other, with the darkness living in the creases *between* the
+// bulges. No amount of tuning an erosion strength produces that, because it is the wrong sign:
+// the tops read either as smooth lumps (weak erosion) or as shredded filaments (strong
+// erosion), and never as cauliflower.
 //
 // So the ladder below is *added to the field before the threshold*, which displaces the
 // isosurface outward where the ladder is high. That is a protrusion, not a bite. The polarity
 // is already available for free: `noise_worley` returns `1 - distance`, so the march volume's
 // g channel is high at cell centres and low at cell walls — round bumps with creases between
-// them, exactly the primitive a cauliflower is made of. The old code took `1 - g` and
-// subtracted it, converting those round bumps into round *holes*.
+// them, exactly the primitive a cauliflower is made of. Subtracting `1 - g` instead would
+// convert those round bumps into round *holes*.
 //
 // Two regimes, split by the sample's height within its own cloud:
 //   * Below the convective base — the condensation level, a near-planar boundary, which is why
@@ -1026,8 +1023,8 @@ const float BILLOW_MAX_DISPLACE = 0.35;
 // An octave whose dominant cell spans fewer than this many march steps is aliasing, not detail.
 // Faded rather than dropped, so the ladder thins continuously with distance.
 //
-// The mip chain now band-limits every tap, so this is no longer the *only* thing standing
-// between the ladder and the lattice — but it is still load-bearing, for two reasons. It skips
+// The mip chain band-limits every tap, so this is not the *only* thing standing between the
+// ladder and the lattice — but it is still load-bearing, for two reasons. It skips
 // fetches that could not contribute (the loop breaks on it), and it is what keeps a fully
 // filtered octave from contributing a *bias*: a filtered tap converges to the channel's true
 // mean, and the ladder subtracts BILLOW_MEAN, an estimate of that mean. Where the two differ
@@ -1172,11 +1169,11 @@ float cloud_density_carved(vec3 p, float altitude, float deck_height, float came
     vec3 sp = vec3(pattern.x, altitude, pattern.y);
 
     float carve_scale = CARVE_BASE_SCALE_METERS * inversesqrt(clamp(envelope, 0.12, 1.0));
-    // No footprint floor on the scale any more — see the band-limiting note above
-    // `carve_lod`. Keeping the sampler inside its Nyquist limit by inflating the *feature*
-    // is what turned every distant cumulus into a three-to-five kilometre solid block; the
-    // mip chain keeps it inside that limit by filtering instead, and a cloud a hundred
-    // kilometres away is now the same size as the one overhead.
+    // No footprint floor on the scale — see the band-limiting note above `carve_lod`. Keeping
+    // the sampler inside its Nyquist limit by inflating the *feature* turns every distant
+    // cumulus into a three-to-five kilometre solid block; the mip chain keeps it inside that
+    // limit by filtering instead, so a cloud a hundred kilometres away is the same size as the
+    // one overhead.
     float base_lod = carve_lod(carve_scale, footprint);
     float base_spread = carve_spread_at(base_lod);
 
@@ -1186,11 +1183,11 @@ float cloud_density_carved(vec3 p, float altitude, float deck_height, float came
     //
     // The amplitude has to stay well under the warped field's own wavelength or the map stops
     // being injective and folds. The base octave's dominant feature is about 0.68 * carve_scale
-    // (a frequency-4 field over a 2.7 * carve_scale tile), against which the old 0.55 gave a
+    // (a frequency-4 field over a 2.7 * carve_scale tile), against which 0.55 would give a
     // peak displacement of 0.275 * carve_scale — a displacement-per-wavelength ratio of 0.41,
     // comfortably into the folding regime, and a folded warp pinches and shears its features
-    // into exactly the sheared strands this carve was rejected for. 0.30 puts the ratio at
-    // 0.22, which still breaks up the noise's own straight gradients without creasing them.
+    // into sheared strands rather than clouds. 0.30 puts the ratio at 0.22, which still breaks
+    // up the noise's own straight gradients without creasing them.
     float warp_scale = carve_scale * 2.7;
     vec3 warp = textureLod(cloud_march_noise, sp / warp_scale,
                            carve_lod(warp_scale, footprint)).gba - 0.5;
@@ -1209,10 +1206,10 @@ float cloud_density_carved(vec3 p, float altitude, float deck_height, float came
 
     float displace = clamp(relief * BILLOW_RELIEF, -BILLOW_MAX_DISPLACE, BILLOW_MAX_DISPLACE);
 
-    // The threshold and the solidity push, which used to be two steps with the crease term
-    // between them. They compose into one clamped ramp — `min(clamp(d / envelope, 0, 1) *
-    // solidity, 1)` is `clamp(d / (envelope / solidity), 0, 1)` — and writing it as one is what
-    // lets the expectation over the detail the mip filter removed be taken in closed form.
+    // The threshold and the solidity push, composed into one clamped ramp — `min(clamp(d /
+    // envelope, 0, 1) * solidity, 1)` is `clamp(d / (envelope / solidity), 0, 1)`. Writing it
+    // as one is what lets the expectation over the detail the mip filter removed be taken in
+    // closed form.
     //
     // Why the solidity is there at all, kept on the record: `base` is CDF-uniformised at
     // generation (cloud_noise_volume.comp), which is what makes a threshold at `1 - envelope`
@@ -1241,14 +1238,14 @@ float cloud_density_carved(vec3 p, float altitude, float deck_height, float came
                                          camera_dist);
     if (detail_fade > 0.0)
     {
-        // The subtractive regime, and now the *only* place subtraction happens: the underside,
+        // The subtractive regime, and the *only* place subtraction happens: the underside,
         // where a cloud really is being torn rather than pushed. It is weighted by
         // `1 - cauliflower`, so it stops exactly where the ladder takes over and the two never
         // fight over the same sample.
         //
-        // Polarity matters here too. `g` is high at cell centres, so the old `wisp = g` removed
-        // cell interiors and left their walls standing — a web of thin ridges, which is
-        // literally what "tel tel kadayıf" describes and was the strand generator all along.
+        // Polarity matters here too. `g` is high at cell centres, so eroding by `g` would
+        // remove cell interiors and leave their walls standing — a web of thin ridges, which is
+        // literally what "tel tel kadayıf" describes and is a strand generator, not a cloud.
         // `1 - g` removes the connective tissue *between* centres instead, leaving separated
         // round shreds hanging off the base, which is what a torn cumulus underside looks like.
         //
@@ -1321,32 +1318,29 @@ float cloud_sun_energy(float light_depth, float mu, float g, float extinction_sc
         contribution *= 0.5;
     }
 
-    // The saturating multiple-scatter floor, and the reason the post-march whiteout that
-    // used to sit at the bottom of main() is gone.
+    // The saturating multiple-scatter floor, and why no post-march whiteout is needed.
     //
     // Every octave above carries the same Beer term, so all three decay to zero as the sun
-    // depth grows and a deep interior converged on the ambient term alone — "flat,
-    // direction-blind fog", which the whiteout then papered over with a colour keyed only
-    // on dot(view, sun). That patch was gated on the *ray's total* transmittance rather
+    // depth grows and a deep interior would converge on the ambient term alone — "flat,
+    // direction-blind fog". A post-march whiteout papers over that with a colour keyed only
+    // on dot(view, sun), but it can only be gated on the *ray's total* transmittance rather
     // than on the camera being immersed, so at the cumulus default (sigma = 0.00279/m) it
-    // replaced 50 % of the shading at 717 m of body and 100 % past 1.4 km: every
-    // optically-thick cloud, seen from anywhere, lost its form and kept only its rim. That
-    // is the "bright shredded edges around a dull featureless mass" this pass was rejected
-    // for.
+    // replaces 50 % of the shading at 717 m of body and 100 % past 1.4 km: every
+    // optically-thick cloud, seen from anywhere, loses its form and keeps only its rim —
+    // bright shredded edges around a dull featureless mass.
     //
-    // The hole the patch covered is real, but it is a missing term, not a missing hack. A
+    // The hole such a patch covers is real, but it is a missing term, not a missing hack. A
     // water cloud's single-scattering albedo is ~0.999: a deep interior does not converge
     // to zero, it converges to a bright, nearly isotropic radiance. So add a term that
     // *rises* with sun depth where the octave ladder falls. It is keyed on this sample's
     // own `light_depth`, so a sample 200 m under the cloud top and one 2 km under it read
-    // differently — the term carries form where the flat glow destroyed it — and it is
+    // differently — the term carries form where a flat glow would destroy it — and it is
     // exactly zero at `light_depth == 0`, so a fully lit edge is unchanged by construction
     // and no recalibration of the octave ladder is needed.
     //
     // Multiple scattering isotropizes but keeps a residual forward bias, which is why a
-    // pilot inside cloud still senses where the sun is. That is what the whiteout's `mu`
-    // term was reaching for; here it falls out of a much softened phase function instead of
-    // out of a blend factor.
+    // pilot inside cloud still senses where the sun is. Here that falls out of a much
+    // softened phase function rather than out of a blend factor.
     const float MS_FLOOR = 0.35; // deep-interior radiance as a fraction of a fully lit edge
     const float MS_RATE = 0.4;   // how fast the interior saturates, in units of extinction
     const float MS_ANISOTROPY = 0.2;
@@ -1393,15 +1387,14 @@ void main()
     // Everything above is the *top of atmosphere* beam: an authored colour times an authored
     // intensity, with the eclipse fraction as its only modifier. The ephemeris writes the sun's
     // direction and nothing else, so that product is the same number at midnight as at noon.
-    // Every other consumer in the renderer attenuates it for itself — sky.frag folds this LUT
-    // into its scattering integral, the fog and aerial-perspective volumes do the same — and
-    // the cloud march was the one that never did. Hence a black sky with a snow-white deck in
-    // front of it.
+    // Every consumer in the renderer attenuates it for itself — sky.frag folds this LUT into
+    // its scattering integral, the fog and aerial-perspective volumes do the same, and so does
+    // the cloud march. Skipping it gives a black sky with a snow-white deck in front of it.
     //
-    // **The attenuation itself is now per sample**, in `cloud_sun_at`, which carries the whole
-    // argument for why the once-per-pixel version that used to live here had to go. What stays
-    // here is only what genuinely belongs to the camera: the medium, and the two ambient terms
-    // that are measured from the camera's own sky.
+    // **The attenuation itself is per sample**, in `cloud_sun_at`, which carries the whole
+    // argument for why a once-per-pixel attenuation cannot serve a march that spans a globe.
+    // What stays here is only what genuinely belongs to the camera: the medium, and the two
+    // ambient terms that are measured from the camera's own sky.
     //
     // Skipped when the atmosphere is switched off: `planet_radii.w` is its thickness, and a
     // zero-thickness medium makes the LUT's own parameterisation degenerate. With no
@@ -1416,8 +1409,8 @@ void main()
     // by a zero sum.
     vec3 reflected_dir = vec3(0.0);
     bool atmosphere_on = scene.planet_radii.w > 1.0;
-    // The camera's own solar elevation. No longer used to light anything — only to say how much
-    // of the skylight is already accounted for at a given sample, in the march's `sample_ambient`.
+    // The camera's own solar elevation. Not used to light anything; it only says how much of
+    // the skylight is already accounted for at a given sample, in the march's `sample_ambient`.
     vec3 camera_up = normalize(-center);
     float daylight_camera = cloud_daylight(dot(camera_up, sun));
 
@@ -1434,9 +1427,8 @@ void main()
     if (atmosphere_on)
     {
         float mu_sun = dot(camera_up, sun);
-        // Still the deck's mid-altitude here rather than a sample's: what remains in this block
-        // is the camera's own sky and the reflected bodies, neither of which is evaluated per
-        // sample. The sun left.
+        // The deck's mid-altitude rather than a sample's: what this block covers is the
+        // camera's own sky and the reflected bodies, neither of which is evaluated per sample.
         float deck_mid_radius =
             surface_radius + 0.5 * (scene.cloud_global.y + scene.cloud_global.z);
 
@@ -1449,10 +1441,10 @@ void main()
         // light comes from in the minutes after sunset. This is the term that decides
         // whether an evening deck reads as grey and legible or as a silhouette.
         //
-        // It replaces `sun_radiance * 0.02`, a flat 2 % of the beam that had no colour of
-        // its own and, before the beam was attenuated, did not dim after dark either. The
-        // LUT is stored per unit top-of-atmosphere radiance, so it is scaled by the raw
-        // beam and lands at a similar daylight magnitude while gaining a real twilight.
+        // A flat fraction of the beam serves for neither: it has no colour of its own and
+        // no twilight shape of its own. The LUT is stored per unit top-of-atmosphere
+        // radiance, so it is scaled by the raw beam and lands at a comparable daylight
+        // magnitude while carrying a real twilight.
         vec3 horizon_dir = sun - camera_up * mu_sun;
         float horizon_len = length(horizon_dir);
         // Degenerate only with the sun within a hair of the zenith, where the glow
@@ -1468,8 +1460,8 @@ void main()
         // The ephemeris already turns each of them into a real directional light from its
         // albedo, radius, distance and phase (Astro::celestial_lights), sorted by what it
         // delivers here — so after sunset `lights[0]` is the Moon rather than the Sun, and
-        // a crescent is dimmer than a full moon with no authored difference. None of it
-        // reached the clouds, which is why they went perfectly black.
+        // a crescent is dimmer than a full moon with no authored difference. Without any of
+        // it reaching the clouds, a night deck is perfectly black.
         //
         // Folded into the ambient rather than marched as a second self-shadowed beam, and
         // that is a physical choice rather than a shortcut: these sources are five to six
@@ -1480,12 +1472,12 @@ void main()
         // travelling down out of the deck and would shadow moonlight with geometry that
         // has nothing to do with where the Moon is.
         // **Not gated on the camera's horizon**, for the reason `cloud_sun_at` gives at length:
-        // a march that spans a planet has samples on both sides of one. The camera-anchored
-        // `continue` that used to sit here is what made the night side of an orbital view go to
-        // nothing — from a daylit camera the Moon is usually below the *camera's* horizon, so
-        // the one light the dark limb had was skipped for every sample in the frame. The
-        // magnitude is still taken once, at the deck's mid-altitude with the slant path clamped
-        // to grazing; *which* samples see the body is decided per sample, in the march.
+        // a march that spans a planet has samples on both sides of one. A camera-anchored
+        // `continue` here would take the night side of an orbital view to nothing — from a
+        // daylit camera the Moon is usually below the *camera's* horizon, so the one light the
+        // dark limb has would be skipped for every sample in the frame. The magnitude is taken
+        // once, at the deck's mid-altitude with the slant path clamped to grazing; *which*
+        // samples see the body is decided per sample, in the march.
         float deck_horizon_mu = cloud_horizon_mu(deck_mid_radius, surface_radius);
         int light_count = int(scene.light_counts.x);
         float reflected_best = 0.0;
@@ -1570,19 +1562,18 @@ void main()
     float extinction_scale = scene.cloud_light.x * 0.006;
 
     float march_len = t1 - t0;
-    // The reach is an absolute distance, not a multiple of shell thickness. It used to be
-    // fourteen shell thicknesses, calibrated when the shell was the genus catalogue's 10+ km
-    // union and fourteen of it meant ~150 km. The nest publishes the span its condensate
-    // actually occupies, and fourteen times a 1.3 km fair-weather deck is 19 km: the sky
-    // became a camera-following bubble with the horizon empty past it — the far window was
-    // baked, addressed, lit, and then never marched. The horizon is a distance.
+    // The reach is an absolute distance, not a multiple of shell thickness. The nest publishes
+    // the span its condensate actually occupies, so a multiple of that tracks the weather
+    // rather than the horizon: fourteen times a 1.3 km fair-weather deck is 19 km, which makes
+    // the sky a camera-following bubble with the horizon empty past it, and leaves the far
+    // window baked, addressed and lit but never marched. The horizon is a distance.
     march_len = min(march_len, 160000.0);
 
     // Distance-driven march: step size grows with distance from the camera, not with the
-    // ray's altitude — altitude picked the wrong pixels to starve, since a grazing ray at
-    // cloud-base height paid the same cost as one looking straight up through the thinnest
-    // part of the shell. See the step-size note above MARCH_STEP_ANGULAR for why searching
-    // and integrating now use separate rules instead of one shared floor.
+    // ray's altitude — altitude starves the wrong pixels, since a grazing ray at cloud-base
+    // height then pays the same cost as one looking straight up through the thinnest part of
+    // the shell. See the step-size note above MARCH_STEP_ANGULAR for why searching and
+    // integrating use separate rules rather than one shared floor.
     int STEPS = clamp(int(budget.steps_near), 8, 160);
     int far_steps = clamp(int(budget.steps_far), 4, 160);
     float march_angular =
@@ -1597,16 +1588,15 @@ void main()
     // sample pattern the cloud TAA's history never has to re-converge on.
     bool freeze_jitter = budget.near_far_split != 0u && t0 > JITTER_FREEZE_METERS;
     float dither = freeze_jitter ? 0.5 : temporal_dither(gl_FragCoord.xy);
-    // The interval currently being integrated, tracked separately from the sample inside it —
-    // and the fix for the reported hole in front of the camera.
+    // The interval currently being integrated, tracked separately from the sample inside it,
+    // which is what keeps a hole from opening in front of the camera.
     //
-    // The old march sampled at `t`, weighted by `dist_step`, then advanced by `dist_step`: a
-    // left-endpoint rule, started at `t0 + seg_min * dither`. So the stretch between the
-    // shell entry and the first sample was never integrated by anything, and with seg_min at
-    // 1344 m that was up to 1.3 km of cloud immediately ahead contributing nothing at all —
-    // the entire deck, when the camera is flying inside one. Jittering the sample *within* an
-    // interval that starts exactly at t0 is the unbiased midpoint rule the old code was
-    // reaching for, and it leaves no uncovered segment anywhere along the ray.
+    // A left-endpoint rule — sample at `t`, weight by `dist_step`, advance by `dist_step`,
+    // starting at `t0 + seg_min * dither` — leaves the stretch between the shell entry and the
+    // first sample integrated by nothing. At a `seg_min` of 1344 m that is up to 1.3 km of
+    // cloud immediately ahead contributing nothing at all: the entire deck, when the camera is
+    // flying inside one. Jittering the sample *within* an interval that starts exactly at t0
+    // is the unbiased midpoint rule, and it leaves no uncovered segment anywhere along the ray.
     float seg_start = t0;
     float t_end = t0 + march_len;
 
@@ -1622,11 +1612,11 @@ void main()
     // `sky_ambient` is the sky's measured radiance (the whole of a twilight), and
     // `reflected_ambient` is the Moon and anything else reflecting sunlight down.
     //
-    // The `sun_radiance * 0.02` proxy this replaces was the bug's accomplice: with the beam
-    // pinned at its noon value it was the *dominant* component after dark, so even a fully
-    // self-shadowed cloud face kept a flat colourless glow — and once the beam was correctly
-    // gated it went to exactly zero, taking the entire night sky's illumination with it, which
-    // is the opposite failure. A cloudy evening is grey and legible; neither extreme is that.
+    // A flat `sun_radiance * 0.02` proxy stands in for none of them. Keyed off the beam, it is
+    // either the *dominant* component after dark — a flat colourless glow over even a fully
+    // self-shadowed cloud face — or, with the beam correctly gated, exactly zero, taking the
+    // entire night sky's illumination with it. A cloudy evening is grey and legible; neither
+    // extreme is that.
     //
     // Only the first two are summed here. The sky-view LUT is a directional map *of the
     // camera's own sky*, so there is no honest way to ask it about a point a thousand
@@ -1645,11 +1635,10 @@ void main()
     // instead, so the normalized sum reads as the in-scattered mass's mean depth.
     float depth_weight_sum = 0.0;
     float weighted_depth_sum = 0.0;
-    // The budget is a distance now, not a count. There was a `real_samples` counter here that
-    // charged density evaluations; nothing reads such a count any more — the loop no longer ends
-    // on it and the coarsening no longer derives from it — so it is gone rather than left
-    // sitting there implying a limit that is not enforced. Skipping still costs one coarse fetch
-    // per iteration and nothing else, which is what keeps a clear-sky pixel cheap.
+    // The budget is a distance, not a count. Nothing here counts charged density evaluations,
+    // because neither the loop's termination nor the coarsening derives from such a count, and
+    // a counter that implies a limit nothing enforces is worse than none. Skipping costs one
+    // coarse fetch per iteration and nothing else, which is what keeps a clear-sky pixel cheap.
     //
     // The distance at which the tier's budget would be exhausted marching at the natural rate.
     // Closed form because that rate is geometric: `t_{n+1} = t_n * (1 + march_angular)`, so
@@ -1660,14 +1649,13 @@ void main()
     float geometric_start = max(t0, MARCH_STEP_MIN_METERS / max(march_angular, 1.0e-4));
     float budget_reach = geometric_start * pow(1.0 + march_angular, float(STEPS));
 
-    // The loop's only bound. `real_samples` used to end it too; now nothing does but the reach
-    // and the iteration cap — a march that stops mid-ray draws a camera-anchored edge across
-    // the sky.
+    // The loop's only bound besides the reach: nothing else ends it, because a march that
+    // stops mid-ray draws a camera-anchored edge across the sky.
     //
     // Sized against the *skip lattice*, not the sample budget: a clear horizon ray crosses
-    // ~64 near cells and ~125 far ones, and capping iterations at STEPS * 4 gave the lowest
-    // tier (8 steps) 32 hops — a hard, tier-dependent horizon at about a third of the way
-    // out. Search iterations cost one fetch each, so the floor is cheap insurance that the
+    // ~64 near cells and ~125 far ones, so capping iterations at STEPS * 4 would give the
+    // lowest tier (8 steps) 32 hops — a hard, tier-dependent horizon at about a third of the
+    // way out. Search iterations cost one fetch each, so the floor is cheap insurance that the
     // sky ends where the march says it ends and not where the budget ran out.
     int max_iterations = max(STEPS * 4, 256);
     for (int iter = 0; iter < max_iterations; ++iter)
@@ -1743,9 +1731,9 @@ void main()
 
                 // ---- The sun and the sky at *this sample* --------------------------------
                 //
-                // Both used to be one per-pixel value taken in the camera's radial frame, and
-                // `cloud_sun_at` carries the argument for why that could not survive a march
-                // that reaches the whole globe — or, as it turns out, a sunset.
+                // Both are per sample rather than one per-pixel value in the camera's radial
+                // frame; `cloud_sun_at` carries the argument for why a per-pixel value cannot
+                // survive a march that reaches the whole globe, or a sunset.
                 //
                 // Deliberately inside the `density > 0.001` branch: the LUT fetch is paid only
                 // by samples that will actually be shaded, which on a typical ray is a small
@@ -1804,14 +1792,13 @@ void main()
         }
     }
 
-    // The in-cloud whiteout that used to sit here is gone; `cloud_sun_energy`'s multiple-
-    // scatter floor supersedes it. See the note there for why a term that rises with a
-    // *sample's own* sun depth is not the same thing as a post-hoc blend keyed on the
-    // *ray's* total transmittance — the latter cannot tell "the camera is inside a deck"
-    // from "the camera is looking at a thick deck five kilometres away", and flattened
-    // both. Opacity needs no help either: the march already integrated it honestly, and
-    // the old `transmittance = mix(transmittance, 0.0, whiteout * 0.5)` was inflating it
-    // to compensate for a density the carve was not delivering.
+    // No in-cloud whiteout here: `cloud_sun_energy`'s multiple-scatter floor covers it. See
+    // the note there for why a term that rises with a *sample's own* sun depth is not the
+    // same thing as a post-hoc blend keyed on the *ray's* total transmittance — the latter
+    // cannot tell "the camera is inside a deck" from "the camera is looking at a thick deck
+    // five kilometres away", and flattens both. Opacity needs no help either: the march
+    // integrates it honestly, and a `transmittance = mix(transmittance, 0.0, whiteout * 0.5)`
+    // on top of that only inflates it to cover a density the carve is failing to deliver.
 
     out_color = vec4(scattered, transmittance);
     // No in-scattered mass means nothing meaningful to haze; fall back to the march's own

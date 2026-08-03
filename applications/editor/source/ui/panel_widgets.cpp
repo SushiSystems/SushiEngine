@@ -116,16 +116,14 @@ namespace SushiEngine
             /**
              * @brief Opens a labelled field row, in a table when there is one and inline when not.
              *
-             * These two fields were written for the Inspector's two-column Transform block and
-             * opened unconditionally with `ImGui::TableNextRow`, which dereferences the current
-             * table — so calling one from a panel that draws no table was not a layout glitch
-             * but an access violation. It happened, in the Assembly window.
+             * `ImGui::TableNextRow` dereferences the current table, so opening a row
+             * unconditionally would turn a call from a panel that draws no table into an
+             * access violation rather than a layout glitch.
              *
-             * The fix is to make the widget *total* rather than to ask every future caller to
-             * remember a precondition. A widget that works in one context and crashes in
-             * another is a trap whose only defence is documentation nobody re-reads; a widget
-             * that lays itself out according to where it finds itself has no precondition to
-             * forget. The table form stays exactly as it was, so the Inspector is unchanged.
+             * The widget is therefore *total* rather than asking every caller to remember a
+             * precondition. A widget that works in one context and crashes in another is a
+             * trap whose only defence is documentation nobody re-reads; a widget that lays
+             * itself out according to where it finds itself has no precondition to forget.
              *
              * @param label The row's label, drawn in the label column or before the field.
              * @return Whether the caller is inside a table, which decides the field's width.

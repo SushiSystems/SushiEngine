@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* morph_demo.cpp                                                        */
+/* morph_demo.cpp                                                         */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -73,7 +77,7 @@ int main()
     const ClipView view = database.clip(clip_id);
     check(view.morph_track_count == 1 && view.generic_track_count == 1, "v2 tracks round-trip");
 
-    // --- Sampling: exact frame and mid-frame interpolation ---------------------------
+    // Sampling: exact frame and mid-frame interpolation.
     {
         float weight;
         float value;
@@ -86,7 +90,7 @@ int main()
         check(nearly(weight, 0.25f), "morph interpolates to 0.25 mid-frame");
     }
 
-    // --- Mesh target mapping: clip tracks resolve onto the mesh's target order --------
+    // Mesh target mapping: clip tracks resolve onto the mesh's target order.
     {
         // The mesh's morph targets, in its order: "smile" then "frown" (the clip has no frown).
         const NameHash target_names[2] = {hash_name("smile"), hash_name("frown")};
@@ -109,7 +113,7 @@ int main()
               "CPU morph blends the vertex by the smile weight");
     }
 
-    // --- Generic tracks: a bound float receives the sampled value ---------------------
+    // Generic tracks: a bound float receives the sampled value.
     {
         float emissive = 0.0f;
         GenericBindingRegistry registry;

@@ -49,7 +49,7 @@ namespace SushiEngine
          * resolves the playback shortcuts (Ctrl+P play/stop, Ctrl+Shift+P pause) and the
          * W/E/R tool hotkeys, so every playback and tool entry point lives in one place.
          * Rendered with `BeginViewportSideBar` like the status bar — always present, no
-         * close button, which is why it no longer has a @ref Authoring::PanelVisibility flag.
+         * close button, which is why it has no @ref Authoring::PanelVisibility flag.
          *
          * @param context Shared editor state; updates playback and gizmo state.
          */

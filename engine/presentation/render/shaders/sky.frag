@@ -139,8 +139,8 @@ layout(location = 0) out vec4 out_color;
 // bilateral-blurred before it lands in the scene: rgb = the unshadowed direct
 // contribution (already scaled by total_transmittance), a = the raw, noisy cascade
 // visibility. Neither carries the ambient/skylight terms, which are stable per-pixel
-// (no PCF noise) and go straight into out_color as before. Ground-shadow-resolve.frag
-// blurs the alpha and cloud_composite.frag folds rgb * blurred-a back into the scene.
+// (no PCF noise) and go straight into out_color. Ground-shadow-resolve.frag blurs the
+// alpha and cloud_composite.frag folds rgb * blurred-a back into the scene.
 layout(location = 1) out vec4 out_ground_shadow;
 
 const float PI = 3.14159265359;
@@ -709,12 +709,12 @@ void main()
             secondary_direct += lobe * radiance * cos_incident * shadow;
         }
 
-        // Point/spot lights near the ground light it directly too — previously only
-        // meshes standing on the ground read the clustered punctual buffer
-        // (accumulate_clustered_lighting in pbr.frag), so a lamp post lit its own base
-        // mesh but left the ground under it black. Diffuse-only: the ground's response
-        // here is analytic (PlanetParameters::surface), not a full glTF material, so there
-        // is no roughness/metallic to feed a specular lobe.
+        // Point/spot lights near the ground light it directly too. If only meshes standing
+        // on the ground read the clustered punctual buffer (accumulate_clustered_lighting
+        // in pbr.frag), a lamp post would light its own base mesh and leave the ground
+        // under it black. Diffuse-only: the ground's response here is analytic
+        // (PlanetParameters::surface), not a full glTF material, so there is no
+        // roughness/metallic to feed a specular lobe.
         vec3 punctual_direct = vec3(0.0);
         {
             float ground_view_z = dot(scene.cam_forward.xyz, hit);
@@ -757,7 +757,7 @@ void main()
         // The direct sun term is held out of sky_color and handed to the resolve/composite
         // passes instead — see the out_ground_shadow declaration above. Everything that
         // does not carry the PCF's per-pixel noise (ambient, skylight) is unaffected and
-        // goes straight into sky_color as before.
+        // goes straight into sky_color.
         float key_cos_incident = max(dot(normal, key_light), 0.0);
         vec3 key_lobe = albedo / PI + vec3(ground_specular(normal, ground_view, key_light,
                                                            ground_roughness, ground_f0));

@@ -61,8 +61,8 @@ namespace SushiEngine
         /**
          * @brief The process-wide execution context every test shares.
          *
-         * What a World, Schedule, or solver is built against now that the ECS names
-         * the execution seam rather than a runtime. Bound to shared_runtime() for the
+         * What a World, Schedule, or solver is built against: the ECS names the
+         * execution seam, not a runtime. Bound to shared_runtime() for the
          * same reason that one is shared — one device discovery, one hazard tracker,
          * one set of columns for the whole suite.
          *

@@ -27,12 +27,12 @@
  * @file physics_services.hpp
  * @brief The physics boundary, split by what a consumer actually needs.
  *
- * There used to be one `IPhysicsSimulation` mixing rigid bodies, cloth, static
- * geometry and stepping, so every consumer depended on all of it. That is the
- * interface-segregation violation §4.3 names, and the cost was not only
- * conceptual: the single interface lived in a header that pulls in SushiRuntime and
- * most of `physics/`, so a gameplay system that only wanted to read a solved pose
- * paid for the entire solver in compile time.
+ * One `IPhysicsSimulation` mixing rigid bodies, cloth, static geometry and
+ * stepping would make every consumer depend on all of it — the
+ * interface-segregation violation §4.3 names — and the cost is not only
+ * conceptual: such an interface has to live in a header that pulls in SushiRuntime
+ * and most of `physics/`, so a gameplay system that only wants to read a solved
+ * pose would pay for the entire solver in compile time.
  *
  * The services below are the split. This header names no runtime type, no solver,
  * and no shape — only the boundary vocabulary — so depending on one service costs
@@ -71,12 +71,11 @@ namespace SushiEngine
             /**
              * @brief What this body collides as: the full collider, scaled (§5.5).
              *
-             * There used to be a `radius`, a `box` flag and a `half_extents` beside
-             * this, derived from it, because the single-point contact path could not
-             * read a collider. That path is gone — the live tick generates manifolds
-             * and submits them to the solver — and so are they. Keeping a derived
-             * copy of a record that is already here is how a body ends up colliding
-             * as a box of one size while reporting a radius from another.
+             * The collider is the only shape record here: no `radius`, `box` flag or
+             * `half_extents` sits beside it. The tick generates manifolds from the
+             * collider and submits them to the solver, so nothing needs a derived
+             * copy — and keeping one is how a body ends up colliding as a box of one
+             * size while reporting a radius from another.
              */
             Collider collider{};
 

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* test_body_orientation.cpp                                             */
+/* test_body_orientation.cpp                                              */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -58,8 +62,8 @@ TEST(Unit_BodyOrientation, RotationAngleStaysWrappedAndAdvances)
 
 TEST(Unit_BodyOrientation, EarthEquatorialConversionMatchesFixedObliquity)
 {
-    // Earth is deliberately routed through the exact fixed-obliquity conversion so the
-    // home sky is unchanged from the original path.
+    // Earth is deliberately routed through the exact fixed-obliquity conversion, so the
+    // home sky matches that path to the last bit rather than merely approximating it.
     const Vector3 v{0.4, -0.6, 0.7};
     EXPECT_TRUE(Harness::approx_equal(ecliptic_to_body_equatorial(BodyId::Earth, v),
                                       ecliptic_to_equatorial(v), 1e-15));

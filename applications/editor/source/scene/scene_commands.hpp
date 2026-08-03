@@ -29,9 +29,9 @@
  *
  * New, Open, Save, the clipboard, and entity creation — the document model behind the
  * menu bar, the Hierarchy's context menus, the Project browser's double-click, the
- * keyboard shortcuts, and the unsaved-changes prompts. Each of those surfaces used to
- * hold its own copy of the sequence; here every one of them calls the same function,
- * so a scene can only be replaced or saved one way.
+ * keyboard shortcuts, and the unsaved-changes prompts. Every one of those surfaces calls
+ * the same function here rather than holding its own copy of the sequence, so a scene can
+ * only be replaced or saved one way.
  *
  * The two `draw_*_menu_items` functions are in this file rather than with a panel for
  * the same reason: they are the shared *entry points* to these commands, and four

@@ -267,10 +267,9 @@ namespace SushiEngine
          * authored, the same doubling §9.6's contact set is deduplicated to avoid.
          *
          * **Zero @p bending_stiffness adds no constraints at all.** Not a zero
-         * coefficient on a constraint that still runs: the sweep is then the same
-         * sequence of the same projections in the same order it was before this
-         * function existed, so "bending off" reproduces the old behaviour by
-         * construction rather than by the arithmetic happening to cancel.
+         * coefficient on a constraint that still runs: the sweep is then exactly the
+         * distance projections in exactly their order, so "bending off" is free and
+         * unperturbed by construction rather than by the arithmetic happening to cancel.
          *
          * @param model                The model; its particles must already be placed
          *                             row-major, `row * cols + col`.

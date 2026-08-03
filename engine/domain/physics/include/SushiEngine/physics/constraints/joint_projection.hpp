@@ -170,10 +170,8 @@ namespace SushiEngine
             return motor.max_force > T(0) ? motor.max_force * h : T(0);
         }
 
-        // ----------------------------------------------------------------------
         // The shared rows. Each is one statement about the joint, and every kind
         // below is a short list of them.
-        // ----------------------------------------------------------------------
 
         /** @brief The two attachment points coincide: three translational degrees removed. */
         template <typename T>
@@ -460,12 +458,10 @@ namespace SushiEngine
             }
         }
 
-        // ----------------------------------------------------------------------
         // The kinds. Each is a traits struct: a kind tag and three projections —
         // angular, linear, velocity. The split is not organizational; see
         // `JointProjectionT` for why the two positional groups cannot share one
         // frame resolution.
-        // ----------------------------------------------------------------------
 
         /** @brief All six degrees of freedom removed; a compliant one is a flexible weld. */
         struct FixedJointTraits

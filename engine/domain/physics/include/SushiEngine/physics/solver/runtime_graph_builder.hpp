@@ -559,11 +559,11 @@ namespace SushiEngine
                     // The device owns the state, so a read has to come from it — but
                     // a write staged since the last step has not reached it yet, and
                     // a body added and then read before the first tick would come
-                    // back as the retired slot it used to be. Flushing here keeps one
-                    // rule instead of two: the device is the truth, and everything
-                    // staged is on the device before anyone looks. The host solver
-                    // has no staging and so no way to disagree, which is exactly why
-                    // the conformance suite is where this surfaced.
+                    // back as whatever retired body still occupies that slot. Flushing
+                    // here keeps one rule instead of two: the device is the truth, and
+                    // everything staged is on the device before anyone looks. The host
+                    // solver has no staging and so no way to disagree, which is why the
+                    // conformance suite is where a divergence here shows up.
                     flush_staged_writes();
                     const std::vector<RigidBodyT<T>> range = bodies_->read_range(
                         Execution::ElementRange{first, count});
@@ -1227,9 +1227,8 @@ namespace SushiEngine
                     // is exactly that promise: contiguous tiles of at most 256 values
                     // folded left to right, the partials folded the same way, and
                     // which values meet which a function of `n` and the tile size
-                    // alone. This file used to hand-build it out of two ordinary
-                    // nodes, because §18's record of the runtime seams was read on a
-                    // checkout that did not carry them; it does.
+                    // alone — none of which a hand-built pair of ordinary nodes can
+                    // promise.
                     //
                     // The whole capacity is folded rather than the live count: a
                     // retired slot holds zero, which is the identity for a maximum

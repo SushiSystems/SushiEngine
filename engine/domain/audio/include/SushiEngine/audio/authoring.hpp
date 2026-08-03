@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* authoring.hpp                                                         */
+/* authoring.hpp                                                          */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -33,7 +35,7 @@
  * panel) grows, reorders, and re-parents freely. @ref AudioAuthoringProject::flatten lays the
  * tree back into the runtime's contiguous form (a breadth-first pass that places every node's
  * children as one block), and @ref bake writes a complete @ref Bank — the whole author→ship
- * pipeline the engine previously lacked.
+ * pipeline in one place.
  *
  * Dependency-free (only the engine's own bank/event headers), so it rides the `audio.hpp`
  * umbrella and is testable headlessly; the ImGui authoring panel is a thin view over it.

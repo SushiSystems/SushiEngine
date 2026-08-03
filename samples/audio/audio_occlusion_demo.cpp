@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* audio_occlusion_demo.cpp                                             */
+/* audio_occlusion_demo.cpp                                               */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -70,7 +70,7 @@ int main()
     const double sample_rate = 48000.0;
     const int block = 512;
 
-    // --- 1a. Acoustic BVH: a wall occludes; a clear line does not; refit flips it -----
+    // 1a. Acoustic BVH: a wall occludes; a clear line does not; refit flips it.
     AcousticMesh mesh;
     AcousticBlas blas;
     const std::uint32_t concrete = mesh.add_material(AcousticMaterial::concrete());
@@ -115,7 +115,7 @@ int main()
     scene.instance(wall_id).set_position(AudioVec3{0, 0, 0});
     scene.refit();
 
-    // --- 1b. Room/portal graph: a cross-room source becomes a doorway source ----------
+    // 1b. Room/portal graph: a cross-room source becomes a doorway source.
     {
         PortalGraph graph;
         AcousticAABB ra, rb;
@@ -138,7 +138,7 @@ int main()
         }
     }
 
-    // --- 1c. Image-source early reflections -------------------------------------------
+    // 1c. Image-source early reflections.
     {
         std::vector<ReflectionTap> taps;
         ImageSourceModel::compute(AudioVec3{0, 0, 0}, AudioVec3{2, 0, 0}, AudioVec3{0, 0, 0},
@@ -152,7 +152,7 @@ int main()
         }
     }
 
-    // --- 1d. Integrated: a source is quieter through the voice manager when occluded ---
+    // 1d. Integrated: a source is quieter through the voice manager when occluded.
     auto integrated_level = [&](bool occluded) {
         AudioEngine engine(8, 4);
         const int master = engine.mixer().add_bus(NO_BUS);
@@ -206,7 +206,7 @@ int main()
 
     std::printf("headless occlusion checks passed\n");
 
-    // --- 2. Best-effort audible playback: a tone slides behind the wall ---------------
+    // 2. Best-effort audible playback: a tone slides behind the wall.
     AudioEngine engine(8, 4);
     const int master = engine.mixer().add_bus(NO_BUS);
     const int reverb_bus = engine.mixer().add_bus(master);

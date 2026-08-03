@@ -172,10 +172,10 @@ namespace SushiEngine
                     /**
                      * @brief Configures stochastic shadow rays for the lights with no atlas tile.
                      *
-                     * Zero @p samples restores the prior behaviour exactly (a light beyond the
-                     * atlas budget shades unshadowed), so the feature is a strict addition. The
-                     * field is whatever the GI tracer offers; without one there is nothing to
-                     * march and the caller passes zero samples.
+                     * Zero @p samples switches the path off, leaving a light beyond the atlas
+                     * budget shading unshadowed. The field is whatever the GI tracer offers;
+                     * without one there is nothing to march and the caller passes zero
+                     * samples.
                      *
                      * @param samples    Lights each pixel samples and shadow-marches.
                      * @param max_metres How far one shadow ray marches before giving up.

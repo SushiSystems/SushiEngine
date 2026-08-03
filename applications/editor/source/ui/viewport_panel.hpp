@@ -120,9 +120,9 @@ namespace SushiEngine
          * The three surfaces — Scene, Game, Preview — differ from each other in about a
          * dozen of these fields and agree on the rest, and every one of them is optional:
          * a viewport with no world content, no gizmo and no overlay is a legitimate frame.
-         * Passed as a struct because as a parameter list this was thirty-one positional
-         * arguments, where the compiler could not tell a misplaced `nullptr` from an
-         * intended one and a reader could not tell which `false` was which.
+         * Passed as a struct because as a parameter list this would be thirty-one positional
+         * arguments, where the compiler cannot tell a misplaced `nullptr` from an intended
+         * one and a reader cannot tell which `false` is which.
          *
          * Defaults describe the emptiest honest frame: nothing to draw, nothing to edit.
          * A caller sets only the fields its surface actually has.
@@ -307,8 +307,8 @@ namespace SushiEngine
                  * black fill with a centred message instead of a rendered scene, the same
                  * affordance Unity's Game view gives when nothing renders through it. Sharing
                  * the panel object (and its fullscreen state machine) with the rendering path
-                 * is the point: the old free-function fallback tracked fullscreen in its own
-                 * statics, and the two copies could disagree about the dock slot to restore.
+                 * is the point: a separate fallback would track fullscreen in its own state,
+                 * and the two copies could disagree about the dock slot to restore.
                  *
                  * @param open     Visibility flag, bound to the panel's close button.
                  * @param settings The Game view toolbar state this draws and edits in place.
@@ -333,7 +333,7 @@ namespace SushiEngine
                  *
                  * Per panel rather than global because the two viewports converge their
                  * temporal history independently and may be sized very differently; the
-                 * host still passes both the same values today.
+                 * host happens to pass both the same values.
                  *
                  * @param settings The requested quality, anti-aliasing, and scaling.
                  */

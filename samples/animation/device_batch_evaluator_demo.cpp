@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* device_batch_evaluator_demo.cpp                                       */
+/* device_batch_evaluator_demo.cpp                                        */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -78,7 +82,7 @@ namespace
 
 int main()
 {
-    // --- Same rig and clip as clip_demo.cpp -------------------------------------------
+    // Same rig and clip as clip_demo.cpp.
     SkeletonDescription skeleton_description;
     JointDescription root;
     root.name = "root";
@@ -116,7 +120,7 @@ int main()
     const SkeletonView skeleton = database.skeleton(skeleton_id);
     const ClipView clip = database.clip(clip_id);
 
-    // --- Device batch: a crowd at different times, one bound skeleton + clip ----------
+    // Device batch: a crowd at different times, one bound skeleton + clip.
     auto runtime = SushiRuntime::API::Runtime::create();
     Execution::Context execution(runtime);
     DeviceBatchEvaluator device(execution);
@@ -146,7 +150,7 @@ int main()
     check(device.instance_count() == COUNT, "device batch sized to the instance list");
     check(device.palettes().size() == COUNT * skeleton.joint_count, "palette readback sized correctly");
 
-    // --- Cross-check every instance against the host ClipEvaluator --------------------
+    // Cross-check every instance against the host ClipEvaluator.
     ClipEvaluator host_evaluator;
     double max_position_error = 0.0;
     for (std::size_t i = 0; i < COUNT; ++i)
@@ -186,7 +190,7 @@ int main()
     std::printf("[device_batch_evaluator_demo] max host/device position error: %.6f\n",
                max_position_error);
 
-    // --- Spot-check two instances against the analytic answer -------------------------
+    // Spot-check two instances against the analytic answer.
     // Skin = model * inverse_bind, so at the bind pose (frame 0) skin is the IDENTITY,
     // not the child's (1,0,0) position — position lives in the *model* matrix, which
     // this evaluator does not expose (only the palette render actually needs); this is
@@ -211,7 +215,7 @@ int main()
     check(is_identity(device.palettes()[(COUNT - 1) * skeleton.joint_count + 1]),
          "device loop wrap returns to identity skin");
 
-    // --- Replay-only: re-evaluating the same instance count must not recompile --------
+    // Replay-only: re-evaluating the same instance count must not recompile.
     device.set_instances(instances);
     device.evaluate();
     device.set_instances(instances);

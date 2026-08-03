@@ -101,10 +101,10 @@ namespace SushiEngine
             /**
              * @brief An imported mesh to draw instead of the primitive named by @ref kind.
              *
-             * INVALID_MESH — the default — draws the primitive, so an instance that has
-             * never seen an imported asset behaves exactly as it did before glTF import
-             * existed. When set, @ref kind and @ref shape_parameters are ignored: an imported
-             * mesh carries its own geometry and its own scale.
+             * INVALID_MESH — the default — draws the primitive, so an instance that names
+             * no imported asset is unaffected by this field. When set, @ref kind and
+             * @ref shape_parameters are ignored: an imported mesh carries its own geometry
+             * and its own scale.
              */
             MeshId mesh = INVALID_MESH;
         };

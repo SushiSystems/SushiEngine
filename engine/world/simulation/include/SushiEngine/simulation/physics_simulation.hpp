@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* physics_simulation.hpp                                                */
+/* physics_simulation.hpp                                                 */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -34,16 +34,12 @@
  *
  * ### One solver, not a family of solvers
  *
- * This class used to hold two `PhysicsWorld`s — one for rigid bodies, one for cloth
- * — driven in lockstep so that contacts spanning them could be resolved between
- * their substeps, plus a host contact pass that pushed single points apart. It now
- * holds **one `IConstraintSolver`**, and that is §0.1's decision finally taking
- * effect rather than a refactor for its own sake:
+ * This class holds **one `IConstraintSolver`** rather than a world per body kind,
+ * which is §0.1's decision rather than an arrangement of convenience:
  *
  * - **A cloth particle is a body.** It has zero inverse inertia and links to its
- *   neighbours through the same `XPBDDistanceConstraint` a rope uses. It was never
- *   a different kind of thing; it lived in a different world only because the world
- *   was immutable and a cloth had to be built all at once.
+ *   neighbours through the same `XPBDDistanceConstraint` a rope uses. It is not a
+ *   different kind of thing, so it does not need a world of its own.
  * - **A contact is a constraint.** Manifolds are generated here, on the host, and
  *   submitted to the solver as the per-tick constraint kind of §6.3. The solve —
  *   non-penetration, static friction positionally, dynamic friction and restitution
@@ -56,7 +52,7 @@
  *
  * 1. **The substep count is derived, not passed.** §6.2: it is a function of
  *    simulation state, and a caller passing it would make the simulation depend on
- *    something outside itself. What the caller's `substeps` argument now means is a
+ *    something outside itself. What the caller's `substeps` argument means is a
  *    *floor* — the quality it is willing to pay for regardless of how slowly things
  *    happen to be moving. State can raise it; the caller can raise the floor;
  *    neither lowers what the other asked for.
@@ -144,7 +140,7 @@ namespace SushiEngine
                 {
                 }
 
-                // -- IRigidBodyService ---------------------------------------------
+                // IRigidBodyService.
 
                 /**
                  * @copydoc IRigidBodyService::set_rigid_bodies
@@ -313,7 +309,7 @@ namespace SushiEngine
                     query_dirty_ = true;
                 }
 
-                // -- IClothService -------------------------------------------------
+                // IClothService.
 
                 /**
                  * @copydoc IClothService::set_cloth_grids
@@ -396,7 +392,7 @@ namespace SushiEngine
                     return true;
                 }
 
-                // -- ISoftBodyService (§9) -----------------------------------------
+                // ISoftBodyService (§9).
 
                 /** @copydoc ISoftBodyService::set_soft_bodies */
                 void set_soft_bodies(const std::vector<SoftBodyDescription>& bodies) override
@@ -498,7 +494,7 @@ namespace SushiEngine
                     return true;
                 }
 
-                // -- IStaticGeometryService ----------------------------------------
+                // IStaticGeometryService.
 
                 void set_static_planes(const std::vector<PlaneDescription>& planes) override
                 {
@@ -515,7 +511,7 @@ namespace SushiEngine
                     note_membership_changed();
                 }
 
-                // -- IJointService (§10) -------------------------------------------
+                // IJointService (§10).
 
                 /**
                  * @copydoc IJointService::create_joint
@@ -667,7 +663,7 @@ namespace SushiEngine
                     return joint_events_;
                 }
 
-                // -- IVehicleService -----------------------------------------------
+                // IVehicleService.
 
                 /** @copydoc IVehicleService::set_vehicles */
                 void set_vehicles(const std::vector<VehicleDescription>& vehicles) override
@@ -794,7 +790,7 @@ namespace SushiEngine
                     return true;
                 }
 
-                // -- IPhysicsStepper -----------------------------------------------
+                // IPhysicsStepper.
 
                 /**
                  * @copydoc IPhysicsStepper::step
@@ -838,10 +834,10 @@ namespace SushiEngine
 
                     // `vehicles_` belongs here too: a vehicle's bodies never pass through
                     // `extract_rigid_bodies` (§5.5's boundary adds them straight to the
-                    // solver via `set_vehicles`), so a scene of nothing but a vehicle left
-                    // `rigid_` and `cloth_` both empty and this guard used to return before
-                    // gravity, the solve, or `step_vehicles_begin`/`_end` ever ran — a car
-                    // that neither fell nor revved its engine.
+                    // solver via `set_vehicles`), so a scene of nothing but a vehicle leaves
+                    // `rigid_` and `cloth_` both empty. Without `vehicles_` here the guard
+                    // would return before gravity, the solve, or `step_vehicles_begin`/`_end`
+                    // ever ran — a car that neither fell nor revved its engine.
                     if (!solver_ || (rigid_.empty() && cloth_.empty() && vehicles_.empty()))
                     {
                         const T soft_ms = stage_timings_.soft_body_ms;
@@ -940,7 +936,7 @@ namespace SushiEngine
                     park_sleeping_joints_ = enabled;
                 }
 
-                // -- IContactEventService ------------------------------------------
+                // IContactEventService.
 
                 /** @copydoc IContactEventService::contact_events */
                 const std::vector<ContactEvent>& contact_events() const noexcept override
@@ -948,7 +944,7 @@ namespace SushiEngine
                     return events_;
                 }
 
-                // -- ICollisionQueryService (§7.7) ---------------------------------
+                // ICollisionQueryService (§7.7).
                 //
                 // Queries run against their own hierarchy rather than against the
                 // contact pass's, and that is deliberate: a query asks about geometry
@@ -2003,7 +1999,7 @@ namespace SushiEngine
                     // `rigid_` (bodies, cloth) already calls — `set_soft_bodies` calls
                     // `rebuild_soft_scene` directly instead of through here, so this is
                     // not a double rebuild on that path, only coverage for the paths
-                    // that used to leave the pairing silently stale.
+                    // that would otherwise leave the pairing silently stale.
                     rebuild_soft_scene();
                 }
 
@@ -2700,9 +2696,9 @@ namespace SushiEngine
                         contact.b = rhs.slot;
                         contact.key = record.key;
                         // §5.3's materials, combined per pair rather than one constant for
-                        // the whole scene. Until now every contact in the world solved at
-                        // 0.6/0.5/0 whatever its surfaces said, which made `PhysicsMaterial`
-                        // a type nothing read. A side with no rigid body — the standing
+                        // the whole scene. Without it every contact in the world would solve
+                        // at 0.6/0.5/0 whatever its surfaces said, making `PhysicsMaterial`
+                        // a type nothing reads. A side with no rigid body — the standing
                         // plane, a cloth particle — resolves to the default surface, which
                         // is deliberately a fixed ground rather than a mirror of whatever is
                         // standing on it: an ice cube should be slippery *against the floor*,
@@ -2858,13 +2854,13 @@ namespace SushiEngine
                     statistics_.fracture_events = joint_events_.size();
                     // §7.5 tier 2 runs on the host, in `submit_contacts`, entirely
                     // outside the solver — so the solver's own copy above has nothing
-                    // to say about it and this was structurally always zero until now.
+                    // to say about it and the count has to come from the host tally.
                     statistics_.continuous_escalations = continuous_escalations_this_tick_;
                     statistics_.continuous_advancement_skipped =
                         continuous_advancement_skipped_this_tick_;
                 }
 
-                // -- The query side ------------------------------------------------
+                // The query side.
 
                 /** @brief The shape a query proxy stands for. */
                 Physics::CollisionShape<T> query_shape(Physics::ProxyId id) const

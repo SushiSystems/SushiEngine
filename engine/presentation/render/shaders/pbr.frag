@@ -107,7 +107,7 @@ layout(set = 0, binding = 23) uniform sampler2D ao_texture;
 // the same captured cube the specular chain comes from: nine storage reads and a degree-two
 // polynomial in the normal replace a filtered cubemap fetch, and probe blending later
 // becomes a blend of coefficients. The band factors and 1/pi were baked in at projection,
-// so this returns the same magnitude the irradiance cube used to.
+// so this returns the same magnitude an irradiance cube fetch would.
 layout(std430, set = 0, binding = 13) readonly buffer IrradianceSh
 {
     vec4 coeff[9];

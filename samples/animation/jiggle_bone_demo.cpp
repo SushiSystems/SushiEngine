@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* jiggle_bone_demo.cpp                                                  */
+/* jiggle_bone_demo.cpp                                                   */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -135,7 +139,7 @@ int main()
         context.recompose();
     };
 
-    // --- Phase 1: root held still, the spring should settle to and stay at rest. ---
+    // Phase 1: root held still, the spring should settle to and stay at rest.
     for (int i = 0; i < 60; ++i)
     {
         animate_frame();
@@ -153,7 +157,7 @@ int main()
 
     std::printf("[jiggle_bone_demo] settle error after 60 frames: %.6f\n", settle_error);
 
-    // --- Phase 2: step the root sideways (a sudden parent lurch) and check for real lag. ---
+    // Phase 2: step the root sideways (a sudden parent lurch) and check for real lag.
     t[0] = Vector3f{2.0f, 0.0f, 0.0f};
     animate_frame();
     jiggle.solve(context);
@@ -169,7 +173,7 @@ int main()
     check(nearly(bone_length_after_step, 1.0, 1e-4),
          "the distance constraint holds immediately even mid-lurch");
 
-    // --- Phase 3: hold the root at its new position and let the spring re-settle. ---
+    // Phase 3: hold the root at its new position and let the spring re-settle.
     for (int i = 0; i < 300; ++i)
     {
         animate_frame();

@@ -1,6 +1,5 @@
 // Tileable Perlin and Worley noise, shared by the cloud-volume and weather-map
-// compute shaders. This is the GPU port of the recipe the volumes were previously
-// built with on the CPU (Schneider/Guerrilla "Nubis"): Perlin fbm supplies connected
+// compute shaders. The recipe is Schneider/Guerrilla "Nubis": Perlin fbm supplies connected
 // shapes, inverted Worley fbm supplies the puffy billows, and remapping the first by
 // the second yields cloud-like base density. Every lattice lookup wraps on its own
 // period so the volumes tile seamlessly under a REPEAT sampler.

@@ -356,14 +356,13 @@ TEST(Unit_QuasiGeostrophicCore, ThePrescribedJetComesBackAtThePrescribedSpeed)
                 -parameters.surface_friction_radians, 1e-6);
 }
 
-// The two cases below were one case, and it asserted that a purely zonal state has a pressure
-// anomaly of tens of hectopascals. It did, and the number was real -- but it was the mean
-// westerly jet's own meridional gradient, not weather. `pressure_anomaly_hpa` reported the total
-// `rho f0 psi_2` then; measured across a forty-degree window that came to 139 hPa, while a deep
-// cyclone is perhaps 30, so a consumer asking "how deep is the low here" was handed a reading
-// dominated by how far north it stood, and the editor's map would have been a picture of
-// latitude. The reference is now the zonal mean, matching the thermal and humidity anomalies it
-// sits beside. That splits the old claim in two, and both halves are worth pinning separately:
+// The two cases below split one claim in two, because a purely zonal state carries a pressure
+// anomaly of tens of hectopascals that is the mean westerly jet's own meridional gradient and
+// not weather. Reported as the total `rho f0 psi_2`, measured across a forty-degree window, it
+// comes to 139 hPa while a deep cyclone is perhaps 30 -- so a consumer asking "how deep is the
+// low here" would be handed a reading dominated by how far north it stood, and the editor's map
+// would be a picture of latitude. The reference is therefore the zonal mean, matching the
+// thermal and humidity anomalies it sits beside, and both halves are worth pinning separately:
 // the mean state must contribute nothing, and what is left must still be synoptic.
 
 TEST(Unit_QuasiGeostrophicCore, TheMeanJetContributesNothingToThePressureAnomaly)
@@ -375,8 +374,8 @@ TEST(Unit_QuasiGeostrophicCore, TheMeanJetContributesNothingToThePressureAnomaly
     core.seed(1);
 
     // Not "small": zero to round-off. A zonally symmetric field has no zonal-mean departure by
-    // construction, so any residual here is the reference leaking the mean state back in -- which
-    // is exactly the defect this replaced, and it would show up as hundreds of hectopascals.
+    // construction, so any residual here is the reference leaking the mean state back in, which
+    // would show up as hundreds of hectopascals.
     const QuasiGeostrophicDiagnostics measured = core.diagnostics();
     EXPECT_NEAR(measured.lowest_pressure_anomaly_hpa, 0.0, 1.0e-9);
     EXPECT_NEAR(measured.jet_speed_mps, AnalyticClimatology().upper_jet_speed_mps, 1.0);
@@ -729,11 +728,9 @@ TEST(Unit_QuasiGeostrophicCore, CyclonesGrowOutOfTheMeanStateWithNothingPlacingT
     EXPECT_LT(measured.peak_ascent_mps, 1.0);
 }
 
-// --------------------------------------------------------------------------------------
 // Injection. An author disturbs the field and the dynamics take it from there, so what has
 // to be right is the disturbance itself: it must be local, it must be the strength it was
 // asked for, and it must be a system that could exist.
-// --------------------------------------------------------------------------------------
 
 namespace
 {
@@ -751,8 +748,8 @@ TEST(Unit_QuasiGeostrophicCore, AnInjectedAnomalyIsFeltLocallyAndNotAcrossTheHem
 {
     // **The defect this pins.** A Gaussian blob on its own carries net circulation, and a
     // streamfunction with net circulation grows *logarithmically outward* instead of decaying
-    // -- so placing one low quietly tilted the pressure field of the whole hemisphere, and did
-    // it in a way that looked like a plausible synoptic pattern. The injection therefore lays
+    // -- so placing one low would quietly tilt the pressure field of the whole hemisphere, and
+    // do it in a way that looks like a plausible synoptic pattern. The injection therefore lays
     // down a broader opposing lobe carrying exactly the core's circulation, and this is the
     // observable consequence of that: far from the anomaly, there is nearly nothing.
     QuasiGeostrophicCore core(small_grid(), QuasiGeostrophicParameters());

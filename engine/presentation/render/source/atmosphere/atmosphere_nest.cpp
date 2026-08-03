@@ -680,19 +680,19 @@ namespace SushiEngine
 
                 // The vertical CFL, against the updraft the nest is **actually producing**.
                 //
-                // This used to divide by a flat `10 × convective_velocity_scale` — a
-                // thunderstorm core, 20 m/s — and it bound the step at 2.43 s on every grid and
-                // in every airmass, three times tighter than the horizontal term ever came to.
-                // Measured, a fair-weather domain peaks at 0.02 m/s and a convecting one at
-                // 0.03: the assumption was three orders out, and since the transport is
-                // semi-Lagrangian and therefore unconditionally stable, what it bought was not
-                // stability but a vertical Courant number of 9 × 10⁻⁴ — which is §1.4's
-                // *maximally diffusive* regime, the exact defect this nest was built to leave
-                // behind. A longer step here is both cheaper and more accurate.
+                // A flat `10 × convective_velocity_scale` — a thunderstorm core, 20 m/s —
+                // would bind the step at 2.43 s on every grid and in every airmass, three
+                // times tighter than the horizontal term ever comes to. Measured, a
+                // fair-weather domain peaks at 0.02 m/s and a convecting one at 0.03: three
+                // orders below that assumption, and since the transport is semi-Lagrangian and
+                // therefore unconditionally stable, such a bound buys no stability — only a
+                // vertical Courant number of 9 × 10⁻⁴, which is §1.4's *maximally diffusive*
+                // regime, the exact defect this nest exists to avoid. A longer step here is
+                // both cheaper and more accurate.
                 //
                 // So the bound is taken against the readback's own domain peak, with a fourfold
                 // headroom for what convection can do between one readback and the next, and the
-                // old constant stands until the first readback has something to say. What that
+                // constant stands only until the first readback has something to say. What that
                 // buys is a step that is long when nothing is happening and tightens by itself
                 // when a storm gets going, rather than one permanently sized for the storm.
                 //
@@ -1463,11 +1463,12 @@ namespace SushiEngine
                                                   desired_z != origin_cell_z_);
 
                 // How many steps this frame records, and this is the whole of what
-                // `max_steps_per_frame` means. It previously clamped the accumulator above and
-                // nothing else, so the frame recorded exactly one step however large it was set:
-                // raising it bought more tolerated lag rather than more weather, and the nest's
-                // throughput was pinned at one step per frame — which is what made a scene
-                // drawing at twelve frames a second simulate weather at twelve frames a second.
+                // `max_steps_per_frame` means: it caps steps, not the lag accumulator. Capping
+                // the accumulator alone would let a frame record exactly one step however large
+                // the setting is, so raising it would buy more tolerated lag rather than more
+                // weather, and the nest's throughput would sit at one step per frame — a scene
+                // drawing at twelve frames a second would simulate weather at twelve steps a
+                // second.
                 std::uint32_t steps =
                     dt > 0.0f ? std::uint32_t(pending_seconds_ / double(dt)) : 0u;
                 steps = std::min(steps, step_cap);
@@ -1504,10 +1505,10 @@ namespace SushiEngine
                     // in flight the CPU sits exactly three submissions ahead, so the value that
                     // has actually completed is always one the slots no longer carry. Measured:
                     // over a hundred consecutive steps the counter read 95 while the three slots
-                    // held 96, 97 and 98, the sweep matched nothing every single time, and the
-                    // mirror stayed frozen on the first step it ever collected. Gameplay reads
-                    // that mirror (§3.2), so what looked like a profiling gap is a data plane
-                    // that only refreshed when something else happened to idle the device.
+                    // held 96, 97 and 98, so the sweep matches nothing. On its own it would
+                    // leave the mirror frozen on the first step it collected, refreshing only
+                    // when something else happened to idle the device — and gameplay reads that
+                    // mirror (§3.2).
                     //
                     // Here the wait has just established that this slot's submission is done, so
                     // there is no test to get wrong and nothing to stall on.

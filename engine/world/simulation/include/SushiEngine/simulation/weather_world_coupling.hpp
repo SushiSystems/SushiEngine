@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* weather_world_coupling.hpp                                            */
+/* weather_world_coupling.hpp                                             */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -71,13 +71,12 @@ namespace SushiEngine
 
                     Render::WeatherCoupling coupling;
 
-                    // **Fog is cloud whose base is at the ground.** This used to be driven by the
-                    // low deck's coverage times its density -- a stand-in for the dew-point
-                    // spread the old column contract could not carry -- and the consequence was
-                    // that merely being *overcast* produced 0.008/m of extinction, which is a
-                    // ~370 m visibility whiteout under a perfectly ordinary grey sky 1 200 m
-                    // overhead. Coverage aloft says nothing about the air at the surface. Cloud
-                    // base does, and the nest reports it.
+                    // **Fog is cloud whose base is at the ground.** Driving it from the low
+                    // deck's coverage times its density would make merely being *overcast*
+                    // produce 0.008/m of extinction — a ~370 m visibility whiteout under a
+                    // perfectly ordinary grey sky 1 200 m overhead. Coverage aloft says
+                    // nothing about the air at the surface. Cloud base does, and the nest
+                    // reports it.
                     //
                     // Ramped rather than switched: a base inside the surface layer is fog, a base
                     // above it is not, and the transition between them is a real one you can
@@ -90,9 +89,9 @@ namespace SushiEngine
                                                0.0f, 1.0f)
                                   : 0.0f;
 
-                    // Rain reduces visibility, but far less than it used to be credited with: a
-                    // 10 mm/h downpour gives roughly 1-2 km of visibility, which is ~0.002/m, not
-                    // the 0.02/m a full-intensity column used to add.
+                    // Rain reduces visibility, but far less than intuition credits it with: a
+                    // 10 mm/h downpour gives roughly 1-2 km of visibility, which is ~0.002/m
+                    // rather than the order of magnitude more it is usually drawn as.
                     constexpr float HEAVY_RAIN_EXTINCTION = 0.003f;
                     coupling.fog_density_bias =
                         column.precipitation * HEAVY_RAIN_EXTINCTION +
@@ -100,10 +99,10 @@ namespace SushiEngine
 
                     // Extra Mie scattering coefficient, per metre. Rain droplets scatter far more
                     // than clean dry air (whose sea-level Mie coefficient is ~21e-6 by default),
-                    // so a downpour is worth a few times that baseline. The humidity-driven haze
-                    // that used to ride here came from the same coverage proxy and is dropped with
-                    // it -- a real one needs the surface dew-point spread, which is what §9.1's
-                    // `AtmosphereProfile` carries in phase E.
+                    // so a downpour is worth a few times that baseline. No humidity-driven haze
+                    // rides here: a real one needs the surface dew-point spread, which is what
+                    // §9.1's `AtmosphereProfile` carries in phase E, and a coverage proxy for
+                    // it would be the same mistake the fog term above avoids.
                     coupling.turbidity_bias = column.precipitation * 8.0e-5f;
 
                     // No soak-in/dry-out lag modelled -- wetness tracks precipitation

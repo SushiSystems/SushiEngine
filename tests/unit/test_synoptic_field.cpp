@@ -22,11 +22,11 @@
 /**************************************************************************/
 
 // Unit_SynopticField: the planetary weather placement behind Manual mode
-// (docs/slop/atmosphere_system.md, WM-SEED). The defect it exists to close was visible in one
-// side-by-side — our Earth from orbit was a uniformly milky sphere and the real one is mostly
-// clear ocean with weather laid over it in discrete pieces — so the load-bearing claims here
-// are about *variety*: that the field genuinely reaches both extremes, that a seed decides
-// which is where, and that the same seed always decides the same way.
+// (docs/slop/atmosphere_system.md, WM-SEED). The defect it exists to rule out shows in one
+// side-by-side — a uniformly milky sphere from orbit, where the real Earth is mostly clear
+// ocean with weather laid over it in discrete pieces — so the load-bearing claims here are
+// about *variety*: that the field genuinely reaches both extremes, that a seed decides which
+// is where, and that the same seed always decides the same way.
 //
 // Pure host maths; no SushiRuntime and no device, same reasoning as the other weather tests.
 
@@ -136,10 +136,10 @@ TEST(Unit_SynopticField, APlanetHasBothStormsAndCompletelyClearAir)
             lowest = std::min(lowest, coverage);
             highest = std::max(highest, coverage);
         });
-        // Tightened from 0.20 when the zonal curve was restated as the *optically thick*
-        // fraction rather than the total cloud fraction: the subtropical minimum alone is now
-        // ~0.06 before any high is placed on it, so 0.20 had become a bar the function cleared
-        // without a seed contributing anything, and a test that passes for free tests nothing.
+        // The zonal curve is the *optically thick* fraction rather than the total cloud
+        // fraction, so the subtropical minimum alone is ~0.06 before any high is placed on it:
+        // a 0.20 bar would be cleared without a seed contributing anything, and a test that
+        // passes for free tests nothing.
         EXPECT_LT(lowest, 0.10) << "seed " << seed << " has no clear air anywhere";
         EXPECT_GT(highest, 0.90) << "seed " << seed << " has no overcast anywhere";
         best_clearing = std::min(best_clearing, lowest);

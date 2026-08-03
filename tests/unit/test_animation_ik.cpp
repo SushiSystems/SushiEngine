@@ -1,11 +1,16 @@
 /**************************************************************************/
-/* test_animation_ik.cpp                                                 */
+/* test_animation_ik.cpp                                                  */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
+/*               https://github.com/SushiSystems/SushiEngine              */
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -632,11 +637,10 @@ TEST(Unit_AnimationIk, AFootLandsOnRaisedGroundInsteadOfSinkingIntoIt)
 
 TEST(Unit_AnimationIk, AFloatingFootIsPlantedDownIntoADip)
 {
-    // The other direction, and the one that decided a stale comment. The header used to claim the
-    // solver "only plants when the ground is at or above the animated foot"; no such condition is
-    // in the code, and adding one would be wrong — a walk cycle authored on flat ground would then
-    // hover over every depression rather than stepping into it. So the goal is the ground both
-    // ways, and this pins it.
+    // The other direction. The solver carries no "only plants when the ground is at or above the
+    // animated foot" condition, and adding one would be wrong — a walk cycle authored on flat
+    // ground would then hover over every depression rather than stepping into it. So the goal is
+    // the ground both ways, and this pins it.
     //
     // The starting pose has to be *bent* for the downward case to be reachable at all, because a
     // straight leg already stands at the limit of its own extension. One solve onto high ground
@@ -658,7 +662,7 @@ TEST(Unit_AnimationIk, AFloatingFootIsPlantedDownIntoADip)
 
 TEST(Unit_AnimationIk, GroundBeyondTheLegsReachLeavesItStraightRatherThanStretched)
 {
-    // The case that made the stale comment look plausible: ground far below a fully extended leg.
+    // The case that makes such a guard look necessary: ground far below a fully extended leg.
     // Nothing needs to guard against it, because the two-bone solver extends toward an unreachable
     // target without stretching — so the leg straightens and stops, and the bones keep their
     // lengths. A guard added "for safety" here would be dead code justified by a wrong belief.

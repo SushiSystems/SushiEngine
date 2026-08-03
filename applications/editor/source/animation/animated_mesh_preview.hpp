@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* animated_mesh_preview.hpp                                             */
+/* animated_mesh_preview.hpp                                              */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -48,23 +50,21 @@ namespace SushiEngine
          * previewed in the Scene viewport.
          *
          * This is the animation-evaluator-to-renderer bridge (design `slop/animation_system.md`
-         * §12.1) — the one piece of the skeletal-animation stack that was never wired end to
-         * end: every earlier phase shipped as an isolated, unit-tested component, but nothing
-         * constructed a `Render::SkinnedInstance` for a live scene, and nothing ran the richer
-         * `AnimatorEvaluator` (layers, masks, IK) outside a headless example. @ref load_gltf
-         * imports the skin (mesh + skeleton + first clip, sharing one joint order) and compiles
-         * a minimal one-layer, one-state `ControllerAsset` around that clip so the *real*
-         * Mecanim-parity evaluator drives the pose from the first frame, not a cut-down
-         * single-clip shortcut. @ref add_layer grows it (mask-gated override/additive layers,
-         * design §5.2); @ref set_two_bone_ik attaches the one shipped IK solver in the
+         * §12.1): it constructs a `Render::SkinnedInstance` for a live scene and runs the richer
+         * `AnimatorEvaluator` (layers, masks, IK) inside the editor rather than in a headless
+         * example. @ref load_gltf imports the skin (mesh + skeleton + first clip, sharing one
+         * joint order) and compiles a minimal one-layer, one-state `ControllerAsset` around that
+         * clip so the *real* Mecanim-parity evaluator drives the pose from the first frame, not
+         * a cut-down single-clip shortcut. @ref add_layer grows it (mask-gated override/additive
+         * layers, design §5.2); @ref set_two_bone_ik attaches the one shipped IK solver in the
          * pose-modifier stack (§5.3), off by default (zero weight) until given real joint
          * indices and a target. @ref update advances the deterministic `animator_step` tick,
          * runs `AnimatorEvaluator` (host-side; the batched SushiRuntime device path is still
          * open, §12.3), and rebuilds this frame's single-entry `SkinnedInstance`. Mirrors
          * `VFX::EffectPreview`'s shape: a state-owning class the viewport reads from every frame.
          *
-         * Single-instance by design — this closes the missing wire for one live character, it
-         * does not add multi-character ECS wiring (§12.4).
+         * Single-instance by design — it drives one live character and does not add
+         * multi-character ECS wiring (§12.4).
          */
         class AnimatedMeshPreview
         {
@@ -77,9 +77,9 @@ namespace SushiEngine
                  * joint indices, the `SkeletonView` they address, and the sampled clip agree on
                  * joint order (the cooked skeleton's topological sort, not the glTF's authored
                  * order). The compiled controller's base layer loops the clip forever — no
-                 * transitions, matching the old single-clip preview's behavior, but now through
-                 * the real `ControllerAsset`/`AnimatorEvaluator` path so @ref add_layer and
-                 * @ref set_two_bone_ik have something to layer onto / correct.
+                 * transitions — but through the real `ControllerAsset`/`AnimatorEvaluator` path,
+                 * so @ref add_layer and @ref set_two_bone_ik have something to layer onto /
+                 * correct.
                  *
                  * @param path       Path to a `.gltf` or `.glb` file with a skin and at least
                  *                   one animation.

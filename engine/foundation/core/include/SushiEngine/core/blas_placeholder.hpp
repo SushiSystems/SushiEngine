@@ -478,7 +478,7 @@ namespace SushiEngine
             return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
         }
 
-        // -- Fold operators ---------------------------------------------------
+        // Fold operators.
         //
         // The combining half of a reduction, and nothing else. A reduction has two
         // parts — *what* combines two values, and *in what order* the values are

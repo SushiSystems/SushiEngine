@@ -114,9 +114,7 @@ namespace
     }
 } // namespace
 
-// --------------------------------------------------------------------------------------
 // 1. The calendar, onto the month axis.
-// --------------------------------------------------------------------------------------
 
 TEST(Unit_Season, TheMiddleOfAMonthLandsOnTheMiddleOfItsBin)
 {
@@ -153,9 +151,7 @@ TEST(Unit_Season, LeapYearsChangeFebruaryAndNothingElse)
     EXPECT_EQ(Simulation::days_in_month(2024, 4), 30);
 }
 
-// --------------------------------------------------------------------------------------
 // 2. What the season does to the core.
-// --------------------------------------------------------------------------------------
 
 TEST(Unit_Season, TheSeasonMovesTheMeanStateAndNotTheFlow)
 {

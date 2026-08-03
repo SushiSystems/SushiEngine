@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* test_weather_flight_hazards.cpp                                       */
+/* test_weather_flight_hazards.cpp                                        */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -18,7 +18,7 @@
 /* distributed under the License is distributed on an "AS IS" BASIS,      */
 /* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or        */
 /* implied. See the License for the specific language governing           */
-/* permissions and limitations under the License.                        */
+/* permissions and limitations under the License.                         */
 /**************************************************************************/
 
 // Unit_WeatherFlightHazards: W6's icing_risk()/turbulence_intensity() query API
@@ -121,12 +121,12 @@ TEST(Unit_WeatherFlightHazards, IcingRiskUsesTheAltitudesOwnLevelBucket)
     EXPECT_FLOAT_EQ(icing_risk(column, 9000.0), 0.0f);
 }
 
-// The three cases below used to build a `SynopticLayer` and hand it around directly. They now
-// go through `IWeatherProvider`, which is not a cosmetic change: the turbulence signal used to
-// be scaled by the distance to a *drawn* front (`front_proximity`), and is now scaled by the
-// thermal gradient the flow has actually concentrated (`frontal_strength_at`). The assertions
-// are about the arithmetic that surrounds that signal, so they transfer unchanged; what could
-// not transfer is a test that placed a front where it wanted one.
+// The three cases below drive `IWeatherProvider` rather than building a `SynopticLayer` and
+// handing it around directly, because the turbulence signal is scaled by the thermal gradient
+// the flow has actually concentrated (`frontal_strength_at`) and not by the distance to a
+// drawn front. A case therefore cannot place a front where it wants one; where a front
+// matters it has to be grown by the flow. The assertions are about the arithmetic that
+// surrounds the signal.
 namespace
 {
     constexpr double HAZARD_DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;

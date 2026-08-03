@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* clip_demo.cpp                                                         */
+/* clip_demo.cpp                                                          */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -62,7 +66,7 @@ namespace
 
 int main()
 {
-    // --- Skeleton: root at the origin, child one unit down +X ------------------------
+    // Skeleton: root at the origin, child one unit down +X.
     SkeletonDescription skeleton_description;
     JointDescription root;  root.name = "root";  root.parent = -1;
     JointDescription child; child.name = "child"; child.parent = 0;
@@ -72,7 +76,7 @@ int main()
     std::vector<std::byte> skeleton_blob;
     check(build_skeleton_blob(skeleton_description, skeleton_blob), "cook skeleton");
 
-    // --- Clip: two frames at 1 Hz; the root turns 90 deg about Z from frame 0 to 1 ----
+    // Clip: two frames at 1 Hz; the root turns 90 deg about Z from frame 0 to 1.
     const Quaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
     const QuaternionT<float> turn = quaternion_axis_angle(Vector3T<float>{0, 0, 1},
                                                           static_cast<float>(PI * 0.5));
@@ -90,7 +94,7 @@ int main()
     std::vector<std::byte> clip_blob;
     check(build_clip_blob(clip_description, clip_blob), "cook clip");
 
-    // --- Register both in the database (shared id space) ------------------------------
+    // Register both in the database (shared id space).
     AnimationDatabase database;
     const AssetId skeleton_id = database.add_skeleton(std::move(skeleton_blob));
     const AssetId clip_id = database.add_clip(std::move(clip_blob));

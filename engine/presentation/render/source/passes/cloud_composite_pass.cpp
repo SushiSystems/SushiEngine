@@ -86,10 +86,10 @@ namespace SushiEngine
                                                  Graph::AttachmentLoad::Discard);
                         builder.read(frame.targets.composite,
                                      Graph::TextureAccess::SampledFragment);
-                        // frame.targets.cloud itself is not read here any more —
-                        // CloudTAAPass already resolved it into its own pass-owned
-                        // history, which this pass samples directly below — but its
-                        // W3 depth sibling still is, for the aerial-perspective lookup.
+                        // frame.targets.cloud itself is not read here — CloudTAAPass
+                        // resolves it into its own pass-owned history, which this pass
+                        // samples directly below — but its W3 depth sibling is, for the
+                        // aerial-perspective lookup.
                         builder.read(frame.targets.cloud_depth,
                                      Graph::TextureAccess::SampledFragment);
                         builder.read(frame.targets.ground_shadow_resolved,

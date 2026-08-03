@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* animator_graph_panel.cpp                                              */
+/* animator_graph_panel.cpp                                               */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -147,7 +149,7 @@ namespace SushiEngine
                                         base - ImVec2(normal.x * 5.0f, normal.y * 5.0f), color);
             }
 
-            // ---- The parameter + layer side panel --------------------------------------
+            // The parameter + layer side panel.
 
             void save_controller(GraphState& g)
             {
@@ -486,7 +488,7 @@ namespace SushiEngine
                 g.positions_layer = -1;
             }
 
-            // ---- The graph canvas ------------------------------------------------------
+            // The graph canvas.
 
             void draw_grid(ImDrawList* draw, const ImVec2& origin, const ImVec2& size,
                            const ImVec2& pan, float step)

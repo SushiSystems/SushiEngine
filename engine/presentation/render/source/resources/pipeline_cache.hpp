@@ -113,11 +113,11 @@ namespace SushiEngine
              * @brief Colour-blend state applied to every colour attachment of a pipeline.
              *
              * A flat POD so it byte-compares as part of the fragment-output library key. The
-             * default is no blending (@c enable false with one/zero factors), which reproduces
-             * the renderer's original opaque behaviour, so a pipeline that never sets it is
-             * created exactly as before. Transparent draws — additive or alpha billboards — set
-             * @c enable and the factors. The same state applies to all attachments, which is all
-             * the engine needs today: multi-attachment G-buffer passes leave it disabled.
+             * default is no blending (@c enable false with one/zero factors), which is what an
+             * opaque pipeline wants, so a pipeline that never sets it needs no blend state at
+             * all. Transparent draws — additive or alpha billboards — set @c enable and the
+             * factors. The same state applies to all attachments, which is all the engine needs
+             * today: multi-attachment G-buffer passes leave it disabled.
              */
             struct ColorBlend
             {
@@ -175,19 +175,19 @@ namespace SushiEngine
                 /**
                  * @brief Colour-blend state; part of the fragment-output library key.
                  *
-                 * Default-constructed (no blending) reproduces the original opaque behaviour, so
-                 * every existing pass is unaffected. A transparent pass — an additive or alpha
-                 * particle billboard — sets it. Because it keys the fragment-output library, two
-                 * pipelines identical but for their blend do not alias to one cached library.
+                 * Default-constructed is no blending, which is what an opaque pass wants. A
+                 * transparent pass — an additive or alpha particle billboard — sets it. Because
+                 * it keys the fragment-output library, two pipelines identical but for their
+                 * blend do not alias to one cached library.
                  */
                 ColorBlend blend{};
 
                 /**
                  * @brief Bit @c i gates whether @c blend applies to colour attachment @c i.
                  *
-                 * All bits set (the default) reproduces the single-attachment case every
-                 * existing blended pass uses. A multi-attachment blended pass (transparent
-                 * geometry writing HDR colour alongside entity-ID/velocity/G-buffer) must clear
+                 * All bits set (the default) is the single-attachment case a blended pass
+                 * normally wants. A multi-attachment blended pass (transparent geometry
+                 * writing HDR colour alongside entity-ID/velocity/G-buffer) must clear
                  * the bits for its non-colour attachments: those carry integer IDs or raw vectors
                  * that a blend factor would corrupt, and some of their formats do not even
                  * support the blend feature bit, which the graphics pipeline library validates.

@@ -31,8 +31,8 @@ layout(set = 0, binding = 10) uniform ShadowBlock
 
 // A Vogel disc: tap i of count, spread by the golden angle so every prefix of the
 // sequence already tiles the disc evenly. That even coverage is what makes a low tap
-// count read smooth instead of grainy — the fixed Poisson set it replaces printed a
-// visible speckle whenever a tier dropped the tap count, and it needs no lookup table.
+// count read smooth instead of grainy: a fixed Poisson set prints a visible speckle
+// whenever a tier drops the tap count, and this needs no lookup table.
 // `rotation` (radians) turns the whole disc per pixel: on meshes it advances each frame
 // so the temporal resolve averages the residual, and on the analytic ground it is a
 // stable screen-space value so the pattern holds still instead of shimmering unresolved.

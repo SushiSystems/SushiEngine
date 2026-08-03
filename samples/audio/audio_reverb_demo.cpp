@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* audio_reverb_demo.cpp                                                 */
+/* audio_reverb_demo.cpp                                                  */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -98,7 +98,7 @@ int main()
     const double sample_rate = 48000.0;
     const int block = 512;
 
-    // --- 1. Headless self-checks on the FDN reverb itself ----------------------------
+    // 1. Headless self-checks on the FDN reverb itself.
 
     // A bounded, decaying tail from a long-decay preset.
     {
@@ -184,7 +184,7 @@ int main()
 
     std::printf("headless reverb checks passed\n");
 
-    // --- 2. Best-effort audible playback through the mixer aux bus -------------------
+    // 2. Best-effort audible playback through the mixer aux bus.
 
     AudioEngine engine(16, 8);
     const int master = engine.mixer().add_bus(NO_BUS);

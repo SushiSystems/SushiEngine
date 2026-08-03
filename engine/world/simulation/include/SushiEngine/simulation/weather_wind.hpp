@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* weather_wind.hpp                                                      */
+/* weather_wind.hpp                                                       */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -87,8 +87,8 @@ namespace SushiEngine
                                     const GeodeticPosition& position, double altitude_meters,
                                     double time_seconds) noexcept
         {
-            // Front proximity used to be a distance to a drawn ray. A dynamical core draws
-            // nothing, so what stands in for "near an active front" is the thermal gradient the
+            // A dynamical core draws no fronts, so front proximity cannot be a distance to a
+            // drawn ray. What stands in for "near an active front" is the thermal gradient the
             // flow has actually concentrated -- five kelvin per hundred kilometres being a
             // strong front, and the background baroclinic zone a small fraction of that.
             constexpr double FULLY_FRONTAL_K_PER_100KM = 5.0;

@@ -27,10 +27,10 @@
  * @file simulation_settings.hpp
  * @brief The host's simulation quality budgets — the sim-side sibling of RenderSettings.
  *
- * The render quality tier used to carry the atmosphere nest's grid as a stowaway:
- * selecting "Ultra" rendering silently rebuilt the weather simulation at a different
- * resolution, destroying the running weather — a rendering knob deciding a simulation
- * outcome. This file is the separation: each simulated domain owns its own quality
+ * The render quality tier must not carry the atmosphere nest's grid as a stowaway:
+ * selecting "Ultra" rendering would silently rebuild the weather simulation at a
+ * different resolution and destroy the running weather — a rendering knob deciding a
+ * simulation outcome. This file is the separation: each simulated domain owns its own
  * tier here, resolved by its own resolver, persisted per user (a grid resolution is a
  * machine budget, not scene content), and surfaced by the panel that owns the domain.
  *

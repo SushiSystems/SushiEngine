@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* astro_dynamics.hpp                                                    */
+/* astro_dynamics.hpp                                                     */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -33,9 +33,9 @@
  * header advances that pair: it lifts the state to the common heliocentric frame,
  * integrates it one step through an injected @ref IGravityField (so the field model is a
  * choice, not a hard-coded summation), then re-expresses the result in whichever body's
- * sphere of influence now contains it — rebasing exactly once at a crossing. The two were
- * previously separate primitives (@ref integrate_step and @ref rebase); this is the one
- * place that composes them into the per-step update the simulation drives.
+ * sphere of influence now contains it — rebasing exactly once at a crossing. This is the
+ * one place that composes the two primitives (@ref integrate_step and @ref rebase) into
+ * the per-step update the simulation drives.
  */
 
 #include <SushiEngine/astro/gravity_field.hpp>

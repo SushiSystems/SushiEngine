@@ -7,42 +7,41 @@
 // view march, the light volume, the cloud shadow map, the far-field panorama — reads the same
 // baked answer, so none of them can disagree about where the weather is.
 //
-// What this bake deliberately no longer does is carve the cloud's **shape**. It used to: the
-// Nubis threshold, the domain warp and the detail erosion all ran here, and their result was
-// stored into 128 m (near) / 1024 m (far) texels that the march then reconstructed
-// trilinearly. That is a hard ceiling on how a cloud can look — a cauliflower edge lives at
-// 10-50 m scales, and no amount of marching recovers structure a 128 m lattice never held;
-// what reaches the screen is the smeared *average* of a shape, which is exactly the mushy
-// cotton the system was rejected for. The carve now runs analytically per march sample in
-// cloud.frag against the same world-anchored pattern frame, so its effective resolution is
-// the march's own sample spacing rather than any bake lattice. This bake keeps everything
-// that is genuinely low-frequency: the simulation's coverage, the water amplitude, the
-// vertical profile, the weather-map modulation — the *envelope* the carve cuts from.
+// What this bake deliberately does not do is carve the cloud's **shape**. Running the Nubis
+// threshold, the domain warp and the detail erosion here would store their result into 128 m
+// (near) / 1024 m (far) texels for the march to reconstruct trilinearly, which is a hard
+// ceiling on how a cloud can look — a cauliflower edge lives at 10-50 m scales, and no amount
+// of marching recovers structure a 128 m lattice never held; what reaches the screen is the
+// smeared *average* of a shape, which is mushy cotton. The carve instead runs analytically per
+// march sample in cloud.frag against the same world-anchored pattern frame, so its effective
+// resolution is the march's own sample spacing rather than any bake lattice. This bake keeps
+// everything that is genuinely low-frequency: the simulation's coverage, the water amplitude,
+// the vertical profile, the weather-map modulation — the *envelope* the carve cuts from.
 //
 // Channel layout, both windows: r = coverage envelope [0, 1] (the carve threshold's input),
 // g = vertical profile, b = optical depth toward the sun (far window only; see
 // cloudscape_far_light.comp), a = in-cloud water amplitude, encoded at half scale
 // (cloud_field_window.glsl's cloud_field_water).
 //
-// Two things changed here in phase B (docs/slop/atmosphere_system.md §7.2/§7.4), and they
-// are the same change seen from two ends:
+// Two properties of this field (docs/slop/atmosphere_system.md §7.2/§7.4), and they are the
+// same one seen from two ends:
 //
-// 1. The field is no longer a periodic, camera-locked 32 km tile. It is a **camera-centred,
+// 1. The field is not a periodic, camera-locked 32 km tile. It is a **camera-centred,
 //    non-wrapping window** whose texels stand over known world positions, pushed in as an
 //    origin and a span (see cloud_field_window.glsl for why that is what unlocks the rest).
 //    Two windows are baked with this same shader: a near one at ~128 m per texel and a far
 //    one covering the whole march range at ~1 km. The pattern is evaluated at a *world*
 //    coordinate rather than a camera-relative one, which is also what stops the sky from
-//    travelling with the camera the way the wrapped tile made it.
+//    travelling with the camera the way a wrapped tile makes it.
 //
 // 2. When the simulation publishes a field it classifies (`WeatherField::derives_genus`),
 //    each baked column resolves **its own genus** from the local band state instead of
-//    instantiating one globally compiled deck stack everywhere. That is §7.4: genus stops
-//    being an input to the density field and becomes a label derived from it. A stratus
-//    sheet here, a cumulus field 40 km away and a cirrus deck over both is one bake, not
-//    three global decks fighting over one coverage number. The authored deck stack remains
-//    the path for a manually authored sky, unchanged — a `Cloudscape` an author typed in is
-//    not a classification and must not be round-tripped through the classifier.
+//    instantiating one globally compiled deck stack everywhere. That is §7.4: genus is not an
+//    input to the density field but a label derived from it. A stratus sheet here, a cumulus
+//    field 40 km away and a cirrus deck over both is one bake, not three global decks fighting
+//    over one coverage number. The authored deck stack remains the path for a manually authored
+//    sky — a `Cloudscape` an author typed in is not a classification and must not be
+//    round-tripped through the classifier.
 //
 // The wind is absorbed here rather than scrolled at sample time: the pattern origin the CPU
 // pushes already carries however far the sky has blown, and the march offsets its lookup only
@@ -89,9 +88,9 @@ layout(set = 0, binding = 1) uniform SceneBlock
 
 #include "cloud_field_window.glsl"
 
-// Bindings 2/3/5 (shape, detail, cirrus) are still part of this pass's descriptor layout but
-// deliberately no longer sampled: the carve that read them runs per march sample in
-// cloud.frag now (CloudsV2), against the precombined march volume. Declarations kept so the
+// Bindings 2/3/5 (shape, detail, cirrus) are part of this pass's descriptor layout but
+// deliberately not sampled: the carve that would read them runs per march sample in
+// cloud.frag (CloudsV2), against the precombined march volume. Declarations kept so the
 // C++ side's descriptor writes stay valid without a layout change.
 layout(set = 0, binding = 2) uniform sampler3D cloud_shape_texture;
 layout(set = 0, binding = 3) uniform sampler3D cloud_detail_texture;
@@ -169,14 +168,13 @@ const int GENUS_CUMULONIMBUS = 9;
 
 const int BAND_COUNT = 3;
 
-// The carve, its CDF-uniformisation and its Nyquist floor all lived here once; they moved
-// with the shape work into cloud_noise_volume.comp (the precombined march volume, where the
-// base shape is uniformised at generation) and cloud.frag (the per-sample carve, whose
-// "grid" is the march's own footprint and which floors its carve scale against that footprint
-// for exactly the reason the bake used to floor against its texel). What stays below is the
-// envelope: coverage, water, vertical structure.
+// The carve, its CDF-uniformisation and its Nyquist floor live in cloud_noise_volume.comp
+// (the precombined march volume, where the base shape is uniformised at generation) and
+// cloud.frag (the per-sample carve, whose "grid" is the march's own footprint and which floors
+// its carve scale against that footprint, for the same reason a bake would floor against its
+// texel). What stays below is the envelope: coverage, water, vertical structure.
 
-// `cloud_height_gradient` moved to cloud_field_window.glsl (included above). The planet-scale
+// `cloud_height_gradient` lives in cloud_field_window.glsl (included above). The planet-scale
 // far field in cloud.frag builds the same deck envelope for the world no window covers, and
 // the two disagreeing about where a deck's top is would read as a step at the far rim.
 
@@ -202,10 +200,10 @@ float deck_envelope(vec4 la, vec4 lb, vec4 lc, vec4 ld, int slot, vec2 xz, float
 {
     height_gradient = 0.0;
     water = 0.0;
-    // Published so the march's erosion can tell a cloud's own base from its own top. It
-    // used to key that off `cloud_shell_height`, which normalises against the union of every
+    // Published so the march's erosion can tell a cloud's own base from its own top. Keying
+    // that off `cloud_shell_height` instead would normalise against the union of every
     // enabled deck — 800..12 000 m in the default sky — so a cumulus spanning 1 000..3 200 m
-    // sat at 0.018..0.214 of the shell and never left the base regime. See cloud.frag's
+    // would sit at 0.018..0.214 of the shell and never leave the base regime. See cloud.frag's
     // carve.
     deck_height01 = 0.0;
     float density_scale = la.w;
@@ -236,19 +234,19 @@ float deck_envelope(vec4 la, vec4 lb, vec4 lc, vec4 ld, int slot, vec2 xz, float
     vec2 along = wlen > 1e-3 ? wind_dir / wlen : vec2(1.0, 0.0);
     vec2 across = vec2(-along.y, along.x);
     // Cloud streets: convective rolls aligned with the shear, so the pattern is stretched
-    // along the wind. Real ones are 2-8 km apart and a few times that long. This used to divide
-    // by `weather_scale * 0.22` with a 4:1 stretch, which at the default 60 km weather scale
-    // drew ridges 13 km across and 53 km long -- a structure with no counterpart in the sky, and
-    // the other half of why a cumulus deck read as sausages.
+    // along the wind. Real ones are 2-8 km apart and a few times that long. Dividing by
+    // `weather_scale * 0.22` with a 4:1 stretch would, at the default 60 km weather scale, draw
+    // ridges 13 km across and 53 km long -- a structure with no counterpart in the sky, and
+    // enough on its own to make a cumulus deck read as sausages.
     vec2 street_uv = vec2(dot(wpln, along) * 0.33, dot(wpln, across)) / (weather_scale * 0.083);
     float weather_small = texture(cloud_weather_texture, street_uv + vec2(0.13)).r;
     weather = weather * 0.7 + weather_small * 0.3;
 
     // The tiled weather map is a *detail* modulation of the deck's own coverage, at a reduced
-    // amplitude — the §7.3 demotion. Where the coverage comes from is what changed: on the
-    // derived path it is the simulation's own value at this column, unique over hundreds of
-    // kilometres, so the tiling stops reading as tiling because the repeating thing is no
-    // longer the thing deciding whether there is a cloud here.
+    // amplitude — the §7.3 demotion. What decides the coverage is elsewhere: on the derived
+    // path it is the simulation's own value at this column, unique over hundreds of
+    // kilometres, so the tiling does not read as tiling, because the repeating thing is not
+    // the thing deciding whether there is a cloud here.
     const float WEATHER_DETAIL_AMPLITUDE = 0.35;
     float coverage = clamp(la.z + (weather - 0.5) * WEATHER_DETAIL_AMPLITUDE, 0.0, 1.0);
     coverage = clamp(coverage + anvil * smoothstep(0.55, 1.0, height01) * 0.55, 0.0, 1.0);
@@ -343,12 +341,12 @@ void add_derived_deck(int genus_index, float coverage, float density_scale, int 
     fold_envelope(e, deck_water, hg, deck_h01, envelope, water, profile, deck_height);
 }
 
-// One envelope evaluation at one world position — the whole of what used to be main()'s
-// body, factored so the supersampling loop below can average it over a texel's footprint.
-// `pattern_xz` is the world-anchored, wind-advected frame the weather modulation is evaluated
-// in (and the frame the march's carve will evaluate its own noise in — the two must agree or
-// the carve would cut shapes out of an envelope that stands somewhere else); `world_rel_xz`
-// the camera-relative frame the meteorology is looked up in.
+// One envelope evaluation at one world position, factored out of main() so the supersampling
+// loop below can average it over a texel's footprint. `pattern_xz` is the world-anchored,
+// wind-advected frame the weather modulation is evaluated in (and the frame the march's carve
+// will evaluate its own noise in — the two must agree or the carve would cut shapes out of an
+// envelope that stands somewhere else); `world_rel_xz` the camera-relative frame the
+// meteorology is looked up in.
 void bake_at(vec2 pattern_xz, vec2 world_rel_xz, float world_altitude,
              out float envelope, out float profile, out float water, out float deck_height)
 {
@@ -492,10 +490,9 @@ void main()
     float height01 = (float(texel.y) + 0.5) / float(max(size.y, 1));
     float world_altitude = mix(scene.cloud_global.y, scene.cloud_global.z, height01);
 
-    // The envelope is band-limited (no threshold happens here any more — the carve moved to
-    // the march), so a texel's mean over a few taps is an honest reconstruction; the
-    // supersampling that once existed to anti-alias the carve now only smooths the weather
-    // map's own finest modulation across a coarse far-window texel.
+    // The envelope is band-limited (no threshold happens here — the carve runs in the march),
+    // so a texel's mean over a few taps is an honest reconstruction; the supersampling only
+    // smooths the weather map's own finest modulation across a coarse far-window texel.
     uint taps = max(params.supersample, 1u);
     float envelope = 0.0;
     float profile = 0.0;

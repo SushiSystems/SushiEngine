@@ -27,17 +27,14 @@
  * @file signed_distance_field.hpp
  * @brief Baking a triangle mesh into a cube of signed distances.
  *
- * This used to be `render/gi/mesh_sdf_baker.hpp`, where it was a global-illumination
- * private. It is not: a mesh's distance field is what a renderer cones-traces
- * through, what a collision narrowphase queries, and what a soft-body cooker uses to
- * decide what is inside a shape. Keeping it behind the renderer meant the physics
- * could only reach it by depending upward, and an offline cooker would have needed a
+ * This is not a global-illumination private: a mesh's distance field is what a
+ * renderer cone-traces through, what a collision narrowphase queries, and what a
+ * soft-body cooker uses to decide what is inside a shape. Behind the renderer the
+ * physics could only reach it by depending upward, and an offline cooker would need a
  * device to import an asset.
  *
- * The bake itself is unchanged — the same closest-point routine, the same sign from
- * the nearest triangle's geometric normal, the same two-voxel padding. What changed
- * is what it reads: a @ref Geometry::TriangleMeshView instead of the renderer's
- * vertex struct, so it no longer knows or cares who owns the geometry.
+ * It reads a @ref Geometry::TriangleMeshView rather than any renderer vertex struct,
+ * so it neither knows nor cares who owns the geometry.
  */
 
 #include <cstddef>

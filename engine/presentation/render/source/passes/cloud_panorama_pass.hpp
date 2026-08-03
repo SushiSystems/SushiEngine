@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* cloud_panorama_pass.hpp                                               */
+/* cloud_panorama_pass.hpp                                                */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -35,8 +35,8 @@
  * driven by the sun/camera drifting continuously rather than a discrete author edit.
  * The image is pass-owned and barriered by hand, exactly as those two are.
  *
- * Landed as a verified, standalone bake this phase; wiring a consumer (the reflection
- * probe capture in `IBLPass`) is scoped out — see the W3 CHANGELOG entry for why.
+ * The bake is standalone: no consumer is wired to it yet. The reflection-probe capture
+ * in `IBLPass` is the intended one.
  */
 
 #include "passes/render_pass.hpp"

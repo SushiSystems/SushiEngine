@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* editor_contexts.hpp                                                   */
+/* editor_contexts.hpp                                                    */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -28,12 +28,12 @@
  * @file editor_contexts.hpp
  * @brief The editor's shortcut and tool keys, as rebindable input contexts.
  *
- * These replace the ad-hoc `ImGui::IsKeyPressed` polls that were scattered across `main.cpp` and
- * `editor_panels.cpp`: every shortcut is now one binding, in data, resolved once by the
- * `ActionMapper` and gated in one place (the ImGui capture gate). Consumers query the resolved
- * `ActionSnapshot` by action name and never touch a key code, so W/E/R and Ctrl+Z become rebindable
- * from the Authoring::Preferences page without any consumer change. Both Left and Right Control are
- * bound so either modifier satisfies a `Ctrl+*` shortcut, matching ImGui's `KeyCtrl`.
+ * Every shortcut is one binding, in data, resolved once by the `ActionMapper` and gated in one
+ * place (the ImGui capture gate), rather than an ad-hoc `ImGui::IsKeyPressed` poll at each
+ * consumer. Consumers query the resolved `ActionSnapshot` by action name and never touch a key
+ * code, so W/E/R and Ctrl+Z become rebindable from the Authoring::Preferences page without any
+ * consumer change. Both Left and Right Control are bound so either modifier satisfies a `Ctrl+*`
+ * shortcut, matching ImGui's `KeyCtrl`.
  */
 
 #include <SushiEngine/input/action_map.hpp>
@@ -49,7 +49,7 @@ namespace SushiEngine
          * Undo/Redo/Save/Copy/Cut/Paste plus the playback pair (Unity's Ctrl+P play/stop
          * and Ctrl+Shift+P pause), each chorded on Control. The ImGui capture gate
          * suppresses these while a text field owns the keyboard, so Ctrl+Z in a rename field is
-         * not hijacked — the `!WantTextInput` guard the old polls did by hand, centralized.
+         * not hijacked — one `!WantTextInput` guard, centralized rather than repeated by hand.
          *
          * Pressing Ctrl+Shift+P also satisfies the plain Ctrl+P chord (a chord requires
          * its modifiers, it does not exclude extras), so the toolbar tests "PauseToggle"
@@ -96,7 +96,7 @@ namespace SushiEngine
          * The Unity-style transform-tool selectors W/E/R (translate/rotate/scale). Camera flight
          * (WASD while right-mouse is held) stays on the viewport's own `Editor::InputState` seam;
          * the toolbar additionally stands these hotkeys down while right-mouse is held so they do
-         * not fight flight, exactly as before.
+         * not fight flight.
          *
          * @param context The (empty) context to populate; the caller owns it.
          */

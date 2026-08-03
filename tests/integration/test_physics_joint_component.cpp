@@ -25,11 +25,10 @@
  * @file test_physics_joint_component.cpp
  * @brief §5.5's `PhysicsJoint` from the authoring boundary down to the solver.
  *
- * P3 built the joint library, its force recovery and its break thresholds, and P3's
- * one outstanding item was that none of it could be reached from a scene: `ISimulation`
- * deliberately does not expose the physics boundary, so a joint could only be created
- * by C++ that named `IJointService` directly. These tests are the proof that the gap is
- * closed — an author attaches a component, and a body is held.
+ * `ISimulation` deliberately does not expose the physics boundary, so the only other way
+ * to reach the joint library, its force recovery and its break thresholds is C++ that
+ * names `IJointService` directly. These tests are the proof that a scene on its own is
+ * enough — an author attaches a component, and a body is held.
  *
  * The load-bearing assertion is the *control*: the hang test builds a third body
  * identically and joints it to nothing, so a pass means the joint held the first one

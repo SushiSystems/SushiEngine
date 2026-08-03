@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* test_graph_coloring.cpp                                               */
+/* test_graph_coloring.cpp                                                */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -97,7 +97,7 @@ TEST(Unit_GraphColoring, EmptyConstraintsProduceNoColors)
     EXPECT_TRUE(colors.empty());
 }
 
-// -- The incremental colouring, held to what determinism actually needs ------
+// The incremental colouring, held to what determinism actually needs.
 //
 // §17.5 carries a risk row: "incremental recolouring diverges from a full recolour
 // and breaks determinism", with the mitigation named as a test and the fallback
@@ -370,7 +370,7 @@ TEST(Unit_IncrementalColoring, RemovingAConstraintReleasesItsColourForReuse)
     EXPECT_EQ(store.live_count(), 0u);
 }
 
-// -- P6-J1: the same machinery over constraints with more than two endpoints ----
+// P6-J1: the same machinery over constraints with more than two endpoints.
 //
 // A tetrahedron touches four particles and both of its projections write to all
 // four. Coloured as though it were an edge, the two ignored particles are
@@ -394,9 +394,10 @@ namespace
 
 TEST(Unit_GraphColoring, TetrahedraSharingOnlyALateVertexStillConflict)
 {
-    // The regression the whole task is about. These two share particle 7, and they
-    // share it in slots 2 and 3 — the ones an `a`/`b` reading never looks at. Given
-    // the same colour they would be projected in parallel and both write particle 7.
+    // The conflict a partial reading of an element misses. These two share particle 7,
+    // and they share it in slots 2 and 3 — the ones an `a`/`b` reading never looks
+    // at. Given the same colour they would be projected in parallel and both write
+    // particle 7.
     std::vector<FEMTetrahedron> elements;
     elements.push_back(tet(0, 1, 7, 2));
     elements.push_back(tet(3, 4, 5, 7));
@@ -410,7 +411,7 @@ TEST(Unit_GraphColoring, TetrahedraSharingOnlyALateVertexStillConflict)
 
 TEST(Unit_GraphColoring, DisjointTetrahedraStillShareAColour)
 {
-    // The other half of the claim, and the one that stops the fix from being "give
+    // The other half of the claim, and the one that stops the colouring being "give
     // everything its own colour": elements that genuinely share nothing must still
     // batch together, or the sweep's depth becomes the element count.
     std::vector<FEMTetrahedron> elements;

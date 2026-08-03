@@ -231,9 +231,8 @@ void apply_clustered_decals(vec2 frag_coord, float view_z, vec3 world_pos, inout
 // Sums the direct contribution of every punctual light whose cluster this pixel is in.
 //
 // Two kinds of light meet here. One holds a tile in the shared shadow atlas and is
-// filtered against it exactly as before — clean, deterministic, and unchanged. The rest,
-// which used to be shaded fully unshadowed because there was no tile left for them, are
-// now *sampled*: each pixel picks a few of them in proportion to what they are worth to
+// filtered against it — clean and deterministic. The rest, for which no tile is left,
+// are *sampled*: each pixel picks a few of them in proportion to what they are worth to
 // it (radiance through falloff and cosine) and marches the scene distance field toward
 // each pick for visibility, weighting the result by one over the probability it was
 // picked. That estimator is unbiased, so averaging it over the temporal resolve's history

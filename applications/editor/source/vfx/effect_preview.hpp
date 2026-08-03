@@ -8,6 +8,10 @@
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
+/*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
 /* Unless required by applicable law or agreed to in writing, software    */
@@ -170,9 +174,9 @@ namespace SushiEngine
                  * @brief Whether the previewed effect is also drawn in the Scene view.
                  *
                  * Off by default, and deliberately opt-in: the Scene view shows the world, and a
-                 * previewed effect belongs to no entity, so leaving it on permanently is what made
-                 * the old preview read as a stray object nobody could select. Turned on, it is a
-                 * second look at what is being authored, in the scene's own lighting.
+                 * previewed effect belongs to no entity, so leaving it on permanently makes the
+                 * preview read as a stray object nobody can select. Turned on, it is a second
+                 * look at what is being authored, in the scene's own lighting.
                  */
                 bool scene_preview() const noexcept { return scene_preview_; }
 

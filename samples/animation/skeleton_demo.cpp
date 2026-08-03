@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* skeleton_demo.cpp                                                     */
+/* skeleton_demo.cpp                                                      */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -10,6 +10,7 @@
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
 /* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -64,7 +65,7 @@ namespace
 
     Matrix4 identity() { return Matrix4{}; }
 
-    // --- Math seam ------------------------------------------------------------------
+    // Math seam.
     void test_math()
     {
         // TRS decompose is the inverse of compose for a well-formed matrix.
@@ -109,7 +110,7 @@ namespace
         check(nearly(lerp(10.0f, 20.0f, 0.5f), 15.0), "scalar lerp");
     }
 
-    // --- Skeleton cook / load -------------------------------------------------------
+    // Skeleton cook / load.
     void test_skeleton()
     {
         // A four-joint arm chain, authored leaf-first so the cook's topological sort has

@@ -207,9 +207,9 @@ namespace SushiEngine
          * whether the selection agrees on it, and on an edit writes the new value to every
          * resolved entity as one undo step.
          *
-         * The field methods also absorb what used to be spelled at each call site — the
-         * `Scalar`/float narrowing, the undo bracket, the tooltip — so a section reads as a
-         * list of the component's fields rather than a list of ImGui calls.
+         * The field methods also absorb what would otherwise be spelled at each call site —
+         * the `Scalar`/float narrowing, the undo bracket, the tooltip — so a section reads as
+         * a list of the component's fields rather than a list of ImGui calls.
          *
          * @tparam Parameters The component's authoring parameter aggregate.
          */

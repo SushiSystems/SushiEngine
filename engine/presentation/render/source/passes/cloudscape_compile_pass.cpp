@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* cloudscape_compile_pass.cpp                                           */
+/* cloudscape_compile_pass.cpp                                            */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -10,6 +10,7 @@
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
 /* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -222,12 +223,12 @@ namespace SushiEngine
                               FIELD_RESOLUTION_XZ);
                 create_volume(far_, FIELD_RESOLUTION_XZ, FIELD_RESOLUTION_Y, FIELD_RESOLUTION_XZ);
 
-                // CLAMP_TO_EDGE, not REPEAT: the windows do not wrap any more (see
+                // CLAMP_TO_EDGE, not REPEAT: the windows do not wrap (see
                 // cloud_field_window.glsl). A lookup that leaves a window reads its nearest real
                 // weather rather than folding back into an unrelated piece of sky a span away,
                 // which is exactly the property the near/far cross-fade and the sun marches rely
                 // on. Linear filtering smooths the block boundaries the bake's discrete texels
-                // leave, as before.
+                // leave.
                 Resources::SamplerDescription sampler_description{};
                 sampler_description.filter = VK_FILTER_LINEAR;
                 sampler_description.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -561,11 +562,11 @@ namespace SushiEngine
                 const float time_seconds = uniforms.misc[2];
 
                 // "The" wind: deck 0's, the same dominant-deck convention the ground-shadow march
-                // and the old sample-time UV scroll both used. With genus resolved per column no
-                // single deck owns the sky any more, but the field still advects as one pattern,
-                // and the reference column's low deck is the honest choice for it — that is the
-                // column the camera is standing in. Accumulated in double: it is a velocity times
-                // a monotonically growing clock, and it is what the window's own origin tracks.
+                // uses. With genus resolved per column no single deck owns the sky, but the field
+                // still advects as one pattern, and the reference column's low deck is the honest
+                // choice for it — that is the column the camera is standing in. Accumulated in
+                // double: it is a velocity times a monotonically growing clock, and it is what
+                // the window's own origin tracks.
                 const double wind_x = double(uniforms.cloud_deck_c[0][0]) * double(time_seconds);
                 const double wind_z = double(uniforms.cloud_deck_c[0][2]) * double(time_seconds);
                 const float sun[3] = {uniforms.sun_dir[0], uniforms.sun_dir[1], uniforms.sun_dir[2]};

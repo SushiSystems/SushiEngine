@@ -187,11 +187,10 @@ namespace
     /**
      * @brief The largest distance between two poses, after removing any rigid motion.
      *
-     * Shape, not placement *and not orientation*. Removing the translation alone is
-     * not enough and the reason is worth stating, because an earlier version of this
-     * file did exactly that and reported a body that had recovered its rest shape to
-     * the last bit as having failed: nothing pins the orientation of a body floating
-     * in free space. A Gauss-Seidel sweep is not symmetric — it visits its
+     * Shape, not placement *and not orientation*. Removing the translation alone
+     * would report a body that has recovered its rest shape to the last bit as
+     * having failed, because nothing pins the orientation of a body floating in
+     * free space. A Gauss-Seidel sweep is not symmetric — it visits its
      * constraints in a fixed order and each projection sees the corrections the ones
      * before it already applied — so it imparts a small torque that no amount of
      * *velocity* damping can undo, because damping removes the spin and not the angle

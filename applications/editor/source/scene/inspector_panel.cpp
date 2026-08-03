@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* inspector_panel.cpp                                                   */
+/* inspector_panel.cpp                                                    */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -758,8 +758,8 @@ namespace SushiEngine
                         else
                             ImGui::TextDisabled("Does not bounce");
 
-                        // Trigger and continuous collision: both bits the solver has always
-                        // read off `Collider::flags`, and both were unauthorable until now.
+                        // Trigger and continuous collision: both bits the solver reads off
+                        // `Collider::flags`.
                         ImGui::SeparatorText("Behaviour");
                         editor.toggle("Trigger", &decltype(editor)::Values::trigger,
                                       "Reports overlaps as ContactEvent::trigger instead of "
@@ -978,10 +978,9 @@ namespace SushiEngine
 
             if (world->has_soft_body(id))
             {
-                // §16.45.2: `SoftBodyParameters` was wired end to end into the solver as
-                // thoroughly as `ClothParameters` and had no Inspector section at all — the only
-                // way to put one on an entity was `IWorldEditor::create_soft_body`, called by
-                // nothing in the editor. This is that section.
+                // §16.45.2: the Inspector section over `SoftBodyParameters`, which the solver
+                // reads as thoroughly as `ClothParameters`. Without it the only way to put one
+                // on an entity is `IWorldEditor::create_soft_body`.
                 const ComponentSection section = component_header(context, "Soft Body");
                 if (section.remove)
                 {

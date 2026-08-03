@@ -29,11 +29,11 @@
  *
  * A projection belongs with its constraint, not with a solver: §3.2 gives
  * `physics/constraints` the joint descriptors *and their projections*, while
- * `physics/solver` owns only the schedule. The practical consequence is what moved
- * it here — the projection used to live in `xpbd_solver.hpp`, which includes
- * SushiRuntime, so a host solver could not use the same arithmetic without dragging
- * in the runtime it exists to avoid. Two solvers running *different* arithmetic
- * cannot be held to a conformance suite, which would have made §4.4 unenforceable.
+ * `physics/solver` owns only the schedule. The practical consequence is why it sits
+ * here and not in `xpbd_solver.hpp`, which includes SushiRuntime: a host solver
+ * could not use the same arithmetic without dragging in the runtime it exists to
+ * avoid, and two solvers running *different* arithmetic cannot be held to a
+ * conformance suite, which would make §4.4 unenforceable.
  *
  * The functor is captureless, so it crosses into device code untouched, and it is
  * the pattern every future constraint kind follows: a trivially-copyable descriptor
@@ -63,17 +63,17 @@ namespace SushiEngine
          *
          * The generalized inverse mass and both impulses go through
          * `core/rigid_body.hpp`'s shared helpers rather than being spelled out here.
-         * That is not tidying: this projection used to carry its own copy, and the
-         * copy applied its angular correction as a **body-local** vector while
+         * That is not tidying. A private copy of the arithmetic is where the angular
+         * correction gets applied as a **body-local** vector while
          * `apply_angular_correction` left-multiplies and therefore expects a
-         * world-frame one. The correct delta is `R (I_local^-1 R^T (r x p))`; the
-         * missing rotation back left every rotated body turning about the wrong
-         * axis, so a distance constraint on a tumbling body did not conserve angular
-         * momentum. It was invisible to cloth and particles, whose inverse inertia is
-         * zero, and invisible to the conformance suite, because both implementations
-         * shared the one wrong formula. One formulation, used everywhere, cannot
-         * disagree with itself — which is the same argument §1.3 made for unifying
-         * the plane and pair contact paths.
+         * world-frame one. The correct delta is `R (I_local^-1 R^T (r x p))`; without
+         * the rotation back, every rotated body turns about the wrong axis and a
+         * distance constraint on a tumbling body does not conserve angular momentum.
+         * Such a defect is invisible to cloth and particles, whose inverse inertia is
+         * zero, and invisible to a conformance suite in which both implementations
+         * share the one wrong formula. One formulation, used everywhere, cannot
+         * disagree with itself — the same argument §1.3 makes for unifying the plane
+         * and pair contact paths.
          */
         template <typename T>
         struct XPBDDistanceProjectionT

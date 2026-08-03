@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -22,14 +24,12 @@
 // Unit_DistanceProjection: the XPBD rigid distance constraint, measured against a
 // conservation law rather than against itself.
 //
-// This file exists because of a bug the existing tests could not see. The
-// projection carried its own copy of the generalized-inverse-mass arithmetic, and
-// that copy applied its angular correction as a body-local vector where
-// apply_angular_correction expects a world-frame one. Every rotated body therefore
-// turned about the wrong axis. Cloth and particles never noticed (their inverse
-// inertia is zero, so there is no angular term at all), and the solver conformance
-// suite never noticed either, because both the host and the device implementation
-// call the same functor and so shared the same wrong formula.
+// The defect this file exists to see is a frame error: an angular correction applied
+// as a body-local vector where apply_angular_correction expects a world-frame one,
+// which turns every rotated body about the wrong axis. The obvious tests are blind to
+// it. Cloth and particles have zero inverse inertia, so there is no angular term at
+// all, and the solver conformance suite compares a host and a device implementation
+// that call the same functor, so a wrong formula is shared rather than exposed.
 //
 // What catches it is a physical invariant no implementation gets a vote on. A
 // constraint impulse is internal: it acts equal and opposite along the line joining
@@ -39,7 +39,7 @@
 //     sum over bodies of [ I_world * dtheta + x cross (m * dx) ]  ==  0
 //
 // and it is identically zero only when dtheta is the *world*-frame rotation the
-// impulse implies. Under the old code it was zero for an unrotated body and nine
+// impulse implies. A body-frame dtheta leaves it zero for an unrotated body and nine
 // orders of magnitude larger for a rotated one.
 
 #include <cmath>
@@ -140,8 +140,8 @@ namespace
     }
 } // namespace
 
-// The case the old code got right, kept as the control: with both bodies unrotated
-// the body frame and the world frame coincide, so a frame error cannot show.
+// The control: with both bodies unrotated the body frame and the world frame
+// coincide, so a frame error cannot show here even when there is one.
 TEST(Unit_DistanceProjection, ConservesMomentumForUnrotatedBodies)
 {
     Vector3 linear;
@@ -153,10 +153,10 @@ TEST(Unit_DistanceProjection, ConservesMomentumForUnrotatedBodies)
     EXPECT_LT(length(angular), 1e-12);
 }
 
-// The case it got wrong. A constraint impulse is internal, so it cannot change the
-// pair's angular momentum however the two bodies happen to be oriented. Under the
-// old body-frame correction this came out at 7e-6 — small enough to look like noise
-// in a scene and large enough to be a body turning about the wrong axis.
+// The case that exposes a frame error. A constraint impulse is internal, so it cannot
+// change the pair's angular momentum however the two bodies happen to be oriented. A
+// body-frame correction leaves 7e-6 here — small enough to look like noise in a scene
+// and large enough to be a body turning about the wrong axis.
 TEST(Unit_DistanceProjection, ConservesMomentumForRotatedBodies)
 {
     const Quaternion qa = quaternion_axis_angle(normalize(Vector3{0.3, 1.0, -0.5}), 0.9);
@@ -191,10 +191,10 @@ TEST(Unit_DistanceProjection, ConservesMomentumAcrossASweepOfOrientations)
         }
 }
 
-// The constraint still does its job: a hard (zero-compliance) constraint on a
-// rotated pair converges to its rest length. It did before the fix too — an
-// iterative solver corrects its own errors given enough sweeps, which is exactly
-// why the defect survived — but a regression here would be unambiguous.
+// The constraint does its job: a hard (zero-compliance) constraint on a rotated pair
+// converges to its rest length. Convergence on its own is a weak signal — an iterative
+// solver corrects its own errors given enough sweeps, so a frame error can hide behind
+// it — but a failure here would be unambiguous.
 TEST(Unit_DistanceProjection, HardConstraintReachesItsRestLength)
 {
     const Quaternion qa = quaternion_axis_angle(normalize(Vector3{0.3, 1.0, -0.5}), 0.9);
@@ -216,8 +216,8 @@ TEST(Unit_DistanceProjection, HardConstraintReachesItsRestLength)
 }
 
 // A body with no rotational freedom must behave exactly as the purely linear
-// projection does — this is the path cloth and particles take, and the one the old
-// code got right by accident, so it is worth pinning down.
+// projection does — this is the path cloth and particles take, and the one no
+// angular frame error can reach, so it is worth pinning separately.
 TEST(Unit_DistanceProjection, BodiesWithoutRotationSplitByInverseMassAlone)
 {
     Scene scene = make_scene(quaternion_axis_angle(Vector3{0.0, 1.0, 0.0}, 0.7),

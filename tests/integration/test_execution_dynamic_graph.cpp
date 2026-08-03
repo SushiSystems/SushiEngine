@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* test_execution_dynamic_graph.cpp                                      */
+/* test_execution_dynamic_graph.cpp                                       */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -22,14 +22,13 @@
 /**************************************************************************/
 
 // P8's "one DynamicGraph region per island" (docs/slop/physics_system.md §6.6, §18 R3)
-// leans on a capability the engine's execution seam did not expose until now: every
-// physics node built against Execution::Graph today, and DynamicGraph/Region sat
-// unused in SushiRuntime because nothing here named them. This is the seam-level
-// proof that the new Execution::DynamicGraph/Execution::Region wrappers behave the
-// way RuntimeGraphBuilder's future per-island wiring will depend on: two regions
-// keyed independently, a drop that takes effect immediately for has_region() and
-// leaves the other region's own state untouched, and a run that recomposes without
-// the caller driving a separate commit step.
+// leans on the execution seam's region wrappers, which the physics nodes themselves do
+// not use: they build against Execution::Graph. This is the seam-level proof that
+// Execution::DynamicGraph/Execution::Region behave the way RuntimeGraphBuilder's
+// per-island wiring will depend on: two regions keyed independently, a drop that takes
+// effect immediately for has_region() and leaves the other region's own state
+// untouched, and a run that recomposes without the caller driving a separate commit
+// step.
 
 #include <cstdint>
 

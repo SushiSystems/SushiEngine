@@ -505,8 +505,8 @@ namespace SushiEngine
                         body.inv_mass =
                             (pinned || !(record.mass > Scalar(0))) ? T(0) : T(1) / T(record.mass);
                         body.material_index = settings.node_material_index;
-                        // §11.6, at the shell's end: the cooker measured each node's
-                        // tributary area and until now nothing read it. A node is a flat
+                        // §11.6, at the shell's end: the cooker measures each node's
+                        // tributary area, and this is what reads it. A node is a flat
                         // patch of panel, so its drag coefficient is a plate's; the
                         // constant is derived here rather than authored because what an
                         // asset has is an area and what `predict` spends is an

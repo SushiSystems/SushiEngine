@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* dual_quaternion_skinning.hpp                                          */
+/* dual_quaternion_skinning.hpp                                           */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -18,7 +18,7 @@
 /* distributed under the License is distributed on an "AS IS" BASIS,      */
 /* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or        */
 /* implied. See the License for the specific language governing           */
-/* permissions and limitations under the License.                        */
+/* permissions and limitations under the License.                         */
 /**************************************************************************/
 
 #pragma once
@@ -52,8 +52,7 @@
  * into `skinning.comp`/`SkinningPass` needs a second, parallel palette representation
  * (dual quaternions, not `JointMatrix`) threaded through the evaluator → palette → GPU
  * buffer chain — real plumbing, deliberately not attempted blind here, since none of it can
- * be visually verified without a GPU display (the same constraint the original morph-target
- * shader work was built under before the user's own visual confirmation closed it out).
+ * be visually verified without a GPU display.
  */
 
 #include <cmath>

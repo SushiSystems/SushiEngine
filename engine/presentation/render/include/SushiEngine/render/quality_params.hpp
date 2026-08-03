@@ -44,10 +44,10 @@
  * This tier is a *render* tier. Simulation budgets resolve through their own tier —
  * the atmosphere nest's grid through `resolve_atmosphere_quality` in
  * `SushiEngine/simulation/simulation_settings.hpp` — so a rendering knob can never decide a
- * simulation outcome (changing the render tier used to rebuild the nest and destroy
- * the running weather). Every field here must have a consumer: a resolved value
- * nothing reads is a lie about what the tier does, and gets deleted rather than kept
- * aspirationally.
+ * simulation outcome. A render tier must not carry the nest's grid: it would rebuild the
+ * weather simulation at a different resolution and destroy the running weather. Every
+ * field here must have a consumer: a resolved value nothing reads is a lie about what the
+ * tier does, and gets deleted rather than kept aspirationally.
  */
 
 #include <cstdint>
@@ -93,11 +93,12 @@ namespace SushiEngine
              * @brief The cloud march's far-field sampling density.
              *
              * Scales the march's angular step rate: 32 is the calibration reference, and
-             * higher values step more finely at distance. It used to divide the march
-             * length instead, which made the resulting step depend on where a ray happened
-             * to leave the cloud shell rather than on the tier — the same setting resolved
-             * a horizon ray at kilometres per sample and a ray straight up at hundreds of
-             * metres. As a rate it means one sampling density in every direction.
+             * higher values step more finely at distance. A rate, not a divisor of the
+             * march length — dividing the length would make the step depend on where a ray
+             * happened to leave the cloud shell rather than on the tier, so one setting
+             * would resolve a horizon ray at kilometres per sample and a ray straight up at
+             * hundreds of metres. As a rate it means one sampling density in every
+             * direction.
              */
             std::uint32_t cloud_primary_steps_far = 32;
 
@@ -111,9 +112,9 @@ namespace SushiEngine
              * Not a raw pixel size — `CloudPass`'s march target and `CloudTAAPass`'s
              * fixed half-output history reconstruct across whatever this resolves to,
              * the same render/output-extent split `taa.frag` already handles for the
-             * main resolve. Low shades a third of the axis, Medium/High hold the
-             * historical half, Ultra pushes partway toward "full" without doubling the
-             * cost the table's "½–full" upper bound would imply.
+             * main resolve. Low shades a third of the axis, Medium/High hold half,
+             * Ultra pushes partway toward "full" without doubling the cost the table's
+             * "½–full" upper bound would imply.
              */
             float cloud_buffer_scale = 0.5f;
 
@@ -121,12 +122,12 @@ namespace SushiEngine
              * @brief Whether the march applies W3's near/far behavioural split, design
              * doc §4.7's "+near split" table cell (High/Ultra only).
              *
-             * The literal dual-viewport near/far resolution split (§4.4) is deferred —
-             * see the W3 CHANGELOG entry — so this instead gates the in-shader
-             * simplification: the near band (<200 m) keeps full march quality already,
-             * and this additionally freezes the march's temporal dither beyond 250 m
-             * (Nubis3's "jitter animated only <250m, static hash beyond"), which is what
-             * keeps the cloud TAA's distant silhouettes from ever re-jittering.
+             * The literal dual-viewport near/far resolution split (§4.4) is deferred, so
+             * this instead gates the in-shader simplification: the near band (<200 m)
+             * keeps full march quality already, and this additionally freezes the march's
+             * temporal dither beyond 250 m (Nubis3's "jitter animated only <250m, static
+             * hash beyond"), which is what keeps the cloud TAA's distant silhouettes from
+             * ever re-jittering.
              */
             bool cloud_near_far_split = false;
 
@@ -270,8 +271,8 @@ namespace SushiEngine
              * acceleration structure instead of (not in addition to) the cascade
              * lookup's filtered answer. Gated further by the author's
              * @c ShadowSettings::ray_traced, so this only permits it. Resolved here so
-             * the pass reads a parameter — it used to branch on the raw tier enum,
-             * the one violation of this file's "no pass reads the raw enum" contract.
+             * the pass reads a parameter rather than the raw tier enum, which this
+             * file's "no pass reads the raw enum" contract forbids.
              */
             bool ray_traced_shadows = false;
 

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* test_ingested_weather.cpp                                             */
+/* test_ingested_weather.cpp                                              */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -18,7 +18,7 @@
 /* distributed under the License is distributed on an "AS IS" BASIS,      */
 /* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or        */
 /* implied. See the License for the specific language governing           */
-/* permissions and limitations under the License.                        */
+/* permissions and limitations under the License.                         */
 /**************************************************************************/
 
 // Unit_IngestedWeather: W6's IngestedWeather provider (docs/slop/weather_and_clouds.md §5.4/§7)

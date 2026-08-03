@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* animation_benchmark.cpp                                              */
+/* animation_benchmark.cpp                                                */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -52,7 +56,7 @@ namespace
 
 int main()
 {
-    // --- An 80-joint chain skeleton -------------------------------------------------
+    // An 80-joint chain skeleton.
     SkeletonDescription skeleton_description;
     skeleton_description.joints.resize(JOINTS);
     for (std::uint32_t j = 0; j < JOINTS; ++j)
@@ -68,7 +72,7 @@ int main()
         return 1;
     }
 
-    // --- A compressed clip: most joints rotate gently, a realistic locomotion shape --
+    // A compressed clip: most joints rotate gently, a realistic locomotion shape.
     ClipDescription clip_description;
     clip_description.joint_count = JOINTS;
     clip_description.frame_count = FRAMES;
@@ -107,7 +111,7 @@ int main()
     const SkeletonView skeleton = database.skeleton(skeleton_id);
     const ClipView clip = database.clip(clip_id);
 
-    // --- The reference crowd: 100 hero (close), 1000 crowd (far) ---------------------
+    // The reference crowd: 100 hero (close), 1000 crowd (far).
     std::vector<BatchInstance> instances;
     instances.reserve(HERO + CROWD);
     for (std::size_t i = 0; i < HERO; ++i)

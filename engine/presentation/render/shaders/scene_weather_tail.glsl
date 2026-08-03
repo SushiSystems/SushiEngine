@@ -3,10 +3,10 @@
 // very end of the block.
 //
 // std140 offsets are positional, so a shader cannot declare a later member without also
-// declaring every earlier one. Four cloud shaders need the last three vec4s and previously
-// stopped at sky_stars; rather than have each repeat (and eventually mis-copy) the same nine
-// intervening members, they include this. Anything appended to `Scene::SceneUniforms` past
-// light_shadow_b belongs here, in the same order.
+// declaring every earlier one. Four cloud shaders need the last three vec4s; rather than have
+// each repeat (and eventually mis-copy) the same nine intervening members, they include this.
+// Anything appended to `Scene::SceneUniforms` past light_shadow_b belongs here, in the same
+// order.
 
 vec4 planet_ring;      // x = near-field ring inner radius (m), y = outer radius (m); 0 = none
 vec4 planet_precision; // ellipsoid terms formed in double; see scene_uniforms.hpp

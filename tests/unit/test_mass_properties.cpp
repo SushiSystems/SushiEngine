@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -21,14 +23,12 @@
 
 // Unit_MassProperties: mass and inertia derived from a shape and a density.
 //
-// These were written in P0 and only wired up in P2, which is exactly the interval
-// in which an untested closed form goes wrong without anyone noticing. The
+// A closed form nothing checks goes wrong without anyone noticing, so the
 // assertions are of two kinds. The primitives are checked against the textbook
-// formula written out independently here. The capsule — the one added for P2, and
-// the only one with a term that is easy to drop — is checked against its own
-// limits: with no segment it must *be* a sphere, and as its caps shrink its
-// inertia must approach the cylinder's. A dropped parallel-axis term passes
-// neither.
+// formula written out independently here. The capsule — the only one with a term
+// that is easy to drop — is checked against its own limits: with no segment it
+// must *be* a sphere, and as its caps shrink its inertia must approach the
+// cylinder's. A dropped parallel-axis term passes neither.
 
 #include <cmath>
 

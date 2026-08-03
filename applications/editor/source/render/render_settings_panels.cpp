@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* render_settings_panels.cpp                                            */
+/* render_settings_panels.cpp                                             */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -42,8 +42,8 @@ namespace SushiEngine
         {
             // The one frame for every settings panel's "Tier resolves to" readout:
             // resolve once, through the same resolver the renderer runs, and let the
-            // panel print only the lines its domain owns. The frame lived as three
-            // hand-rolled copies before, which is exactly how readouts drift.
+            // panel print only the lines its domain owns. Hand-rolled copies per panel
+            // are exactly how readouts drift.
             void draw_tier_readout(const SushiEngine::Render::RenderSettings& settings,
                                    void (*draw_lines)(const SushiEngine::Render::ResolvedQuality&))
             {
@@ -457,8 +457,8 @@ namespace SushiEngine
                     // the control that decides whether a night scene can be resolved at all is
                     // the one called "Minimum", which reads exactly backwards. The range
                     // reaches -16 because a physically lit night sits around 1e-5 in scene
-                    // units and needs ~1000x of gain; the old -10 floor could not express it,
-                    // so a correct night was unreachable rather than merely mistuned.
+                    // units and needs ~1000x of gain; a -10 floor cannot express that, which
+                    // makes a correct night unreachable rather than merely mistuned.
                     ImGui::SliderFloat("Darkest Metered", &post.auto_exposure.min_ev, -16.0f, 8.0f,
                                        "%.1f log2");
                     hint("The darkest scene the eye will adapt to, as log2 of luminance in "
@@ -619,8 +619,7 @@ namespace SushiEngine
                 ImGui::PopID();
             }
 
-            // The Scene view's real cull counts, read back a frame late by the main loop
-            // — the numbers the old "Show statistics" checkbox only promised.
+            // The Scene view's real cull counts, read back a frame late by the main loop.
             ImGui::SeparatorText("Last frame");
             if (context.scene_cull_tested == 0)
                 ImGui::TextDisabled("No GPU-driven frame yet (classic path, or the tier "

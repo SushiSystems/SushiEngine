@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* animator_controller.hpp                                               */
+/* animator_controller.hpp                                                */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -87,7 +91,7 @@ namespace SushiEngine
         // MAX_PARAMETERS and MAX_LAYERS are defined in animator_components.hpp (the low-level
         // column header this file's blob shares them with), reached via blend_tree.hpp above.
 
-        // --- Cooked POD records (blob storage) ----------------------------------------
+        // Cooked POD records (blob storage).
 
         /** @brief One parameter: its name hash, type, and default. */
         struct ParameterRecord
@@ -231,7 +235,7 @@ namespace SushiEngine
             }
         };
 
-        // --- Host authoring description ------------------------------------------------
+        // Host authoring description.
 
         struct ConditionDescription
         {

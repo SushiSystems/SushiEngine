@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* soft_body_demo.cpp                                                    */
+/* soft_body_demo.cpp                                                     */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -46,7 +48,7 @@ int main()
     auto runtime = SushiRuntime::API::Runtime::create();
     Execution::Context execution(runtime);
 
-    // --- Soft body: a pinned-top lattice that holds its shape under gravity --------
+    // Soft body: a pinned-top lattice that holds its shape under gravity.
     const Scalar spacing = Scalar(0.5);
     const Scalar h = Scalar(1.0 / 60.0) / Scalar(SUBSTEPS);
     const Vector3 origin{0, Scalar(3), 0};
@@ -67,7 +69,7 @@ int main()
         world.body_count() == N * N * N && world.compile_count() == 1 &&
         std::fabs(double(gap) - double(spacing)) < 0.2;
 
-    // --- Contacts: a dropped particle rests exactly on the ground ------------------
+    // Contacts: a dropped particle rests exactly on the ground.
     RigidBody particle;
     particle.position = Vector3{0, Scalar(5), 0};
     particle.inv_mass = Scalar(1);

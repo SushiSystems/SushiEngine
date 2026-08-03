@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -346,7 +348,6 @@ TEST(Integration_PhysicsSimulation, TheStepReportsWhatItContained)
     // graph, and lives in test_runtime_graph_builder.cpp.
 }
 
-// ---------------------------------------------------------------------------
 // Contact events: what touched what, reported to gameplay (P1).
 //
 // The last thing P1 owed. It is the cheapest part of the phase to write and the
@@ -354,7 +355,6 @@ TEST(Integration_PhysicsSimulation, TheStepReportsWhatItContained)
 // than a value: a Begin that repeats every tick, an End that never arrives, or an
 // order that depends on the broadphase's insertion history rather than on the
 // scene. So these tests watch the sequence and not just the contents.
-// ---------------------------------------------------------------------------
 
 namespace
 {

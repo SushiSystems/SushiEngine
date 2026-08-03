@@ -159,15 +159,14 @@ void main()
 
     // ---- Neighbourhood rejection ---------------------------------------------------------
     //
-    // Not optional at any tier. `variance_clip` used to switch this block off entirely on Low,
-    // leaving a plain EMA — and the clip is the *only* mechanism in this resolve that ever
-    // removes a stale sample from the history. Without it a reprojection error does not decay,
-    // it compounds: every frame folds up to 97 % of the previous answer forward, so a deck the
-    // camera has moved past persists for ~33 frames. That is the reported trail, and it is why
-    // it appeared under motion and nowhere else. Switching rejection off does not buy a
-    // cheaper, softer resolve; it buys a wrong one, in the most visible way available.
+    // Not optional at any tier. Switching this block off leaves a plain EMA, and the clip is
+    // the *only* mechanism in this resolve that ever removes a stale sample from the history.
+    // Without it a reprojection error does not decay, it compounds: every frame folds up to
+    // 97 % of the previous answer forward, so a deck the camera has moved past trails for ~33
+    // frames, under motion and nowhere else. Switching rejection off does not buy a cheaper,
+    // softer resolve; it buys a wrong one, in the most visible way available.
     //
-    // The tier knob therefore now selects *which* rejection rather than *whether*: the 9-tap
+    // The tier knob therefore selects *which* rejection rather than *whether*: the 9-tap
     // YCoCg variance clip above the cheap floor, and a 5-tap cross min/max clamp on it. The
     // cross costs four taps of a texture already resident and bounds the history by the
     // extremes actually present around the pixel, which is all that is needed to stop
@@ -175,12 +174,11 @@ void main()
     // variance box — so the cheap tier trades a little temporal stability for a resolve that
     // cannot smear, which is the right side of that trade to be on.
     //
-    // **Alpha is clamped alongside the colour, in both paths.** It was previously blended with
-    // no rejection at all under either setting. This buffer's alpha is the march's
-    // transmittance and CloudCompositePass folds the sky through it, so an unbounded alpha
-    // history leaves a stale *silhouette* — a cloud-shaped hole in the sky with correctly
-    // resolved colour inside it. Clipping the colour alone would have fixed the trail's hue
-    // and left its shape.
+    // **Alpha is clamped alongside the colour, in both paths.** This buffer's alpha is the
+    // march's transmittance and CloudCompositePass folds the sky through it, so an unbounded
+    // alpha history leaves a stale *silhouette* — a cloud-shaped hole in the sky with
+    // correctly resolved colour inside it. Clipping the colour alone fixes a trail's hue and
+    // leaves its shape.
     float history_alpha = history.a;
     if (push.variance_clip != 0u)
     {

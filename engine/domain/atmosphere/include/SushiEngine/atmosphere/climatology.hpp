@@ -57,15 +57,15 @@ namespace SushiEngine
         /**
          * @brief The latitude bands T0 degrades to when there is no baked asset.
          *
-         * These seven numbers were fields of `QuasiGeostrophicParameters` until T0 existed, and
-         * they moved here because they are not parameters *of the dynamics* — they are the
-         * cheapest possible statement of a mean state, standing exactly where a real
-         * climatology stands. Keeping them in the physics struct made "what the atmosphere is
-         * relaxing toward" indistinguishable from "how the atmosphere relaxes", and only one of
-         * those two is replaced by an ERA5 bake.
+         * These seven numbers are not parameters *of the dynamics* — they are the cheapest
+         * possible statement of a mean state, standing exactly where a real climatology
+         * stands, which is why they live here and not in `QuasiGeostrophicParameters`. Holding
+         * them in the physics struct would make "what the atmosphere is relaxing toward"
+         * indistinguishable from "how the atmosphere relaxes", and only one of those two is
+         * replaced by an ERA5 bake.
          *
-         * The defaults are Earth's, so a core built without a word about climatology behaves
-         * the way every core built before this file existed did.
+         * The defaults are Earth's, so a core built without a word about climatology still
+         * relaxes toward a recognisable Earth.
          */
         struct AnalyticClimatology
         {

@@ -11,18 +11,18 @@
 // which the codebase already tolerates elsewhere (mesh/ground shadowing from secondary
 // punctual casters is its own disabled path today, see pbr.frag's `false &&` guard).
 //
-// **Phase B: the map became a place, not a pattern.** It used to be addressed by
-// `fract(position.xz / tile)`, so one 32 km bake was repeated across the whole world — which
-// was defensible only while the sky above it was uniform. Now that the cloudscape bake
-// resolves coverage per column (docs/slop/atmosphere_system.md §7.4), repeating it would
-// stamp one region's shadows onto every other region's ground. It instead covers exactly the
-// camera-centred near window, and past that window's rim the shadow fades to none.
+// **The map is a place, not a pattern.** Addressed by `fract(position.xz / tile)` one 32 km
+// bake would repeat across the whole world, which is defensible only while the sky above it is
+// uniform. With the cloudscape bake resolving coverage per column
+// (docs/slop/atmosphere_system.md §7.4), repeating it would stamp one region's shadows onto
+// every other region's ground. It instead covers exactly the camera-centred near window, and
+// past that window's rim the shadow fades to none.
 //
-// That fade is a named limit, not an oversight: ground more than ~16 km from the camera loses
-// its cloud shadow entirely. Before phase B it had one, but it was the *wrong* one (a
-// repeated copy of the camera's own patch), and at that distance a wrong dappling reads as
-// texture while a missing one reads as haze. Reaching further wants a second, coarser shadow
-// cascade over the far window — the natural follow-up, and cheap, but a separate change.
+// That fade is a named limit, not an oversight: ground more than ~16 km from the camera has
+// no cloud shadow at all. A repeated copy of the camera's own patch would give it one, but
+// the *wrong* one, and at that distance a wrong dappling reads as texture while a missing one
+// reads as haze. Reaching further wants a second, coarser shadow cascade over the far window
+// — the natural follow-up, and cheap, but a separate change.
 
 // How far across the window's outer rim the shadow fades to none. Matches
 // cloud_field_window.glsl's CLOUD_WINDOW_BLEND_START so the ground stops being shadowed over

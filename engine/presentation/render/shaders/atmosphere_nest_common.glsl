@@ -181,12 +181,13 @@ float nest_base_density(float altitude)
 // It lives in this shared header rather than beside each user because the volume it describes
 // is one volume: a copy that drifted, or a reader that never learned about the scale at all,
 // is off by a factor of a thousand with no symptom the shader itself can see. That is not
-// hypothetical — it is exactly how this diagnostic first reported 69500% relative humidity.
+// hypothetical: a missed scale here surfaces as a diagnostic reporting 69500 % relative
+// humidity.
 //
 // Note also what the channels are: **total** vapour, cloud and rain mixing ratios, not
 // perturbations about the base state, unlike `theta` and the wind components next to them.
 // The two conventions sitting side by side in one nest is the single easiest thing to get
-// wrong here, and it has been got wrong twice.
+// wrong here.
 //
 // The fourth channel is the odd one out and is deliberately *not* scaled by this: it is the
 // diagnosed cloud fraction, already dimensionless and already in [0, 1]. It is stored beside
@@ -322,8 +323,8 @@ float nest_condensation_efficiency(float saturation, float temperature)
 // its humidity is a cell mean, and a fair-weather cumulus is a 200 m - 1 km thermal that is
 // saturated inside while the cell around it is not. Condensing only when the mean saturates
 // therefore cannot produce one -- it produces nothing until the whole 4 km^2 column saturates,
-// and then it produces fog. That is measured: before this existed the mixed-layer top ran
-// 78-95 % relative humidity and never crossed, and every run that made condensate made it at
+// and then it produces fog. That is measured: without this closure the mixed-layer top runs
+// 78-95 % relative humidity and never crosses, and the only condensate any run produces is at
 // 19 m.
 //
 // So the humidity inside a cell is a *distribution* about its mean, taken as a top-hat of
@@ -412,15 +413,15 @@ float nest_sponge_weight(float altitude)
 // moisture through its depth — which is what turns a surface flux into a boundary layer instead
 // of a hotplate.
 //
-// **Why not the simpler parabola 4*K_peak*f*(1-f).** That was the first form here and it fails in
-// exactly the place that decides whether this model makes cloud. Near the ground it goes as
-// K_peak * (z/h), so its near-surface diffusivity *weakens as the layer deepens* — and the lowest
-// face is the one that must carry the entire surface flux out of a 54 m level. The feedback is
-// perverse and it was measured: with a 2 500 m layer the lowest face saw 12 m^2/s, the surface
-// level sat 9 K above the one 80 m over it, the layer never homogenised, and its top reached only
-// 57 % relative humidity in eight hours of heating. Troen-Mahrt's slope does not know h at all, so
-// the same authored number gives 45 m^2/s there instead. A model normalised to a peak cannot
-// express that, which is why the parameter is a *velocity scale* and not a diffusivity.
+// **Why not the simpler parabola 4*K_peak*f*(1-f).** It fails in exactly the place that decides
+// whether this model makes cloud. Near the ground it goes as K_peak * (z/h), so its near-surface
+// diffusivity *weakens as the layer deepens* — and the lowest face is the one that must carry the
+// entire surface flux out of a 54 m level. The feedback is perverse, and measured: with a
+// 2 500 m layer the lowest face sees 12 m^2/s, the surface level sits 9 K above the one 80 m
+// over it, the layer never homogenises, and its top reaches only 57 % relative humidity in eight
+// hours of heating. Troen-Mahrt's slope does not know h at all, so the same authored number gives
+// 45 m^2/s there instead. A model normalised to a peak cannot express that, which is why the
+// parameter is a *velocity scale* and not a diffusivity.
 //
 // @param face_altitude Altitude of the level face, metres above the surface.
 // @param depth         This column's diagnosed mixed-layer depth, metres. Per column and not
@@ -466,39 +467,39 @@ float nest_seed_corner(ivec3 lattice)
 //
 // Its *caller* decides what it perturbs, and `atmosphere_forces.comp` scales the surface flux by
 // it rather than adding it to theta — see there for why an additive kick redrawn every step is a
-// random walk with no bound, and what that random walk did.
+// random walk with no bound, and what such a walk does to a level that decouples.
 //
-// **Correlated, and in physical units.** This was white noise on (cell index, step index), which
-// gave it three properties, none of them true of the ground: no length scale but one cell, no time
+// **Correlated, and in physical units.** White noise on (cell index, step index) has three
+// properties, none of them true of the ground: no length scale but one cell, no time
 // scale but one step, and — because both of those are *grid* quantities — a dependence on the
 // render quality tier and on how the frame rate happens to break the step.
 //
-// Measured, and the measurement is the reason this changed. `atmosphere_probe` grew two domain
+// Measured, and the measurement is what fixes both scales. `atmosphere_probe` carries two domain
 // diagnostics for it (`sky_coverage_sd`, `sky_coverage_roughness`) because the mean coverage
 // cannot tell a broken cumulus field from a sheet of the same total cloud, and that distinction is
 // the *entire* question a symmetry-breaking seed exists to decide. Roughness over simulated hours
 // 3-6, relative to running with the seed switched off altogether:
 //
 //     no seed at all                        1.00
-//     white in space and time (as it was)   1.22   <-- what the model actually had
+//     white in space and time               1.22
 //     6 km in space, white in time          1.25
 //     6 km / 60 s                           1.88
 //     3.7 m / 900 s                         3.15
 //     24 km / 900 s                         2.27
 //     6 km / 900 s (this)                   3.72
 //
-// The seed the nest had was within 22 % of having no seed at all. Both axes are needed and the
+// A white seed is within 22 % of having no seed at all. Both axes are needed and the
 // *time* axis carries most of it: a patch must last long enough for a thermal to organise around
 // it, and 900 s is that time. A period well under the turnover (60 s) recovers half the effect and
 // a length well over the plume (24 km) two thirds. Four realisations of the field agree to 0.5 %.
 //
 // So: value noise on a lattice whose two horizontal axes are a *length* and whose third is a
 // *time*, interpolated with a smoothstep — C1, because a linear interpolation creases on every
-// lattice plane and convection would organise along the creases. The [-1, 1] bound is the white
-// field's, unchanged, so `thermal_seed_amplitude` still means what its documentation says.
+// lattice plane and convection would organise along the creases. The [-1, 1] bound matches a
+// white field's, so `thermal_seed_amplitude` means what its documentation says.
 //
-// Its standard deviation is not: 0.37 against uniform noise's 0.577, because interpolating between
-// corners averages them (analytically, 2·sqrt((1/12)·0.743³)). The measurement above is what says
+// Its standard deviation does not: 0.37 against uniform noise's 0.577, because interpolating
+// between corners averages them (analytically, 2·sqrt((1/12)·0.743³)). The measurement above says
 // that costs nothing — what lifts a plume is the *mean* forcing over the plume's footprint, and
 // white noise cancels over an N-cell footprint as 1/sqrt(N) while a correlated field does not.
 //

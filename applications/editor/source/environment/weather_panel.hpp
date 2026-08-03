@@ -34,8 +34,8 @@
  *
  * The nest's *grid* and its physics constants deliberately live next door in the
  * Meteorology panel: those are the simulation's budget and its parameters, not the
- * look of the world, and one panel owning both was how a lighting tweak came to
- * restart the weather.
+ * look of the world, and one panel owning both would let a lighting tweak restart
+ * the weather.
  */
 
 #include "../core/editor_context.hpp"

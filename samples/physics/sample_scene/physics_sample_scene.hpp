@@ -58,10 +58,10 @@ namespace SushiEngine
         /**
          * @brief Replaces the world with the physics demonstration scene.
          *
-         * Takes the world and nothing else. It used to take an `EditorContext` too, to
-         * record an undo step and clear the selection — which dragged ImGui in behind it
-         * and made a *scene builder* impossible to use from anything that is not the editor
-         * shell, including the generator that writes the file and the suite that tests it.
+         * Takes the world and nothing else. An `EditorContext` parameter — to record an
+         * undo step and clear the selection — would drag ImGui in behind it and make a
+         * *scene builder* impossible to use from anything that is not the editor shell,
+         * including the generator that writes the file and the suite that tests it.
          * Recording undo and moving a selection are the caller's business; building a world
          * is this function's, and that is the whole of it.
          *

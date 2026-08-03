@@ -8,6 +8,10 @@
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
+/*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
 /* Unless required by applicable law or agreed to in writing, software    */
@@ -282,7 +286,7 @@ TEST(Unit_TileResidency, EvictionSparesEveryFrameStillInFlight)
     // The hazard the frames-in-flight window closes. A slot the previous frame bound is
     // being read by a command buffer the device has not finished, so re-pointing it and
     // copying new pixels in is a write racing that read -- and the render graph cannot
-    // help, because the two are in different submissions. Refusing "this frame only" was
+    // help, because the two are in different submissions. Sparing only "this frame" is
     // enough for a caller that submits and waits and wrong for every real frame chain.
     TileResidency residency(2, 3);
 

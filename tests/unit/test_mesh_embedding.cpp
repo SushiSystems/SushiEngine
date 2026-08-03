@@ -271,12 +271,10 @@ TEST(Unit_DeformedNormals, IgnoresATriangleNamingAVertexThatIsNotThere)
     EXPECT_NEAR(double(normals[0].z), 1.0, 1e-12);
 }
 
-// ---------------------------------------------------------------------------
 // §8.6 invariant 4: "Fracture preserves binding: a duplicated simulation vertex
 // inherits its parent's binding, so a crack does not tear a hole in the render
 // mesh." The embedding is the half of that claim that can be tested here; the
 // splitting itself is tested in test_fem_fracture.cpp.
-// ---------------------------------------------------------------------------
 
 namespace
 {

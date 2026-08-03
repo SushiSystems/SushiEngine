@@ -22,8 +22,8 @@
 /**************************************************************************/
 
 // The neutral geometry module, tested without a renderer. That it can be tested at
-// all is the point of the move: the baker used to live behind Vulkan, so its
-// behaviour was only ever observed through a GI trace.
+// all is the point of keeping it neutral: a baker sitting behind Vulkan can only be
+// observed through a GI trace.
 
 #include <cmath>
 #include <vector>

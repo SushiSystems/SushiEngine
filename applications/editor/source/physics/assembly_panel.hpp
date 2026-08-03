@@ -27,10 +27,9 @@
  * @file assembly_panel.hpp
  * @brief The Assembly window: parts, the joints between them, and what they may touch.
  *
- * §14's assembly-editor bullet, and P3's one outstanding item. The joint library, §10.4's
- * load recovery and breakable joints were all built in P3 and none of them could be
- * *authored*, so this is the surface that turns a `PhysicsAssembly` from a type only C++
- * could construct into a document.
+ * §14's assembly-editor bullet. This is the authoring surface over the joint library, §10.4's
+ * load recovery and breakable joints: it turns a `PhysicsAssembly` from a type only C++ can
+ * construct into a document.
  *
  * ### Instancing produces entities, not a hidden object
  *

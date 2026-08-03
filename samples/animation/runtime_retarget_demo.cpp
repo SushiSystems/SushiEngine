@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* runtime_retarget_demo.cpp                                             */
+/* runtime_retarget_demo.cpp                                              */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -147,7 +151,7 @@ int main()
     check(clip_id != INVALID_ASSET, "register the clip");
     const ClipView clip = database.clip(clip_id);
 
-    // --- Identity check: retargeting onto a bind-identical clone must equal plain sampling.
+    // Identity check: retargeting onto a bind-identical clone must equal plain sampling.
     ClipEvaluator direct;
     direct.evaluate(source_skeleton, clip, /*time_seconds=*/1.0f, /*loop=*/false);
 
@@ -167,7 +171,7 @@ int main()
     check(identity_matches,
          "retargeting onto a bind-identical clone reproduces direct sampling exactly");
 
-    // --- Cross-retarget onto a rig with double hip height and double arm length.
+    // Cross-retarget onto a rig with double hip height and double arm length.
     RuntimeRetargeter scaled_retarget;
     scaled_retarget.bind(source_skeleton, source_avatar, scaled_skeleton, scaled_avatar);
     scaled_retarget.evaluate(clip, 1.0f, false);

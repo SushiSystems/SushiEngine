@@ -490,7 +490,6 @@ TEST(Integration_SolverConformance, RemovingABodyTakesItsConstraintsOnBoth)
     }
 }
 
-// ---------------------------------------------------------------------------
 // Contacts, the constraint kind whose set is rebuilt every tick (section 6.3).
 //
 // The persistent kinds above prove the two solvers agree about a *fixed* graph.
@@ -500,7 +499,6 @@ TEST(Integration_SolverConformance, RemovingABodyTakesItsConstraintsOnBoth)
 // velocity derivation. A stage in the wrong place still runs and still produces
 // plausible motion -- a box still lands on the ground -- so only a comparison
 // against the written-out host schedule can catch it.
-// ---------------------------------------------------------------------------
 
 namespace
 {
@@ -1028,7 +1026,6 @@ TEST(Integration_SolverConformance, AChangingContactCountNeverRecomposes)
         << "a tick whose contact count changed recompiled the graph";
 }
 
-// ---------------------------------------------------------------------------
 // P6-J2: the FEM element as a constraint kind, on both implementations.
 //
 // The four-body kind, and the reason the colouring and the store were generalized
@@ -1036,7 +1033,6 @@ TEST(Integration_SolverConformance, AChangingContactCountNeverRecomposes)
 // unit tests because what is being checked is not the projection -- that has its own
 // tests -- but that a tetrahedron scheduled by the graph and a tetrahedron swept on
 // the host arrive at the same shape.
-// ---------------------------------------------------------------------------
 
 TEST(Integration_SolverConformance, ASingleTetrahedronAgrees)
 {

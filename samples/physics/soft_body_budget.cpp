@@ -25,9 +25,9 @@
  * @file soft_body_budget.cpp
  * @brief §13.1's soft-body line, measured: one body, 20 000 tetrahedra, 32 substeps.
  *
- * P6's acceptance list ends with a number — `≤ 3 ms/tick` — and until P6-J2 there was
- * nothing to measure, because the FEM element was not a constraint kind in the device
- * graph and a soft body could only be stepped by a host loop. This is that measurement.
+ * P6's acceptance list ends with a number — `≤ 3 ms/tick` — and this is that measurement:
+ * the FEM element as a constraint kind in the device graph, stepped there rather than by
+ * a host loop.
  *
  * **Why a probe and not a test.** §13.1 states its targets against "one desktop-class
  * GPU through SushiRuntime, 60 Hz tick". A test asserting 3 ms would be asserting the
@@ -166,10 +166,10 @@ int main()
     configuration.substeps.minimum = 32;
     configuration.substeps.maximum = 32;
 
-    // P8-A (docs/slop/physics_system.md §16.21/§16.36-37): the earlier measurement
-    // could not tell whether the tick's cost is arithmetic or the 1 024 graph-node
-    // barriers 32 colours x 32 substeps impose. Profiling on is what makes that
-    // answerable -- it costs the run nothing this probe cares about, since the
+    // P8-A (docs/slop/physics_system.md §16.21/§16.36-37): without profiling, a
+    // measurement cannot tell whether the tick's cost is arithmetic or the 1 024
+    // graph-node barriers 32 colours x 32 substeps impose. Profiling on is what makes
+    // that answerable -- it costs the run nothing this probe cares about, since the
     // number reported below is the mean of TIMED_TICKS wall-clock measurements
     // taken independently of the runtime's own device timestamps.
     SushiRuntime::API::RuntimeConfig runtime_config;

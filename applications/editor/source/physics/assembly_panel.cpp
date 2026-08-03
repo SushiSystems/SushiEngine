@@ -177,10 +177,10 @@ namespace SushiEngine
              * @brief Fills an empty assembly with a chassis and a door hinged to it.
              *
              * The §13.1 scene P3's acceptance criterion is written against — *"the
-             * chassis-plus-hinged-door scene works end to end"* — so the panel opens on the
-             * thing the phase was verified with rather than on nothing. An author's first
-             * action is to change it, which is the point: editing a working assembly teaches
-             * what the fields do, and an empty list teaches nothing.
+             * chassis-plus-hinged-door scene works end to end"* — so the panel opens on a
+             * working assembly rather than on nothing. An author's first action is to change
+             * it, which is the point: editing a working assembly teaches what the fields do,
+             * and an empty list teaches nothing.
              *
              * @param asset The assembly to fill.
              */

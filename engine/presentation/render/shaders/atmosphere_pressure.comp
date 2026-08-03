@@ -31,7 +31,7 @@
 // printed figure, and the peak divergence -- the quantity this solve exists to control -- equal
 // to seven significant figures. At *one* sweep it is not, which is what tells convergence apart
 // from a solve that was never doing anything. `pressure_iterations` defaults to 4 accordingly:
-// twice the measured convergence point, and a third of what it used to spend.
+// twice the measured convergence point.
 //
 // Geometric multigrid over the horizontal (semi-coarsened, with this shader as its smoother)
 // remains the refinement, and drops in without changing anything around it -- but the
@@ -62,18 +62,18 @@ const int MAX_LEVELS = 64;
 // `lower`, `upper` and `diagonal` below are functions of the level index alone -- base-state
 // density, potential temperature and the stretched grid's spacings, none of which vary
 // horizontally. Only the right-hand side is a property of the column. So the Thomas
-// elimination's pivots and c' factors, which the original form recomputed per column and kept in
-// a 64-float private array, are one table shared by every column in the workgroup.
+// elimination's pivots and c' factors are one table shared by every column in the workgroup,
+// rather than recomputed per column into a 64-float private array.
 //
 // This is not an approximation; it is the same arithmetic hoisted out of a loop it never
-// belonged in. Two things fall out of it, and both were what the measurement found: the private
-// array is gone, and with it the local-memory spill a dynamically indexed 256-byte array per
+// belonged in. Two things fall out of it, and the measurement confirms both: there is no private
+// array, and so none of the local-memory spill a dynamically indexed 256-byte array per
 // invocation forces on NVIDIA; and `nest_pressure_coefficient` -- a chain of `pow` and `exp`
 // through the base-state pressure and Exner function -- is evaluated three times per *level*
 // instead of three times per level per *column*, a factor of 64 at this workgroup size.
 //
 // What is given up, stated rather than hidden: with no coarse-grid correction the *smooth
-// horizontal* component of the error still decays slowly, exactly as before. This changes the
+// horizontal* component of the error decays slowly. Sharing the factorization changes the
 // cost of a sweep and nothing about what a sweep computes.
 shared float s_lower[MAX_LEVELS];      // sub-diagonal, level k to k - 1
 shared float s_horizontal[MAX_LEVELS]; // the horizontal coefficient the neighbours enter through

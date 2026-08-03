@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* first_game.cpp                                                        */
+/* first_game.cpp                                                         */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -181,7 +181,7 @@ int main()
     // without each bringing up its own runtime.
     auto runtime = SushiRuntime::API::Runtime::create();
 
-    // --- Single-player: a deterministic run matched to a closed-form reference ---
+    // Single-player: a deterministic run matched to a closed-form reference.
     Loop::AppConfiguration config;
     config.fixed_dt_seconds = FIXED_DT;
     config.chunk_capacity = CHUNK_CAPACITY;
@@ -206,7 +206,7 @@ int main()
     const bool single_player_ok = nearly_equal(actual, expected);
     const bool one_compile = game.compile_count() == 1;
 
-    // --- Multiplayer: the same game, made networked by one connect() ------------
+    // Multiplayer: the same game, made networked by one connect().
     Loop::App<MoveCommand> server(runtime, config);
     Entity server_player{};
     build_game(server, server_player);

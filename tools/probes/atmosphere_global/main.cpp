@@ -314,13 +314,13 @@ int main(int argc, char** argv)
             // cycle that spends as much time decaying as growing, so a fit spanning both reports
             // a rate near zero for a core that is demonstrably unstable.
             //
-            // **Opening it cannot be a fixed day.** It used to be "day >= 2", which held only
-            // because the analytic mean state happened to be growing by then. A real climatology
-            // is not smooth in latitude, so the seeded perturbation spends its first few days
-            // shedding the part of itself that no mode wants before the unstable mode takes over
-            // — energy *falls* first, and a window opened at a fixed day closes again one sample
-            // later and reports nothing. So a fall is read as "still shaking down" and restarts
-            // the window, until enough growth has accumulated that a fall can only be the peak.
+            // **Opening it cannot be a fixed day.** A bare "day >= 2" holds only when the mean
+            // state happens to be growing by then. A real climatology is not smooth in latitude,
+            // so the seeded perturbation spends its first few days shedding the part of itself
+            // that no mode wants before the unstable mode takes over — energy *falls* first, and
+            // a window opened at a fixed day closes again one sample later and reports nothing.
+            // So a fall is read as "still shaking down" and restarts the window, until enough
+            // growth has accumulated that a fall can only be the peak.
             if (fit_open && day >= 2.0)
             {
                 const bool falling = !fit_energy.empty() &&

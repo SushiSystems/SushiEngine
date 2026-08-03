@@ -153,8 +153,8 @@ namespace SushiEngine
          * what keeps this field safe to recompute from scratch every `extract()` without the
          * read-modify-write hazard a full overwrite would create through the editor's
          * `environment()` -> edit -> `set_environment()` round trip. All-zero (the default) when
-         * procedural weather is off, so a scene with no dynamic weather renders exactly as it
-         * did before this phase.
+         * procedural weather is off, so a scene with no dynamic weather renders from the
+         * author's sliders alone.
          */
         struct WeatherCoupling
         {

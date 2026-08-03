@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* authoring_demo.cpp                                                    */
+/* authoring_demo.cpp                                                     */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -120,7 +124,7 @@ namespace
 
 int main()
 {
-    // --- JSON round-trip: serialize -> parse -> recompile -> byte-identical blob -----
+    // JSON round-trip: serialize -> parse -> recompile -> byte-identical blob.
     {
         const ControllerDescription description = build_rich_controller();
         std::vector<std::byte> blob_original;
@@ -144,7 +148,7 @@ int main()
               "parsed desc keeps the 3-child blend tree");
     }
 
-    // --- Edit-mode scrub: pin a blend-tree state at a time and pose it off the loop ---
+    // Edit-mode scrub: pin a blend-tree state at a time and pose it off the loop.
     {
         AnimationDatabase database;
         SkeletonDescription skeleton_description;

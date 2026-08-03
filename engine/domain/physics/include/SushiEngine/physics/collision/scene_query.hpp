@@ -111,9 +111,7 @@ namespace SushiEngine
             }
         };
 
-        // ------------------------------------------------------------------
         // Ray against one shape
-        // ------------------------------------------------------------------
 
         /**
          * @brief Ray against a sphere: the quadratic, solved for the near root.
@@ -343,9 +341,7 @@ namespace SushiEngine
             return ray_cast_convex<T>(hull, origin, direction, max_distance, out);
         }
 
-        // ------------------------------------------------------------------
         // The registration: shape type to ray routine
-        // ------------------------------------------------------------------
 
         /** @brief The signature every ray-cast entry has. */
         template <typename T>
@@ -437,9 +433,7 @@ namespace SushiEngine
             return moved;
         }
 
-        // ------------------------------------------------------------------
         // Closest points between two type-erased shapes
-        // ------------------------------------------------------------------
 
         /** @brief The signature every closest-point entry has. */
         template <typename T>
@@ -565,9 +559,7 @@ namespace SushiEngine
             return contact.valid && contact.separation <= T(0);
         }
 
-        // ------------------------------------------------------------------
         // Queries over a broadphase
-        // ------------------------------------------------------------------
 
         /**
          * @brief The closest thing a ray hits.

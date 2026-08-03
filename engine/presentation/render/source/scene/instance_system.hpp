@@ -31,7 +31,7 @@
  * device buffers and a cull dispatch. This system builds those buffers each frame: it
  * groups every mesh instance by the geometry it draws with into @ref GPUDrawBucket
  * ranges, packs a @ref GPUInstance record for each (camera-relative transform, bounding
- * sphere, and the material/motion/pick indices the draw used to push), and lays out the
+ * sphere, and the material/motion/pick indices the draw needs), and lays out the
  * per-bucket metadata the cull shader reads. It is the exact analogue of MotionSystem
  * and MaterialSystem — one host-mapped buffer per frame slot, grown on demand — and the
  * cull pass and the GPU vertex shader consume what it produces.

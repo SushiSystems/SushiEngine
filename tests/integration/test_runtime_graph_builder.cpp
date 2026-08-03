@@ -281,9 +281,9 @@ TEST(Integration_RuntimeGraphBuilder, TheRebalancerIsOffForAPhysicsScene)
     // would show up as frame-time noise with no other symptom.
     SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
     Execution::Context execution(runtime);
-    // The runtime's default is off since the 2026-08-01 rebalancer change, so turn
-    // it on explicitly: the property under test is that constructing a physics
-    // scene switches it off, not whatever the runtime's default happens to be.
+    // The runtime's own default is off, so turn it on explicitly: the property
+    // under test is that constructing a physics scene switches it off, not
+    // whatever the runtime's default happens to be.
     runtime.rebalancer(true);
     ASSERT_TRUE(runtime.advanced().rebalancer_enabled());
 

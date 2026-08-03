@@ -357,11 +357,10 @@ namespace SushiEngine
             if (width == view_->width() && height == view_->height())
                 return;
             // The view's resize waits for the device to go idle before destroying its
-            // targets, so the old ImGui descriptor sets are released only *after* every
-            // frame that could still be sampling them has landed. Releasing them first
-            // (the old order) freed sets the two-to-three frames still in flight were
-            // reading — a use-after-free that showed as the viewport image vanishing
-            // on a resize.
+            // targets, so the previous ImGui descriptor sets are released only *after*
+            // every frame that could still be sampling them has landed. Releasing them
+            // first would free sets the two-to-three frames still in flight are reading —
+            // a use-after-free that shows as the viewport image vanishing on a resize.
             view_->resize(width, height);
             unregister_textures();
             register_textures();

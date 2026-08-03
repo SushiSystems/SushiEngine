@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* lighting_panel.cpp                                                    */
+/* lighting_panel.cpp                                                     */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -94,10 +94,9 @@ namespace SushiEngine
             SushiEngine::Render::Environment environment = world->environment();
             bool env_changed = false;
 
-            // The sun is authored in exactly one place — Environment — instead of the
-            // divergent second widget block this panel used to carry (its copy drifted:
-            // different ranges, no astronomical-sun awareness in one direction). A link
-            // beats a stale duplicate.
+            // The sun is authored in exactly one place — Environment — rather than in a second
+            // widget block here. A duplicate diverges (different ranges, astronomical-sun
+            // awareness in only one direction), and a link beats a stale duplicate.
             ImGui::TextDisabled("Sun & sky are authored in the Environment panel.");
             ImGui::SameLine();
             if (ImGui::SmallButton("Open##sun_owner"))
@@ -122,9 +121,9 @@ namespace SushiEngine
             finish_environment_edit(context);
 
             // The sun's cascade shadows are render machinery with one editor — the
-            // Rendering panel's full shadow block. The four-field subset this panel used
-            // to carry was the divergent-duplicate problem again (a second, partial
-            // truth about the same settings), so it is a link now.
+            // Rendering panel's full shadow block. A four-field subset here would be the
+            // divergent-duplicate problem again (a second, partial truth about the same
+            // settings), so this is a link.
             ImGui::TextDisabled("Sun shadow settings live in the Rendering panel.");
             ImGui::SameLine();
             if (ImGui::SmallButton("Open##shadow_owner"))

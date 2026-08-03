@@ -649,10 +649,10 @@ namespace SushiEngine
                     //
                     // The continuous path keeps this set and adds to it rather than
                     // replacing it, so turning the flag on can only ever find more.
-                    // It used to replace it, which made `continuous` strictly worse
-                    // than `discrete` for anything the speculative margin already
-                    // caught — a flag that costs more and detects less is the one
-                    // shape of bug nobody goes looking for.
+                    // Replacing it would make `continuous` strictly worse than
+                    // `discrete` for anything the speculative margin already caught —
+                    // a flag that costs more and detects less is the one shape of bug
+                    // nobody goes looking for.
                     collect_soft_contacts_discrete(
                         first, hierarchy_first_.positions().data(), second,
                         hierarchy_second_.positions().data(), candidates_, thickness,

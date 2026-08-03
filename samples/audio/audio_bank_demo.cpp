@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* audio_bank_demo.cpp                                                   */
+/* audio_bank_demo.cpp                                                    */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -85,7 +85,7 @@ int main()
     const double sample_rate = 48000.0;
     const int block = 512;
 
-    // --- Build a bank: 3 ADPCM footsteps behind a Random event + a PCM music track -----
+    // Build a bank: 3 ADPCM footsteps behind a Random event + a PCM music track.
     const int step_frames = static_cast<int>(sample_rate * 0.12);
     std::vector<std::uint8_t> step[3];
     const double step_freq[3] = {180.0, 220.0, 260.0};
@@ -194,7 +194,7 @@ int main()
 
     std::printf("headless bank checks passed\n");
 
-    // --- Best-effort audible playback: footstep events over a streamed music bed --------
+    // Best-effort audible playback: footstep events over a streamed music bed.
     AudioEngine engine(24, 12);
     const int master = engine.mixer().add_bus(NO_BUS);
     engine.mixer().set_master(master);

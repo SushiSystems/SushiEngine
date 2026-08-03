@@ -25,9 +25,7 @@
 // **sigma is a cell mean, and the fraction beside it is what makes that statable.** The water
 // is spread over the `a` part of a 2 km cell, not over all of it, so sigma / a is the extinction
 // *inside* the cloud and `a` is how much of the sky it covers. The bake needs both and they are
-// not recoverable from one another; the alpha channel previously carried a saturation margin
-// invented to feather cloud edges, which was a worse answer to the same question, computed from
-// a base-state temperature this cell had long since departed from, and read by nothing.
+// not recoverable from one another.
 
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 

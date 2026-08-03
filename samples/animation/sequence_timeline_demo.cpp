@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* sequence_timeline_demo.cpp                                            */
+/* sequence_timeline_demo.cpp                                             */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -70,7 +74,7 @@ int main()
 
     AnimatorParameterBlock parameters;
 
-    // --- evaluate(): pure function of time, including scrub-backward and clamped ends. ---
+    // evaluate(): pure function of time, including scrub-backward and clamped ends.
     timeline.evaluate(0.0f, parameters);
     check(nearly(parameters.values[0].as_float, 60.0f, 1e-4f), "t=0 reads the first key exactly");
 
@@ -87,7 +91,7 @@ int main()
     check(nearly(parameters.values[0].as_float, 60.0f + 30.0f * (0.5f / 4.0f), 1e-3f),
          "scrubbing to an earlier time still interpolates correctly (no hidden state)");
 
-    // --- advance(): forward-only, exactly the events in (previous, current]. -------------
+    // advance(): forward-only, exactly the events in (previous, current].
     std::vector<std::uint32_t> fired;
     timeline.advance(0.0f, 0.5f, fired);
     check(fired.empty(), "no event fires before its own time (0.5 < first event at 1.0)");

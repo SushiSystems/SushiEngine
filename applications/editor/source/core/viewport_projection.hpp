@@ -27,11 +27,10 @@
  * @file viewport_projection.hpp
  * @brief World point to viewport pixel, once, for everything that draws over the scene.
  *
- * Every overlay the editor draws needs this and each one had grown its own copy: the
- * skeleton debug draw, the transform gizmo, and now the collider overlay. Three identical
- * definitions of a projection is three places for a near-plane rule to drift, and the
- * symptom of drift is one overlay drawing a line behind the camera that another correctly
- * clips.
+ * Every overlay the editor draws needs this: the skeleton debug draw, the transform gizmo,
+ * and the collider overlay. Three identical definitions of a projection would be three
+ * places for a near-plane rule to drift, and the symptom of drift is one overlay drawing a
+ * line behind the camera that another correctly clips.
  */
 
 #include <imgui.h>

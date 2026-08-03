@@ -240,8 +240,8 @@ int main(int argc, char** argv)
         // scene through and onto, kept separate from both the frame loop and the panel.
         SushiEngine::Editor::GameViewRenderPolicy game_view_render_policy;
         // A third surface for the previewed effect. It shows no world geometry on purpose: an
-        // effect being authored is not in the scene yet, and mixing it into the Scene view is what
-        // made the old preview look like a stray entity nobody could select or delete.
+        // effect being authored is not in the scene yet, and mixing it into the Scene view would
+        // make the preview read as a stray entity nobody could select or delete.
         SushiEngine::Editor::FlyCameraSource preview_camera;
         SushiEngine::Editor::ViewportPanel preview_view(*renderer, imgui, "Preview",
                                                         preview_camera);
@@ -352,10 +352,10 @@ int main(int argc, char** argv)
             [](const std::string& path, SushiEngine::Geometry::TriangleMesh& out)
             { return SushiEngine::Geometry::import_gltf_mesh(path.c_str(), out); },
             "cooked");
-        // §16.45.3: the project-default fidelity dial, its pin overrides, and every
-        // per-asset override were session-only until now — set before the Bake or Cooking
-        // Override UI can touch `profiles()`, so the very first frame shows what was saved
-        // rather than the hard-coded defaults for one frame before an overwrite.
+        // §16.45.3: the project-default fidelity dial, its pin overrides, and every per-asset
+        // override are persisted here. Set before the Bake or Cooking Override UI can touch
+        // `profiles()`, so the very first frame shows what was saved rather than the hard-coded
+        // defaults for one frame before an overwrite.
         cook_bake_state.set_profile_storage_path(
             (std::filesystem::path(context.project_root) / "cooking_profile.json").string());
         if (!cook_bake_state.load_profiles())
@@ -385,9 +385,8 @@ int main(int argc, char** argv)
 
         // The live GPU-skinned character preview: the A1 "load a rigged, animated glTF and see
         // it looping, skinned on the GPU" surface (design `slop/animation_system.md` §12.1) —
-        // every earlier animation phase shipped as an isolated, headless-tested component, but
-        // nothing built a live SkinnedInstance for the viewport until this. Loading a demo asset
-        // fails silently (no rig at that path just leaves the preview empty) rather than
+        // the one place that builds a live SkinnedInstance for the viewport. Loading a demo
+        // asset fails silently (no rig at that path just leaves the preview empty) rather than
         // blocking editor startup; a proper Animator-driven scene entity is future work.
         SushiEngine::Editor::AnimatedMeshPreview animated_mesh_preview;
         animated_mesh_preview.load_gltf("assets/models/rigged_arm_anim.gltf", *context.assets);
@@ -572,10 +571,10 @@ int main(int argc, char** argv)
 
             imgui.new_frame();
 
-            // Global undo/redo/save shortcuts, now resolved through the EditorGlobal input
+            // Global undo/redo/save shortcuts, resolved through the EditorGlobal input
             // context (rebindable, persisted). The mapper's capture gate already suppresses
             // these while a text field owns the keyboard, so Ctrl+Z in a rename field is not
-            // hijacked — the old `!WantTextInput` guard, centralized.
+            // hijacked — one `!WantTextInput` guard, centralized.
             if (simulation != nullptr)
             {
                 using EditorContextType = SushiEngine::Editor::EditorContext;
@@ -614,8 +613,8 @@ int main(int argc, char** argv)
             // The menu bar, toolbar strip, and status bar are viewport side bars, so
             // they are submitted before the dockspace: each one shrinks the main
             // viewport's work area and the dockspace fills what remains. Submitting
-            // them after (as before) baked the first frame's default layout against a
-            // work area that still included them.
+            // them after would bake the first frame's default layout against a work
+            // area that still included them.
             SushiEngine::Editor::draw_menu_bar(context);
             SushiEngine::Editor::draw_toolbar(context);
             SushiEngine::Editor::draw_status_bar(context);
@@ -789,11 +788,10 @@ int main(int argc, char** argv)
                 // Anchor the scene to whichever body the camera is on: the dominant
                 // (near-field) body becomes the observer body, so its own spin and orbit
                 // drive the sky and the camera keeps full precision near it — the same on
-                // every planet, not just Earth. This replaces the old Earth-only ride-along:
-                // once a body is the observer, a camera at rest already tracks it because
-                // the scene origin is its surface point. When the dominant body changes, the
-                // camera is rebased so it stays put relative to the new ground rather than
-                // jumping as the scene re-anchors.
+                // every planet, not just Earth. Once a body is the observer, a camera at rest
+                // already tracks it because the scene origin is its surface point. When the
+                // dominant body changes, the camera is rebased so it stays put relative to the
+                // new ground rather than jumping as the scene re-anchors.
                 const int dominant_body = environment.dominant_body_id;
                 if (dominant_body >= 0 &&
                     dominant_body != environment.observer.observer_body)

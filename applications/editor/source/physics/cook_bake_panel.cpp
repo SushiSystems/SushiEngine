@@ -380,12 +380,11 @@ namespace SushiEngine
             }
 
             /**
-             * @brief Everything §16.45.3 found read by a cooker with no widget anywhere:
-             * the seven pin overrides, the four fields that were never on the dial, and
-             * the accept/reject thresholds every cooker applies via `apply_cooking_
-             * thresholds`. Grouped apart from the project-default block above because
-             * these are the settings a project sets once and rarely revisits, not the
-             * one an artist drags every day.
+             * @brief The settings §16.45.3 exposes: the seven pin overrides, the four fields
+             * that are not on the dial, and the accept/reject thresholds every cooker applies
+             * via `apply_cooking_thresholds`. Grouped apart from the project-default block
+             * above because these are the settings a project sets once and rarely revisits,
+             * not the one an artist drags every day.
              *
              * @param parameters The project's cooking dial and its pin overrides.
              * @param thresholds What fails a cook outright rather than merely shaping it.

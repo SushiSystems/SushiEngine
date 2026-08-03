@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* audio_mixer_demo.cpp                                                  */
+/* audio_mixer_demo.cpp                                                   */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -74,8 +74,7 @@ int main()
     AudioEngine engine(64, max_real);
 
     // Bus topology: master <- {music, sfx}; sfx aux-sends a reverb bus that also routes
-    // to master. The reverb is the real S5 FDN behind the IReverb seam (it replaced the
-    // low-pass placeholder this demo used to stand in for it).
+    // to master. The reverb is the real S5 FDN behind the IReverb seam, not a stand-in.
     const int master = engine.mixer().add_bus(NO_BUS);
     const int music_bus = engine.mixer().add_bus(master);
     const int sfx_bus = engine.mixer().add_bus(master);

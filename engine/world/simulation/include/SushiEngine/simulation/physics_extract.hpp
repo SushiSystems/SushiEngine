@@ -27,11 +27,10 @@
  * @file physics_extract.hpp
  * @brief Turning authored entity records into physics descriptors, and only that.
  *
- * `RuntimeSimulation` used to gather these inline, three private methods deep inside
- * a three-thousand-line file. Translating authored components into simulation input
- * is a responsibility in its own right — the renderer's extract has been its own
- * tested unit for exactly this reason — and it was untestable where it sat, because
- * reaching it meant standing up a whole live world.
+ * Translating authored components into simulation input is a responsibility in its
+ * own right — the renderer's extract is its own tested unit for exactly this reason.
+ * Gathered inline in `RuntimeSimulation` it would be untestable, because reaching it
+ * would mean standing up a whole live world.
  *
  * The functions here take a flat list of @ref PhysicsSourceEntity and return
  * descriptors. They touch no ECS, no world, and no physics: a test hands them three
@@ -82,8 +81,8 @@ namespace SushiEngine
              *
              * Here for the same reason the two transforms are: a rigid body seeds
              * from its own transform and a static plane is placed by its world one,
-             * and scale follows whichever of those the shape follows. Until now the
-             * physics was never handed either, which is §1.2 item 5.
+             * and scale follows whichever of those the shape follows. Handing the
+             * physics neither of them is what §1.2 item 5 names.
              */
             Vector3 local_scale{Vector3{1, 1, 1}};
             Vector3 world_scale{Vector3{1, 1, 1}};
@@ -101,11 +100,10 @@ namespace SushiEngine
         /**
          * @brief The collider an entity collides as, at its scale.
          *
-         * Its collider if it has one, else its visual shape, else a unit sphere —
-         * the same precedence as before, now producing a `Collider` rather than a
-         * bare radius, and now with the entity's scale applied. That last clause is
-         * the whole of §1.2 item 5: doubling a crate in the editor used to double
-         * the drawing and leave the physics colliding as the authored half-extents.
+         * Its collider if it has one, else its visual shape, else a unit sphere,
+         * with the entity's scale applied. That last clause is the whole of §1.2
+         * item 5: without it, doubling a crate in the editor doubles the drawing
+         * and leaves the physics colliding as the authored half-extents.
          *
          * @param entity The entity to resolve.
          * @return Its scaled collider.

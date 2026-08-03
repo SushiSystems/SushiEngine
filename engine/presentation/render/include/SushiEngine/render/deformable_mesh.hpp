@@ -27,12 +27,11 @@
  * @file deformable_mesh.hpp
  * @brief The renderer's view of host-simulated, per-frame-changing geometry.
  *
- * This replaces the rows-by-cols cloth grid the renderer used to accept. A cloth
- * sheet is one shape a soft body can have; a tetrahedral body's surface is a
- * closed triangle mesh with no grid structure at all, and a *fractured* body's
- * surface is not even connected. So the seam carries what all of them actually
- * share — a vertex array and a triangle list — and nothing about how the vertices
- * were arranged.
+ * A cloth sheet is one shape a soft body can have; a tetrahedral body's surface
+ * is a closed triangle mesh with no grid structure at all, and a *fractured*
+ * body's surface is not even connected. So the seam carries what all of them
+ * actually share — a vertex array and a triangle list — and nothing about how the
+ * vertices were arranged.
  *
  * Losing the grid costs one thing. Grid topology is implicit: the six triangles
  * touching vertex `(r, c)` are computable from `r`, `c`, and the row stride, so
@@ -162,12 +161,11 @@ namespace SushiEngine
         /**
          * @brief Emits the triangle list for a row-major rows-by-cols grid.
          *
-         * The topology half of what `triangulate_cloth_grid` used to do, split out so
-         * a grid producer keeps its familiar shape while the renderer downstream sees
-         * nothing but a triangle list. The diagonal and winding are unchanged from the
-         * grid path they replace — `(r, c)-(r+1, c)-(r, c+1)` and
-         * `(r, c+1)-(r+1, c)-(r+1, c+1)` — so a sheet built this way shades exactly as
-         * it did before.
+         * The topology half of building a cloth sheet, split out so a grid producer
+         * keeps its familiar shape while the renderer downstream sees nothing but a
+         * triangle list. Each quad is split along one fixed diagonal with a fixed
+         * winding — `(r, c)-(r+1, c)-(r, c+1)` and `(r, c+1)-(r+1, c)-(r+1, c+1)` —
+         * so every sheet emitted here shades the same way.
          *
          * @param rows Grid rows; fewer than two emits nothing.
          * @param cols Grid columns; fewer than two emits nothing.

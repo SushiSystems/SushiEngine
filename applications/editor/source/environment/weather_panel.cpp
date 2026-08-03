@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* weather_panel.cpp                                                     */
+/* weather_panel.cpp                                                      */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -111,7 +111,7 @@ namespace SushiEngine
                     changed = true;
                 // Exposure has one owner: the Post Process panel, where the whole exposure
                 // chain (mode, compensation, and this scene multiplier) is authored
-                // together. A second slider here is how the two used to fight.
+                // together. A second slider here would let the two fight.
                 ImGui::TextDisabled("Exposure is authored in the Post Process panel.");
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Open##exposure_owner"))
@@ -267,10 +267,9 @@ namespace SushiEngine
                 ImGui::BeginDisabled(!environment.clouds.enabled);
 
                 // Weather panel v2 (docs/slop/weather_and_clouds.md §6/§7 W4, and WM-SEED in
-                // docs/slop/atmosphere_system.md). Both modes install a provider now and the
-                // choice is about *where the sky comes from*: Manual places it from a seed,
-                // Procedural grows it in a dynamical core. Manual used to mean no provider at
-                // all, which is why an authored deck stack was applied to a whole planet.
+                // docs/slop/atmosphere_system.md). Both modes install a provider, and the choice
+                // is about *where the sky comes from*: Manual places it from a seed, Procedural
+                // grows it in a dynamical core.
                 using SushiEngine::Simulation::WeatherMode;
                 WeatherMode mode = world->weather_mode();
                 bool procedural = mode == WeatherMode::Procedural;
@@ -364,7 +363,7 @@ namespace SushiEngine
                         changed = true;
                     }
 
-                    // ---- The mean state the weather is a departure from (T0, §4) ----------
+                    // The mean state the weather is a departure from (T0, §4).
                     //
                     // **Which climatology is running is otherwise invisible.** A scene on the
                     // analytic latitude bands when somebody meant it to be on the baked asset
@@ -460,19 +459,18 @@ namespace SushiEngine
 
                     // Synoptic map overlay (design doc §6), rebuilt on the global core.
                     //
-                    // **This used to draw a list and now it samples a field**, which is the whole
-                    // Phase C swap made visible in one panel. There is no longer a `systems[]` to
-                    // iterate: a low is a closed contour in a pressure field, not an ellipse with
-                    // a heading, so the map asks `pressure_anomaly_hpa` (or
+                    // **This samples a field rather than drawing a list.** There is no `systems[]`
+                    // to iterate: a low is a closed contour in a pressure field, not an ellipse
+                    // with a heading, so the map asks `pressure_anomaly_hpa` (or
                     // `frontal_strength_at`) at every cell of a lattice and shades what comes
-                    // back. Everything the old panel offered as a slider — depth, radius, speed,
-                    // heading — was authored data the core now *derives*, and a slider that
-                    // pretends to set a derived quantity is worse than no slider.
+                    // back. Depth, radius, speed and heading are quantities the core *derives*,
+                    // and a slider that pretends to set a derived quantity is worse than no
+                    // slider.
                     //
-                    // What replaces the sliders is a click: the author disturbs the flow and the
-                    // dynamics take it from there. Strictly less direct control, and strictly
-                    // more honest, because the previous control was over a picture rather than
-                    // over the weather.
+                    // The control the panel offers instead is a click: the author disturbs the
+                    // flow and the dynamics take it from there. Strictly less direct, and
+                    // strictly more honest, because a slider controls a picture rather than the
+                    // weather.
                     ImGui::SeparatorText("Synoptic Map");
 
                     // Two fields worth looking at, sharing one lattice. Pressure is what an
@@ -638,18 +636,16 @@ namespace SushiEngine
                     ImGui::SeparatorText("Inject Anomaly");
                     float& inject_radius_km = map.inject_radius_km;
                     // 12 m/s of peak rotational wind, which lands near -26 hPa at the default
-                    // radius -- an ordinary deep low rather than a record one. It used to be 20,
-                    // which was chosen before the injection carried compensating circulation and
-                    // reached -70.
+                    // radius -- an ordinary deep low rather than a record one.
                     float& inject_amplitude_mps = map.inject_amplitude_mps;
                     int& inject_sign = map.inject_sign;
                     ImGui::RadioButton("Low", &inject_sign, 0);
                     ImGui::SameLine();
                     ImGui::RadioButton("High", &inject_sign, 1);
                     ImGui::SliderFloat("Radius", &inject_radius_km, 200.0f, 2000.0f, "%.0f km");
-                    // Ceiling lowered from 45: past about 30 m/s at these radii the anomaly is
-                    // deeper than any recorded mid-latitude cyclone, so the top of the range was
-                    // offering an author a system that cannot exist.
+                    // Ceiling at 30: past about 30 m/s at these radii the anomaly is deeper than
+                    // any recorded mid-latitude cyclone, so a higher top of the range would offer
+                    // an author a system that cannot exist.
                     ImGui::SliderFloat("Strength", &inject_amplitude_mps, 2.0f, 30.0f, "%.0f m/s");
                     ImGui::TextDisabled("Click the map to place one; it then evolves on its own.");
 
@@ -674,24 +670,21 @@ namespace SushiEngine
 
                 if (ImGui::TreeNode("Advanced"))
                 {
-                    // True in *both* modes now. Manual used to be the mode with no provider, so
-                    // its decks survived being edited; it places weather from a seed today and
-                    // recompiles the stack from the local column every tick exactly as
-                    // Procedural does. Saying "switch to Manual to hand-author decks" would send
-                    // an author somewhere the same thing happens.
+                    // True in *both* modes. Manual places weather from a seed and recompiles the
+                    // stack from the local column every tick exactly as Procedural does, so
+                    // saying "switch to Manual to hand-author decks" would send an author
+                    // somewhere the same thing happens.
                     ImGui::TextDisabled(
                         "Deck editing is overwritten every tick: both weather modes compile this "
                         "stack from the column under the camera. The medium below still applies "
                         "-- it describes the whole sky, not one column.");
 
-                    // The medium stays live under procedural weather. It used to be disabled
-                    // along with the decks, which was right while WeatherCloudscapeCompiler's
-                    // output was the entire description of the sky -- but since
-                    // docs/slop/atmosphere_system.md §7.4 the decks no longer decide what a march
-                    // sample finds (the cloudscape bake resolves genus and coverage per column
-                    // from the simulated field), and these knobs are what is left of the author's
-                    // control over how the sky *looks*. Disabling them would leave a procedurally
-                    // driven sky with no authored handles at all.
+                    // The medium stays live under procedural weather. The decks do not decide
+                    // what a march sample finds (docs/slop/atmosphere_system.md §7.4: the
+                    // cloudscape bake resolves genus and coverage per column from the simulated
+                    // field), so these knobs are the author's only control over how the sky
+                    // *looks*. Disabling them would leave a procedurally driven sky with no
+                    // authored handles at all.
                     ImGui::SeparatorText("Medium (all decks)");
                     if (ImGui::SliderFloat("Light Absorption", &environment.clouds.light_absorption,
                                            0.0f, 2.0f))

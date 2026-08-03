@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* rigid_body.hpp                                                        */
+/* rigid_body.hpp                                                         */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -398,11 +398,10 @@ namespace SushiEngine
          * step normalizes `q + ½(ωh)q`, whose vector part is `θ/2` before normalization
          * and `sin(atan(θ/2))` after — a rotation *smaller* than `θ = |ω|h`. The velocity
          * recovery then reads the shortened angle back, so each sub-step multiplies the
-         * angular velocity by `1/sqrt(1 + (θ/2)²)`. Measured before this was written: a
-         * free body with no constraints at all, spinning at 50 rad/s at 480 Hz, was down
+         * angular velocity by `1/sqrt(1 + (θ/2)²)`. Measured under the first-order step:
+         * a free body with no constraints at all, spinning at 50 rad/s at 480 Hz, is down
          * to 33 rad/s within a second — a third of a wheel's speed lost to nothing but
-         * the integrator, and a drivetrain tuned against it would have been tuned against
-         * a leak.
+         * the integrator, and a drivetrain tuned against that is tuned against a leak.
          *
          * Left-multiplied, so @p omega is read in the world frame — the same convention
          * @ref apply_angular_correction states and @ref update_velocity inverts.
@@ -517,7 +516,7 @@ namespace SushiEngine
             // The logarithmic map, the exact inverse of `integrate_orientation`'s
             // exponential one. `2·vec(q)/h` is its small-angle approximation and reads
             // `2·sin(θ/2)` where the rotation was `θ` — which is where a fast body's
-            // spin was leaking away before this was written; see `integrate_orientation`.
+            // spin leaks away; see `integrate_orientation`.
             const T sine = length(vector);
             if (!(sine > T(1e-12)))
             {

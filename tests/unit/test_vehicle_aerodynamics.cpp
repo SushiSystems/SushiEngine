@@ -251,7 +251,7 @@ TEST(Unit_VehicleAerodynamics, ShellNodesCarryTheCookersDragArea)
         quadratic_drag_constant<Scalar>(Scalar(1.2), NODE_DRAG_AREA, SHELL_MASS / 4, AIR_DENSITY);
     EXPECT_NEAR(double(node.drag_coefficient), double(expected), 1e-15);
     EXPECT_GT(double(node.drag_coefficient), 0.0)
-        << "the area travelled in the asset from P7-C and was read by nothing until now";
+        << "the node's drag area reached the solver but produced no drag constant";
 }
 
 /** @brief The body's Cd and area become the core's own drag constant. */

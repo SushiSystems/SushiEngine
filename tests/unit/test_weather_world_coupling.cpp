@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* test_weather_world_coupling.cpp                                       */
+/* test_weather_world_coupling.cpp                                        */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -18,7 +18,7 @@
 /* distributed under the License is distributed on an "AS IS" BASIS,      */
 /* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or        */
 /* implied. See the License for the specific language governing           */
-/* permissions and limitations under the License.                        */
+/* permissions and limitations under the License.                         */
 /**************************************************************************/
 
 // Unit_WeatherWorldCoupling: docs/slop/weather_and_clouds.md §5.3/W5's world-coupling bridge
@@ -57,10 +57,10 @@ TEST(Unit_WeatherWorldCoupling, ClearColumnCompilesToAllZeroCoupling)
 
 TEST(Unit_WeatherWorldCoupling, OvercastAloftIsNotFogButCloudOnTheGroundIs)
 {
-    // The regression this exists for: fog used to be driven by the low deck's coverage times
-    // its density, so an ordinary grey overcast at 1 200 m produced ~0.008/m of extinction -- a
-    // ~370 m whiteout under a sky you can see the ground perfectly well beneath. Coverage aloft
-    // says nothing about the air at the surface; cloud *base* does.
+    // Driving fog from the low deck's coverage times its density turns an ordinary grey
+    // overcast at 1 200 m into ~0.008/m of extinction -- a ~370 m whiteout under a sky you can
+    // see the ground perfectly well beneath. Coverage aloft says nothing about the air at the
+    // surface; cloud *base* does.
     WeatherColumn overcast{};
     overcast.levels[static_cast<int>(CloudLevel::Low)].coverage = 1.0f;
     overcast.levels[static_cast<int>(CloudLevel::Low)].density_scale = 2.0f;
@@ -182,9 +182,8 @@ TEST(Unit_WeatherWind, PerturbationIsBoundedByTheLocalThermalGradient)
 {
     // `weather_wind()` is exactly `wind_at() + wind_gust()`, and the gust is the ceiling scaled
     // by the gradient as a fraction of a full front. So the departure from the provider's own
-    // wind can never exceed that fraction of the ceiling -- which is the invariant the old
-    // "reduces to the analytic field far from any system" case was really asserting, now stated
-    // as the bound it always was rather than as an equality that depended on there being
+    // wind can never exceed that fraction of the ceiling. Stated as a bound rather than as an
+    // equality far from any system, because such an equality would depend on there being
     // somewhere with no weather at all.
     ProceduralWeather weather(/*seed=*/1234, WIND_EARTH_RADIUS_M);
 

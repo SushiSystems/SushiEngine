@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -71,9 +73,7 @@ namespace
     const Real tolerance = 1e-5;
 } // namespace
 
-// ---------------------------------------------------------------------------
 // One ray, one shape
-// ---------------------------------------------------------------------------
 
 TEST(Unit_SceneQuery, SphereIsHitAtTheArithmeticDistance)
 {
@@ -199,9 +199,7 @@ TEST(Unit_SceneQuery, TheTableReachesEveryRegisteredShapeAndNothingElse)
         ray_cast_shape<Real>(unregistered, vec(0, 0, 0), vec(1, 0, 0), 10.0, hit));
 }
 
-// ---------------------------------------------------------------------------
 // Over a broadphase
-// ---------------------------------------------------------------------------
 
 TEST(Unit_SceneQuery, ClosestHitIsTheNearestOfSeveralAlongTheRay)
 {

@@ -153,7 +153,7 @@ namespace SushiEngine
                     std::uint32_t width() const noexcept { return width_; }
                     std::uint32_t height() const noexcept { return height_; }
 
-                    // --- Command slot access, driven by the view's frame loop -------------
+                    // Command slot access, driven by the view's frame loop.
                     /**
                      * @brief Returns a slot's command buffers to the initial state for a frame.
                      *
@@ -220,7 +220,7 @@ namespace SushiEngine
                     Resources::TexturePool& textures(std::uint32_t slot);
                     Resources::BufferPool& buffers(std::uint32_t slot);
 
-                    // --- Per-frame uniform staging (the three mapped uniform buffers) -----
+                    // Per-frame uniform staging (the three mapped uniform buffers).
                     void upload_scene(std::uint32_t slot, const Scene::SceneUniforms& uniforms);
                     void upload_temporal(std::uint32_t slot,
                                          const Scene::TemporalUniforms& uniforms);

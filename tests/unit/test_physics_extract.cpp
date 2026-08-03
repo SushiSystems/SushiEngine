@@ -22,10 +22,10 @@
 /**************************************************************************/
 
 // The translation from authored components to physics descriptors, tested on its
-// own. It used to live three private methods deep in RuntimeSimulation, where
-// reaching it meant standing up a whole live world -- so the cases that actually
+// own. Kept out of RuntimeSimulation's private methods deliberately: buried there,
+// reaching it means standing up a whole live world, and the cases that actually
 // bite (a Cylinder collapsing to a sphere, a plane that is also a rigid body, a
-// collider overriding a visual shape) were never checked directly.
+// collider overriding a visual shape) cannot be checked directly.
 
 #include <gtest/gtest.h>
 
@@ -93,9 +93,9 @@ TEST(Unit_PhysicsExtract, OnlyABoxCollidesAsABox)
 
     // A cylinder is a *capsule*, not a sphere (§1.2 item 4). Still an approximation
     // — a capsule has round ends — but one that stands on the ground and rolls about
-    // the right axis, which the bounding sphere did neither of. There is no longer a
-    // second, flattened description of the shape beside the collider: the live tick
-    // generates manifolds from the collider itself, so a capsule collides as one.
+    // the right axis, which a bounding sphere does neither of. No second, flattened
+    // description of the shape sits beside the collider: the live tick generates
+    // manifolds from the collider itself, so a capsule collides as one.
     const std::vector<RigidBodyDescription> cylinders = extract_rigid_bodies(
         {body_with_collider(1, PrimitiveKind::Cylinder, Vector3{2, 3, 4})});
     ASSERT_EQ(cylinders.size(), 1u);
@@ -170,7 +170,7 @@ TEST(Unit_PhysicsExtract, AMovingPlaneIsNotAStaticSurface)
 
 TEST(Unit_PhysicsExtract, ARigidBodySeedsFromItsLocalTransform)
 {
-    // Preserved from the code this replaced, not chosen here: a body seeds from its
+    // An inherited convention rather than a choice made here: a body seeds from its
     // own transform while a plane is placed by its world transform. Pinned so that
     // changing it is a decision someone takes, not a side effect of a later edit.
     PhysicsSourceEntity entity = body_with_collider(1, PrimitiveKind::Sphere, Vector3{1, 1, 1});
@@ -183,14 +183,12 @@ TEST(Unit_PhysicsExtract, ARigidBodySeedsFromItsLocalTransform)
     EXPECT_DOUBLE_EQ(double(bodies[0].position.z), 3.0);
 }
 
-// ---------------------------------------------------------------------------
 // Scale, and the mass derived from it (§1.2 item 5, P0 carry-over 2)
-// ---------------------------------------------------------------------------
 
 TEST(Unit_PhysicsExtract, ScalingAnEntityScalesWhatItCollidesAs)
 {
-    // The bug in one assertion: this crate is drawn twice as wide and used to
-    // collide as if it were not.
+    // The property in one assertion: this crate is drawn twice as wide and must
+    // collide as if it is.
     PhysicsSourceEntity entity = body_with_collider(1, PrimitiveKind::Box, Vector3{1, 1, 1});
     entity.local_scale = Vector3{Scalar(2), Scalar(3), Scalar(0.5)};
 

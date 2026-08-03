@@ -22,14 +22,14 @@
 /**************************************************************************/
 
 // cgltf is a single-header library: exactly one translation unit in the whole
-// program may define its implementation, and this is that unit. It used to be
-// render/material/stb_impl.cpp, alongside stb_image and stb_truetype — which made
-// the glTF parser a private of the renderer, and meant a target that only wanted to
-// read a skeleton had to link a Vulkan library to get `cgltf_parse_file`.
+// program may define its implementation, and this is that unit. It lives here
+// because the importers do, and they link nothing — defining it alongside stb_image
+// in the renderer would make the glTF parser a private of the renderer, so a target
+// that only wanted to read a skeleton would have to link a Vulkan library to get
+// `cgltf_parse_file`.
 //
-// It lives here because the importers do, and they link nothing. Nothing else in the
-// engine may define CGLTF_IMPLEMENTATION; the renderer includes the header for its
-// types and takes the symbols from this target.
+// Nothing else in the engine may define CGLTF_IMPLEMENTATION; the renderer includes
+// the header for its types and takes the symbols from this target.
 
 #define CGLTF_IMPLEMENTATION
 #include <cgltf.h>

@@ -10,6 +10,7 @@
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
 /* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -277,12 +278,11 @@ namespace SushiEngine
                 // sitting on the ground.
                 //
                 // The author's density is only counted when the author actually asked for fog.
-                // Weather used to force `fog.enabled` on behind the author's back so that rain
-                // could be seen through *something*, which meant switching on procedural weather
-                // silently added the full authored density (0.01/m by default -- a 300 m
-                // whiteout) to a scene that had deliberately left fog off. Now the two are
-                // separable: the weather can raise fog out of nothing without inheriting a
-                // density nobody asked to see.
+                // Weather must not force `fog.enabled` on behind the author's back to make rain
+                // visible through *something*: that would silently add the full authored density
+                // (0.01/m by default -- a 300 m whiteout) to a scene that deliberately left fog
+                // off. Keeping the two separable lets the weather raise fog out of nothing
+                // without inheriting a density nobody asked to see.
                 const float weather_bias = frame.environment->weather.fog_density_bias;
                 const bool authored = fog.enabled;
                 push.color_density[3] = (authored ? fog.density : 0.0f) + weather_bias;

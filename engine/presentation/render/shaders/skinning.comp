@@ -84,7 +84,7 @@ layout(push_constant) uniform Push
 // quaternion and its negation represent the same rotation but would otherwise partially
 // cancel in a naive sum), then renormalized onto the unit dual-quaternion manifold. Exactly
 // `Animation::blend_dual_quaternions` (dual_quaternion_skinning.hpp) — ported here, not
-// reinvented, and verified there against a SushiRuntime SYCL kernel before this port.
+// reinvented, and verified there against a SushiRuntime SYCL kernel.
 DualQuaternion blend_dual_quaternions(uint base, uint joints[4], float weights[4])
 {
     vec4 reference = vec4(0.0, 0.0, 0.0, 1.0);

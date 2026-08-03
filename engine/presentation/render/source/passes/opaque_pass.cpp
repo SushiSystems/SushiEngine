@@ -293,7 +293,7 @@ namespace SushiEngine
                 // Soft bodies are shaded on the GPU by the deformable pass, which ran just
                 // before this one and filled the vertex buffer the draw below binds; the host
                 // packed only their positions and topology (see DeformableBuffers::prepare).
-                // What is still needed here is per-mesh material and motion, packed as before.
+                // What is needed here is per-mesh material and motion.
 
                 // The quality tier decides which advanced BRDF lobes are evaluated at all;
                 // apply that once here, before any material is packed, so a lower tier

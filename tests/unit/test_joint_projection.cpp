@@ -177,7 +177,7 @@ namespace
     const Vector3 WEIGHTLESS{0, 0, 0};
 }
 
-// -- The frame algebra the whole library rests on ---------------------------
+// The frame algebra the whole library rests on.
 
 TEST(Unit_JointProjection, FrameFromAxisPutsTheFrameXOnTheAxis)
 {
@@ -275,7 +275,7 @@ TEST(Unit_JointProjection, LimitViolationIsZeroInsideAndSignedOutside)
     EXPECT_EQ(double(joint_limit_violation(limit_of(Scalar(2), Scalar(-1)), Scalar(0))), 0.0);
 }
 
-// -- The kinds -------------------------------------------------------------
+// The kinds.
 
 TEST(Unit_JointProjection, BallJointHoldsTheAnchorAndLeavesRotationFree)
 {
@@ -547,7 +547,7 @@ TEST(Unit_JointProjection, SixDegreeOfFreedomHonoursEachAxisSeparately)
     EXPECT_NEAR(double(solved.position.z), 0.25, 1e-3);  // bounded
 }
 
-// -- Force recovery, drives, and lifetime ----------------------------------
+// Force recovery, drives, and lifetime.
 
 TEST(Unit_JointProjection, ForceRecoveryReportsTheLoadTheJointActuallyCarries)
 {
@@ -718,7 +718,7 @@ TEST(Unit_JointProjection, ADisabledJointIsNotProjectedAtAll)
     EXPECT_EQ(read.force_samples, 0u);
 }
 
-// -- Lifetime through the solver seam --------------------------------------
+// Lifetime through the solver seam.
 
 TEST(Unit_JointProjection, RemovingABodyRemovesTheJointsThatNamedIt)
 {
@@ -841,7 +841,7 @@ TEST(Unit_JointProjection, ExhaustingTheJointBudgetIsCountedRatherThanFatal)
     EXPECT_GT(solver.statistics().capacity_overflows, std::size_t(0));
 }
 
-// -- The damper: the other half of §11.2's "spring-damper drive" ------------
+// The damper: the other half of §11.2's "spring-damper drive".
 
 TEST(Unit_JointProjection, MotorDampingBleedsOffAHingeSpin)
 {
@@ -959,11 +959,11 @@ TEST(Unit_JointProjection, ASpringDamperStrutSettlesWhereASpringAloneRings)
 
 TEST(Unit_JointProjection, AFreeBodyKeepsItsSpinExactly)
 {
-    // Not a joint test, and here because this is where it was found. `predict` and
+    // Not a joint test, and here because this is where it shows. `predict` and
     // `update_velocity` are an exponential map and its logarithm, and a first-order
     // pair instead of an exact one leaks angular velocity in proportion to the spin --
-    // measured at a third of a wheel's speed per second before it was fixed, on a body
-    // with no constraint on it at all.
+    // measured at a third of a wheel's speed per second, on a body with no constraint
+    // on it at all.
     HostXPBDSolver<Scalar> solver(joint_scene());
     const BodyHandle b = solver.add_body(moving_body(Vector3{0, 0, 0}, Scalar(20), Scalar(1.2)));
 

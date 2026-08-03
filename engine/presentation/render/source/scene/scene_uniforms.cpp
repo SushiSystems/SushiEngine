@@ -355,7 +355,7 @@ namespace SushiEngine
                 // still has to be inside the span the march crosses, and the deck stack only ever
                 // saw the column under the camera. The producer takes that union as it fills the
                 // cells — it is the only party that sees every column — so it is read straight
-                // through here rather than re-derived from decks that no longer decide anything.
+                // through here rather than re-derived from decks that do not decide it.
                 if (environment.weather_field.valid() && environment.weather_field.derives_genus)
                 {
                     base_min = environment.weather_field.union_base_m;

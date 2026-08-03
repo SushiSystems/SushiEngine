@@ -180,7 +180,7 @@ add_executable(sushiengine_functional_tests
     # P6-H: §9.1's bending constraint, the thing today's cloth lacks. The
     # weights are asserted by the property that defines them (they annihilate
     # the rest stencil) rather than by a formula, and P6's own acceptance
-    # clause -- zero stiffness reproduces the old behaviour -- is checked
+    # clause -- zero stiffness adds no bending at all -- is checked
     # structurally: at zero, no bending constraints exist to run.
     unit/test_bending_constraint.cpp
     # P6-I: §6.5's cosmetic float column -- the rule that picks it, the clause
@@ -449,10 +449,10 @@ add_executable(sushiengine_functional_tests
     # half-space a plane keeps, when the body offset is taken) are each wrong in a way that
     # still draws a planet.
     unit/test_terrain_frame.cpp
-    # §18 R8 (closed 2026-08-02): the run-report-to-statistics conversion that
-    # groups a synthetic RunReport's node timings by name, against known-correct
-    # sums -- the same grouping `soft_body_budget.cpp` does by hand, checked here
-    # without needing a live runtime or device to produce the report.
+    # §18 R8: the run-report-to-statistics conversion that groups a synthetic
+    # RunReport's node timings by name, against known-correct sums -- the same
+    # grouping `soft_body_budget.cpp` does by hand, checked here without needing
+    # a live runtime or device to produce the report.
     unit/test_physics_statistics.cpp
 
     integration/test_schedule.cpp
@@ -465,11 +465,10 @@ add_executable(sushiengine_functional_tests
     # here are what stop the late-binding design from silently regressing into a
     # graph that recompiles every time a body is spawned.
     integration/test_runtime_graph_builder.cpp
-    # P8's per-island substepping leans on Execution::DynamicGraph/Region, which sat
-    # unreached through the engine's own execution seam until now (docs/slop/
-    # physics_system.md §6.6, §18 R3). Seam-level, not physics-level: two regions
-    # keyed independently, a drop that takes effect immediately, and a run that does
-    # not recompose when nothing changed.
+    # P8's per-island substepping leans on Execution::DynamicGraph/Region
+    # (docs/slop/physics_system.md §6.6, §18 R3). Seam-level, not physics-level: two
+    # regions keyed independently, a drop that takes effect immediately, and a run
+    # that does not recompose when nothing changed.
     integration/test_execution_dynamic_graph.cpp
     # The shared IConstraintSolver conformance suite: the same scenes against every
     # implementation, which is what lets a device solver replace a host one.
@@ -554,13 +553,12 @@ add_executable(sushiengine_functional_tests
     # it reports the load it carries (§10.4), it tears out above a threshold and stays
     # out, and every authored field survives the scene file — including the partner,
     # which is written as an array index and resolved in the same second pass the
-    # parent link uses. P3's one outstanding item was that none of this was reachable
-    # from a scene at all.
+    # parent link uses.
     integration/test_physics_joint_component.cpp
 
-    # §5.3's surface materials and §7.7's collision filter, both of which the physics
-    # honoured and nothing could author until now: a bouncy body returns more height than
-    # a dead one, a 17-degree ramp holds rubber and loses ice, and a pair on mutually
+    # §5.3's surface materials and §7.7's collision filter, both authored on the
+    # Collider and honoured by the solve: a bouncy body returns more height than a
+    # dead one, a 17-degree ramp holds rubber and loses ice, and a pair on mutually
     # excluded layers passes through itself while an identical control pair stacks. Plus
     # the sample scene, which is the exposure work's own claim that everything P0-P7 built
     # is reachable without writing C++ — asserted here so the claim is tested, against the

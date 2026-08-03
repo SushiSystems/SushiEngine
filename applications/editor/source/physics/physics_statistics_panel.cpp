@@ -102,8 +102,8 @@ namespace SushiEngine
                 ImGui::Separator();
             }
 
-            // §16.44's opt-in: off by default in the solver, and until now unreachable from
-            // the editor at all — the toggle existed only for a test to call directly.
+            // §16.44's opt-in: off by default in the solver, and exposed here so it can be
+            // switched on without editing code.
             if (ImGui::CollapsingHeader("Settings"))
             {
                 ImGui::Checkbox("Park sleeping joints", &context.park_sleeping_joints);
@@ -177,13 +177,12 @@ namespace SushiEngine
                 ImGui::Separator();
                 ImGui::Text("%-22s %.3f ms", "Total", double(stats.timings.total_ms));
 
-                // §18 R8 (closed 2026-08-02): the runtime's add() overloads now carry
-                // a node's label through, so the one composition above breaks down by
-                // name instead of staying an opaque total. A kind reporting zero
-                // dispatches is not drawn at all -- a scene with no joints or contacts
-                // never asked distance_project's neighbours to run this tick, and a
-                // zero row here would read as a measurement of something nobody
-                // measured (§8.5's rule, same one the cooking report already follows).
+                // The runtime's add() overloads carry a node's label through, so the one
+                // composition above breaks down by name instead of staying an opaque total
+                // (§18 R8). A kind reporting zero dispatches is not drawn at all -- a scene
+                // with no joints or contacts never asked distance_project's neighbours to run
+                // this tick, and a zero row here would read as a measurement of something
+                // nobody measured (§8.5's rule, the same one the cooking report follows).
                 if (ImGui::TreeNode("Solve, by node"))
                 {
                     for (std::size_t index = 0; index < Physics::PHYSICS_NODE_KIND_COUNT; ++index)

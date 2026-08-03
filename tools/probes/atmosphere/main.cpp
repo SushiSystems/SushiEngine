@@ -29,11 +29,11 @@
 // hypothesis in that phase reasoned from a screenshot turned out wrong, and every one settled by
 // porting the code and sampling it turned out right. The remaining questions it names — whether
 // the vertical velocity survives the buoyancy correction, and where the boundary layer's water
-// goes — are of the second kind, and until now they could only be asked through the editor: open
-// a panel, switch on procedural weather, animate the sky, and wait half an hour of wall clock for
-// three hours of weather that the mirror then reports one surface number of. This runs the same
-// nest, the same shaders and the same parameters with the editor removed, at whatever rate the
-// device manages, and prints the profile (§9.1's diagnostic slice) rather than the reduction.
+// goes — are of the second kind. Asking them through the editor means opening a panel, switching
+// on procedural weather, animating the sky, and waiting half an hour of wall clock for three
+// hours of weather that the mirror then reports one surface number of. This runs the same nest,
+// the same shaders and the same parameters with the editor removed, at whatever rate the device
+// manages, and prints the profile (§9.1's diagnostic slice) rather than the reduction.
 //
 // It is a *measuring instrument*, not a test: it asserts nothing and returns 0 whenever the nest
 // ran. `test_atmosphere_nest.cpp` is where the base state, the saturation relations and the grid
@@ -656,8 +656,8 @@ int main(int argc, char** argv)
         SushiEngine::Render::Resources::SamplerCache samplers(device);
 
         // Through the same resolver the host uses — the *atmosphere* tier, not the render
-        // tier, which no longer carries the nest — so a probe run at a tier is that tier
-        // and not a second opinion about what it means.
+        // tier, which does not carry the nest — so a probe run at a tier is that tier and
+        // not a second opinion about what it means.
         SushiEngine::Simulation::AtmosphereQuality tier =
             SushiEngine::Simulation::AtmosphereQuality::High;
         if (options.tier == "low")
@@ -777,7 +777,7 @@ int main(int argc, char** argv)
         // asks for exactly one and can never be the case that drops any, which is what makes a
         // probe run comparable against the editor's rather than a compressed version of it.
         //
-        // Re-read from the nest each iteration below, because the step is no longer a constant:
+        // Re-read from the nest each iteration below, because the step is not a constant:
         // it lengthens in a quiet airmass and tightens when convection gets going.
         const float thinnest =
             SushiEngine::Render::atmosphere_level_thickness(0, size.levels, size.top_m);
@@ -810,8 +810,8 @@ int main(int argc, char** argv)
         // difference between "is there cloud where I am standing" and "is there cloud" — and the
         // last two are the difference between a cloud *field* and a sheet of the same total
         // cloud, which is the question the surface heterogeneity decides.
-        // The three after the sun are the surface energy balance's own state, which is no longer
-        // an input: skin temperature in Celsius and the two turbulent fluxes it delivers. Their
+        // The three after the sun are the surface energy balance's own state rather than an
+        // input: skin temperature in Celsius and the two turbulent fluxes it delivers. Their
         // ratio is the Bowen ratio, measured rather than authored, and watching it drift through
         // the day is watching the ground dry out.
         std::printf("\n%10s %8s %8s %8s %8s %10s %9s %8s %8s %9s %8s %8s %9s %9s %8s\n", "sim_s",
@@ -857,8 +857,8 @@ int main(int argc, char** argv)
             float peak_buoyancy = 0.0f;
             float peak_divergence = 0.0f;
             // The cloudiest level and how high it is — the two numbers this phase turns on.
-            // "Some condensate somewhere" was true of every earlier run too; what distinguishes
-            // a cumulus field from fog is that the cloud is at the mixed-layer top and not at
+            // "Some condensate somewhere" is true of almost any run; what distinguishes a
+            // cumulus field from fog is that the cloud is at the mixed-layer top and not at
             // 19 m, and a column summary cannot say which because it reduces over height.
             float peak_fraction = 0.0f;
             float peak_fraction_altitude = 0.0f;

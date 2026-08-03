@@ -27,13 +27,13 @@
  * @file weather_field.hpp
  * @brief The spatial weather field the renderer reads instead of one global column.
  *
- * `docs/slop/atmosphere_system.md` §1.1 names the defect this type exists to close: the
- * weather simulation used to reach the renderer as a *single* `WeatherColumn` sampled
- * under the observer and compiled into a globally uniform deck stack, so everything
- * actually visible in the sky came from tiled noise and no simulated structure — a front,
- * a shower, a clearing — could ever be seen. This is the field form of the same data: the
- * simulation's own horizontal grid, addressed in world space, which §7.3's coverage
- * authority samples per march step.
+ * `docs/slop/atmosphere_system.md` §1.1 names the defect this type exists to close. A
+ * simulation that reaches the renderer as a *single* `WeatherColumn` sampled under the
+ * observer compiles into a globally uniform deck stack, so everything actually visible in
+ * the sky comes from tiled noise and no simulated structure — a front, a shower, a
+ * clearing — can ever be seen. This is the field form of the same data: the simulation's
+ * own horizontal grid, addressed in world space, which §7.3's coverage authority samples
+ * per march step.
  *
  * The samples are **borrowed, not owned**: `Environment` is copied per frame into the
  * render snapshot, and copying tens of kilobytes of weather every frame to describe

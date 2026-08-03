@@ -147,7 +147,7 @@ namespace
     };
 } // namespace
 
-// ---- motion matching: the searchable database ----
+// motion matching: the searchable database.
 
 TEST(Unit_AnimationAuthoringTail,TheDatabaseSamplesEvenlyAndMeasuresVelocityFromTheClip)
 {
@@ -254,7 +254,7 @@ TEST(Unit_AnimationAuthoringTail,AnEmptyOrUnbuildableDatabaseAnswersNotFoundRath
     EXPECT_EQ(motion.find_best(MotionFeature{}), MotionDatabase::NOT_FOUND);
 }
 
-// ---- motion matching: the reference crossfade driver ----
+// motion matching: the reference crossfade driver.
 
 TEST(Unit_AnimationAuthoringTail,TheSamplerSnapsOnResetAndDoesNotCrossfade)
 {
@@ -358,7 +358,7 @@ TEST(Unit_AnimationAuthoringTail,ACrossfadeCompletesAfterItsDurationAndEndsOnThe
     }
 }
 
-// ---- dual-quaternion skinning ----
+// dual-quaternion skinning.
 
 TEST(Unit_AnimationAuthoringTail,ADualQuaternionReproducesTheRigidTransformItWasBuiltFrom)
 {
@@ -450,17 +450,15 @@ TEST(Unit_AnimationAuthoringTail,BlendingIsInvariantToAnInfluencesQuaternionSign
 
 TEST(Unit_AnimationAuthoringTail,TheLinearBaselineAveragesTranslationsRegardlessOfQuaternionSign)
 {
-    // A regression test for a defect the baseline used to have and now cannot. It blended the
-    // rotation as a weighted quaternion sum, which needs a hemisphere sign — and it carried that
-    // sign into the *translation* sum too, so an influence whose stored quaternion sat in the
-    // opposite hemisphere had its translation subtracted while the divisor stayed positive, and
-    // the vertex landed somewhere no influence had asked for. A 200-degree rotation reaches it:
-    // its quaternion has a negative dot with the identity.
+    // The baseline transforms by each influence separately and averages the results, so no
+    // quaternion is ever summed and a hemisphere sign cannot reach the translation. Summing the
+    // rotations instead needs that sign, and carrying it into the *translation* sum subtracts
+    // the translation of any influence whose stored quaternion sits in the opposite hemisphere
+    // while the divisor stays positive, landing the vertex somewhere no influence asked for. A
+    // 200-degree rotation reaches that case: its quaternion has a negative dot with the identity.
     //
-    // The baseline now transforms by each influence separately and averages the results, so no
-    // quaternion is ever summed and the sign cannot reach anything. This test pins the outcome
-    // rather than the mechanism, so it keeps guarding the property whichever way the function is
-    // written.
+    // The assertions pin the outcome rather than the mechanism, so they keep guarding the
+    // property whichever way the function is written.
     const Quaternionf rotations[2] = {IDENTITY, axis_angle(0.0f, 1.0f, 0.0f, 200.0f)};
     ASSERT_LT(rotations[1].w, 0.0f) << "the setup must actually cross the hemisphere";
 
@@ -515,7 +513,7 @@ TEST(Unit_AnimationAuthoringTail,ZeroAndNegativeWeightsDegradeToIdentityRatherTh
     EXPECT_FLOAT_EQ(blend_dual_quaternions(dual_quaternions, negative, 2).real.w, 1.0f);
 }
 
-// ---- facial blendshapes ----
+// facial blendshapes.
 
 TEST(Unit_AnimationAuthoringTail,EveryARKitShapeHasADistinctNonEmptyNameAndCountHasNone)
 {
@@ -620,7 +618,7 @@ TEST(Unit_AnimationAuthoringTail,SettingAShapeWritesItsOwnSlotAndSkipsWhatTheMes
     EXPECT_FLOAT_EQ(small.weights[0], 0.0f);
 }
 
-// ---- sequencer timeline ----
+// sequencer timeline.
 
 TEST(Unit_AnimationAuthoringTail,AFloatTrackInterpolatesAndClampsAndSortsWhenAsked)
 {
@@ -637,10 +635,10 @@ TEST(Unit_AnimationAuthoringTail,AFloatTrackInterpolatesAndClampsAndSortsWhenAsk
     const SequenceFloatTrack empty;
     EXPECT_FLOAT_EQ(empty.sample(1.0f), 0.0f);
 
-    // The header used to claim `evaluate` sorted a local copy of the keys; it does not, and doing
-    // it there would put a copy and a sort on the per-frame path. `sort_keys` is where that cost
-    // belongs, and this is the case that proves it is needed: bulk-loaded keys out of order read
-    // the wrong segment until it is called.
+    // `evaluate` does not sort a local copy of the keys: doing it there would put a copy and a
+    // sort on the per-frame path. `sort_keys` is where that cost belongs, and this is the case
+    // that proves it is needed: bulk-loaded keys out of order read the wrong segment until it
+    // is called.
     SequenceFloatTrack unsorted;
     unsorted.keys = {{2.0f, 30.0f}, {0.0f, 10.0f}, {1.0f, 100.0f}};
     unsorted.sort_keys();

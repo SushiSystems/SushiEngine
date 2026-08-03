@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -279,11 +281,11 @@ TEST(Unit_ContactBody, ZeroInverseInertiaReproducesThePurelyPositionalSplit)
 
 TEST(Unit_ContactBody, PlaneContactClearsThePenetrationWhateverTheMass)
 {
-    // The plane path used to carry an extra inv_mass / w factor, which reproduced the
-    // older purely-positional behaviour only for a body of unit inverse mass. A heavier
-    // body cleared a fraction of its penetration per sweep and a lighter one overshot.
-    // One sweep, no rotational freedom: the body must land exactly on the surface for
-    // any inverse mass, because a plane is immovable and absorbs none of the correction.
+    // An extra inv_mass / w factor on the plane path would be right only for a body of
+    // unit inverse mass: a heavier body would clear a fraction of its penetration per
+    // sweep and a lighter one would overshoot. One sweep, no rotational freedom: the
+    // body must land exactly on the surface for any inverse mass, because a plane is
+    // immovable and absorbs none of the correction.
     const double masses[3] = {0.25, 1.0, 4.0};
     for (double inv_mass : masses)
     {

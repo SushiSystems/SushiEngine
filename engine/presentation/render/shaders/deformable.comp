@@ -1,8 +1,8 @@
 #version 450
 
-// GPU shading of host-simulated surfaces. This replaces cloth.comp, which could only
-// handle a rows-by-cols grid: it derived the up-to-six triangles touching a vertex from
-// the row stride, which is a formula an arbitrary triangle list does not have.
+// GPU shading of host-simulated surfaces, over an arbitrary triangle list. A rows-by-cols
+// grid can derive the up-to-six triangles touching a vertex from its row stride; an
+// arbitrary triangle list has no such formula, so the adjacency is supplied instead.
 //
 // The gather stays atomic-free, which is the whole reason for the shape of this shader.
 // The obvious way to area-weight normals is to run one thread per *triangle* and add its

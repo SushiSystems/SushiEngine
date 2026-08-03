@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -28,9 +30,9 @@
 // being quietly approximated by whatever compiles; and the two orders of a pair
 // differ only in which way the normal points.
 //
-// That last one is the property the old code broke without anyone noticing:
-// `gather_rigid_descriptions` collapsed anything that was not a box into a sphere, so a
-// cylinder simulated as a ball and nothing said so (§1.2 item 4).
+// That last one is the property that breaks quietly: if `gather_rigid_descriptions`
+// collapses anything that is not a box into a sphere, a cylinder simulates as a ball
+// and nothing says so (§1.2 item 4).
 
 #include <cmath>
 #include <vector>

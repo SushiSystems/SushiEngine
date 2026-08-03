@@ -178,7 +178,7 @@ namespace SushiEngine
              *
              * *"The chassis-plus-hinged-door scene works end to end: the door swings within
              * its limits, carries load, reports its hinge force, and tears off above its break
-             * threshold."* Every clause of that is here and every one of them is now authored
+             * threshold."* Every clause of that is here, and every one of them is authored
              * rather than compiled: the limits are the hinge's twist range, the load is what
              * the Assembly window's live list reads, and the threshold is a field.
              *

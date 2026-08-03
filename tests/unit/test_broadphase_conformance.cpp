@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -122,9 +124,7 @@ namespace
     }
 } // namespace
 
-// ---------------------------------------------------------------------------
 // The tree
-// ---------------------------------------------------------------------------
 
 TEST(Unit_DynamicBVH, StaysWellFormedThroughInsertionAndRemoval)
 {
@@ -230,9 +230,7 @@ TEST(Unit_DynamicBVH, AProxyInsideItsStoredBoxIsNotReinserted)
     EXPECT_TRUE(tree.validate());
 }
 
-// ---------------------------------------------------------------------------
 // The seam: both implementations, one answer
-// ---------------------------------------------------------------------------
 
 TEST(Unit_BroadphaseConformance, BothImplementationsEmitTheSamePairSet)
 {
@@ -300,9 +298,7 @@ TEST(Unit_BroadphaseConformance, TheyAgreeThroughMotionRemovalAndReinsertion)
     }
 }
 
-// ---------------------------------------------------------------------------
 // The pair cache
-// ---------------------------------------------------------------------------
 
 TEST(Unit_BroadphasePairCache, ReportsAddedThenPersistedThenRemoved)
 {
@@ -349,9 +345,7 @@ TEST(Unit_BroadphasePairCache, HysteresisKeepsAStationaryBodyOutOfTheTree)
     EXPECT_GT(broadphase.proxy(proxy).bounds.min.x, stored.min.x);
 }
 
-// ---------------------------------------------------------------------------
 // Filters, layers, and flags (§5.5, §4.4)
-// ---------------------------------------------------------------------------
 
 TEST(Unit_BroadphaseFilters, LayersRejectAPairBeforeAnyGeometryIsConsulted)
 {
@@ -430,9 +424,7 @@ TEST(Unit_BroadphaseFilters, ATriggerStillPairs)
     EXPECT_EQ(broadphase.pairs().size(), 1u);
 }
 
-// ---------------------------------------------------------------------------
 // Continuous collision: the pair exists before the impact
-// ---------------------------------------------------------------------------
 
 TEST(Unit_BroadphaseSweptBounds, AFastBodyPairsWithWhatItIsAboutToHit)
 {

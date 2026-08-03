@@ -133,12 +133,11 @@ namespace SushiEngine
         /**
          * @brief One simulated surface's world-space geometry this frame, ready to draw.
          *
-         * The extract channel for anything the host deforms per frame. It used to carry
-         * a grid's rows and columns, which is a description only a cloth sheet fits; a
-         * tetrahedral body's surface is a closed triangle mesh with no grid structure,
-         * and a fractured one is not even connected. So it carries a vertex range and a
-         * triangle range into the scene's concatenated arrays, and says nothing about
-         * how either was arranged.
+         * The extract channel for anything the host deforms per frame. A grid's rows
+         * and columns describe only a cloth sheet; a tetrahedral body's surface is a
+         * closed triangle mesh with no grid structure, and a fractured one is not even
+         * connected. So this carries a vertex range and a triangle range into the
+         * scene's concatenated arrays, and says nothing about how either was arranged.
          */
         struct DeformableInstance
         {
@@ -307,7 +306,7 @@ namespace SushiEngine
             /**
              * @brief Mass per unit volume; zero keeps the hand-authored mass above.
              *
-             * The opt-in that closes P0 carry-over 2. Almost nobody can write a
+             * The opt-in P0 carry-over 2 asks for. Almost nobody can write a
              * correct inverse inertia tensor for anything but a sphere, and getting
              * it wrong produces a body that tumbles plausibly enough that the error
              * is never traced back — so with a density set, both numbers above are
@@ -553,9 +552,9 @@ namespace SushiEngine
             /**
              * @brief Reports overlaps instead of resolving them.
              *
-             * `Physics::BodyFlags::trigger`, authored: the solver has carried this bit and
-             * eventing it (`ContactEvent::trigger`) since the collision system was built, but
-             * nothing authored one until now — a trigger volume was solvable and not placeable.
+             * `Physics::BodyFlags::trigger`, authored. The solver carries the bit and events
+             * it through `ContactEvent::trigger`; this field is what lets a scene place one,
+             * so a trigger volume is placeable and not merely solvable.
              */
             bool trigger = false;
 
@@ -1140,11 +1139,11 @@ namespace SushiEngine
                  *
                  * The W4 seam (`docs/slop/weather_and_clouds.md` §3): whichever
                  * `IWeatherProvider` the mode selects compiles into `Environment::clouds` every
-                 * tick, exactly where manual deck authoring used to write it, so
+                 * tick, exactly where manual deck authoring writes it, so
                  * `CloudscapeCompilePass` (T3) sees no difference between them.
                  *
                  * @see Simulation::WeatherMode, which carries the argument for why this is a
-                 *      mode rather than the boolean it replaced.
+                 *      mode rather than a boolean.
                  */
                 virtual WeatherMode weather_mode() const noexcept = 0;
 
@@ -1188,10 +1187,10 @@ namespace SushiEngine
                  * the same reasoning that already keeps cloth grids and audio zones as host-side
                  * objects the editor reaches into.
                  *
-                 * Returning the capability rather than the concrete provider is deliberate: this
-                 * interface previously named `ProceduralWeather` directly, which meant the host
-                 * had to store that exact type and no other implementation of the provider seam
-                 * could be installed at all.
+                 * Returning the capability rather than the concrete provider is deliberate:
+                 * naming `ProceduralWeather` here would force the host to store that exact
+                 * type, so no other implementation of the provider seam could be installed
+                 * at all.
                  */
                 virtual IWeatherAuthoring* weather_authoring() noexcept = 0;
 

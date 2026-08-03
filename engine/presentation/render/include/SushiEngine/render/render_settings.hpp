@@ -480,12 +480,12 @@ namespace SushiEngine
             /**
              * @brief Shadow the lights the atlas had no tile for, by tracing the GI field.
              *
-             * The atlas can only hold so many casters; beyond that a light used to be shaded
-             * fully unshadowed. With this on, each pixel instead samples a few of those
-             * lights in proportion to what they are worth to it and marches the global
-             * illumination distance field toward each for visibility, letting the temporal
-             * resolve average the rest. Needs GI to be on (the field is built there) and the
-             * tier to permit it; without either, the prior behaviour stands.
+             * The atlas can only hold so many casters. With this on, each pixel samples a
+             * few of the lights that got no tile, in proportion to what they are worth to
+             * it, and marches the global illumination distance field toward each for
+             * visibility, letting the temporal resolve average the rest. Needs GI to be on
+             * (the field is built there) and the tier to permit it; without either, a light
+             * beyond the atlas budget shades fully unshadowed.
              */
             bool stochastic_shadows = true;
 
@@ -566,7 +566,7 @@ namespace SushiEngine
             bool freeze = false;
             // No show_statistics flag: the readback is always live and nearly free, and
             // the editor simply displays it — a toggle for "may I look at two integers"
-            // was a control whose only behavior was hiding a label.
+            // would do nothing but hide a label.
         };
 
         /**
@@ -605,12 +605,11 @@ namespace SushiEngine
         {
             RenderQuality quality = RenderQuality::High;
             AntiAliasingMode anti_aliasing = AntiAliasingMode::Temporal;
-            // Note there is deliberately no authored UpscaleMode field: the frame never
-            // consumed one (the temporal path is governed by anti_aliasing and the render
-            // scale), so an authored backend choice was a promise nothing kept. The
-            // IUpscaler seam remains (see render/frame/upscaler.hpp); when a second
-            // backend actually ships, the authored choice returns together with its
-            // consumer.
+            // Note there is deliberately no authored UpscaleMode field: the frame consumes
+            // none (the temporal path is governed by anti_aliasing and the render scale),
+            // so an authored backend choice would be a promise nothing keeps. The IUpscaler
+            // seam exists (see render/frame/upscaler.hpp); when a second backend actually
+            // ships, the authored choice arrives together with its consumer.
 
             /**
              * @brief Manual internal render scale per axis, [0.5, 1].

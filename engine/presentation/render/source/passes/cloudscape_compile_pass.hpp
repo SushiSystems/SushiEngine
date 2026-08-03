@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* cloudscape_compile_pass.hpp                                           */
+/* cloudscape_compile_pass.hpp                                            */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -28,32 +28,28 @@
  * @brief The cloudscape T3 bake: the simulated atmosphere compiled into sampled density.
  *
  * Bakes the cloud density field once per rebake instead of once per march sample, so the view
- * march (CloudPass) spends a couple of fetches where it used to spend up to ~48 (8 texture
- * reads x up to 6 decks). Also bakes a coarser max-pooled copy the march's cheap/coarse probe
- * reads. The images are private to this pass and barriered by hand, exactly as the atmosphere
- * LUTs are; the render graph only schedules the pass, and only when there is something to
- * rebake.
+ * march (CloudPass) spends a couple of fetches rather than up to ~48 (8 texture reads x up to
+ * 6 decks). Also bakes a coarser max-pooled copy the march's cheap/coarse probe reads. The
+ * images are private to this pass and barriered by hand, exactly as the atmosphere LUTs are;
+ * the render graph only schedules the pass, and only when there is something to rebake.
  *
- * **Phase B (`docs/slop/atmosphere_system.md` §7.2/§7.4) changed what the field *is*.** It was
- * a periodic 32 km tile addressed by `fract(p.xz / tile)`, camera-locked and wind-scrolled at
- * sample time, carrying one globally compiled deck stack. It is now:
+ * What the field *is* (`docs/slop/atmosphere_system.md` §7.2/§7.4):
  *
- * - **Two camera-centred, non-wrapping windows.** A near one at the old span and texel size,
- *   and a far one eight times wider for the part of the march that leaves it. Non-wrapping is
- *   what gives every texel a recoverable world position — the property CloudLightVolumePass
- *   and CloudShadowMapPass needed before they could carry spatial weather at all, and the
- *   reason phase A had to defer them.
+ * - **Two camera-centred, non-wrapping windows.** A near one spanning 32 km, and a far one
+ *   eight times wider for the part of the march that leaves it. Non-wrapping is what gives
+ *   every texel a recoverable world position — the property CloudLightVolumePass and
+ *   CloudShadowMapPass need in order to carry spatial weather at all.
  * - **Resolved from the simulation, per column.** When the published field classifies
  *   (`WeatherField::derives_genus`) the bake picks a genus and a coverage per baked column
  *   rather than instantiating the compiled deck stack everywhere, so a stratus sheet, a
  *   cumulus field and a cirrus deck coexist where the simulation actually put them. A manually
- *   authored sky still bakes its own deck stack, unchanged.
- * - **Rebaked on a cadence rather than on an author edit.** The old gate was a memcmp of the
- *   deck stack, which is right for a sky that only changes when someone types. This one also
- *   watches the camera drifting out of its window, the weather advancing, the wind blowing,
- *   and — for the far window's own sun-depth channel — the sun moving. Each window carries its
- *   own budget, because the far one resolves eight times coarser and needs proportionally less
- *   of everything.
+ *   authored sky bakes its own deck stack instead.
+ * - **Rebaked on a cadence rather than on an author edit.** A memcmp of the deck stack is
+ *   right only for a sky that changes when someone types; this gate also watches the camera
+ *   drifting out of its window, the weather advancing, the wind blowing, and — for the far
+ *   window's own sun-depth channel — the sun moving. Each window carries its own budget,
+ *   because the far one resolves eight times coarser and needs proportionally less of
+ *   everything.
  *
  * The window is decided in @ref update_window, called by the scene view *before* the scene
  * uniform block is uploaded, because the bake and every consumer of the bake have to read the
@@ -343,9 +339,8 @@ namespace SushiEngine
                     /**
                      * @brief The near window's world span, metres.
                      *
-                     * Deliberately the old tile period: it keeps the near texel at 128 m, so
-                     * nothing about how finely the sky is resolved where the camera actually is
-                     * changed when the tile became a window.
+                     * Chosen against the bake resolution to keep the near texel at 128 m,
+                     * which is how finely the sky resolves where the camera actually is.
                      */
                     static constexpr float NEAR_SPAN_METERS = 32768.0f;
 

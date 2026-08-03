@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* dual_quaternion_skinning_demo.cpp                                     */
+/* dual_quaternion_skinning_demo.cpp                                      */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -127,7 +131,7 @@ int main()
     check(dqs_radius_error < lbs_radius_error,
          "DQS is a clear improvement over LBS for this bend");
 
-    // --- Cross-check the same computation on a SushiRuntime SYCL device kernel. ---------
+    // Cross-check the same computation on a SushiRuntime SYCL device kernel.
     auto runtime = SushiRuntime::API::Runtime::create();
     constexpr std::size_t CASE_COUNT = 16;
 

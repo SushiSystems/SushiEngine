@@ -61,7 +61,7 @@ namespace
     constexpr double EARTH_RADIUS_M = 6371000.0;
 } // namespace
 
-// ---- The base state, against the International Standard Atmosphere ----------------------
+// The base state, against the International Standard Atmosphere.
 
 TEST(Unit_AtmosphereNest, BaseStateMatchesTheStandardAtmosphere)
 {
@@ -164,9 +164,9 @@ TEST(Unit_AtmosphereNest, TheScaleHeightFoldsTheMixingRatioAndNotTheRelativeHumi
     EXPECT_NEAR(relative_humidity(5000.0f), 0.50f, 0.03f);
 
     // And the ceiling that has to sit on top of it. Above ~7 km the ordering of the two scale
-    // heights reverses, so the bare exponential climbs back through saturation and starts every
-    // run with a global cirrus deck — measured at 81 % RH at 9.5 km before this existed. The
-    // Weisman-Klemp shape holds the upper troposphere where a real sounding has it.
+    // heights reverses, so the bare exponential climbs back through saturation — 81 % RH at
+    // 9.5 km, a global cirrus deck on every run. The Weisman-Klemp shape holds the upper
+    // troposphere where a real sounding has it.
     EXPECT_LT(relative_humidity(9569.0f), 0.35f);
     EXPECT_LT(relative_humidity(p.tropopause_altitude), 0.25f);
     EXPECT_NEAR(Render::atmosphere_base_humidity_ceiling(p, p.tropopause_altitude),
@@ -277,7 +277,7 @@ TEST(Unit_AtmosphereNest, CloudTopEntrainmentMixesWhereTheCoolingIs)
     EXPECT_NEAR(given_up, p.cloud_top_longwave_flux, 5.0f);
 }
 
-// ---- The stretched vertical grid ---------------------------------------------------------
+// The stretched vertical grid.
 
 TEST(Unit_AtmosphereNest, VerticalGridIsStretchedAndClosesOnTheDomainTop)
 {
@@ -346,7 +346,7 @@ TEST(Unit_AtmosphereNest, TheSpongeCoversTheLevelsThatOscillatedAndNotTheWeather
     EXPECT_FLOAT_EQ(Render::atmosphere_sponge_weight(p, size.top_m, 6166.0f), 0.0f);
 }
 
-// ---- The seam the GPU state reaches gameplay through -------------------------------------
+// The seam the GPU state reaches gameplay through.
 
 TEST(Unit_AtmosphereNest, ColdStartReportsAClearSkyWithRealWind)
 {
@@ -716,11 +716,11 @@ TEST(Unit_AtmosphereNest, TheGroundRadiatesToTheCloudBaseAndNotThroughIt)
                         .net_radiation,
                     bare.net_radiation);
 
-    // **The defect this closes.** After dark under a real deck the ground is nearly in radiative
-    // balance, because what is over it is a warm near-black body rather than the thin emission of
-    // clear air. Brutsaert's clear-sky value under an overcast column has the ground going on
-    // losing a hundred watts to a sky that is not there — and it was half of a column that cooled
-    // 42.7 K in 72 h and did not stop.
+    // **The defect this rules out.** After dark under a real deck the ground is nearly in
+    // radiative balance, because what is over it is a warm near-black body rather than the thin
+    // emission of clear air. Brutsaert's clear-sky value under an overcast column has the ground
+    // going on losing a hundred watts to a sky that is not there — half of a runaway that cools
+    // a column 42.7 K in 72 h without settling.
     Render::AtmosphereCloudCover overcast;
     overcast.fraction = 1.0f;
     overcast.base_temperature_k = 283.0f;
@@ -756,7 +756,7 @@ TEST(Unit_AtmosphereNest, ForcingCarriesTheSynopticStructureTheNestRelaxesToward
 {
     // The parent half of Davies nesting. The load-bearing claim is that it is *not uniform*:
     // a boundary nudged toward one value everywhere gives the nest nothing to build a front
-    // out of, which was the shape of the defect this whole phase exists to remove.
+    // out of, which is the shape of the defect this whole phase exists to remove.
     const GeodeticPosition observer{45.0 * DEGREES_TO_RADIANS, 10.0 * DEGREES_TO_RADIANS};
     ProceduralWeather weather(/*seed=*/5, EARTH_RADIUS_M);
     weather.apply_preset(Render::WeatherPreset::FrontPassage, observer);
@@ -809,21 +809,16 @@ TEST(Unit_AtmosphereNest, QuasiGeostrophicOmegaLandsAtTheSynopticScaleAndBothWay
 {
     // The large-scale vertical motion the nest cannot generate for itself.
     //
-    // **This case used to assert something else, and the difference is the Phase C swap.** Its
-    // predecessor pinned Ekman pumping: friction turns the geostrophic wind across the isobars,
-    // the turn converges into a low, and the convergent air must go up — so air rose at the
-    // centre of the deepest low, full stop, and the test said exactly that. That term is gone.
-    // The core diagnoses quasi-geostrophic omega from its own vorticity budget instead, and QG
-    // omega is *not* centred on the low: it follows differential vorticity advection, which puts
-    // the ascent downstream of the trough and the descent upstream of it. Re-asserting the old
-    // claim against the new mechanism would have been asserting the boundary layer's answer
-    // about a free-atmosphere quantity, so the claim is restated rather than ported.
+    // The core diagnoses quasi-geostrophic omega from its own vorticity budget, and QG omega is
+    // *not* centred on the low: it follows differential vorticity advection, which puts the
+    // ascent downstream of the trough and the descent upstream of it. Asserting ascent at the
+    // centre of the deepest low would be asserting the boundary layer's Ekman answer about a
+    // free-atmosphere quantity, so what is pinned is the sign structure around the trough rather
+    // than the sign over the pressure minimum.
     //
-    // What survives unchanged is the part that was never about the mechanism: the sign structure
-    // and the exponent. Centimetres per second — three orders under a convective updraft and two
-    // over nothing — and getting that exponent wrong is the failure mode a "looks about right"
-    // review would pass. It is also what caught the geostrophic scale being 735x too large, back
-    // when the pumping saturated its own cap *everywhere*.
+    // The other half of the claim is the exponent. Centimetres per second — three orders under a
+    // convective updraft and two over nothing — and getting that exponent wrong is the failure
+    // mode a "looks about right" review would pass, while a scale error shows up here at once.
     const Atmosphere::GeographicPosition centre{45.0 * DEGREES_TO_RADIANS,
                                                 10.0 * DEGREES_TO_RADIANS};
     const GeodeticPosition observer{centre.latitude_radians, centre.longitude_radians};
@@ -878,8 +873,7 @@ TEST(Unit_AtmosphereNest, QuasiGeostrophicOmegaLandsAtTheSynopticScaleAndBothWay
     magnitude /= double(count);
 
     // Both signs must appear: mass is conserved, so a field that only rises is a field that
-    // creates air. This is the claim the old test made too, and the one that does transfer --
-    // it is a statement about continuity rather than about which term drove it.
+    // creates air. This is a statement about continuity rather than about which term drove it.
     EXPECT_GT(ascent, 0.0f) << "nothing rises anywhere: omega is inert";
     EXPECT_LT(descent, 0.0f) << "nothing sinks anywhere: air is being created";
 

@@ -434,8 +434,8 @@ TEST(Unit_NodeBeamAsset, AtRestTheSkinReconstructsExactlyWhereItWasBound)
     EXPECT_NEAR(reconstructed.y, vertex.y, 1e-6);
     EXPECT_NEAR(reconstructed.z, vertex.z, 1e-6);
 
-    // And a zero offset is still the centroid, so nothing about the frame moved the simple
-    // case the offset was added around.
+    // And a zero offset is still the centroid, so the frame changes nothing about the simple
+    // case the offset generalizes.
     const Vector3 centroid = evaluate_node_beam_skin(view, view.skin[0]);
     EXPECT_NEAR(centroid.x, 0.25, 1e-12);
     EXPECT_NEAR(centroid.y, 0.25, 1e-12);

@@ -70,7 +70,7 @@ namespace SushiEngine
          */
         struct AtmosphereNestParameters
         {
-            // ---- Thermodynamics of moist air -----------------------------------------
+            // Thermodynamics of moist air.
 
             /** @brief Specific gas constant of dry air, J/(kg·K). */
             float gas_constant_dry = 287.05f;
@@ -87,7 +87,7 @@ namespace SushiEngine
             /** @brief Density of liquid water, kg/m³ — the optical extinction's denominator. */
             float water_density = 1000.0f;
 
-            // ---- Base state ----------------------------------------------------------
+            // Base state.
             //
             // The anelastic system is linearised about a horizontally uniform, hydrostatic
             // reference profile: this is that profile. Sound waves are filtered out by
@@ -129,7 +129,7 @@ namespace SushiEngine
             /** @brief Exponent of that drying's approach to the tropopause (Weisman–Klemp: 5/4). */
             float free_troposphere_exponent = 1.25f;
 
-            // ---- Dynamics ------------------------------------------------------------
+            // Dynamics.
 
             /**
              * @brief Courant number the automatic time step targets.
@@ -295,12 +295,12 @@ namespace SushiEngine
             /**
              * @brief Length the surface heterogeneity is correlated over, metres.
              *
-             * The seed used to be white in space: every cell drew independently, so the field
-             * had no scale at all and the only structure convection could organise around was
-             * one cell wide — which is the scale a grid-mean model is least entitled to believe.
-             * Worse, it made the *tier* the correlation length: a Low cell is 4 km and an Ultra
-             * cell 1.5 km, so the same scene was seeded with patches of different physical size
-             * depending on a graphics setting.
+             * A seed that is white in space — every cell drawing independently — has no scale
+             * at all, so the only structure convection can organise around is one cell wide,
+             * which is the scale a grid-mean model is least entitled to believe. Worse, it
+             * makes the *tier* the correlation length: a Low cell is 4 km and an Ultra cell
+             * 1.5 km, so the same scene would be seeded with patches of different physical
+             * size depending on a graphics setting.
              *
              * Stated in metres, that cannot happen — every tier samples one field, and a coarse
              * tier simply resolves less of it, which is what a coarse grid does to real terrain.
@@ -359,7 +359,7 @@ namespace SushiEngine
              */
             float convective_velocity_scale = 2.0f;
 
-            // ---- Microphysics: Kessler (1969) warm rain ------------------------------
+            // Microphysics: Kessler (1969) warm rain.
 
             /**
              * @brief Relative humidity a cell begins to hold cloud at, [0, 1].
@@ -370,9 +370,9 @@ namespace SushiEngine
              * overshooting the mixed-layer top, saturated inside while the cell around it is
              * not. Condensing only when the mean saturates therefore cannot produce one: it
              * produces nothing at all until the entire 4 km² column saturates, and then it
-             * produces fog. That is measured, not supposed — before this existed, every run
-             * that made condensate made it at 19 m, and the mixed-layer top topped out at
-             * 78–95 % relative humidity and never crossed.
+             * produces fog. That is measured, not supposed: without this closure every run
+             * that makes condensate makes it at 19 m, and the mixed-layer top tops out at
+             * 78–95 % relative humidity and never crosses.
              *
              * So the humidity inside a cell is treated as a distribution about its mean rather
              * than a single value, cloud forms in the part of that distribution which is
@@ -394,9 +394,9 @@ namespace SushiEngine
              * The sink a cloud has that clear air does not. A cloud top is optically thick in the
              * longwave and the sky above it is effectively at space temperature, so it loses
              * 60–90 W/m² across a layer tens of metres deep — which is why a stratocumulus deck
-             * mixes itself all night while the clear air beside it does nothing. Before this
-             * existed the nest's only sink for a nocturnal deck was the parent's subsidence, so a
-             * deck under a quiescent parent persisted until dawn.
+             * mixes itself all night while the clear air beside it does nothing. Without this
+             * term the nest's only sink for a nocturnal deck is the parent's subsidence, so a
+             * deck under a quiescent parent persists until dawn.
              *
              * This is the loss for a top at its *environment's* temperature; how it shuts down as
              * the top cools below that is @ref cloud_top_equilibrium_depression.
@@ -411,10 +411,10 @@ namespace SushiEngine
              * The closing condition on the term above, and without it that term is a constant
              * sink rather than a flux: a cloud top that has cooled ten kelvin goes on losing the
              * same 70 W/m² as one at ambient, and since nothing in this model ever warms a cloud,
-             * a deck that persists cools without bound. Measured before this existed — a
-             * quiescent parent, a fixed sun, and a deck that formed at 1585 m and stayed —
-             * the deck level reached **−42.7 K at 72 h** and was still falling linearly, taking
-             * the ground 21 K down with it.
+             * a deck that persists cools without bound. Measured with the term left open — a
+             * quiescent parent, a fixed sun, and a deck that forms at 1585 m and stays — the
+             * deck level reaches **−42.7 K at 72 h** and is still falling linearly, taking the
+             * ground 21 K down with it.
              *
              * What is physically missing there is that the sky above a cloud top is not at space
              * temperature: it returns a share of what the top emits, and that share grows as the
@@ -485,7 +485,7 @@ namespace SushiEngine
             /** @brief Terminal fall speed exponent b. */
             float fall_speed_exponent = 0.1364f;
 
-            // ---- Ice (Phase B3d) -----------------------------------------------------
+            // Ice (Phase B3d).
             //
             // **A diagnostic phase partition, not a second condensate species**, and the choice
             // is deliberate. Carrying cloud ice and snow as prognostic fields costs another
@@ -586,21 +586,21 @@ namespace SushiEngine
              */
             float coverage_reference_lwc = 4.0e-4f;
 
-            // ---- Surface energy balance (Phase B3) -----------------------------------
+            // Surface energy balance (Phase B3).
             //
-            // **The fluxes are solved, not authored.** They used to be three numbers — a peak
-            // sensible flux, a peak latent flux and a night-time cooling rate — scaled by the
-            // sine of the sun's elevation, which is a *prescribed diurnal shape* wearing the
-            // costume of a diurnal cycle. Everything interesting about a real one is missing
-            // from it: the ground has no heat capacity, so the fluxes peak exactly at solar noon
-            // instead of lagging it; the surface cannot be warmer or cooler than whatever the
-            // author typed, so it cannot respond to the air above it; and the Bowen ratio is
-            // fixed by construction, so a boundary layer that dries the ground out keeps
-            // moistening at the same rate anyway.
+            // **The fluxes are solved, not authored.** Three authored numbers — a peak sensible
+            // flux, a peak latent flux and a night-time cooling rate — scaled by the sine of
+            // the sun's elevation are a *prescribed diurnal shape* wearing the costume of a
+            // diurnal cycle. Everything interesting about a real one is missing from that: the
+            // ground has no heat capacity, so the fluxes peak exactly at solar noon instead of
+            // lagging it; the surface cannot be warmer or cooler than whatever the author
+            // typed, so it cannot respond to the air above it; and the Bowen ratio is fixed by
+            // construction, so a boundary layer that dries the ground out keeps moistening at
+            // the same rate anyway.
             //
-            // What replaces them is the textbook slab: the ground absorbs shortwave, exchanges
-            // longwave with the air, and loses what is left as turbulent sensible and latent
-            // heat, with its own temperature as the state that closes the loop.
+            // What stands here instead is the textbook slab: the ground absorbs shortwave,
+            // exchanges longwave with the air, and loses what is left as turbulent sensible and
+            // latent heat, with its own temperature as the state that closes the loop.
             //
             //     C dT_s/dt = S(1-a) + L_down - e sigma T_s^4 - H - LE
             //     H  = rho c_p C_H |U| (T_s - T_air)
@@ -657,9 +657,9 @@ namespace SushiEngine
              *
              * The fraction of the saturation deficit the surface can actually supply: 1 is open
              * water or saturated soil, 0 is dry rock or asphalt, and 0.35 is unremarkable
-             * vegetated land in summer. **This is the Bowen ratio's real author.** It used to be
-             * set by the ratio of two typed-in fluxes; here it is a property of the ground, and
-             * the ratio it produces changes through the day as the surface warms.
+             * vegetated land in summer. **This is the Bowen ratio's real author.** The ratio is
+             * a property of the ground rather than of two typed-in fluxes, so what it produces
+             * changes through the day as the surface warms.
              */
             float surface_moisture_availability = 0.35f;
             /**

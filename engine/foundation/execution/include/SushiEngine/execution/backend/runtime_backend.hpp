@@ -671,16 +671,15 @@ namespace SushiEngine
              * @brief Owns a runtime and hands out contexts bound to it.
              *
              * The portable "stand up a backend" factory `Execution::Runtime` denotes on
-             * this build: a caller that used to do
-             * `auto runtime = SushiRuntime::API::Runtime::create(); Context context(runtime);`
-             * now does `auto runtime = Execution::Runtime::create(); auto context =
-             * runtime.context();` unchanged across backends. Heap-allocates the runtime
-             * behind a `unique_ptr` rather than storing it by value so this type is
-             * cheaply movable regardless of whether `SushiRuntime::API::Runtime` itself
-             * is — `native()` is the escape hatch every remaining direct SushiRuntime
-             * consumer (audio's optional DSP accelerator, `Loop::App::runtime()`) still
-             * needs, present only on this backend for the same reason `Context::runtime()`
-             * is.
+             * this build: `auto runtime = Execution::Runtime::create(); auto context =
+             * runtime.context();` compiles unchanged across backends, where naming
+             * `SushiRuntime::API::Runtime` directly would pin a caller to this one.
+             * Heap-allocates the runtime behind a `unique_ptr` rather than storing it by
+             * value so this type is cheaply movable regardless of whether
+             * `SushiRuntime::API::Runtime` itself is — `native()` is the escape hatch
+             * every direct SushiRuntime consumer (audio's optional DSP accelerator,
+             * `Loop::App::runtime()`) needs, present only on this backend for the same
+             * reason `Context::runtime()` is.
              */
             class Runtime
             {

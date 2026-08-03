@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* test_audio_reverb.cpp                                                 */
+/* test_audio_reverb.cpp                                                  */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -144,7 +148,7 @@ namespace
     }
 } // namespace
 
-// --- The lossless feedback matrices --------------------------------------------------
+// The lossless feedback matrices.
 
 TEST(Unit_Audio, HouseholderMatrixIsLossless)
 {
@@ -178,7 +182,7 @@ TEST(Unit_Audio, HadamardMatrixIsLossless)
     EXPECT_NEAR(norm(v, 16), before, 1e-4);
 }
 
-// --- The FDN reverb ------------------------------------------------------------------
+// The FDN reverb.
 
 TEST(Unit_Audio, FDNDelayLinesHaveDistinctCoprimeLengths)
 {
@@ -289,7 +293,7 @@ TEST(Unit_Audio, FDNPredelayDelaysTheOnset)
     EXPECT_LT(energy, 1e-4); // silent until the predelay elapses
 }
 
-// --- Room-geometry RT60 --------------------------------------------------------------
+// Room-geometry RT60.
 
 TEST(Unit_Audio, SabineRt60MatchesTextbookValue)
 {

@@ -29,7 +29,7 @@ if(NOT DEFINED SUSHIENGINE_EXECUTION_BACKEND)
     set(SUSHIENGINE_EXECUTION_BACKEND "runtime")
 endif()
 
-# --- Pre-project: toolchain shaping -------------------------------------------
+# Pre-project: toolchain shaping.
 include(Vcpkg)  # (Windows) locate vcpkg + set the toolchain file — needed by both
                 # backends (SDL2/GoogleTest/nlohmann_json all come from vcpkg too).
 if(SUSHIENGINE_EXECUTION_BACKEND STREQUAL "runtime")
@@ -38,7 +38,7 @@ endif()
 
 project(SushiEngine VERSION 0.1.0 LANGUAGES CXX)
 
-# --- Post-project: options, runtime, SYCL policy ------------------------------
+# Post-project: options, runtime, SYCL policy.
 include(ProjectOptions)  # C++17 baseline, cross-cutting options
 if(SUSHIENGINE_EXECUTION_BACKEND STREQUAL "runtime")
     include(Runtime)         # add_subdirectory(sushiruntime) -> sushiruntime target,
@@ -73,7 +73,7 @@ endif()
 include(Module)
 add_subdirectory(engine)
 
-# --- The engine + its consumers -----------------------------------------------
+# The engine + its consumers.
 # The engine is header-only so its SYCL kernels instantiate inside the consuming
 # translation unit (each sample and test binary), which is the safe way to ship device code.
 add_library(SushiEngine INTERFACE)
@@ -111,7 +111,7 @@ target_link_libraries(SushiEngine INTERFACE
 target_compile_options(SushiEngine INTERFACE
     $<$<AND:$<BOOL:${SUSHIENGINE_DETERMINISTIC_FP}>,$<CXX_COMPILER_ID:Clang,AppleClang,GNU>>:-fno-fast-math;-ffp-contract=off>)
 
-# --- Runtime-backend lane: the shells, the samples and the test suite ----------
+# Runtime-backend lane: the shells, the samples and the test suite.
 # All of it is SYCL/SushiRuntime-aware — the native lane below is deliberately
 # narrow (RUNTIME-PORT1) rather than an attempt to make all of this build without
 # a SYCL toolchain too; that is future, milestone-by-milestone work, not this one.

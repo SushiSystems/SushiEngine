@@ -1,10 +1,9 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-// Generates one of the four tileable 3D cloud volumes into a storage image. This
-// replaces the CPU thread-pool build the renderer used to do at startup: the same
-// recipe, evaluated once on the GPU, so bring-up no longer stalls on a few hundred
-// milliseconds of Worley evaluation.
+// Generates one of the four tileable 3D cloud volumes into a storage image. Evaluated once
+// on the GPU rather than by a CPU thread pool at start-up, so bring-up does not stall on a
+// few hundred milliseconds of Worley evaluation.
 
 #include "cloud_noise_common.glsl"
 
@@ -91,16 +90,16 @@ void main()
         float base = march_uniform_shape(pw);
         // The billow primitive, and deliberately close to a *single* inverted Worley octave.
         //
-        // This used to be `noise_worley_fbm` summed at three base frequencies — an fbm of an
-        // fbm, nine octaves deep. Two things were wrong with that. It halved the field's
-        // standard deviation (each nesting multiplies by sqrt(0.625^2 + 0.25^2 + 0.125^2) =
-        // 0.68), leaving a field too flat to displace a surface by anything visible; and it
-        // buried the round cell boundaries under fine detail, when those boundaries are the
-        // whole point — a cauliflower is made of crisp convex cells with sharp creases between
-        // them, not of soft rolling fbm. The march's billow ladder stacks this primitive across
-        // three world scales itself (cloud.frag), so the volume should supply one clean shape
-        // and let the ladder do the fbm. Frequencies 4/9/19 are mutually incommensurate, so the
-        // minor terms roughen the cells without reinforcing their lattice.
+        // Not `noise_worley_fbm` summed at three base frequencies — an fbm of an fbm, nine
+        // octaves deep — for two reasons. That halves the field's standard deviation (each
+        // nesting multiplies by sqrt(0.625^2 + 0.25^2 + 0.125^2) = 0.68), leaving a field too
+        // flat to displace a surface by anything visible; and it buries the round cell
+        // boundaries under fine detail, when those boundaries are the whole point — a
+        // cauliflower is made of crisp convex cells with sharp creases between them, not of
+        // soft rolling fbm. The march's billow ladder stacks this primitive across three world
+        // scales itself (cloud.frag), so the volume supplies one clean shape and lets the
+        // ladder do the fbm. Frequencies 4/9/19 are mutually incommensurate, so the minor terms
+        // roughen the cells without reinforcing their lattice.
         float erosion = noise_worley(p, 4) * 0.8 + noise_worley(p, 9) * 0.15 +
                         noise_worley(p, 19) * 0.05;
         // Frequency 5 is deliberately incommensurate with the erosion ladder's 4/8/16, and

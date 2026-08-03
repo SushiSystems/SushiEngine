@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -19,9 +21,9 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// The host half of P6-G2: the seam that replaced the rows-by-cols cloth grid with a
-// vertex array and a triangle list, and the inverse map that lets a GPU shade one
-// without atomics.
+// The host half of P6-G2: the seam that carries a cloth as a vertex array and a
+// triangle list rather than a rows-by-cols grid, and the inverse map that lets a GPU
+// shade one without atomics.
 //
 // The last case here is the one that carries weight. Production shading happens in
 // deformable.comp, which no unit test can run — but the shader's *algorithm* is a
@@ -109,8 +111,8 @@ TEST(Unit_DeformableMesh, GridTriangulationKeepsItsOldCounts)
 {
     std::vector<std::uint32_t> indices;
     build_grid_indices(3, 3, indices);
-    // 2x2 quads, 2 triangles per quad, 3 indices per triangle — unchanged from the
-    // grid path this replaced, because the diagonal and winding are unchanged.
+    // 2x2 quads, 2 triangles per quad, 3 indices per triangle — the counts a grid
+    // triangulation owes, with the diagonal and the winding it draws them in.
     EXPECT_EQ(indices.size(), 2u * 2u * 2u * 3u);
     for (const std::uint32_t index : indices)
         EXPECT_LT(index, 9u);
@@ -222,8 +224,8 @@ TEST(Unit_VertexTriangleAdjacency, SurvivesAnIndexPastTheEndOfTheVertexArray)
 TEST(Unit_DeformableMesh, TheAdjacencyGatherLandsOnTheSameNormalsAsTheScatter)
 {
     // What the GPU pass does, checked against what the reference does, on a surface
-    // with no grid structure at all — the case the old grid formula could not express
-    // and the reason the table exists.
+    // with no grid structure at all — the case no grid formula can express, and the
+    // reason the table exists.
     Tetrahedron tet;
     // Skewed so no two faces share an area and a mis-weighted sum cannot pass by
     // symmetry: with a regular tetrahedron every face normal has the same length, so

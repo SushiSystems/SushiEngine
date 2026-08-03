@@ -249,10 +249,10 @@ void main()
         // vertical resolution on empty stratosphere.
         //
         // Measured against the *cloud fraction*, which is what the bake thresholds on, and not
-        // against an optical-depth fraction as it used to be. The two disagreed: a thin deck
-        // could report a band coverage of 0.05 — cloud the bake does draw — while every level
-        // fell under the optical threshold, so the shell excluded it and the march clipped away
-        // exactly the cloud the field had been given.
+        // against an optical-depth fraction: the two disagree. A thin deck can report a band
+        // coverage of 0.05 — cloud the bake does draw — while every level falls under the
+        // optical threshold, which would exclude it from the shell and clip away exactly the
+        // cloud the field has been given.
         if (fraction > 0.02)
         {
             if (!found_base)
@@ -306,10 +306,10 @@ void main()
     for (int band = 0; band < 3; ++band)
     {
         // Close whatever run the loop ended inside, then read the coverage off the clear-sky
-        // product. This replaces `1 - exp(-optical_depth)`, which measured *opacity* and called
-        // it coverage: a scattered cumulus field a third of the way across the sky is opaque
-        // wherever there is a cloud, so that expression reported it as overcast and gameplay
-        // could not tell a broken sky from a solid one.
+        // product. Not `1 - exp(-optical_depth)`, which measures *opacity* and would call it
+        // coverage: a scattered cumulus field a third of the way across the sky is opaque
+        // wherever there is a cloud, so that expression reports it as overcast and gameplay
+        // cannot tell a broken sky from a solid one.
         clear_sky[band] *= 1.0 - run_maximum[band];
         float coverage = 1.0 - clear_sky[band];
         // Density stays the *cell-mean* condensate against a solid cumulus, deliberately: it is

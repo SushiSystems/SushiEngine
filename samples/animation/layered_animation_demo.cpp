@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* layered_animation_demo.cpp                                            */
+/* layered_animation_demo.cpp                                             */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -7,6 +7,10 @@
 /*                        https://sushisystems.io                         */
 /**************************************************************************/
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -158,7 +162,7 @@ int main()
 
     AnimatorEvaluator evaluator;
 
-    // --- 1) Override through the mask: masked joints take aim, others keep locomotion ---
+    // 1) Override through the mask: masked joints take aim, others keep locomotion.
     {
         const AssetId controller_id = build_layered(aim_clip, LayerBlendMode::Override, "");
         check(controller_id != INVALID_ASSET, "override controller compiles");
@@ -177,7 +181,7 @@ int main()
         check(nearly(joint_z(evaluator, 5), 15.0f), "other leg keeps locomotion (masked out)");
     }
 
-    // --- 2) Animatable layer weight: masked joints blend halfway ----------------------
+    // 2) Animatable layer weight: masked joints blend halfway.
     {
         const AssetId controller_id = build_layered(aim_clip, LayerBlendMode::Override, "aim_weight");
         const ControllerView controller = database.controller(controller_id);
@@ -196,7 +200,7 @@ int main()
         check(nearly(joint_z(evaluator, 4), 14.0f), "leg unaffected by the upper-body layer");
     }
 
-    // --- 3) Additive: an import-baked delta adds onto the base at the masked joint -----
+    // 3) Additive: an import-baked delta adds onto the base at the masked joint.
     {
         // Source arm pose: shifted +5 in z and rotated 90 deg about z; reference is the rest pose.
         ClipDescription source;

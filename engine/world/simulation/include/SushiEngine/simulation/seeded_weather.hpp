@@ -27,11 +27,11 @@
  * @file seeded_weather.hpp
  * @brief Manual mode's provider: a whole planet's weather chosen by a seed.
  *
- * `docs/slop/atmosphere_system.md`'s WM-SEED. What this replaces is not another provider — it
- * is the *absence* of one. "Manual mode" used to mean no `IWeatherProvider` was installed at
- * all, which left one hand-authored deck stack applied to every square metre of the body, and
- * that is the whole reason our Earth from orbit was a uniformly milky sphere while the real one
- * is mostly clear ocean with weather laid over it in discrete pieces.
+ * `docs/slop/atmosphere_system.md`'s WM-SEED. What this stands in for is not another provider
+ * — it is the *absence* of one. Manual mode without an `IWeatherProvider` leaves one
+ * hand-authored deck stack applied to every square metre of the body, which from orbit is a
+ * uniformly milky sphere; the real Earth is mostly clear ocean with weather laid over it in
+ * discrete pieces.
  *
  * The distinction this draws is between weather being **placed** and weather being **grown**:
  *
@@ -287,13 +287,13 @@ namespace SushiEngine
                     // organised of the three: a broad background term, plus the anvil a deep
                     // convective column throws off.
                     //
-                    // The background used to be an additive 0.12 — a plausible *mean* cirrus
-                    // cover, and the wrong shape, because it was the one term no high could
-                    // suppress. A subsiding subtropical column came out with its low and mid
-                    // levels correctly emptied and a permanent veil left over the top of it, so
-                    // the place that is supposed to read as open ocean never did. Scaling it by
-                    // the column's own coverage instead lets a high clear the whole column while
-                    // leaving an ordinary sky capped with rather more cirrus than before.
+                    // The background is scaled by the column's own coverage rather than added
+                    // as a constant. An additive term is a plausible *mean* cirrus cover and
+                    // the wrong shape, because it is the one term no high can suppress: a
+                    // subsiding subtropical column empties its low and mid levels correctly
+                    // and keeps a permanent veil over the top, so the place that is supposed
+                    // to read as open ocean never does. Scaling lets a high clear the whole
+                    // column while leaving an ordinary sky generously capped with cirrus.
                     // Mirrored in cloud.frag's `cloud_globe_envelope`; the two must agree or the
                     // far window's rim becomes a step.
                     high.coverage = float(

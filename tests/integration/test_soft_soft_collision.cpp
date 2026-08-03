@@ -233,21 +233,16 @@ TEST(Integration_SoftSoftCollision, ACubeDroppedOnACubeRestsOnIt)
 
 TEST(Integration_SoftSoftCollision, TheSpeculativeMarginStopsTheFastSheetOnItsOwn)
 {
-    // This case was originally written the other way round — asserting that the
-    // discrete path *cannot* catch a sheet crossing in a single substep, as the
-    // motivation for the continuous one. That was true of the implementation and
-    // false of the problem, and the difference is worth recording.
+    // The discrete path catches a sheet crossing in a single substep on its own,
+    // so the continuous flag is not what makes this scene safe.
     //
-    // The contact set is built once per tick, so the question was never "where is
-    // the sheet at the end of this substep" but "where can it get to during this
+    // The contact set is built once per tick, so the question is not "where is the
+    // sheet at the end of this substep" but "where can it get to during this
     // tick". Sizing the narrow phase's acceptance by the distance a particle can
-    // actually travel — which the broad phase was already doing — makes the
-    // discrete path see the crossing coming and put a speculative contact in front
-    // of it. At 300 m/s that margin is a quarter of a metre, and the constraint it
+    // actually travel — the same sizing the broad phase uses — makes the discrete
+    // path see the crossing coming and put a speculative contact in front of it.
+    // At 300 m/s that margin is a quarter of a metre, and the constraint it
     // creates does nothing until the surfaces really do close.
-    //
-    // So the honest assertion is the strong one: this is caught without the
-    // continuous flag at all.
     EXPECT_FALSE(sheet_passes_through(false));
 }
 
@@ -255,9 +250,9 @@ TEST(Integration_SoftSoftCollision, TheContinuousTestNeverLosesWhatTheDiscreteOn
 {
     // The property that makes the flag safe to turn on. The swept pass *adds* to
     // the tick's speculative set rather than replacing it, so enabling it can only
-    // ever find more contacts — it used to replace the set, which made a body
-    // marked continuous tunnel through something the same body would have hit with
-    // the flag off. A flag that costs more and detects less is the one shape of
-    // bug nobody thinks to look for, so it is pinned here rather than assumed.
+    // ever find more contacts. Replacing the set would let a body marked continuous
+    // tunnel through something the same body would have hit with the flag off, and
+    // a flag that costs more and detects less is the one shape of bug nobody thinks
+    // to look for, so it is pinned here rather than assumed.
     EXPECT_FALSE(sheet_passes_through(true));
 }

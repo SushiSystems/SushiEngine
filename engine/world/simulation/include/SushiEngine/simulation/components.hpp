@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* components.hpp                                                        */
+/* components.hpp                                                         */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -137,7 +137,7 @@ namespace SushiEngine
             std::uint32_t flags = PARTICLE_EMITTER_PLAYING; /**< @ref PARTICLE_EMITTER_PLAYING and future bits. */
         };
 
-        // --- Audio (Phase S6) ------------------------------------------------------
+        // Audio (Phase S6).
         //
         // Consumed by the **wall-clock audio snapshot extract** (`sim/audio_extract.hpp`
         // → `Audio::AudioScene` → the voice manager), like the render extract reads

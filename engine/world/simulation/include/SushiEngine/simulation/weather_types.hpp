@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* weather_types.hpp                                                     */
+/* weather_types.hpp                                                      */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -65,14 +65,14 @@ namespace SushiEngine
         /**
          * @brief Where a scene's weather comes from.
          *
-         * A named mode rather than a boolean, and the difference is not cosmetic. "Procedural
-         * weather is on" used to be answered by `static_cast<bool>(weather_provider_)`, which
-         * made "no provider at all" the *definition* of the other mode — so Manual could not
-         * have a provider, and therefore could not have a weather field, and therefore applied
+         * A named mode rather than a boolean, and the difference is not cosmetic. Answering
+         * "procedural weather is on" with `static_cast<bool>(weather_provider_)` would make
+         * "no provider at all" the *definition* of the other mode — so Manual could not have
+         * a provider, and therefore could not have a weather field, and therefore would apply
          * one authored deck stack to an entire planet. See `docs/slop/atmosphere_system.md`'s
-         * WM-SEED for what that looked like from orbit.
+         * WM-SEED for what that looks like from orbit.
          *
-         * Both modes install a provider now, and the choice is genuinely about *where the sky
+         * Both modes install a provider, so the choice is genuinely about *where the sky
          * comes from* rather than about whether anything is running:
          *
          * * @c Manual — placed. `SeededWeather` puts a dozen pressure systems on a zonal

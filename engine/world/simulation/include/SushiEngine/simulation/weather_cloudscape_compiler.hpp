@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* weather_cloudscape_compiler.hpp                                       */
+/* weather_cloudscape_compiler.hpp                                        */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -71,15 +71,12 @@ namespace SushiEngine
                  * @brief Compiles @p column into a `Cloudscape`, over the authored medium.
                  *
                  * @p medium is carried through untouched apart from the decks and
-                 * `evolution_rate`. It used to be discarded — the compiler returned a
-                 * default-constructed `Cloudscape` — which was tolerable while the deck stack was
-                 * the whole description of the sky and the editor disabled those sliders under
-                 * procedural weather anyway. It is not tolerable now: since
-                 * `docs/slop/atmosphere_system.md` §7.4 the decks no longer decide what a march
-                 * sample finds, so the scattering knobs, the ground-shadow strength and the
-                 * erosion scale are all the authored control over the look that is left, and
-                 * resetting them every tick would make them uneditable in the one mode that
-                 * matters.
+                 * `evolution_rate`, rather than being discarded for a default-constructed
+                 * `Cloudscape`. Per `docs/slop/atmosphere_system.md` §7.4 the decks do not
+                 * decide what a march sample finds, so the scattering knobs, the ground-shadow
+                 * strength and the erosion scale are the whole of the authored control over
+                 * the look, and resetting them every tick would make them uneditable in the
+                 * one mode that matters.
                  *
                  * **`enabled` is carried through like everything else, and used not to be.** It was
                  * forced on, with the reasoning that a provider which has weather to report is
@@ -169,12 +166,11 @@ namespace SushiEngine
 
             private:
                 // The genus choice itself lives in `Render::classify_cloud_genus`, not here.
-                // It used to live here, as three hard-coded `if` chains -- exactly the OCP
-                // finding docs/slop/atmosphere_system.md §1.6 records against this class. It
-                // has to move because the cloudscape bake now resolves a genus per baked
-                // column on the GPU (§7.4), and two copies of the same thresholds, one in C++
-                // and one in GLSL, would eventually label a column as one genus and render it
-                // as another.
+                // Hard-coding it here as an `if` chain is the OCP finding
+                // docs/slop/atmosphere_system.md §1.6 records against this class, and the
+                // cloudscape bake resolves a genus per baked column on the GPU (§7.4) — two
+                // copies of the same thresholds, one in C++ and one in GLSL, would eventually
+                // label a column as one genus and render it as another.
                 static void assign_level(Render::CloudDeck& deck, const WeatherLevelState& state,
                                          Render::CloudBand band) noexcept
                 {

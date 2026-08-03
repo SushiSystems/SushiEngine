@@ -3,24 +3,24 @@
 // shadow lookup. One file so those five can never disagree about which piece of the world a
 // texel is.
 //
-// docs/slop/atmosphere_system.md §7.2. The field used to be a *periodic 32 km tile*: a march
-// sample took `fract(p.xz / tile)`, which is coherent only while the weather above it is the
-// same everywhere. It is not any more — the bake resolves coverage and genus per column from
-// the simulated field (§7.4) — so the tile has to become a **camera-centred, non-wrapping
-// window**, and that single change is what closes phase A's three deferred items at once:
+// docs/slop/atmosphere_system.md §7.2. The field is a **camera-centred, non-wrapping window**
+// rather than a *periodic 32 km tile*. A tile addressed by `fract(p.xz / tile)` is coherent
+// only while the weather above it is the same everywhere, and it is not: the bake resolves
+// coverage and genus per column from the simulated field (§7.4). Two things the window gives
+// and a tile cannot:
 //
 //   * `fract()` is many-to-one, so a bake addressed in tile space holds a `uv` with no
-//     recoverable world position. That is why CloudLightVolumePass and CloudShadowMapPass
-//     could not consult the weather field and still lit/shadowed every cell as if it carried
-//     the observer's own column. Addressed in *window* space the mapping is invertible, and
-//     in fact they no longer need to consult anything: the field they march already carries
-//     the simulation's coverage, so a cleared region stops receiving cloud shadow because
-//     there is no cloud in the field there to cast it.
-//   * Genus could not be derived per column while every column baked the same deck stack.
+//     recoverable world position, and CloudLightVolumePass and CloudShadowMapPass could not
+//     consult the weather field at all — they would light and shadow every cell as if it
+//     carried the observer's own column. Addressed in *window* space the mapping is
+//     invertible, and in fact they need consult nothing: the field they march already carries
+//     the simulation's coverage, so a cleared region receives no cloud shadow because there
+//     is no cloud in the field there to cast it.
+//   * Genus cannot be derived per column while every column bakes the same deck stack.
 //
 // Two windows, not one. The march runs out to roughly fourteen shell thicknesses (~150 km),
 // and a single window that reached that far would put ~600 m between texels right next to
-// the camera. So the near window keeps the old 32 km span and its 128 m texel, and a far
+// the camera. So the near window keeps a 32 km span and its 128 m texel, and a far
 // window carries the same simulated structure out past the horizon at a coarse texel; a
 // sample crossing out of the near window cross-fades into it over the window's outer rim
 // rather than clamping to a smeared edge. Both windows are baked from the same weather
@@ -32,48 +32,44 @@
 // march carves the actual shape out of that envelope analytically, per sample. Everything
 // that integrates the field along a sun ray (the light volume, the far light channel, the
 // cloud shadow map, the panorama impostor) therefore over-counts the carved cloud's real
-// mass unless it scales by the carve's expected yield. For a threshold at `1 - coverage` on a
-// CDF-uniformised base the yield is coverage/2 of the envelope on average, and the detail
-// erosion bites another ~10 % off that — hence the 0.45 this was. One shared constant so no
-// two consumers can disagree about how heavy the same cloud is.
+// mass unless it scales by the carve's expected yield. One shared constant so no two
+// consumers can disagree about how heavy the same cloud is.
 //
-// Re-derived when the carve gained its solidity push and its edge-scaled erosion (cloud.frag):
-//   * The threshold still keeps exactly `envelope` of the volume, and the survivors are still
-//     uniform on [0, 1] — that is the CDF uniformisation's guarantee and it did not change.
+// Derived against the carve's solidity push and its edge-scaled erosion (cloud.frag):
+//   * The threshold keeps exactly `envelope` of the volume and the survivors are uniform on
+//     [0, 1] — that is the CDF uniformisation's guarantee.
 //   * `min(shape * 2.5, 1)` maps that uniform ramp to a mean of 0.8: 60 % of the kept volume
 //     saturates at 1, and the remaining 40 % averages 0.5.
-//   * The erosion's bite is now scaled by `1 - shape`, so it cannot touch the saturated 60 %
+//   * The erosion's bite is scaled by `1 - shape`, so it cannot touch the saturated 60 %
 //     and only reshapes the rim. Integrating the remap over the ramp leaves ~0.78, and the
 //     near-field fine octave takes it to ~0.75 averaged over a sky.
-// The old 0.45 was not merely stale: with the carve delivering 0.75 it would have every sun
-// depth integral, cloud shadow and impostor light a sky 40 % thinner than the one being drawn,
-// which reads as flat, washed-out cloud — the shading and the geometry disagreeing about how
-// much cloud is there.
+// The constant has to track the carve. A value stated for a thinner one — 0.45, the yield of a
+// bare threshold — would have every sun depth integral, cloud shadow and impostor light a sky
+// 40 % thinner than the one being drawn, which reads as flat, washed-out cloud: the shading
+// and the geometry disagreeing about how much cloud is there.
 const float CLOUD_ENVELOPE_MEAN_SHAPE = 0.75;
 
 // ---- Altitude on an oblate planet ----------------------------------------------------------
 //
 // The radius of the reference ellipsoid along a geocentric direction @p up. Every consumer that
-// turns a *position* into a cloud *altitude* must go through this, and the reason is a defect
-// that survived until the field went planetary.
+// turns a *position* into a cloud *altitude* must go through this, and a planet-scale shell is
+// exactly where a spherical reference stops being good enough.
 //
 // The shells are spheres of radius `Environment::planet_surface_reference_metres`, and that
 // value is `length(observer_center)` — **the observer's own geocentric radius**. Read its
 // comment and the intent is plain and, for a local scene, exactly right: it puts altitude zero
 // at the ground *under the camera*, which is worth kilometres of air density at mid latitudes
-// against the naive choice of the equatorial radius. It was written when a cloud shell only had
-// to be correct near the camera.
+// against the naive choice of the equatorial radius. It holds only near the camera.
 //
-// PL1 made the shell planetary, and at that moment the assumption stopped holding anywhere but
-// under the observer. WGS84's geocentric radius runs from 6 356 752 m at the pole to 6 378 137 m
-// at the equator, so a sphere fitted at one latitude is wrong by up to 21 km at another — and
-// the reader subtracts it from a position to get an altitude that a 1 300 m deck is then placed
-// against. With the observer at 41° N the sphere sits at ~6 368 900 m, which puts the ground
-// 9.2 km *above* it at the equator and 12.1 km *below* it at the pole: the deck is buried
-// underground across the tropics and sitting in the stratosphere over the caps, sweeping
-// smoothly between the two and crossing every boundary in the deck stack on the way. Each
-// crossing is a circle of constant latitude. That is the reported ring banding, and it is why
-// it looked like "the WGS84 shape is affecting the cloud shaders" — it was.
+// Once the shell is planetary the assumption holds nowhere but under the observer. WGS84's
+// geocentric radius runs from 6 356 752 m at the pole to 6 378 137 m at the equator, so a
+// sphere fitted at one latitude is wrong by up to 21 km at another — and the reader subtracts
+// it from a position to get an altitude that a 1 300 m deck is then placed against. With the
+// observer at 41° N the sphere sits at ~6 368 900 m, which puts the ground 9.2 km *above* it
+// at the equator and 12.1 km *below* it at the pole: the deck would be buried underground
+// across the tropics and sitting in the stratosphere over the caps, sweeping smoothly between
+// the two and crossing every boundary in the deck stack on the way. Each crossing is a circle
+// of constant latitude, which reads on screen as ring banding at fixed latitudes.
 //
 // Fixing the altitude fixes everything downstream on its own, which is what makes this
 // containable: the horizon gate takes the *ratio* of a radius to the surface, so it is right as
@@ -113,8 +109,8 @@ float cloud_planet_altitude(vec3 p, vec3 center, vec3 pole, float semi_major, fl
 // The shell surfaces are the reference ellipsoid with both semi-axes offset by an altitude. That
 // is not the exact constant-altitude offset surface — a true offset of an ellipsoid is not an
 // ellipsoid — but the discrepancy is of order h*f, about 40 m at a 12 km shell top against
-// WGS84's flattening. Beside the 21 km the sphere it replaces was wrong by, the approximation is
-// not worth the closed form it would cost to avoid.
+// WGS84's flattening. Beside the 21 km a fitted sphere is wrong by, the approximation is not
+// worth the closed form it would cost to avoid.
 vec2 cloud_ray_shell(vec3 ro, vec3 rd, vec3 c, float a, float b, vec3 pole)
 {
     vec3 o = ro - c;

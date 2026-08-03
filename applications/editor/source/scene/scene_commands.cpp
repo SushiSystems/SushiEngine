@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* scene_commands.cpp                                                    */
+/* scene_commands.cpp                                                     */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -546,8 +546,8 @@ namespace SushiEngine
                     world->destroy(id);
                 // The one place the preferences' default environment applies: a fresh
                 // scene starts from it. A *loaded* scene keeps its own — the environment
-                // is scene content, and the old always-override is what made the scene
-                // file's environment block write-only.
+                // is scene content, and always overriding it would make the scene file's
+                // environment block write-only.
                 set_environment_preserving_runtime(*world,
                                                    context.preferences.default_environment);
                 context.scene_path.clear();

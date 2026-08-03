@@ -218,7 +218,7 @@ namespace
     }
 }
 
-// -- The blob --------------------------------------------------------------
+// The blob.
 
 TEST(Unit_PhysicsAssembly, TheBlobRoundTripsEveryPartAndJoint)
 {
@@ -334,7 +334,7 @@ TEST(Unit_PhysicsAssembly, TheLoaderRefusesAHandEditedDanglingJoint)
     EXPECT_FALSE(validate_assembly_blob(blob.data(), blob.size()));
 }
 
-// -- Instancing -----------------------------------------------------------
+// Instancing.
 
 TEST(Unit_PhysicsAssembly, InstancingPlacesEveryPartRelativeToTheRoot)
 {
@@ -439,7 +439,7 @@ TEST(Unit_PhysicsAssembly, InstancingRefusesRatherThanHalfBuildAnAssembly)
     EXPECT_TRUE(none.bodies.empty());
 }
 
-// -- The ragdoll ----------------------------------------------------------
+// The ragdoll.
 
 TEST(Unit_PhysicsAssembly, ARagdollGivesAPartToEveryBoneAndNoneToALeaf)
 {

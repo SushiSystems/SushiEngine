@@ -1,5 +1,5 @@
 /**************************************************************************/
-/* test_collision.cpp                                                    */
+/* test_collision.cpp                                                     */
 /**************************************************************************/
 /*                          This file is part of:                         */
 /*                              SushiEngine                               */
@@ -9,6 +9,8 @@
 /* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
 /*                                                                        */
 /* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
 /*                                                                        */
 /*     http://www.apache.org/licenses/LICENSE-2.0                         */
 /*                                                                        */
@@ -267,9 +269,9 @@ TEST(Unit_Collision, DroppedParticleRestsOnGround)
 TEST(Unit_Collision, SphereInsideBoxPushesOutOfTheNearestFace)
 {
     // Deep penetration: the sphere centre is inside the box, so clamping to the surface
-    // returns the centre itself and there is no closest-point direction. The old code
-    // picked +Y unconditionally, which pushed a body sideways through the box it was
-    // inside whenever another face was nearer.
+    // returns the centre itself and there is no closest-point direction. Falling back to
+    // a fixed axis would push a body sideways through the box it is inside whenever
+    // another face is nearer, so the nearest face has to be found.
     BoxCollider<Scalar> box{Vector3{0, 0, 0}, Vector3{Scalar(2), Scalar(2), Scalar(0.5)}};
 
     // Nearest face is +Z: the centre is 0.4 from it and 2.0 from the others.

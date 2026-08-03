@@ -36,9 +36,9 @@
  * passes then bind each bucket's geometry once and issue a single indirect draw. So the
  * CPU cost is flat in the number of distinct meshes, not the number of instances.
  *
- * Everything a draw used to carry in the 128-byte push constant that varies per instance
- * — the transform, the material and motion indices, the picking id — moves into
- * @ref GPUInstance, because an indirect draw carries no per-draw push constant. The
+ * Everything that varies per instance — the transform, the material and motion indices,
+ * the picking id — lives in @ref GPUInstance rather than in the 128-byte push constant a
+ * direct draw would carry, because an indirect draw has no per-draw push constant. The
  * layouts here are the C++ mirror of the `std430` blocks in `cull.comp` and
  * `mesh_gpu.vert`; keep the two in lockstep. GPU data is 32-bit regardless of the
  * engine's Scalar precision, so transforms and bounds are explicit float arrays that a
