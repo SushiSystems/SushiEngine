@@ -81,10 +81,26 @@ namespace SushiEngine
                  * resetting them every tick would make them uneditable in the one mode that
                  * matters.
                  *
-                 * `enabled` is forced on rather than carried through: a provider that has weather
-                 * to report is reporting it, and inheriting a scene that happened to be authored
-                 * with the cloudscape switched off would leave procedural weather silently
-                 * invisible.
+                 * **`enabled` is carried through like everything else, and used not to be.** It was
+                 * forced on, with the reasoning that a provider which has weather to report is
+                 * reporting it, and that inheriting a scene authored with the cloudscape switched
+                 * off would leave procedural weather silently invisible. That argument is about
+                 * *loading* a scene, but the override it justified was level-triggered and ran
+                 * every tick — and a per-tick override cannot tell "this scene was authored with
+                 * clouds off" from "the author just switched clouds off half a second ago". It
+                 * answered both the same way.
+                 *
+                 * While only `Procedural` installed a provider that stayed invisible: `Manual` ran
+                 * no compiler, so the checkbox worked and nobody found it. WM-SEED made *both*
+                 * modes install a provider, and the override immediately became a dead toggle in
+                 * every mode — the user reported it as "clouds enabled kapatılamıyor". The
+                 * silent-invisibility worry it was defending against does not survive contact with
+                 * the panel either: `Clouds Enabled` sits directly above the weather-mode radios,
+                 * so an author who cleared it is looking straight at the reason.
+                 *
+                 * The general rule this is an instance of: a compiler derives *what the sky
+                 * contains*; whether the sky is drawn at all is the author's, and a derivation
+                 * step must not overwrite a decision it has no way to read.
                  *
                  * @param column The layered-column state to render, from any `IWeatherProvider`.
                  * @param medium The current cloudscape, for everything that describes the whole
@@ -95,7 +111,6 @@ namespace SushiEngine
                                            const Render::Cloudscape& medium) const
                 {
                     Render::Cloudscape clouds = medium;
-                    clouds.enabled = true;
 
                     const WeatherLevelState& low = column.levels[static_cast<int>(CloudLevel::Low)];
                     const WeatherLevelState& mid = column.levels[static_cast<int>(CloudLevel::Mid)];

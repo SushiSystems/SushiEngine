@@ -688,7 +688,8 @@ namespace SushiEngine
             // built lazily and only when several things line up, and "no readback yet" on its own
             // sends you looking in the wrong place -- as it did. Each rung of this chain is a
             // different fix, so the panel names the rung rather than the symptom.
-            const bool procedural = world->procedural_weather_enabled();
+            const bool procedural =
+                world->weather_mode() == SushiEngine::Simulation::WeatherMode::Procedural;
             const bool forcing_published = environment.atmosphere_forcing.valid();
             if (mirror.valid())
             {
@@ -697,16 +698,20 @@ namespace SushiEngine
             }
             else if (!procedural)
             {
+                // No longer "the sky is uniform everywhere" — Manual mode places weather over
+                // the whole planet from a seed now, so what it does not have is a *simulation*,
+                // not a *field*. Naming the wrong absence would send an author looking for a bug
+                // that was fixed.
                 ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
-                                   "Procedural weather is OFF, so nothing publishes the forcing\n"
-                                   "the nest is driven by and no nest is ever built. The sky you\n"
-                                   "are seeing is the authored deck stack -- which is uniform\n"
-                                   "everywhere, so it fills the cloud window edge to edge.");
+                                   "Weather mode is Manual, so the sky is placed from a seed\n"
+                                   "rather than simulated: nothing publishes the forcing the\n"
+                                   "nest is driven by and no nest is ever built. There is real\n"
+                                   "horizontal structure, but nothing below evolves.");
                 // The fix, next to the diagnosis. The alternative is a panel that names a
                 // control in a different panel and expects you to go find it, which is how the
                 // toggle stayed off long enough to be mistaken for a physics bug.
-                if (ImGui::Button("Switch procedural weather on"))
-                    world->set_procedural_weather_enabled(true);
+                if (ImGui::Button("Switch to Procedural weather"))
+                    world->set_weather_mode(SushiEngine::Simulation::WeatherMode::Procedural);
             }
             else if (!nest.enabled)
             {

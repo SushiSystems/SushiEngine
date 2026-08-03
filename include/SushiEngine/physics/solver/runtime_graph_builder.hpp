@@ -118,6 +118,7 @@
 #include <SushiEngine/physics/core/handle.hpp>
 #include <SushiEngine/physics/core/rigid_body.hpp>
 #include <SushiEngine/physics/core/statistics.hpp>
+#include <SushiEngine/physics/core/statistics_from_report.hpp>
 #include <SushiEngine/physics/soft/fem_projection.hpp>
 #include <SushiEngine/physics/solver/constraint_store.hpp>
 #include <SushiEngine/physics/solver/contact_constraint.hpp>
@@ -678,6 +679,24 @@ namespace SushiEngine
                     return last_report_;
                 }
 
+                /**
+                 * @brief The backend-native report from the most recent @ref step.
+                 *
+                 * Where §18 R8's per-node breakdown lives: `node_timings` (one entry per
+                 * named graph node — `predict`, `xpbd_project`/`pgs_project`,
+                 * `update_velocity`, `motion_measure`, each with `device_ms`/`host_ms`
+                 * summed over however many times it dispatched this run) and
+                 * `worker_timings` (busy vs. stealing/polling/idle per worker thread).
+                 * Both stay empty unless the runtime this solver was built against was
+                 * created with profiling on — @ref last_report is what every ordinary
+                 * caller wants; this is for a probe or a panel that specifically wants
+                 * SushiRuntime's own attribution.
+                 */
+                const SushiRuntime::Core::RunReport& native_report() const noexcept
+                {
+                    return graph_->native_report();
+                }
+
             private:
                 /**
                  * @brief Allocates every buffer once, at capacity.
@@ -840,7 +859,16 @@ namespace SushiEngine
                         // every preparation node by the write-after-read edge — which
                         // is exactly the ordering the schedule needs and the reason
                         // this does not have to be forced with a false write.
-                        for (std::size_t color = 0; color < contacts_store_.color_count();
+                        //
+                        // Skipped structurally when the contact budget is zero, the
+                        // same guard §16.37 found missing here and present on the beam
+                        // and element bands below: a rigid-only or soft-body-only scene
+                        // has no contacts most of the time it has anything else, and a
+                        // node over an empty band still crosses a barrier every colour
+                        // every substep to find out its predicate is false.
+                        for (std::size_t color = 0;
+                             contacts_store_.band_capacity() > 0 &&
+                             color < contacts_store_.color_count();
                              ++color)
                         {
                             const Execution::ElementRange band{
@@ -874,7 +902,12 @@ namespace SushiEngine
                                               uniforms->substep_duration);
                                   });
 
-                        for (std::size_t color = 0; color < constraints_store_.color_count();
+                        // Skipped structurally when the distance-constraint budget is
+                        // zero, for the same reason the beam and element bands are: a
+                        // scene that is nothing but a soft body or a vehicle has none.
+                        for (std::size_t color = 0;
+                             constraints_store_.band_capacity() > 0 &&
+                             color < constraints_store_.color_count();
                              ++color)
                         {
                             const std::size_t base = constraints_store_.band_base(color);
@@ -1002,7 +1035,13 @@ namespace SushiEngine
                         // one, so the assembly is assembled before it is pushed on.
                         // The host solver walks the same order and the conformance
                         // suite is what stops the two drifting apart.
-                        for (std::size_t color = 0; color < joints_store_.color_count(); ++color)
+                        //
+                        // Skipped structurally when the joint budget is zero, the same
+                        // guard the contact bands now carry (§16.37): most scenes with
+                        // a soft body or a rigid stack have no joints at all.
+                        for (std::size_t color = 0;
+                             joints_store_.band_capacity() > 0 &&
+                             color < joints_store_.color_count(); ++color)
                         {
                             const std::size_t base = joints_store_.band_base(color);
                             const Execution::ElementRange band{
@@ -1029,7 +1068,12 @@ namespace SushiEngine
                         // derivation, because non-penetration and static friction are
                         // corrections to *position* and every positional projection in
                         // a substep belongs in one band of the schedule.
-                        for (std::size_t color = 0; color < contacts_store_.color_count();
+                        //
+                        // Skipped structurally when the contact budget is zero; see the
+                        // `contact_prepare` band above for why.
+                        for (std::size_t color = 0;
+                             contacts_store_.band_capacity() > 0 &&
+                             color < contacts_store_.color_count();
                              ++color)
                         {
                             const Execution::ElementRange band{
@@ -1091,7 +1135,9 @@ namespace SushiEngine
                                 });
                         }
 
-                        for (std::size_t color = 0; color < joints_store_.color_count(); ++color)
+                        for (std::size_t color = 0;
+                             joints_store_.band_capacity() > 0 &&
+                             color < joints_store_.color_count(); ++color)
                         {
                             const std::size_t base = joints_store_.band_base(color);
                             const Execution::ElementRange band{
@@ -1117,7 +1163,12 @@ namespace SushiEngine
                         // statements about a velocity, and until `update_velocity` has
                         // read the substep's pose change back as one there is no
                         // velocity for them to be statements about.
-                        for (std::size_t color = 0; color < contacts_store_.color_count();
+                        //
+                        // Skipped structurally when the contact budget is zero; see the
+                        // `contact_prepare` band above for why.
+                        for (std::size_t color = 0;
+                             contacts_store_.band_capacity() > 0 &&
+                             color < contacts_store_.color_count();
                              ++color)
                         {
                             const Execution::ElementRange band{
@@ -1853,8 +1904,12 @@ namespace SushiEngine
                     // configured flag so a scene nobody is profiling pays not even this
                     // one copy, and so the panel's "no timings" branch means what it
                     // says. Not split per stage — see PhysicsStageTimings.
-                    if (configuration_.profiling)
+                    if (configuration_.profiling && graph_)
+                    {
                         statistics_.timings.solve_ms = T(last_report_.total_duration_ms);
+                        statistics_.timings.node_timings =
+                            physics_node_timings_from_report<T>(graph_->native_report());
+                    }
                 }
 
                 Execution::Context& context_;

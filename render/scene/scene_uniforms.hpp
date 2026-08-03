@@ -194,6 +194,35 @@ namespace SushiEngine
                  * offset reason as everything above it.
                  */
                 float cloud_field_pattern[4];
+                /**
+                 * @brief The planetary weather placement's shape terms.
+                 *
+                 * `x` = how many of @ref synoptic_centre_a are populated, `y` = the ITCZ's
+                 * current latitude in radians (the seasonal term of the zonal climatology),
+                 * `z` = 1 when the body has a latitudinal cloud structure at all, `w` spare.
+                 *
+                 * `z` and `x` say different things on purpose: a planet with an atmosphere
+                 * always has an ITCZ and a subtropical clear belt even with nothing placed on
+                 * it, so a provider that publishes no centres still wants the climatology.
+                 * Appended last for the same offset reason as everything above it.
+                 */
+                float synoptic_params[4];
+                /**
+                 * @brief Each placed pressure system's direction and extent.
+                 *
+                 * `xyz` = the unit vector from the planet centre toward the system, **already
+                 * rotated into scene space by the simulation** so the march needs no body frame
+                 * of its own; `w` = the chord falloff its Gaussian weight uses,
+                 * `exp(-w * (1 - dot(radial, xyz)))`. See `Render::SynopticFieldView`.
+                 */
+                float synoptic_centre_a[Render::SYNOPTIC_FIELD_MAX_CENTRES][4];
+                /**
+                 * @brief Each placed system's character.
+                 *
+                 * `x` = signed coverage anomaly at the centre (positive is a low, negative a
+                 * high), `y` = convective fraction, `z` = surface precipitation, `w` spare.
+                 */
+                float synoptic_centre_b[Render::SYNOPTIC_FIELD_MAX_CENTRES][4];
             };
 
             /**

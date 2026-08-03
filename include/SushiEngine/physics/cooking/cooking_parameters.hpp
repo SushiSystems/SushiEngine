@@ -144,6 +144,15 @@ namespace SushiEngine
                 bool cook_soft_body = false;
 
                 /**
+                 * @brief Whether to cook a node-beam asset (§11.3).
+                 *
+                 * Off by default for the same reason @ref cook_soft_body is: a node-beam
+                 * cook is minutes rather than milliseconds and wanted by vehicles, not by
+                 * the rest of a project's meshes.
+                 */
+                bool cook_node_beam = false;
+
+                /**
                  * @brief Whether the source geometry is authored static.
                  *
                  * Static geometry skips convex decomposition entirely and cooks a
@@ -157,7 +166,6 @@ namespace SushiEngine
             /** @brief Every resolution a stage reads, with nothing left to derive. */
             struct DerivedCookingParameters
             {
-                float fidelity = 0.5f;
                 std::int32_t voxel_resolution = 0;
                 std::int32_t target_tetrahedron_count = 0;
                 std::int32_t simulation_level_count = 0;
@@ -228,7 +236,6 @@ namespace SushiEngine
                 const float t = detail::clamp_unit(parameters.fidelity);
 
                 DerivedCookingParameters derived;
-                derived.fidelity = t;
                 derived.voxel_resolution = detail::pinned_or(parameters.voxel_resolution,
                                                              detail::geometric(16, 256, t));
                 derived.target_tetrahedron_count =
@@ -320,6 +327,7 @@ namespace SushiEngine
                 // collision asset and for a soft body is two different outputs.
                 hash = hash_bytes(hash, parameters.cook_collision);
                 hash = hash_bytes(hash, parameters.cook_soft_body);
+                hash = hash_bytes(hash, parameters.cook_node_beam);
                 return hash;
             }
 

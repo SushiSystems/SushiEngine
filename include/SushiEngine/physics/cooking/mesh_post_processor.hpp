@@ -204,10 +204,7 @@ namespace SushiEngine
                 /**
                  * @brief A chain with the cookers this build ships.
                  *
-                 * The collision and soft-body processors, in that order. The node-beam
-                 * processor of §11 is absent because that cooker is P7 and does not exist —
-                 * which is what the registry is for: it arrives as a registration here and
-                 * changes nothing else.
+                 * The collision, soft-body, and node-beam processors, in that order.
                  */
                 static MeshPostProcessorChain with_shipped_processors();
 
@@ -224,7 +221,7 @@ namespace SushiEngine
                 /** @brief Minutes rather than milliseconds, and wanted by few assets. */
                 POST_PROCESS_ORDER_SOFT_BODY = 200,
 
-                /** @brief Reserved for §11's node-beam cooker (P7). */
+                /** @brief §11's node-beam cooker; rarer than either of the above. */
                 POST_PROCESS_ORDER_NODE_BEAM = 300,
             };
         } // namespace Cooking

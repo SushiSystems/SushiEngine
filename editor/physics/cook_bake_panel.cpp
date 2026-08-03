@@ -29,6 +29,7 @@
 #include <imgui.h>
 
 #include <SushiEngine/physics/cooking/collision_asset.hpp>
+#include <SushiEngine/physics/cooking/node_beam_cooker.hpp>
 #include <SushiEngine/physics/cooking/soft_body_asset.hpp>
 
 namespace SushiEngine
@@ -165,6 +166,323 @@ namespace SushiEngine
                 value_row("Distance field", "%u^3", report.distance_field_resolution);
                 value_row("Asset size", "%zu bytes", report.asset_bytes);
             }
+
+            /** @brief §14's node-beam readout: nodes, beams, bracing, and the mass they carry. */
+            void draw_node_beam_report(const BakedAssetEntry& entry)
+            {
+                const CookingReport& report = entry.node_beam_report;
+                status_row(report);
+                value_row("Nodes", "%u", report.node_count);
+                value_row("Beams", "%u", report.beam_count);
+                value_row("Bracing beams", "%u", report.bracing_beam_count);
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Beams that are not along a grid axis. Zero here means\n"
+                                      "the diagonal rule did not fire: a structure that is all\n"
+                                      "structural beams holds its length and folds flat, because\n"
+                                      "it has no shear rigidity.");
+                }
+                value_row("Collision triangles", "%u", report.collision_triangle_count);
+
+                if (report.inverted_element_count > 0)
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%-24s %u",
+                                       "Inverted elements", report.inverted_element_count);
+                }
+                else
+                {
+                    ImGui::TextDisabled("%-24s none", "Inverted elements");
+                }
+
+                value_row("Unbound vertices", "%u", report.unembedded_vertex_count);
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Render vertices with no node within the skin search\n"
+                                      "radius. Above zero the cook fails, per §8.6: a vertex\n"
+                                      "bound to nothing tears open the first time the shell\n"
+                                      "deforms.");
+                }
+                value_row("Departs from mesh", "%.4f", double(report.hausdorff_error));
+
+                value_row("Mass", "%.3f kg", double(report.mass));
+                value_row("Centre of mass", "%.3f, %.3f, %.3f", double(report.center_of_mass[0]),
+                          double(report.center_of_mass[1]), double(report.center_of_mass[2]));
+                value_row("Principal inertia", "%.4f, %.4f, %.4f",
+                          double(report.principal_inertia[0]), double(report.principal_inertia[1]),
+                          double(report.principal_inertia[2]));
+                value_row("Asset size", "%zu bytes", report.asset_bytes);
+            }
+
+            /**
+             * @brief The material, and the four numbers §16.35 calls "vehicle-shaped".
+             *
+             * The preset combo is an action, not a stored choice: `NodeBeamCookerSettings`
+             * has no field for "which named material this was", and it should not grow one
+             * just to feed a widget — an artist who nudges one slider after picking "Sheet
+             * steel" has a material that is no longer sheet steel, and the combo relabelling
+             * itself back to "Apply preset..." says so rather than lying about it.
+             *
+             * @param settings The project's node-beam settings; edited in place.
+             * @return Whether anything changed.
+             */
+            bool draw_node_beam_settings(NodeBeamCookerSettings& settings)
+            {
+                bool changed = false;
+
+                static const char* const PRESETS[] = {"Apply preset...", "Rubber",  "Foam",
+                                                       "Soft tissue",    "Sheet steel",
+                                                       "Aluminium"};
+                int preset = 0;
+                if (ImGui::Combo("Material preset", &preset, PRESETS, IM_ARRAYSIZE(PRESETS)))
+                {
+                    switch (preset)
+                    {
+                        case 1: settings.material = Physics::rubber_material<Scalar>(); break;
+                        case 2: settings.material = Physics::foam_material<Scalar>(); break;
+                        case 3:
+                            settings.material = Physics::soft_tissue_material<Scalar>();
+                            break;
+                        case 4:
+                            settings.material = Physics::sheet_steel_material<Scalar>();
+                            break;
+                        case 5: settings.material = Physics::aluminium_material<Scalar>(); break;
+                        default: break;
+                    }
+                    changed = preset != 0;
+                }
+
+                float young_modulus = float(settings.material.young_modulus);
+                if (ImGui::InputFloat("Young's modulus", &young_modulus, 0.0f, 0.0f, "%.3e Pa"))
+                {
+                    settings.material.young_modulus = Scalar(young_modulus);
+                    changed = true;
+                }
+                float poisson_ratio = float(settings.material.poisson_ratio);
+                if (ImGui::DragFloat("Poisson ratio", &poisson_ratio, 0.005f, -0.999f, 0.499f,
+                                     "%.3f"))
+                {
+                    settings.material.poisson_ratio = Scalar(poisson_ratio);
+                    changed = true;
+                }
+                float density = float(settings.material.density);
+                if (ImGui::DragFloat("Density", &density, 5.0f, 1.0f, 20000.0f, "%.0f kg/m^3"))
+                {
+                    settings.material.density = Scalar(density);
+                    changed = true;
+                }
+                float damping = float(settings.material.damping);
+                if (ImGui::DragFloat("Damping", &damping, 0.01f, 0.0f, 5.0f, "%.3f"))
+                {
+                    settings.material.damping = Scalar(damping);
+                    changed = true;
+                }
+                float yield_stress = float(settings.material.yield_stress);
+                if (ImGui::InputFloat("Yield stress", &yield_stress, 0.0f, 0.0f, "%.3e Pa"))
+                {
+                    settings.material.yield_stress = Scalar(yield_stress);
+                    changed = true;
+                }
+                float plastic_creep = float(settings.material.plastic_creep);
+                if (ImGui::DragFloat("Plastic creep", &plastic_creep, 0.005f, 0.0f, 1.0f, "%.3f"))
+                {
+                    settings.material.plastic_creep = Scalar(plastic_creep);
+                    changed = true;
+                }
+                float maximum_plastic_strain = float(settings.material.maximum_plastic_strain);
+                if (ImGui::DragFloat("Maximum plastic strain", &maximum_plastic_strain, 0.005f,
+                                     0.0f, 2.0f, "%.3f"))
+                {
+                    settings.material.maximum_plastic_strain = Scalar(maximum_plastic_strain);
+                    changed = true;
+                }
+                float fracture_stress = float(settings.material.fracture_stress);
+                if (ImGui::InputFloat("Fracture stress", &fracture_stress, 0.0f, 0.0f, "%.3e Pa"))
+                {
+                    settings.material.fracture_stress = Scalar(fracture_stress);
+                    changed = true;
+                }
+
+                ImGui::Separator();
+                if (ImGui::SliderFloat("Core mass fraction", &settings.core_mass_fraction, 0.0f,
+                                       1.0f, "%.2f"))
+                    changed = true;
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("The fraction of the cooked mass the rigid core carries.\n"
+                                      "Zero is a pure node-beam vehicle; toward one the chassis\n"
+                                      "is rigid and the shell is a skin over it.");
+                }
+                if (ImGui::DragFloat("Structural length ratio", &settings.structural_length_ratio,
+                                     0.02f, 1.0f, 3.0f, "%.2f"))
+                    changed = true;
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Lattice edges longer than this multiple of the cell size\n"
+                                      "are bracing rather than structural.");
+                }
+                if (ImGui::DragFloat("Skin search ratio", &settings.skin_search_ratio, 0.02f,
+                                     0.5f, 5.0f, "%.2f"))
+                    changed = true;
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("How far past the cell size a node may be from a render\n"
+                                      "vertex and still skin it. A vertex with none in reach is\n"
+                                      "reported unbound rather than tethered to whatever was\n"
+                                      "nearest.");
+                }
+                if (ImGui::Checkbox("Attach shell to core", &settings.attach_shell_to_core))
+                    changed = true;
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Off makes an asset whose shell falls off its own chassis\n"
+                                      "-- what a pure node-beam cook wants, and what a hybrid\n"
+                                      "one never does.");
+                }
+
+                return changed;
+            }
+
+            /**
+             * @brief One dial-derived field: a pin checkbox, and the value only when pinned.
+             *
+             * @ref DERIVE_FROM_FIDELITY is the sentinel for "take it from the dial" —
+             * unpinning restores it rather than freezing whatever the slider happened to
+             * be showing. Disabled and dimmed to the current derived value while unpinned,
+             * so the row still answers "what would this cook use" without implying it is
+             * editable.
+             */
+            bool pinned_int_row(const char* label, std::int32_t& value, std::int32_t derived,
+                                int low, int high, const char* tooltip)
+            {
+                bool changed = false;
+                bool pinned = value != DERIVE_FROM_FIDELITY;
+                ImGui::PushID(label);
+                if (ImGui::Checkbox("##pin", &pinned))
+                {
+                    value = pinned ? derived : DERIVE_FROM_FIDELITY;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Pin this field instead of deriving it from the dial.");
+                ImGui::SameLine();
+                int shown = pinned ? value : derived;
+                ImGui::BeginDisabled(!pinned);
+                if (ImGui::DragInt(label, &shown, 1.0f, low, high) && pinned)
+                {
+                    value = shown;
+                    changed = true;
+                }
+                ImGui::EndDisabled();
+                if (tooltip != nullptr && ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", tooltip);
+                ImGui::PopID();
+                return changed;
+            }
+
+            /**
+             * @brief Everything §16.45.3 found read by a cooker with no widget anywhere:
+             * the seven pin overrides, the four fields that were never on the dial, and
+             * the accept/reject thresholds every cooker applies via `apply_cooking_
+             * thresholds`. Grouped apart from the project-default block above because
+             * these are the settings a project sets once and rarely revisits, not the
+             * one an artist drags every day.
+             *
+             * @param parameters The project's cooking dial and its pin overrides.
+             * @param thresholds What fails a cook outright rather than merely shaping it.
+             * @return Whether anything changed.
+             */
+            bool draw_advanced_cooking_parameters(CookingParameters& parameters,
+                                                  CookingThresholds& thresholds)
+            {
+                bool changed = false;
+                const DerivedCookingParameters derived = resolve_cooking_parameters(parameters);
+
+                ImGui::TextDisabled("Pin a field to override the dial for it alone.");
+                changed |= pinned_int_row("Voxel resolution", parameters.voxel_resolution,
+                                          derived.voxel_resolution, 16, 256, nullptr);
+                changed |= pinned_int_row("Target tetrahedra",
+                                          parameters.target_tetrahedron_count,
+                                          derived.target_tetrahedron_count, 200, 120000,
+                                          nullptr);
+                changed |= pinned_int_row("Levels of detail",
+                                          parameters.simulation_level_count,
+                                          derived.simulation_level_count, 1, 4, nullptr);
+                changed |= pinned_int_row("Convex pieces", parameters.convex_piece_count,
+                                          derived.convex_piece_count, 4, 64, nullptr);
+                changed |= pinned_int_row("Distance field",
+                                          parameters.distance_field_resolution,
+                                          derived.distance_field_resolution, 16, 128, nullptr);
+                changed |= pinned_int_row("Surface conforming passes",
+                                          parameters.surface_conforming_passes,
+                                          derived.surface_conforming_passes, 0, 3, nullptr);
+                changed |= pinned_int_row("Suggested substeps",
+                                          parameters.suggested_substep_count,
+                                          derived.suggested_substep_count, 8, 32, nullptr);
+
+                ImGui::Separator();
+                ImGui::TextDisabled("Not on the dial");
+                int hull_vertex_budget = parameters.hull_vertex_budget;
+                if (ImGui::DragInt("Hull vertex budget", &hull_vertex_budget, 1.0f, 4, 255))
+                {
+                    parameters.hull_vertex_budget = hull_vertex_budget;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Vertices a single cooked convex piece may keep. Bounded\n"
+                                      "by what the narrowphase can afford to iterate per pair,\n"
+                                      "not by how accurate the artist wants the asset.");
+                }
+                changed |= ImGui::DragFloat("Weld tolerance", &parameters.weld_tolerance,
+                                            1.0e-6f, 0.0f, 0.1f, "%.6f");
+                changed |= ImGui::DragFloat("Density", &parameters.density, 5.0f, 1.0f,
+                                            20000.0f, "%.0f kg/m^3");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Overridden per instance by the scene's own material at "
+                                      "instancing time.");
+                int accuracy_lattice_order = parameters.accuracy_lattice_order;
+                if (ImGui::DragInt("Accuracy lattice order", &accuracy_lattice_order, 1.0f, 1,
+                                   8))
+                {
+                    parameters.accuracy_lattice_order = accuracy_lattice_order;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Governs the reported Hausdorff error's tightness, not\n"
+                                      "the asset -- a cook whose only change is this produces\n"
+                                      "identical geometry with a different report.");
+                }
+
+                ImGui::Separator();
+                ImGui::TextDisabled("Thresholds -- what fails a cook, not what shapes it");
+                int max_unembedded = int(thresholds.max_unembedded_vertices);
+                if (ImGui::DragInt("Max unembedded vertices", &max_unembedded, 1.0f, 0, 10000))
+                {
+                    thresholds.max_unembedded_vertices =
+                        std::uint32_t(max_unembedded < 0 ? 0 : max_unembedded);
+                    changed = true;
+                }
+                int max_inverted = int(thresholds.max_inverted_elements);
+                if (ImGui::DragInt("Max inverted elements", &max_inverted, 1.0f, 0, 10000))
+                {
+                    thresholds.max_inverted_elements =
+                        std::uint32_t(max_inverted < 0 ? 0 : max_inverted);
+                    changed = true;
+                }
+                changed |= ImGui::DragFloat("Min element quality",
+                                            &thresholds.min_element_quality, 0.001f, 0.0f, 1.0f,
+                                            "%.4f");
+                changed |= ImGui::DragFloat("Max Hausdorff error",
+                                            &thresholds.max_hausdorff_error, 0.001f, 0.0f, 10.0f,
+                                            "%.4f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Zero or less disables the check.");
+                changed |= ImGui::Checkbox("Require watertight source",
+                                           &thresholds.require_watertight_source);
+
+                return changed;
+            }
         } // namespace
 
         void draw_cook_bake_panel(EditorContext& context, CookBakeState& state)
@@ -196,14 +514,42 @@ namespace SushiEngine
             changed |= ImGui::Checkbox("Cook collision", &project.parameters.cook_collision);
             ImGui::SameLine();
             changed |= ImGui::Checkbox("Cook soft body", &project.parameters.cook_soft_body);
+            ImGui::SameLine();
+            changed |= ImGui::Checkbox("Cook node beam", &project.parameters.cook_node_beam);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Cooks a .sushinodebeam: a node cloud, a beam network, and a\n"
+                                  "rigid core, for a vehicle's deformable shell (Section 11).\n"
+                                  "Minutes rather than milliseconds -- wanted by a handful of\n"
+                                  "meshes, not most of a project.");
+            }
             changed |= ImGui::Checkbox("Authored static", &project.parameters.static_geometry);
             if (ImGui::IsItemHovered())
             {
                 ImGui::SetTooltip("Static geometry skips convex decomposition and cooks the\n"
                                   "exact triangle hierarchy instead: cheaper, and no error.");
             }
+
+            if (project.parameters.cook_node_beam && ImGui::CollapsingHeader("Node-beam settings"))
+            {
+                ImGui::Indent();
+                changed |= draw_node_beam_settings(project.node_beam_settings);
+                ImGui::Unindent();
+            }
+
+            if (ImGui::CollapsingHeader("Advanced"))
+            {
+                ImGui::Indent();
+                changed |= draw_advanced_cooking_parameters(project.parameters,
+                                                            project.thresholds);
+                ImGui::Unindent();
+            }
+
             if (changed)
+            {
                 state.profiles().set_project_default(project);
+                state.save_profiles();
+            }
 
             // What the dial produced, which is §8.2's requirement rather than a nicety: the
             // trade-off has to be visible now instead of felt three weeks later.
@@ -278,6 +624,8 @@ namespace SushiEngine
                         draw_collision_report(entry);
                     if (entry.has_soft_body() && ImGui::CollapsingHeader("Soft body"))
                         draw_soft_body_report(entry);
+                    if (entry.has_node_beam() && ImGui::CollapsingHeader("Node-beam"))
+                        draw_node_beam_report(entry);
 
                     const std::size_t segments = state.collision_wireframe().size() / 6;
                     if (segments > 0)

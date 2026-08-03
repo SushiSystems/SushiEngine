@@ -24,6 +24,7 @@
 #include "inspector_panel.hpp"
 
 #include "../audio/audio_panels.hpp"
+#include "../physics/cook_bake_state.hpp"
 #include "../physics/joint_widgets.hpp"
 #include "../render/lighting_panel.hpp"
 #include "../scripting/script_panel.hpp"
@@ -43,6 +44,7 @@
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <SushiEngine/astro/celestial_bodies.hpp>
+#include <SushiEngine/physics/soft/soft_body_material.hpp>
 
 namespace SushiEngine
 {
@@ -755,6 +757,21 @@ namespace SushiEngine
                         else
                             ImGui::TextDisabled("Does not bounce");
 
+                        // Trigger and continuous collision: both bits the solver has always
+                        // read off `Collider::flags`, and both were unauthorable until now.
+                        ImGui::SeparatorText("Behaviour");
+                        editor.toggle("Trigger", &decltype(editor)::Values::trigger,
+                                      "Reports overlaps as ContactEvent::trigger instead of "
+                                      "resolving them. The body has no collision response at "
+                                      "all — it passes through everything and everything "
+                                      "passes through it.");
+                        editor.toggle("Continuous Collision",
+                                      &decltype(editor)::Values::continuous_collision,
+                                      "Opts in to conservative-advancement sweeps so a fast, "
+                                      "thin body cannot tunnel through a thin static collider "
+                                      "in one substep. Costs extra broadphase work; leave off "
+                                      "unless this body is small and fast.");
+
                         // §7.7's filter. Two bodies interact only when *each* one's layer is
                         // in the other's mask, which is what makes the relation symmetric by
                         // construction — and what makes a one-sided exclusion do nothing.
@@ -954,6 +971,195 @@ namespace SushiEngine
                                       0.0001f, 0.0f, 1.0f, "%.5f m/N",
                                       "Inverse stiffness of every constraint; zero is "
                                       "inextensible, higher stretches.");
+                    }
+                }
+            }
+
+            if (world->has_soft_body(id))
+            {
+                // §16.45.2: `SoftBodyParams` was wired end to end into the solver as
+                // thoroughly as `ClothParams` and had no Inspector section at all — the only
+                // way to put one on an entity was `IWorldEditor::create_soft_body`, called by
+                // nothing in the editor. This is that section.
+                const ComponentSection section = component_header(context, "Soft Body");
+                if (section.remove)
+                {
+                    set_presence(&IWorldEditor::set_has_soft_body, false);
+                }
+                else
+                {
+                    using SushiEngine::Simulation::SoftBodyParams;
+
+                    const ComponentAccess<SoftBodyParams> access{
+                        &IWorldEditor::has_soft_body, &IWorldEditor::soft_body_params,
+                        &IWorldEditor::set_soft_body_params};
+                    ComponentEditor<SoftBodyParams> editor(context, *world, access, id);
+                    apply_component_section(context, section, "Soft Body", editor);
+                    if (section.open)
+                    {
+                        // Edited through `mutable_values`/`write_primary`, the same escape
+                        // hatch the Physics Joint section uses and for the same reason: the
+                        // cooked asset bytes are this entity's own body, not a setting a
+                        // multi-selection should be fanned the same copy of.
+                        SoftBodyParams& values = editor.mutable_values();
+                        bool changed = false;
+
+                        if (values.asset.empty())
+                            ImGui::TextColored(warning_color(),
+                                               "No cooked asset -- this body simulates nothing "
+                                               "yet.");
+                        else
+                            ImGui::TextDisabled("Cooked asset loaded (%zu bytes).",
+                                                values.asset.size());
+
+                        ImGui::SetNextItemWidth(-80.0f);
+                        ImGui::InputText("Source Mesh", &context.soft_body_source_path);
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("The path a mesh was cooked from with 'Cook soft "
+                                              "body' on in the Bake panel -- the same path the "
+                                              "Project panel shows.");
+                        ImGui::SameLine();
+                        if (ImGui::Button("Load") && context.cook_bake_state != nullptr)
+                        {
+                            const BakedAssetEntry* entry =
+                                context.cook_bake_state->entry(context.soft_body_source_path);
+                            if (entry != nullptr && entry->has_soft_body())
+                            {
+                                values.asset = entry->soft_body_bytes;
+                                changed = true;
+                            }
+                            else
+                            {
+                                editor_log(context,
+                                          "No cooked soft-body asset at '" +
+                                              context.soft_body_source_path +
+                                              "' -- cook it with 'Cook soft body' on in the "
+                                              "Bake panel first.",
+                                          LogLevel::Warning);
+                            }
+                        }
+
+                        ImGui::SetNextItemWidth(180.0f);
+                        int level = int(values.level);
+                        if (ImGui::DragInt("Level", &level, 0.05f, 0, 8))
+                        {
+                            values.level = std::uint32_t(level < 0 ? 0 : level);
+                            changed = true;
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Which cooked simulation level to build; 0 is "
+                                              "finest.");
+
+                        ImGui::SeparatorText("Material");
+                        static const char* const PRESETS[] = {"Apply preset...", "Rubber",
+                                                               "Foam",           "Soft tissue",
+                                                               "Sheet steel",    "Aluminium"};
+                        int preset = 0;
+                        if (ImGui::Combo("Preset", &preset, PRESETS, IM_ARRAYSIZE(PRESETS)))
+                        {
+                            switch (preset)
+                            {
+                                case 1:
+                                    values.material = Physics::rubber_material<Scalar>();
+                                    break;
+                                case 2:
+                                    values.material = Physics::foam_material<Scalar>();
+                                    break;
+                                case 3:
+                                    values.material = Physics::soft_tissue_material<Scalar>();
+                                    break;
+                                case 4:
+                                    values.material = Physics::sheet_steel_material<Scalar>();
+                                    break;
+                                case 5:
+                                    values.material = Physics::aluminium_material<Scalar>();
+                                    break;
+                                default: break;
+                            }
+                            changed = changed || preset != 0;
+                        }
+                        float young_modulus = float(values.material.young_modulus);
+                        if (ImGui::InputFloat("Young's modulus", &young_modulus, 0.0f, 0.0f,
+                                              "%.3e Pa"))
+                        {
+                            values.material.young_modulus = Scalar(young_modulus);
+                            changed = true;
+                        }
+                        float poisson_ratio = float(values.material.poisson_ratio);
+                        if (ImGui::DragFloat("Poisson ratio", &poisson_ratio, 0.005f, -0.999f,
+                                             0.499f, "%.3f"))
+                        {
+                            values.material.poisson_ratio = Scalar(poisson_ratio);
+                            changed = true;
+                        }
+                        float density = float(values.material.density);
+                        if (ImGui::DragFloat("Density", &density, 5.0f, 1.0f, 20000.0f,
+                                             "%.0f kg/m^3"))
+                        {
+                            values.material.density = Scalar(density);
+                            changed = true;
+                        }
+                        float damping = float(values.material.damping);
+                        if (ImGui::DragFloat("Damping", &damping, 0.01f, 0.0f, 5.0f, "%.3f"))
+                        {
+                            values.material.damping = Scalar(damping);
+                            changed = true;
+                        }
+                        float yield_stress = float(values.material.yield_stress);
+                        if (ImGui::InputFloat("Yield stress", &yield_stress, 0.0f, 0.0f,
+                                              "%.3e Pa"))
+                        {
+                            values.material.yield_stress = Scalar(yield_stress);
+                            changed = true;
+                        }
+                        float plastic_creep = float(values.material.plastic_creep);
+                        if (ImGui::DragFloat("Plastic creep", &plastic_creep, 0.005f, 0.0f, 1.0f,
+                                             "%.3f"))
+                        {
+                            values.material.plastic_creep = Scalar(plastic_creep);
+                            changed = true;
+                        }
+                        float maximum_plastic_strain = float(values.material.maximum_plastic_strain);
+                        if (ImGui::DragFloat("Maximum plastic strain", &maximum_plastic_strain,
+                                             0.005f, 0.0f, 2.0f, "%.3f"))
+                        {
+                            values.material.maximum_plastic_strain = Scalar(maximum_plastic_strain);
+                            changed = true;
+                        }
+                        float fracture_stress = float(values.material.fracture_stress);
+                        if (ImGui::InputFloat("Fracture stress", &fracture_stress, 0.0f, 0.0f,
+                                              "%.3e Pa"))
+                        {
+                            values.material.fracture_stress = Scalar(fracture_stress);
+                            changed = true;
+                        }
+
+                        ImGui::SeparatorText("Surface");
+                        float thickness = float(values.thickness);
+                        if (ImGui::DragFloat("Thickness", &thickness, 0.001f, 0.0f, 1.0f,
+                                             "%.3f m"))
+                        {
+                            values.thickness = Scalar(thickness);
+                            changed = true;
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Contact half-width of the surface.");
+                        if (ImGui::Checkbox("Self Collision", &values.self_collision))
+                            changed = true;
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Whether the surface is tested against itself.");
+                        if (ImGui::Checkbox("Cosmetic", &values.cosmetic))
+                            changed = true;
+                        if (ImGui::IsItemHovered())
+                        {
+                            ImGui::SetTooltip("Simulated in float instead of double when nothing "
+                                              "replays this body deterministically. A body "
+                                              "inside the deterministic island is simulated in "
+                                              "double however loudly this asks -- see §6.5.");
+                        }
+
+                        if (changed)
+                            editor.write_primary();
                     }
                 }
             }
@@ -1318,6 +1524,8 @@ namespace SushiEngine
                     set_presence(&IWorldEditor::set_has_physics_body, true);
                 if (!world->has_cloth(id) && ImGui::MenuItem("Cloth"))
                     set_presence(&IWorldEditor::set_has_cloth, true);
+                if (!world->has_soft_body(id) && ImGui::MenuItem("Soft Body"))
+                    set_presence(&IWorldEditor::set_has_soft_body, true);
                 if (!world->has_particle_emitter(id) && ImGui::MenuItem("Particle System"))
                     set_presence(&IWorldEditor::set_has_particle_emitter, true);
                 if (!world->has_light(id) && ImGui::MenuItem("Light"))

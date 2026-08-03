@@ -102,6 +102,20 @@ namespace SushiEngine
                 ImGui::Separator();
             }
 
+            // §16.44's opt-in: off by default in the solver, and until now unreachable from
+            // the editor at all — the toggle existed only for a test to call directly.
+            if (ImGui::CollapsingHeader("Settings"))
+            {
+                ImGui::Checkbox("Park sleeping joints", &context.park_sleeping_joints);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Drops a joint from the solve graph once both bodies it "
+                                      "connects are asleep, instead of dispatching it every "
+                                      "substep for its own early-out to catch. A disturbance "
+                                      "-- a teleport, a motor edit, a break -- wakes it and "
+                                      "puts it back.");
+                ImGui::Separator();
+            }
+
             ImGui::TextDisabled("Bodies");
             count_row("Awake", stats.awake_bodies);
             count_row("Sleeping", stats.sleeping_bodies);
@@ -118,6 +132,9 @@ namespace SushiEngine
             ImGui::Separator();
             ImGui::TextDisabled("Solve");
             count_row("Constraints", stats.constraints);
+            count_row("  of which joints", stats.joints);
+            count_row("  of which elements", stats.elements);
+            count_row("  of which beams", stats.beams);
             count_row("Colours", stats.colors);
             count_row("Largest colour", stats.largest_color);
             count_row("Substeps", stats.substeps);
@@ -134,6 +151,8 @@ namespace SushiEngine
             count_row("Composes", stats.compose_count);
             warning_row("Capacity overflows", stats.capacity_overflows, "none");
             warning_row("Continuous escalations", stats.continuous_escalations, "none");
+            warning_row("Continuous advancement skipped", stats.continuous_advancement_skipped,
+                        "none");
             warning_row("Fracture events", stats.fracture_events, "none");
 
             ImGui::Separator();
@@ -153,12 +172,35 @@ namespace SushiEngine
                 ImGui::Text("%-22s %.3f ms", "Narrowphase", double(stats.timings.narrowphase_ms));
                 ImGui::Text("%-22s %.3f ms", "Islands", double(stats.timings.island_build_ms));
                 ImGui::Text("%-22s %.3f ms", "Solve (device)", double(stats.timings.solve_ms));
+                ImGui::Text("%-22s %.3f ms", "Soft body", double(stats.timings.soft_body_ms));
                 ImGui::Text("%-22s %.3f ms", "Write back", double(stats.timings.write_back_ms));
                 ImGui::Separator();
                 ImGui::Text("%-22s %.3f ms", "Total", double(stats.timings.total_ms));
-                // The solve is one composition and the runtime's public add() carries
-                // no node label, so it cannot honestly be split further here.
-                ImGui::TextDisabled("Solve is one composition: predict, every colour, velocity.");
+
+                // §18 R8 (closed 2026-08-02): the runtime's add() overloads now carry
+                // a node's label through, so the one composition above breaks down by
+                // name instead of staying an opaque total. A kind reporting zero
+                // dispatches is not drawn at all -- a scene with no joints or contacts
+                // never asked distance_project's neighbours to run this tick, and a
+                // zero row here would read as a measurement of something nobody
+                // measured (§8.5's rule, same one the cooking report already follows).
+                if (ImGui::TreeNode("Solve, by node"))
+                {
+                    for (std::size_t index = 0; index < Physics::PHYSICS_NODE_KIND_COUNT; ++index)
+                    {
+                        const Physics::PhysicsNodeKind kind =
+                            static_cast<Physics::PhysicsNodeKind>(index);
+                        const Physics::PhysicsNodeTiming<Scalar>& node =
+                            stats.timings.node_timings[index];
+                        if (node.invocations == 0)
+                            continue;
+
+                        ImGui::Text("%-18s %6zu dispatches  %8.3f ms device  %8.3f ms host",
+                                    Physics::physics_node_kind_name(kind), node.invocations,
+                                    double(node.device_ms), double(node.host_ms));
+                    }
+                    ImGui::TreePop();
+                }
             }
 
             ImGui::End();

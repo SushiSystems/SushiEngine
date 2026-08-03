@@ -92,6 +92,10 @@ namespace SushiEngine
                     q.cloud_light_taps = 0;
                     q.cloud_buffer_scale = 1.0f / 3.0f;
                     q.cloud_near_far_split = false;
+                    // Selects the cheap 5-tap cross clamp in the cloud resolve, not "no
+                    // rejection": this used to switch neighbourhood rejection off entirely,
+                    // which left a 0.97 EMA with nothing to evict stale history and smeared a
+                    // multi-second trail behind every camera move. See cloud_taa.comp.
                     q.cloud_variance_clip = false;
                     q.vrs_max_coarse_axis = 4;
                     q.lobe_anisotropy = false;

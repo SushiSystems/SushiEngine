@@ -27,6 +27,7 @@
 #include <utility>
 
 #include <SushiEngine/physics/cooking/collision_cooker.hpp>
+#include <SushiEngine/physics/cooking/node_beam_cooker.hpp>
 #include <SushiEngine/physics/cooking/soft_body_cooker.hpp>
 
 namespace SushiEngine
@@ -88,6 +89,53 @@ namespace SushiEngine
                     bool CookingParameters::*flag_;
                     Cooker cooker_;
                 };
+
+                /**
+                 * @brief The node-beam processor, which is not the shape above.
+                 *
+                 * @ref NodeBeamCooker takes a second piece of state the other two cookers
+                 * do not — @ref NodeBeamCookerSettings, read from the profile's own field
+                 * rather than from @ref CookingParameters (§8.1; @ref ImportProfile's
+                 * doc comment on `node_beam_settings` says why). That extra
+                 * `set_settings` call is the one line the template above cannot express,
+                 * so this is a class of its own rather than a second template parameter
+                 * bent to fit a shape it was not written for.
+                 */
+                class NodeBeamPostProcessor final : public IMeshPostProcessor
+                {
+                public:
+                    const char* name() const noexcept override { return "NodeBeamPostProcessor"; }
+                    int order() const noexcept override { return POST_PROCESS_ORDER_NODE_BEAM; }
+
+                    bool wants(const ImportProfile& profile) const noexcept override
+                    {
+                        return profile.parameters.cook_node_beam;
+                    }
+
+                    bool process(const Geometry::TriangleMeshView& mesh,
+                                 const ImportProfile& profile, ICookedAssetStore* store,
+                                 ICookingProgressSink* progress,
+                                 MeshPostProcessResult& out) override
+                    {
+                        cooker_.set_settings(profile.node_beam_settings);
+                        cooker_.set_thresholds(profile.thresholds);
+                        // Evicted here rather than by the caller, for the same reason the
+                        // template above does it here: the key needs the mesh's content hash
+                        // and this is the first point at which both it and the cooker that
+                        // owns the key are in the same place.
+                        if (profile.force_recook && store != nullptr)
+                            store->evict(cooker_.cache_key(mesh, profile.parameters));
+                        out.kind = cooker_.kind();
+                        out.processor = name();
+                        out.bytes.clear();
+                        out.report = cooker_.cook(mesh, profile.parameters, store, progress,
+                                                  out.bytes);
+                        return out.report.has_asset();
+                    }
+
+                private:
+                    NodeBeamCooker cooker_;
+                };
             } // namespace
 
             void MeshPostProcessorChain::add(std::unique_ptr<IMeshPostProcessor> processor)
@@ -135,6 +183,7 @@ namespace SushiEngine
                 chain.add(std::make_unique<CookerPostProcessor<SoftBodyCooker>>(
                     "SoftBodyPostProcessor", POST_PROCESS_ORDER_SOFT_BODY,
                     &CookingParameters::cook_soft_body));
+                chain.add(std::make_unique<NodeBeamPostProcessor>());
                 return chain;
             }
         } // namespace Cooking

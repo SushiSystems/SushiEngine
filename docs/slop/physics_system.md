@@ -1616,7 +1616,7 @@ progress is recorded.
 | **P6** | **FEM soft bodies and strength.** The neo-Hookean two-constraint model (§9.1), `SoftBodyMaterial` and presets, stress readout and heat map (§9.3), plasticity (§9.4), fracture (§9.5), soft-vs-rigid and soft-vs-soft collision (§9.6), levels of detail (§9.7), and **the mesh binding of §8.6 driven end to end** — the embedding kernel, deformed normals, and `ClothStrandView` generalized to `DeformableMeshView`. Cloth gains bending. Cosmetic bodies gain the `float` column (§6.5). | **The cantilever-deflection test matches theory**; a body past yield keeps a permanent dent; a fractured body's render mesh follows correctly; 20 000 tetrahedra at the §13.1 target. | **Complete but for one unmeasured number.** The cantilever-vs-Euler-Bernoulli acceptance test **passes** — §16.19 records the three fixes (the deviatoric constraint is `‖F‖`, not `‖F‖ − √3`; the hydrostatic term uses Smith's `λ + μ` reparameterization; the case runs at 60 substeps). §9.1–§9.5 as before, and now §9.6's three collision problems, §9.7's tiers and pop-free transfer, §8.6's embedding kernel and deformed normals, §9.5's vertex duplication along the crack with the binding following it, §9.1's bending constraint, and §6.5's cosmetic `float` column — all written, all with tests. See §16.20. `DeformableMeshView`, `ISoftBodyService` and the editor's debug views closed P6-G2/G3/G5; **P6-J1 generalized the colourer and the constraint store from two body indices to N, and P6-J2 made the FEM element a constraint kind in the device graph**, so a 20 250-tetrahedron lattice now places, colours and steps through `RuntimeGraphBuilder` with zero rejections and zero recompositions. **The one acceptance item still open is the number itself:** §16.21 records **29.4 ms/tick** for that scene at 32 substeps against a 3 ms budget — but on the **CPU backend**, because SushiRuntime finds no GPU device on the machine it was run on, and §13.1's target is written against a desktop GPU. Not a miss; an unmeasured line on the hardware that was meant to measure it. |
 | **P7** | **Vehicles.** `NodeBeamAsset` and its cooker, beam plasticity and breakage, the hybrid rigid-core structure, suspension joints, the powertrain chain (§11.4), the tyre model (§11.5), wind coupling (§11.6), the vehicle editor. | **A drivable vehicle that deforms permanently on impact and loses parts**, at the §13.1 target, deterministic under replay. | **Complete.** The beam exists as a constraint kind and its numbers come from a material (P7-A, P7-B, P7-A2 — see §16.22): the descriptor with its deform and break thresholds, the axial projection and its load recovery, the rate-based damping pass, tick-boundary plasticity, the derivation from a `SoftBodyMaterial` and a cross-section, and the fifth kind wired into both solvers with four conformance scenes holding them to each other. The `.sushinodebeam` asset exists too (P7-C — see §16.23): nodes, beams, the collision surface, the rigid core's mass properties, the shell-to-core attachments and the render-mesh skinning, in one blob that refuses what it would not itself load. And `NodeBeamCooker` produces one from a mesh, a dial and a `SoftBodyMaterial` (P7-D — see §16.24): the tetrahedralizer's lattice as the node cloud, its edges as the beams classified by length into structural and bracing, a frame-relative render skinning that reproduces the rest pose to 1e-8 m, and the mass split between a rigid core and the shell hung off it. And the hybrid is alive in a solver (P7-E — see §16.25): nodes as particles, beams as the fifth kind, the core in its principal frame, the shell held on by ball-joint mounts, and a tick boundary where beams dent, mounts tear out, and a part that has lost its last tie is reported once as having come off. Suspension and wheels are built (P7-F — see §16.26): a corner is a slider with a spring-damper drive plus a hinge for the axle, steering is that slider's frame turned about its own axis, `JointMotorT` grew the damping rate a spring-damper drive needs, and a leak in the core angular integrator that cost a spinning wheel a third of its speed per second was found and fixed. And the drivetrain turns them (P7-G — see §16.27): §10.5's first escape hatch applied, a one-dimensional chain with the crankshaft as its only free coordinate, a clutch whose torque is solved and clamped rather than sprung, a differential that is one lock number instead of three kinds and that balances to conserve, and a coupling that puts a torque on each driven wheel and the exact negative of it on the chassis. And the tyres are under it (P7-H — see §16.28): a brush model whose curve is derived rather than fitted, one slip vector saturated once so combined slip cannot be got wrong, load sensitivity read off the normal force the solver already recovered, and the reaction shared back by load so the world loses exactly what the wheel gains. And the row is closed (P7-I and P7-J — see §16.29 and §16.30): §11.6's `WindSampler` seam mirroring `GravitySampler`, with the wind term written as a *difference* against the still-air drag `predict` already applies so that still air costs exactly nothing; the cooker's per-node drag area finally read; the car's own drag as a body constant and its downforce at a centre of pressure that is not its centre of mass; the acceptance scene proving all four clauses of this row at once; and the Vehicle window, whose derived column is the half of it that catches mistakes. |
 | **PX** | **Exposure.** Everything P0-P7 built, reachable without writing C++: §5.5's `PhysicsJoint`, `VehicleInstance` and `CollisionFilter` components with their `IWorldEditor` surfaces and scene serialization; §5.3's surface materials carried per body and combined per pair; the Assembly editor; §14's physics debug draw and joint gizmo; the vehicle drawn, driven from the keyboard and instanced from a path; and the demonstration scene as a file. | **An author can build, see and drive every physics feature the engine has from the editor**, and anything they cannot is a named gap rather than a shortcut. | **Complete but for PX-9** - see §16.31 (joints), §16.32 (materials, filters, the Assembly editor, debug draw), §16.33 (the vehicle in a scene), §16.34 (drawn, driven, shipped) and §16.35 for the remainder. The one item outstanding is the node-beam cooker's editor entry point: `.sushinodebeam` can still only be produced from C++, so step one of `docs/VEHICLES.md` cannot be done from the editor. Three smaller gaps are tabulated in §16.35: the vehicle setup has no serializer, the cooked render skinning is not drawn, and joint gizmos are not draggable. |
-| **P8** | **Scale.** Device-resident broadphase, narrowphase, and contact solve. Structure-of-arrays state columns. Deterministic parallel accumulation (§12.2). Per-island substepping and the one `DynamicGraph` region per island it needs (moved here from P2 — see §16.10). Half-precision storage measured and kept or dropped (§6.5). Optional runtime-accelerated cooking stages (§6.6). Budgets and their reporting. | Every §13.1 target met or beaten; determinism tests still byte-equal; the conformance suites pass for the device implementations. | Not started |
+| **P8** | **Scale.** Device-resident broadphase, narrowphase, and contact solve. Structure-of-arrays state columns. Deterministic parallel accumulation (§12.2). Per-island substepping and the one `DynamicGraph` region per island it needs (moved here from P2 — see §16.10). Half-precision storage measured and kept or dropped (§6.5). Optional runtime-accelerated cooking stages (§6.6). Budgets and their reporting. | Every §13.1 target met or beaten; determinism tests still byte-equal; the conformance suites pass for the device implementations. | **In progress — see §16.38 to §16.44.** P8-A's measurement (§16.37) set the order: reduce barriers before building device collision the measured scene has no use for. **Closed:** the zero-capacity structural skip that measurement itself exposed (§16.38); the `Execution::DynamicGraph`/`Region` seam extension the runtime side of per-island regions needs (§16.39); the per-node device-timing breakdown surfaced into `PhysicsStatistics` and the editor (§16.40, closes §18 R8's deferred half); a per-tick budget on continuous-collision escalation and the statistic that was structurally always zero until now (§16.40); the `sycl::half` cosmetic storage path, its measurement harness, and now (§16.41, addendum) the harness's printed numbers, read once build access made running it possible — the device-buffer verdict §6.5 actually asks for is still unmeasured, for the reason the harness's own comment already gave; two stale §18 rows corrected from Open to Built (R4, R6) and one from missing to recorded (R9, mirrored into the runtime's own requirements doc — §16.43); a settled island's *joint* now actually costs nothing rather than merely early-outing its math, behind an opt-in flag, tested (§16.44). **Open, and why:** the deeper barrier-reduction primitive P8-A's own finding asks for has no supporting runtime call today and is recorded as a new runtime ask rather than guessed at engine-side (§16.42, §18 R9); per-island substepping's full form — constraint bands becoming island-aware, one `DynamicGraph` region actually replacing the monolithic composition — needs the seam §16.39 built but is not itself built, and needs the project owner's answer on the design question §16.43 narrowed it to; beams and elements do not yet get §16.44's parking, and beams were found not to participate in island connectivity at all, a real prerequisite bug recorded rather than guessed at; structure-of-arrays state columns are scoped and now build/test-verifiable rather than blind, but the ~60-file job itself is a dedicated pass's work, not this one's remainder (§16.42 item 3, revised); device-resident broadphase/narrowphase/contact-detection remains the largest single item, sequenced last, not attempted. **Every §13.1 target still needs a GPU this machine does not have** (§16.35's finding stands unchanged) — nothing in this update closes that gap, and nothing claims to. |
 | **P9** | **Gameplay surface.** Kinematic bodies, character controller, the full event stream into gameplay/audio/VFX through `IPhysicsEventSink`, rollback integration and its snapshot, and the networking validation harness. | Snapshot-rollback-replay byte equality across 10 000 ticks including contacts and fracture; impact events drive audio and VFX in a demo scene. | Not started |
 
 ### 16.1 P0, item by item
@@ -4551,6 +4551,641 @@ things about it are worth having written down before anybody begins:
    the *acceptance* stays open the same way P6's soft-body line does, and reporting a CPU
    number as if it had met a GPU target would be the one thing §16 has never done.
 
+### 16.36 PX-9, and the exposure stream closed
+
+The twelfth item, and the one §16.35 said blocked an author outright: `NodeBeamCooker` (P7-D)
+existed and had no entry point outside C++. It has one now, and it is the shape §16.35
+predicted — "nothing structural stands in the way; it is the same shape as the two cookers
+already there" — with one exception the prediction also named.
+
+**The exception is where the settings live, and it is not `CookingParameters`.**
+`NodeBeamCookerSettings`'s own doc comment (§11.3) already said why: a material, a core mass
+fraction, a structural-length ratio and a skin-search ratio belong to *this* cook and no
+other, and folding them into the record every cooker shares would make every collision and
+soft-body asset in the project carry four fields it has no use for and hash into a cache key
+it cannot use. `CookingThresholds` had already answered the same question once, by living on
+`ImportProfile` rather than on `CookingParameters` — read by one cooker, set on it before each
+cook, no part of the shared dial. `ImportProfile::node_beam_settings` takes the same seat.
+`CookingParameters::cook_node_beam` is the one bit that *does* belong on the shared record,
+because "which cookers run" is exactly what that record already answers for the other two —
+and `cooking_parameters_hash` folds it in beside them, the same as `cook_collision` and
+`cook_soft_body`.
+
+**The chain gained a class, not a template instantiation.** `CookerPostProcessor<Cooker>` is
+the shape `CollisionPostProcessor` and `SoftBodyPostProcessor` share, and it is one line —
+`cooker_.set_thresholds(...)` — away from fitting a third. That one line is the whole reason
+`NodeBeamPostProcessor` is its own class rather than a third template argument bent to carry
+it: `set_settings(profile.node_beam_settings)` has nowhere to go inside a shape built for
+cookers that take only thresholds, and forcing it in would have meant the template stops
+describing what the other two *are* in order to describe what one of three merely *has*.
+Registered last in `with_shipped_processors()`, at `POST_PROCESS_ORDER_NODE_BEAM` — reserved
+for exactly this since P7 — because a node-beam cook is rarer than either of the other two and
+the cheap ones should not wait behind it.
+
+**The Bake panel's material picker is an action, not a stored choice.** The obvious widget —
+a combo whose current position reflects the settings' current material — has nowhere to read
+its position *from*: `NodeBeamCookerSettings` carries the numbers a material resolves to, not
+a tag saying which named material produced them, and it should not grow one only to feed a
+combo box. So the picker applies a preset when one is chosen and relabels itself back to
+"Apply preset..." on the very next frame, which is honest in a way a persisted selection would
+not be — an artist who nudges Young's modulus after picking "Sheet steel" has a material that
+is no longer sheet steel, and a combo still reading "Sheet steel" would be lying about it.
+
+**The report shows what this cooker measures and nothing it does not.** §8.5's rule — a field
+that is structurally always zero is the same failure as an invented number wearing the
+opposite mask — applies to a panel reading the report exactly as much as it applies to the
+report itself. `draw_node_beam_report` reads nodes, beams, the bracing count that says whether
+§11.3's diagonal rule fired at all, unbound vertices, the Hausdorff departure, mass and
+inertia; it does not read `tetrahedron_count`, `worst_element_quality` or the convex-piece
+fields, which stay at their default for a node-beam cook and would read as measurements of
+something nobody measured.
+
+**Tested through the chain the panel actually drives, not only through the cooker directly.**
+The node-beam suite (§16.24) already covers the cooker in isolation; what §16.35 named as
+missing was the *reachability*, so `Unit_MeshPostProcessorChain.CooksANodeBeamAssetWhenThe
+ProfileAsksForOne` cooks a box through `with_shipped_processors()` with only
+`cook_node_beam` set, and cooks it a second time to confirm the settings the profile carries
+are part of what the cache key remembers — the one failure mode a wiring bug could produce
+that no cooker-level test would ever see, since the cooker's own key logic is not what a
+profile-driven cook exercises.
+
+Twelve items into the exposure stream and none left open: P0 through P7 built a physics system
+that could simulate a vehicle nothing but a test could reach, and PX made every part of it
+something an author opens the editor and does. The three smaller items §16.35 named — no
+`VehicleAssetT` serializer, the cooked render skinning not drawn, joint gizmos not draggable —
+are unrelated to the stream and stay exactly as open as they were.
+
+### 16.37 P8-A, measured: it is barriers, not arithmetic
+
+§16.21's open question, answered rather than guessed at. With §18 R8 landed and
+`examples/soft_body_budget.cpp` reading the profiled report after its last timed tick, two
+independent signals — the named-node breakdown and the per-worker busy/overhead split — agree,
+and neither is close.
+
+**`element_project`, the constraint kernel doing the actual FEM math, is under half the tick.**
+Two runs: 13.952 ms of 28.170 ms (49.5%), then 13.221 ms of 29.430 ms (44.9%). Every other named
+node — `predict` (~2%), `update_velocity` (~2%), `motion_measure` (~0%) — is noise beside it, and
+the rigid-body node kinds (`contact_*`, `distance_project`, `joint_*`) report exactly zero device
+time, which is correct and not a bug: this scene has no contacts and no joints, so those nodes
+dispatch against zero live elements and do nothing. **So at most half the tick is the 1.3 million
+projections §16.21 named as one of the two suspects.**
+
+**The other signal says where the rest went, and it is not subtle.** Summed across the twelve
+workers for that one tick: 8.187 ms busy against 513.895 ms stealing + polling + idle (1.6%
+busy), then on the second run 7.233 ms against 185.984 ms (3.7% busy). A worker spending
+96–98% of its time between dispatches rather than running one is not a machine short on
+arithmetic throughput — it is a machine spending almost all of its time *waiting at* or
+*coordinating around* barriers. 1,536 dispatches per named kernel this tick (more than the
+32 colours × 32 substeps = 1,024 the earlier estimate used, because the contact and joint
+kinds dispatch too, at zero cost, but still as barriers) is a lot of synchronization points
+for a CPU backend's twelve workers to pass through, and the busy/idle split says that
+synchronization — not the projection math — is most of where the 29 ms goes.
+
+**What this settles for how P8 gets scoped.** A device broadphase, narrowphase and contact
+solve — P8's headline deliverable — would remove work this scene does not have (it has no
+contacts). It would not touch the actual bottleneck this measurement found, which is the
+*shape* of the dispatch: one graph node per colour per substep, 1,536 barriers deep, on a
+backend where crossing a barrier costs far more than the several-microsecond kernel it guards.
+The lever P8 needs first is reducing how many of those barriers exist per tick — batching
+multiple colours' work behind fewer dispatches, or a persistent-kernel shape that keeps workers
+inside one submission across colours — before device-resident collision is the thing worth
+building next. Recorded here rather than acted on: which of those shapes is right is a design
+question this measurement was only scoped to unblock, not answer.
+
+### 16.38 P8-B: the zero-capacity skip §16.37's own measurement was missing
+
+The beam and element bands in `RuntimeGraphBuilder::build_graph()` already carried a
+`band_capacity() > 0` guard on their colour loop, so a scene with no vehicle or no soft body
+never compiled nodes for a kind it never uses — the comment beside each says so explicitly.
+The contact bands (`contact_prepare`, `contact_position`, `contact_velocity`) and the joint
+bands (`joint_project`, `joint_velocity`), plus the base distance-constraint band
+(`distance_project`), had no equivalent guard. §16.37's own profiling scene — the P6 cantilever
+lattice, `capacities.contacts = 0`, `capacities.joints = 0`, `capacities.beams = 0` — therefore
+still built and dispatched all five contact/joint stages, every colour, every substep, each one
+a real barrier crossing whose `when()` predicate could only ever come back false. That is not
+what the beam and element bands next to them do, and there was no reason for the difference.
+
+All six loops now carry the same structural guard. This does not touch the scene §16.37
+measured — it still has 20,250 elements and nothing else, and `element_project`'s own 1,536
+dispatches are unaffected — but it removes several thousand needless barrier crossings from
+every scene that uses fewer than all five kinds, which is most scenes an author will ever
+build: a rigid-only stack has no elements or beams; a soft-body-only scene has no contacts,
+joints, or beams until something touches it. Measuring this scene's own number again is future
+work — the point of this change is the *shape* it corrects, not a re-run of §16.37's harness
+against a scene it was never the bottleneck for.
+
+### 16.39 The `Execution::DynamicGraph`/`Region` seam, and what it does not yet do
+
+§6.6 names `DynamicGraph` as the mechanism "one region per island" needs, and §17.5 records the
+runtime-side prerequisite — sub-range cross-region ordering (§18 R3) — as Built. Neither of
+those facts made the capability reachable: `RuntimeGraphBuilder` is the one file allowed to
+name `SushiRuntime::` directly (this file's own header comment says so), and it never called
+`Runtime::dynamic_graph()`. Every other physics file reaches the execution backend only through
+`Execution::Context`/`Execution::Graph`/`Execution::Buffer` (`execution/context.hpp`), which
+published exactly those three names and nothing region-shaped. So the runtime has carried this
+facility since before P8 began, and nothing under `physics/` — or anywhere else in the engine —
+could have used it without reaching past the seam that exists specifically so a runtime
+migration costs one file.
+
+**`execution/backend/runtime_backend.hpp` now wraps it, the same member-wise way it already
+wraps `Graph`/`Context`.** `RuntimeBackend::Region` re-exposes `add_parallel`/`add_host`/
+`add_reduce` against a `SushiRuntime::API::Region&` exactly as `RuntimeBackend::Graph` does
+against an owned `API::Graph`; `RuntimeBackend::DynamicGraph` wraps `API::DynamicGraph` —
+`region(key)`, `has_region(key)`, `drop(key)`, `region_count()`, `size()`, `compile_count()`,
+`run()`, `native_report()` — and `Context::create_dynamic_graph()` is the one new entry point,
+beside `create_graph()`. `execution/context.hpp` publishes `Execution::DynamicGraph` and
+`Execution::Region` next to `Execution::Graph`. Nothing about `NodeDescriptor`,
+`ResourceAccess`, `BufferInterval`, or `ElementRange` changed or needed to: a region records
+work with the identical access-declaration vocabulary a plain graph does, which is exactly what
+lets `emit_node`'s eventual per-island form change *which graph object* it calls
+`add_parallel` on without changing how it builds the `NodeDescriptor` at all.
+
+`test_execution_dynamic_graph.cpp` proves the wrapper's contract at the seam level: two regions
+keyed independently write disjoint slices of one buffer; dropping a region takes effect on
+`has_region()` immediately, not only after the next `run()` (§6.6's own words, now asserted);
+a fresh region at a new key can replace the dropped one's slice without disturbing the region
+that was never touched; and a `run()` that follows no `region()`/`drop()` call since the last
+one does not advance `compile_count()` — the late-binding promise a static `Graph` already had
+to keep, restated for the mutable one.
+
+**What this is not.** No physics file calls any of this yet. The seam existing is the
+prerequisite the physics-side wiring was blocked on; it is not the wiring, and §16.42 states
+plainly why that half is not this session's.
+
+### 16.40 Budgets and their reporting: two structurally-zero fields, closed
+
+§13.3 lists `PhysicsStatistics` as a P0 deliverable, but two of its fields were never actually
+written to, which is the exact failure §8.5's rule and §16.36 both name for a report: a field
+that reads as a measurement of something nobody measured.
+
+**The per-node device-timing breakdown §18 R8 was closed to enable, and never wired in.** R8
+landed for P8-A (§16.37) — `add_parallel`/`add_host` forward `NodeDescriptor::name` through —
+but `PhysicsStatistics::timings.solve_ms` stayed one number, and the panel's own comment said
+the split was "a runtime ask, not something to guess at here," which had stopped being true.
+`PhysicsNodeKind` (`core/statistics.hpp`) names the twelve kinds `build_graph` emits;
+`physics_node_timings_from_report` (`core/statistics_from_report.hpp` — the one file under
+`physics/core` naming `SushiRuntime::Core::RunReport`, per §17.5's one-adapter rule) groups a
+run report's rows by name into `PhysicsStageTimings::node_timings`, the same grouping
+`soft_body_budget.cpp` already did by hand with a `std::map`. `RuntimeGraphBuilder::
+refresh_statistics()` now calls it when profiling is on; the Physics panel's "Solve, by node"
+section draws one row per kind that actually dispatched this tick, skipping the rest rather
+than drawing a false zero.
+
+**Continuous-collision escalation had a statistic, a budget nothing enforced, and neither.**
+§13.2 item 6 asks for "per-tick caps on contacts, fracture events, and continuous-collision
+escalations, all state-derived, all reported when hit." Fracture already has exactly this
+shape (`FemFractureBudget`, `FemFractureReport::elements_skipped`). Contacts have it too, via
+`PhysicsCapacities::contacts` and the cumulative `capacity_overflows` counter. Continuous
+collision had neither: §7.5 tier 2 (`Physics::conservative_advance`, called from
+`sim/physics_simulation.hpp::submit_contacts`) ran for every candidate pair that asked for it,
+uncapped, and `PhysicsStatistics::continuous_escalations` — a field that has existed since this
+struct was written and that the editor panel has always drawn a row for — was never assigned
+anywhere, because tier 2 runs entirely on the host, outside the solver `PhysicsStatistics` is
+copied from. `PhysicsConfiguration::continuous_advancement_budget` (default 256, `configuration
+.hpp`) now caps escalations per tick on `FemFractureBudget`'s own reasoning; a pair that loses
+the budget keeps tier 1's speculative manifold rather than being dropped, which is the safe,
+over-generating direction §1.2 already established. `continuous_escalations` is populated for
+the first time, and `continuous_advancement_skipped` reports whether the budget actually bound,
+mirroring `elements_skipped`.
+
+Both closed independently and both are covered by test: `test_physics_statistics.cpp` for the
+per-name grouping (a synthetic report, not a live one, since a live one needs a device this
+suite does not require); the continuous-advancement budget by the existing conformance/scene
+tests that already exercise fast-moving bodies, extended to read the new fields rather than
+only the position they land at.
+
+### 16.41 Half-precision storage: the path exists, the verdict does not
+
+§6.5's second half — `sycl::half` for a cosmetic body's *stored* position and velocity,
+`float` for every projection that touches it — was deliberately left unbuilt until this phase
+could measure whether it pays for itself; `soft_body_instance.hpp`'s own comment said so.
+`soft/soft_body_half_storage.hpp` is that path now: `HalfVector3`, three `sycl::half` lanes and
+no arithmetic of its own (a type that could add or scale itself would invite doing so at eleven
+significant bits, which is the mistake the rule rules out); `widen_half_vector3`/
+`narrow_to_half_vector3`, the only two points storage becomes something a projection may read
+or a projection's result becomes something storage may hold; `SoftBodyHalfStorage`, which
+mirrors a `FiniteElementModel<float>`'s position and velocity at half width and touches it only
+at those two seams — `widen_into` before a tick's `step()`, `narrow_from` after.
+
+**Additive, not wired in.** No body constructs one of these; `SoftBodyInstance` and
+`SoftBodyPrecision` are unchanged. `test_soft_body_half_storage.cpp` checks the storage path on
+its own terms — an exact zero round-trip, a round-trip error bound held across representative
+magnitudes from millimetre to vehicle scale, `sizeof(HalfVector3)` actually half of
+`Vector3T<float>`'s three lanes, a rest pose round-tripped within tolerance, and a free-fall
+trajectory routed through the seam once a tick staying close to the same trajectory computed
+with no seam at all — not performance.
+
+**`examples/soft_body_half_storage_budget.cpp` is the measurement §6.5 asks for, and it does not
+render a verdict.** It steps the identical lattice scene twice, once with plain `float` storage
+and once through the narrow/widen seam, and prints the mean/best wall-clock cost of each and
+their difference. Its own comment states the asymmetry a reader must not miss: `
+FiniteElementModel` is the host-only reference solver and is not yet a constraint kind in the
+device graph (that is §16.42's SoA/device-collision gap, not this one's), so this measures a
+single-threaded host loop's conversion cost, not the device-buffer bandwidth saving §6.5 is
+actually written about. A positive result here is strong evidence for the device case; a
+negative result here is much weaker evidence against it. Reading the printed numbers and
+deciding keep-or-drop needs a build, which this environment does not have — recorded as open
+in §17.4 item 3, exactly where it already was, now with a harness that can actually answer it.
+
+**Addendum, same session, after build access arrived:** the harness ran. 1331 particles, 6000
+elements, 32 substeps, 30 timed ticks — float storage: 12.8738 ms/tick mean, 12.7455 ms best;
+half storage: 12.9666 ms/tick mean, 12.7989 ms best. **+0.7% mean, a small loss, not a win.**
+Read against the asymmetry the paragraph above already states: this is the host conversion
+cost, negative, which per that same reasoning is *weak* evidence against the device-buffer
+bandwidth case rather than a verdict on it — FEM still is not a device graph kind, so the case
+§6.5 actually asked about remains genuinely unmeasured. What this number does settle is the
+narrower question of whether the storage path is free to adopt on the host reference solver
+today: it is not, by three quarters of a percent, which is not nothing but is not the kind of
+number that should block a decision that is really about the device path. **Still open**, now
+with both halves of the honest picture on record instead of neither.
+
+**Decision (§16.45's follow-up pass): dropped, not built.** Put to the project owner directly
+rather than guessed at, given this document's own standing rule for genuine keep/drop forks — the
+answer was drop. `SoftBodyHalfStorage` stays exactly where the addendum above leaves it: additive,
+tested on its own terms, not wired into `SoftBodyInstance`/`SoftBodyPrecision`, and not further
+developed. The reasoning: the one measurement available shows a small loss, not a win, and this
+environment has no GPU to take the device-side measurement that would actually settle §6.5's real
+question — building the wiring on spec, against evidence pointing the other way, would be the kind
+of work this document's honesty rule exists to avoid committing to blind. If a device becomes
+available and the device-buffer bandwidth case is worth measuring properly, this section and
+`soft_body_half_storage_budget.cpp` are exactly where that work resumes.
+
+### 16.42 What is still open, and why it is not this session's
+
+Four items from the roadmap row remain undone, each for a stated reason rather than by
+omission.
+
+1. **The deeper barrier-reduction primitive §16.37 itself asked for.** Batching several
+   colours' work behind one dispatch, or a persistent-kernel shape that keeps workers inside
+   one submission across colours, needs a runtime call that does not exist: `Execution::Graph`/
+   `Region`'s `add_parallel` is one node in, one node out, with no shape for "this one call
+   covers several ordered sub-ranges." Recorded as **R9** in §18 rather than approximated
+   engine-side — an engine-side workaround (a kernel that loops over colours internally) would
+   either serialize what colouring exists to parallelize, or reinvent the scheduler's own
+   ordering guarantee inside a single node, which is precisely the "a layer that did would be
+   a second scheduler hiding inside an adapter" trap `runtime_backend.hpp`'s own file comment
+   warns against.
+2. **Per-island substepping's *physics* half.** §16.39 closed the seam; nothing under
+   `physics/` uses it, and a second pass through the actual code (this session, checking §17.5's
+   "already produces" claim against the files instead of trusting it) found the gap is larger
+   than that row said: `ConstraintStore`/`ContactStore` colour bands are global today, spanning
+   every body in the scene regardless of island, with no island concept anywhere in either file
+   (`solver/constraint_store.hpp`, `solver/contact_store.hpp`) or in `IncrementalColoring`
+   (`solver/incremental_coloring.hpp`) — recolouring assigns a colour, not an island. And
+   `IslandBuilder`/`IslandSet` (`scene/islands.hpp`) is not a dormant layout waiting to be read;
+   it is a separate host-only partition over body-slot indices, built *after* the solve runs
+   (`physics_simulation.hpp`'s `update_islands()` follows `solver_->step()`, not the reverse),
+   fed from *this tick's own* resolved contacts, and consumed today only to decide next tick's
+   sleep state. Nothing in `physics/solver/` reads it, and `test_islands.cpp` tests it in total
+   isolation from the solver.
+
+   That ordering is the actual blocker, not a formality: shaping *this* tick's solve by island
+   needs the partition before the solve produces the contacts the partition would be built from.
+   Two honest ways out, neither decidable by guessing — **(a)** solve from the *previous* tick's
+   island partition, accepting the same one-tick staleness sleeping already tolerates (a body
+   newly touching another mid-tick joins its region one tick late), or **(b)** restructure the
+   tick so islands are rebuilt from the previous tick's resolved contacts *before* this tick's
+   solve, which changes what "this tick's contacts" means for every other reader of
+   `PhysicsStatistics.islands`. Either choice also still needs the whole-capacity `motion_maximum`
+   fixed-order reduce (§16's `build_graph`, the final `add_reduce`) answered, since it has no
+   `DynamicGraph`-wide equivalent: N per-island partial folds behind a small aggregator, or moving
+   it outside the `DynamicGraph` entirely. A wrong call on (a) vs (b), made blind against a
+   codebase this session cannot compile, would not fail to build — it would silently change which
+   tick's geometry a body's constraints solve against, which is exactly the failure class item 3
+   below is also declined for. Recorded here, with the ground truth behind it, for the pass that
+   takes it on with the project owner's answer on (a) vs (b) in hand.
+3. **Structure-of-arrays state columns.** `RigidBodyT<T>` and every constraint/contact
+   descriptor remain one struct per element in one `Buffer<T>`, exactly as §13.2 item 4 still
+   describes it as future work. Splitting the hot fields a projection actually touches from the
+   cold ones it does not touches every kernel's capture list, `host_solver.hpp`'s reference
+   implementation the conformance suite holds the device solver to, `physics_extract.hpp`, and
+   the editor's debug draw — about 60 files reference a `RigidBodyT` field directly, checked by
+   grep rather than guessed at.
+
+   **The reason to decline this is no longer "no compiler here."** §16.44's pass gained build
+   and test access (`se build -t relwithdebinfo`, `se test`) partway through this phase, which
+   changes what "attempted blind" means: a wrong column split is now caught two ways it was not
+   before — most mis-splits fail to *compile* (a call site still naming the old field), and the
+   ones that compile but disagree between host and device are exactly what
+   `test_solver_conformance.cpp` already exists to catch (confirmed still 100% passing this
+   pass, `se test`). What did not change is the size of the job: about 60 call sites, done
+   carefully rather than quickly, is a dedicated pass's work, not a slice of one that also does
+   three other things — and §16.37's own numbers say it is worth doing carefully.
+   `element_project`, the FEM kernel, is 44.9–49.5% of the tick by itself (§16.37, not the
+   96–98% *idle-between-dispatches* figure R9 is about, which is a different measurement of the
+   same tick) — a real, substantial share a tighter working set could plausibly cut into, not
+   the sliver a hasty read of §16.37 could mistake it for. Recorded here, not attempted here.
+4. **Device-resident broadphase, narrowphase, and contact detection.** §16.37's own conclusion
+   stands: the measured scene has no contacts, so this would not have moved that number, and
+   building an LBVH construction and parallel pair-generation kernel, plus a device narrowphase
+   dispatch table, is the largest single item in this phase's original scope. Build and test
+   access does not close as much of the gap here as it does for item 3: a device kernel's
+   syntax compiles clean or it does not, and `se test` runs the conformance suite on the *host*
+   reference solver this backend has, but neither replaces designing a parallel tree-construction
+   algorithm correctly the first time against a device this machine cannot run one on to see
+   fail. Sequenced last deliberately, per §16.37's own recorded reasoning, not dropped.
+
+**Every §13.1 acceptance target still needs a GPU.** §16.35's finding is unchanged: this
+machine's `SushiRuntime` finds one device, the `AMD Ryzen 5 7600X` CPU backend, and every target
+in §13.1 is written against a desktop GPU. Nothing in this update closes that gap — it could
+not be closed here — and nothing above claims a number this machine cannot produce.
+
+### 16.43 A second pass on §18, and one aspirational claim §17.5 was carrying
+
+Asked to finish P8 outright rather than leave the four items above open, the honest next step was
+checking whether they actually were open, the same discipline §18's own correction block already
+demanded once (*"an engine-side claim about a runtime API is only tested by a translation unit
+that instantiates it"*). Two findings came out of that check, both by reading the runtime's
+headers directly rather than trusting either document's prose.
+
+**§17.5 was wrong, not just optimistic.** Its island-per-region risk row closed on the sentence
+"an island must be a set of index ranges the solver can name with `Buffer::region({offset,
+count})`, which the incremental recolouring in §6.4 already produces." Checked against
+`solver/constraint_store.hpp`, `solver/contact_store.hpp`, `solver/incremental_coloring.hpp`, and
+`scene/islands.hpp` directly: recolouring produces colour bands, not island ranges, and
+`IslandBuilder`/`IslandSet` is a separate host-only partition, built *after* the solve from *this
+tick's* resolved contacts, read by nothing under `physics/solver/`. The row is corrected in place
+above rather than left standing on a claim nobody had checked. This is why item 2 above reads
+differently than the version of this section written before the check: the blocker is now the
+actual one (islands are known after the solve that would need to shape itself by them), not the
+assumed one (a data-layout change with no other obstacle).
+
+**R4 and R6 were already built and this document had not caught up.** `sushiruntime`'s own
+`PHYSICS_SUBSTRATE_REQUIREMENTS.md` says so, but §18's own correction block is explicit that a
+sibling document's claim is not evidence either — so both were checked directly against
+`sushiruntime/include/SushiRuntime/api/graph/graph.hpp`, `run_handle.hpp`, and
+`api/vocabulary/dynamic.hpp` on *this* checkout before the §18 rows below were changed from Open to
+Built. Both are real: `run_async()`/`RunHandle` for R4, `based_at()`/`based_at_device()` for R6 —
+and `execution/backend/runtime_backend.hpp`'s `Detail::to_dynamic` already forwards a bound
+`node.base` to `and_based_at`, which is the runtime-side half of exactly what item 2's per-island
+regions would need to shift a band's base per region. Neither is consumed by physics yet; both are
+now recorded as unused capacity rather than a missing primitive, so the next pass at item 2 is not
+also rediscovering that the seam is ready.
+
+**R9, raised in this document, was not yet recorded where §18 itself says the record belongs.**
+§18's own first line: *"the runtime-side engineering request... lives in
+`sushiruntime/docs/slop/PHYSICS_SUBSTRATE_REQUIREMENTS.md`."* R9 was added to this document's §18
+table without a matching entry there. Fixed — R9 is now in that document's delivery table too,
+alongside R8 (raised and closed after that document's own "all seven" framing was written, and
+also missing until this pass).
+
+This pass alone closes none of items 2, 3, or 4. It narrows item 2 to an actual, statable design
+question instead of a shrug, and leaves the runtime side of the ledger accurate for the next
+reader. What follows in §16.44 is a later pass in the same session, made possible by something
+that changed mid-phase: build and test access (`se build -t relwithdebinfo`, `se test`), which
+turned "no compiler here" from this document's standing reason to decline items 2 through 4 into
+a reason that applies unevenly — some of the remaining work is now genuinely safe to attempt, and
+some still is not, for reasons restated below with that distinction in mind rather than the
+blanket one this section was written under.
+
+### 16.44 Item 2, the slice that was actually safe: sleeping joints park
+
+§16.42 item 2's design question — solve from the previous tick's island partition, or restructure
+the tick so islands are known before the solve they would shape — is not a question this pass
+answers, because it still is not this pass's to answer blind. But tracing *why* the physics-side
+wiring was believed to need that answer first turned up something the roadmap row's "per-island
+substepping" framing did not separate out: §13.2 item 1's actual claim, *"a settled island costs
+its broadphase bound update and nothing else,"* was already true for contacts
+(`physics_simulation.hpp`'s `submit_contacts` already skips placing a contact between two bodies
+that are not simulated — checked directly, not assumed) and **was not true for joints**, which
+stay resident in their colour band forever, dispatched every substep, with the projection's own
+`has_any_flag(a.flags | b.flags, BodyFlags::sleeping)` check the only thing standing between a
+parked vehicle and a crashing one paying the same rate — the exact case §17.5's risk table already
+named and left unfixed.
+
+That gap did not need the `DynamicGraph`/island-partition machinery item 2's larger form does. It
+needed exactly two existing primitives already proven correct for a different lifecycle event —
+`IConstraintSolver::read_joint`/`remove_joint`/`add_joint`, the same three `remove_body` already
+uses to take a destroyed body's joints with it — called from a new tick-boundary pass,
+`PhysicsSimulation::update_joint_parking()`, run after `update_islands()` has written this tick's
+sleep decision. A live joint whose two ends satisfy the *exact* condition the projection already
+early-outs on is removed from `joints_store_` and its full solved state (motor, limits, peak
+load — everything `read_joint` returns, not just the authored parameters) cached on `JointEntry`;
+a parked joint whose condition no longer holds is re-added from that cache. Mirroring the
+kernel's own condition rather than inventing a stricter or looser one is what makes this provably
+inert on correctness: a joint is parked only on a tick where the kernel was already contributing
+nothing to the solve, so nothing about *what* the solve computes changes, only whether a no-op
+still pays for a dispatch.
+
+Two edge cases the mirror alone does not cover, both handled: `joint_state`/`set_joint_motor`/
+`set_joint_limits` read through a live `JointHandle` and would otherwise fail on a parked joint
+(handle intentionally invalid) — `joint_state` now falls back to the cached state, and an edit to
+a parked joint's motor or limits unparks it first, on the same "a disturbance wakes it" precedent
+`create_joint` already sets. A capacity overflow on the way back in is left parked rather than
+losing the joint's state, matching `add_joint`'s own reporting convention.
+
+**Opt-in, off by default, and live rather than construction-time** — `IPhysicsStepper::
+set_park_sleeping_joints_requested`, mirroring `set_profiling_requested`'s shape but not its
+"before the scene first steps" restriction, since parking is tick-state, not solve-graph
+construction. `test_joint_parking.cpp` (four tests, `se test` green, no regressions across the
+1364-test functional suite beyond two pre-existing failures in unrelated systems — atmosphere and
+vehicle-component code this pass never touched) proves: off by default nothing changes; a settled
+island's joint drops `PhysicsStatistics::joints` to zero; a teleport-driven wake restores it with
+its state intact and the body still ends up held where the joint says it should; editing a parked
+joint's motor wakes it immediately rather than failing as if it had no live state.
+
+**What this is not.** Beams, elements, and authored distance constraints stay resident whether
+their island sleeps or not — the same fix, generalized, needs a body-driven removal already
+proven for joints (`remove_joints_touching` has beam and element siblings,
+`remove_beams_touching`/`remove_elements_touching`, called today only from `remove_body`) but
+checked this pass and found to need a prerequisite of its own first: **beams do not participate
+in island connectivity.** `update_islands()` feeds `island_builder_.connect()` from contacts,
+joints, and cloth — never from `vehicle`/node-beam structure — so two beam-linked nodes with no
+other connection between them are, today, reported as separate islands despite being rigidly
+tied. Parking beams by island membership on top of that gap would risk parking one node's beams
+while a beam-only-connected neighbour is still being solved — the exact silent-corruption failure
+mode this whole session has been declining to risk. **Recorded as a real, separate, newly-found
+bug** rather than folded into this fix: closing it is adding a fourth `connect()` call site for
+whatever tracks beam structure at the `PhysicsSimulation` level, which this pass did not locate
+and verify carefully enough to change blind. The vehicle case — "a parked car costs what a
+crashing one costs" — is exactly what would benefit most, and is exactly why it should not be
+the thing this pass guesses at.
+
+### 16.45 The editor-connectivity audit: everything built that a user cannot actually reach
+
+Requested directly: not "is P8 done" but "walk the whole physics pipeline and find what was built
+and never connected." Four independent read-only passes — solver-layer feature inventory, ECS
+component/binding tracing, editor-UI tracing, cooking-pipeline tracing — each citing file:line,
+cross-checked against each other rather than any prior claim in this document. The picture is more
+gapped than §16.42-§16.44 alone suggested, because those sections were about P8 specifically; this
+is every physics feature, P0 through PX, held up against what an editor user can actually do.
+
+**16.45.1 — Built with zero authoring path: reachable only from raw `IPhysicsScene`/test code.**
+Three features are fully implemented and tested against the low-level solver interface, but no
+component, no binding code, and no editor UI ever calls them in a running editor — the *only*
+call sites in the entire repository are test files constructing a bare `IPhysicsScene` directly:
+
+- `park_sleeping_joints` (§16.44). `ISimulation::set_park_sleeping_joints` (`sim/simulation.hpp:2132`)
+  has exactly one override (`RuntimeSimulation`, `sim/runtime_simulation.cpp:185-190`) and *zero*
+  call sites anywhere against that override — no `Record` field, no editor UI, nothing in
+  `editor/` mentions "sleep" or "park" beyond the read-only sleeping-body count and the sleeping
+  debug-draw checkbox (`physics_statistics_panel.cpp:92,107`), which visualize sleep state but do
+  not toggle parking. Confirmed dead end-to-end, not merely "no UI yet" — there is no wiring at any
+  layer between the ECS and this toggle.
+- `IJointService::set_joint_motor`/`set_joint_limits` — the *live, in-place* joint-edit entry
+  points (`physics_services.hpp:644,659`). The editor's joint UI (`joint_widgets.cpp`) does let a
+  user edit motor/limits, and it is fully wired — but only through `JointParams`, which
+  `sync_joints` (`runtime_simulation.cpp:2297-2312`) applies by **destroy+recreate** on any
+  revision bump, never through these two methods. `set_joint_limits` has no call site in the
+  entire repository, not even in tests. `set_joint_motor`'s only callers are
+  `test_joint_assembly.cpp` and `test_joint_parking.cpp`, both against a bare `IPhysicsScene`. The
+  live-update path this session built `unpark_joint()` on top of (§16.44) is itself unreachable
+  from the editor.
+- Body trigger/CCD flags. `Collider::flags` (`sim/collider.hpp:123`) is read by the solver for
+  both trigger detection (`physics_simulation.hpp:2431`, feeds `ContactEvent::trigger`,
+  `simulation.hpp:661`) and continuous-collision routing (`physics_simulation.hpp:1790`) — but
+  `collider_from_params` (`sim/collider.hpp`), the only function that turns an authored
+  `ColliderParams` into a `Collider`, never assigns `flags`; it stays `0` always. The single place
+  in the whole codebase that sets `BodyFlags::trigger` on a `Collider` is
+  `tests/functional/integration/test_physics_simulation.cpp:473`, built by hand. **Trigger volumes
+  and continuous-collision opt-in are fully solved and fully eventable, and completely
+  unauthorable** — there is no checkbox, no `ColliderParams` field, nothing.
+
+**16.45.1 corrections, made while closing items rather than guessing at them.** `park_sleeping_
+joints` and the trigger/CCD flags were genuine gaps and are now closed: `ColliderParams::trigger`/
+`::continuous_collision` (`sim/simulation.hpp`), wired through `collider_from_params`
+(`sim/collider.hpp:157-160`), an Inspector "Behaviour" section (`inspector_panel.cpp`), scene-file
+round-tripping (`scene_serializer.cpp`), and a new integration test proving both directions — the
+body passes straight through and the overlap is still reported
+(`test_physics_authoring.cpp:ATriggerVolumeReportsOverlapButNeverStopsTheBody`). `park_sleeping_
+joints` is now a "Settings" checkbox on the Physics panel, staged on `EditorContext` and pushed
+into `ISimulation::set_park_sleeping_joints` once a frame from `main.cpp`, the same pattern
+`physics_statistics`'s read direction already uses in reverse.
+
+The `set_joint_motor`/`set_joint_limits` bullet does **not** get the same treatment, and reading
+`sync_joints`'s own comment (`runtime_simulation.cpp:1380-1384`) closely enough to implement
+against it turned up why: *"Any edit is a new joint: the solver's is rebuilt on the next reconcile
+rather than patched, because its multipliers were accumulated under the limits it is being taken
+out of."* That is not an oversight, it is a stated, reasoned correctness choice — an XPBD joint's
+accumulated Lagrange multipliers were warm-started under the *old* limit or motor target, and
+patching just the target in place would let the next substep's solve start from an impulse basis
+that no longer matches what it is being asked to satisfy. `touch_joint` is deliberately blind to
+*which* field changed for exactly this reason: a motor-only edit is not obviously safer to
+live-patch than an anchor edit, and the record does not currently carry enough information to tell
+the two apart even if it wanted to.
+
+So the honest correction is: **this was mis-filed as a wiring gap; it is a primitive built for a
+caller that does not exist yet, not a live-update path the ECS forgot to use.** `set_joint_motor`/
+`set_joint_limits` read as built for continuous, high-frequency joint control — a gameplay/
+scripting API driving a motor target every tick, the way `SuspensionUnitT::set_steer_angle`/
+`set_brake_torque` (`physics/vehicle/suspension.hpp`) already do for vehicles, but through their
+own dedicated mechanism rather than `IJointService`, and without `sync_joints`'s destroy+recreate
+in the way. No such caller exists today — nothing outside `Vehicle` drives a joint continuously —
+so building one now would be speculative rather than closing a real gap. Left as `#25`-style: not
+implemented, and not implemented on purpose, until something needs it.
+
+**16.45.2 — Components that exist but no panel ever writes them.**
+`SoftBodyParams` (`sim/simulation.hpp:398-413`) is wired end-to-end into the solver exactly as
+thoroughly as `ClothParams` is — `gather_soft_body_descs` (`runtime_simulation.cpp:3263-3269`)
+reads every field, including `cosmetic` (the storage-precision request, see 16.45.4). But the
+Inspector's "Add Component" popup offers Rigid Body, Cloth, Collider, Physics Joint, Vehicle —
+**no "Soft Body"** (`inspector_panel.cpp:1297-1342`). `has_soft_body`/`soft_body_params` are read
+in exactly one place in `editor/`, `main.cpp:919-927`, to feed the debug-view overlay — never
+written by any panel. A general tetrahedral soft body cannot be placed on an entity from the
+editor at all today; the only user-facing soft-body surface is the Bake window's "Cook soft body"
+checkbox, which configures the *cooker* (an asset-pipeline step), not a live entity's simulation
+parameters. `SoftBodyDesc::participates_in_rollback` compounds this — even the test/hand-authoring
+path can't reach it, since `SoftBodyParams` (the authoring struct) has no corresponding field, so
+it is always `false` regardless of what a `Desc` built by hand might set.
+
+**16.45.3 — The cooking dial exposes four booleans and one slider; the pipeline reads seventeen.**
+`cook_bake_panel.cpp` lets a user set `fidelity`, `cook_collision`, `cook_soft_body`,
+`cook_node_beam`, `static_geometry`, and (when node-beam cooking is on) the node-beam material and
+shell-attachment settings. Every other field `CookingParameters` declares —
+`voxel_resolution`, `target_tetrahedron_count`, `simulation_level_count`, `convex_piece_count`,
+`distance_field_resolution`, `surface_conforming_passes`, `suggested_substep_count` (all as *pin*
+overrides against the fidelity dial — `cooking_parameters.hpp:241-258`), `hull_vertex_budget`,
+`weld_tolerance`, `density`, `accuracy_lattice_order` — is read by a cooker
+(`collision_cooker.cpp`/`soft_body_cooker.cpp`/`node_beam_cooker.cpp`/`tetrahedral_mesh.cpp`, file
+:line list in the audit transcript) but has no widget anywhere in `cook_bake_panel.cpp`; the panel
+shows their *derived* values read-only (:407-412) and nothing more. `ImportProfile::thresholds`
+(`CookingThresholds`, applied by every cooker via `apply_cooking_thresholds`) has zero references
+in `cook_bake_panel.cpp`. And `ImportProfileOverride` — the entire per-asset-override mechanism
+§8.1 describes, `resolve_import_profile`-tested and working — has no call site outside tests
+anywhere in the repository; `project_panel.cpp:73-78` always bakes at the single project default,
+so "per-asset cooking overrides" does not exist as a feature a user can reach, only as one that
+compiles and passes its own unit test.
+
+**16.45.4 — The half-precision path from §16.41 is one layer short of where the benchmark measured.**
+`SoftBodyParams::cosmetic` *is* fully wired through to `SoftBodyPrecisionRequest::cosmetic`
+(`physics_simulation.hpp:429`) → `resolve_soft_body_precision` → `SoftBodyPrecision::Cosmetic`
+(`soft/soft_body_instance.hpp:92-131`) — so the *selection* is authorable, in principle, the moment
+16.45.2's gap is closed. But `SoftBodyPrecision::Cosmetic` being selected does not itself construct
+a `SoftBodyHalfStorage` — that class's own header states nothing in `SoftBodyInstance`/
+`SoftBodyPrecision` constructs one yet (`soft/soft_body_half_storage.hpp:57-59`). §16.41's
+benchmark numbers (float 12.8738ms vs half 12.9666ms) measured `SoftBodyHalfStorage` directly, not
+through this selection path — meaning the precision toggle §16.41 discusses and the storage class
+§16.41 benchmarked are not yet the same wire. Marking the half-precision *feature* (as opposed to
+the standalone benchmark harness) built would currently be wrong on two independent counts: no
+editor path to set `cosmetic` (16.45.2), and no code that turns `Cosmetic` selection into an
+actual `SoftBodyHalfStorage` construction even if one existed.
+
+**16.45.5 — Profiling surface gaps.** `physics_statistics_panel.cpp` draws most of
+`PhysicsStatistics` but not all of it: the aggregate `constraints` count is shown, but its
+per-kind breakdown — `PhysicsStatistics::joints`/`::elements`/`::beams`
+(`core/statistics.hpp:264-293`) — never is, and `PhysicsStageTimings::soft_body_ms`
+(`statistics.hpp:223`, the separate host XPBD schedule's own timing line) is never drawn anywhere
+in `editor/`. Both are populated correctly by `refresh_statistics()` — this is a display gap, not
+a measurement gap.
+
+**16.45.6 — Confirmed dead fields, no behavior attached at all.** `Collider::asset`
+(`sim/collider.hpp:112`) — never assigned by `collider_from_params`, never read anywhere;
+`Collider::applied_scale` (:118) — assigned but never read by anything (comment says "carried for
+the cooker," a P4 consumer that does not exist yet); `DerivedCookingParameters::fidelity`
+(`cooking_parameters.hpp:169`) — computed by `resolve_cooking_parameters` and then never read by
+any cooker or report (the UI reads `parameters.fidelity` directly instead, bypassing the derived
+copy entirely).
+
+**16.45.7 — What does not have this problem.** Named for contrast, since a list this long risks
+implying the whole pipeline is disconnected, which it is not: joint type/anchor/axis/compliance,
+joint motors and limits and break thresholds (fully wired, editable, live-load readouts, both from
+the Inspector and the Assembly panel), rigid body mass/inertia/density/drag, collider
+shape/friction/restitution/collision-filter, cloth, and the entire vehicle authoring surface
+(suspension corners, tyres, drivetrain/gearing, aerodynamics, live driving input, telemetry
+readback, a dedicated preview viewport per §14's own convention) are all genuinely built, wired
+end to end, and usable by a person sitting at the editor today. §14's other named surfaces —
+debug-draw overlays for contacts/bounds/islands/joints, the Bake window's core cook/re-cook loop —
+work as documented. The gaps above are real, but they are gaps *in* an otherwise-connected
+pipeline, not evidence the pipeline itself is aspirational.
+
+**16.45.8 — Closed in the follow-up pass, once asked to act on this rather than just report it.**
+Given engineering authority over how to sequence and close the findings above, six landed —
+verified by `se editor --no-run` and, where behavior changed, `se test` (full suite: 1366/1368,
+the same two pre-existing unrelated failures throughout this pass):
+
+- Trigger volumes and continuous collision (16.45.1's third bullet) — `ColliderParams::trigger`/
+  `::continuous_collision`, wired through `collider_from_params`, an Inspector "Behaviour"
+  section, and scene-file round-tripping. `test_physics_authoring.cpp`'s
+  `ATriggerVolumeReportsOverlapButNeverStopsTheBody` proves both halves at once.
+- `park_sleeping_joints` (16.45.1's first bullet) — a "Settings" checkbox on the Physics panel,
+  staged on `EditorContext` and pushed into `ISimulation::set_park_sleeping_joints` once a frame.
+- The statistics panel gap (16.45.5) — `joints`/`elements`/`beams` and `soft_body_ms` are now
+  drawn; no solver code changed, since both were already computed correctly every tick.
+- The cooking Advanced section and the per-asset override UI (16.45.3) — eleven previously
+  UI-less `CookingParameters`/`CookingThresholds` fields, and a "Cooking Override..." modal
+  reachable from the Project panel wired to `ImportProfileLibrary::set_override`/the new
+  `get_override` (raw-record read-back, distinct from `resolve`'s folded view).
+- Cook-bake profile persistence (16.45.3/16.45.4's shared finding) — `CookBakeState::
+  save_profiles`/`load_profiles` against `<project_root>/cooking_profile.json`; no project-scoped
+  settings mechanism existed anywhere to reuse, checked before building one.
+- The dead `DerivedCookingParameters::fidelity` field (16.45.6) — removed, confirmed unused by
+  grep first, unlike `Collider::asset`/`applied_scale`, which are real P4 scaffolding and were
+  left alone.
+- General (non-cloth) Soft Body authoring (16.45.2) — an Inspector section (source-mesh load
+  from a `CookBakeState` entry, level, the same five material presets and eight sliders the Bake
+  panel's node-beam settings use, thickness, self-collision, the `cosmetic` precision request)
+  and an "Add Component" entry, both wired to `IWorldEditor::create_soft_body`/
+  `set_soft_body_params`, which already existed and were called from nowhere in the editor. The
+  ECS-to-solver path itself already had coverage (`test_soft_body_service.cpp`); this closed only
+  the reachability half.
+
+The second `set_joint_motor`/`set_joint_limits` bullet (16.45.1) was investigated and
+**deliberately not implemented** — see the correction inline above; it is not a wiring gap.
+
+The `sycl::half` storage keep/drop call (16.45.4) went to the project owner rather than being
+guessed at, and the answer was **drop** — see §16.41's decision addendum. Nothing left open from
+this audit's original six findings.
+
 ---
 
 ## §17 Risks, open questions, and scope
@@ -4604,12 +5239,17 @@ not assumed.
    results in hand.
 3. **Half-precision payoff (§6.5).** Whether half-precision *storage* actually pays after the widen
    cost is a measurement, not a prediction; it is scheduled in P8 and may be dropped if it does not.
+   The storage path and its measurement harness exist (§16.41, `examples/soft_body_half_storage_
+   budget.cpp`), and the harness has now run (§16.41's addendum): +0.7% mean on the host reference
+   solver's conversion cost, a small loss. What remains open is the actual question — the
+   device-buffer bandwidth case, which needs FEM as a device graph kind before it can be measured
+   at all, not another build.
 
 ### 17.5 The largest technical risks
 
 | Risk | Mitigation |
 |---|---|
-| ~~**The island-per-region mapping (§6.6) is serialized by whole-allocation cross-region ordering.**~~ **Closed.** The runtime's boundary layer now carries each pin's byte intervals and tests interval overlap (§18, R3), so two islands writing disjoint slices of one body column gain no edge. | Nothing to mitigate. The `when()`-gated fallback is retired and per-island allocations are not needed. What remains is a *layout* requirement on us: an island must be a set of index ranges the solver can name with `Buffer::region({offset, count})`, which the incremental recolouring in §6.4 already produces. |
+| **The runtime-side half is closed; the engine-side layout it assumed was never built, and this row previously claimed otherwise.** §18 R3 (sub-range cross-region ordering) is genuinely built and `Execution::DynamicGraph`/`Region` now reaches the engine (§16.39) — so two islands writing disjoint slices of one body column really would gain no edge from the runtime. But the sentence that used to close this row — "an island must be a set of index ranges the solver can name with `Buffer::region({offset, count})`, which the incremental recolouring in §6.4 already produces" — does not describe the actual code, checked directly against it in the pass that produced §16.42 item 2: `IncrementalColoring`/`ConstraintStore`/`ContactStore` (`solver/incremental_coloring.hpp`, `solver/constraint_store.hpp`, `solver/contact_store.hpp`) place constraints into flat, scene-wide, *colour*-indexed bands with no island concept anywhere in any of the three files. `IslandBuilder`/`IslandSet` (`scene/islands.hpp`) is a separate, host-only partition over body slot indices, built *after* `RuntimeGraphBuilder::step()` runs (`physics_simulation.hpp`'s `update_islands()` is called after `solver_->step()`, not before), and used today only to decide next tick's sleep state — it names no `Buffer::region`, is read by nothing in `physics/solver/`, and there is no test connecting it to the solver at all (`tests/functional/unit/test_islands.cpp` tests it in isolation). So the layout requirement this row said was "already produced" is unbuilt, and using it to shape *this* tick's solve raises a question the recolouring code does not answer either: islands are only known once this tick's contacts exist, which is after the solve they would need to shape runs. **Not closed — reopened as §16.42 item 2, now with the actual blocker recorded instead of an assumed one.** | Nothing to mitigate on the runtime side. On the engine side: either accept a one-tick-stale island partition (shape tick *N*'s solve from tick *N-1*'s islands, same staleness sleeping already tolerates) or restructure the tick to build islands from the *previous* tick's resolved contacts before this tick's solve runs — a sequencing decision for whoever picks up §16.42 item 2, not a fact this document should keep asserting was already settled. |
 | ~~Incremental recolouring diverges from a full recolour and breaks determinism (§6.4).~~ **Closed, with the claim restated.** | Four tests over a randomized add/remove sequence (§16.10). Equality with a full recolour is *not* asserted, because greedy over an insertion order is not greedy over a final set and equality would mean the build order left no trace. What is asserted is what determinism needs: the colouring is valid, it is a function of the sequence rather than of the container or the worker count, it stays inside greedy's degree bound and within one colour of a rebuild's depth, and a removal releases its colour. The scheduled-full-recolour fallback is not needed. |
 | Tetrahedralization quality is too poor for a correct finite-element solve (§17.2). | The cooker reports worst element quality and fails loudly at a threshold; the decision point is scheduled with test evidence. |
 | Device-resident collision (P8) cannot be made deterministic at acceptable cost (§12.2). | The host implementation stays behind the same seam and remains the reference. Determinism wins over throughput; that is the standing rule. |
@@ -4675,10 +5315,11 @@ does **without** it, because no phase may be blocked on another repo.
 | **R2** | **Fixed-order deterministic reduction primitives** (the runtime's WP-4 item 1). | **Built** — `Graph::add_reduce` / `add_segmented_reduce`, with `Sum`/`Minimum`/`Maximum`. | Uses them. §12.2's accumulation is no longer a physics-layer deliverable; the segmented form is exactly the per-body / per-vertex shape §12.2 needs. |
 | **R3** | **Sub-range cross-region ordering** in `DynamicGraph`. | **Built** — boundary pins carry byte intervals and every hazard test is an interval overlap. | Uses it. One region per island now works as intended; the `when()`-gated fallback in §17.5 is retired. |
 | **R5** | **Dependency tracking on every `add()` overload.** | **Built, as Option A** — every launch shape has a tracked overload (three were missing), and the dependency-blind ones are now spelled `add_untracked`. | Uses it. The review checklist becomes a grep for `add_untracked` in `physics/`, which is a real guarantee rather than an eyeball one. |
-| **R4** | **Asynchronous run** — `run()` blocks, so a tick cannot overlap with the render or audio extract. | **Open** | The simulation thread blocks for the tick, as today. Costs overlap, not correctness. |
-| **R6** | **A late-bound base offset** alongside `sized()`, so a colour slice whose offset shifts between ticks needs no indirection buffer. | **Open** | An index-indirection buffer read on the device. One extra load per element. |
+| **R4** | **Asynchronous run** — `run()` blocks, so a tick cannot overlap with the render or audio extract. | **Built** (found 2026-08-03, checked directly against `sushiruntime/include/SushiRuntime/api/graph/graph.hpp` and `run_handle.hpp` rather than trusted from the runtime's own request doc, per the standing rule this section's correction already established) — `Graph::run_async()`/`DynamicGraph::run_async()` return a move-only `RunHandle<Graph>` that splits `run()`'s submit and complete halves, with the caller's own work running in between. | **Not used.** `RuntimeGraphBuilder::step()` still calls the blocking `run()` (`solver/runtime_graph_builder.hpp`); nothing in `sim/physics_simulation.hpp` overlaps the tick with render or audio extract yet. Consuming this is a scheduling decision above the solver — what the simulation thread does with the returned `RunHandle` while the device runs — not a one-file change, so it stays a named opportunity rather than something this pass wired in blind. |
+| **R6** | **A late-bound base offset** alongside `sized()`, so a colour slice whose offset shifts between ticks needs no indirection buffer. | **Built** (found 2026-08-03, same direct check) — `API::based_at(provider)` and `API::based_at_device(slot, index)`, mirroring `sized()`/`sized_from_device()`; resolved and validated together with the count at dispatch. `Execution::Detail::to_dynamic` (`execution/backend/runtime_backend.hpp:131-141`) already forwards `NodeDescriptor::base` to `and_based_at`/`and_based_at_device` when a node sets it. | **Not used.** Every banded loop in `RuntimeGraphBuilder::build_graph()` still bakes its band's `base` into the kernel lambda's capture instead of binding `node.base` (confirmed across all nine banded loops — none set `.base`), so this is unused capacity rather than a missing primitive. It is exactly what §16.42 item 2's per-island regions would need to shift a band's base per region without an indirection buffer, once that item's design question is settled. |
 | **R7** | Closing the **`ThreadLocalMagazine` teardown** correctness item (#29). | **Open** | Nothing the engine can do. It is a long-running-process risk and sits on the runtime's own v1 list. |
-| **R8** | **A node label on the ordinary `add()` overloads.** `RunReport::NodeTiming` already carries a name and the engine already reads the report, but only `add_offload` lets a caller set one — so every physics node arrives as `unnamed_task` and per-stage device timing cannot be attributed. | **Open** (raised 2026-07-30) | The Physics panel reports the whole composition as one `solve_ms` and says so, rather than splitting it by plan index — which is a compile-time internal, and guessing at it is the mistake this section's first correction exists to record (§16.10). |
+| **R8** | **A node label on the ordinary `add()` overloads.** `RunReport::NodeTiming` already carries a name and the engine already reads the report, but only `add_offload` lets a caller set one — so every physics node arrives as `unnamed_task` and per-stage device timing cannot be attributed. | **Built** (raised 2026-07-30, closed 2026-08-02, for P8-A — see §16.37) | The `Dynamic` per-element `add()` overloads and `add_host()` take a trailing, defaulted `const char* name`, threaded through to `Node::metadata`. `Execution::Graph::add_parallel`/`add_host` (`runtime_backend.hpp`) now pass `NodeDescriptor::name` through instead of dropping it, so every already-named physics node (`predict`, `xpbd_project`/`pgs_project`, `update_velocity`, `motion_measure`) reports under its real name. **The per-name breakdown deferred past P8-A is also closed now** (§16.40): `physics_node_timings_from_report` groups the report by name into `PhysicsStatistics.timings.node_timings`, and the Physics panel draws one row per kind that actually dispatched. |
+| **R9** | **A multi-colour (or persistent-kernel) dispatch node** — one `add()` call covering several ordered sub-ranges, so a kind's colour sweep costs one barrier crossing per substep rather than one per colour per substep. | **Open** (raised 2026-08-02, for P8 — see §16.37, §16.42) | The composed graph pays a full scheduler round trip — dependency check, event submission, event poll — per (kind, colour, substep) triple, and §16.37 measured that round trip, not the kernel it guards, as 96–98% of the tick on this backend. §16.38 removed the triples a zero-capacity kind pays for; it did not reduce the count for a kind that is actually in use, which needs this. Until it exists the physics does not approximate it: a kernel that looped over colours internally would either serialize what colouring exists to parallelize, or duplicate the scheduler's own ordering guarantee inside one node — the "second scheduler hiding inside an adapter" `runtime_backend.hpp` is written to avoid. |
 
 #### R1: the answer was better than any of the three options
 

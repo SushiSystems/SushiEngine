@@ -44,6 +44,7 @@
 #include "motion_blur.frag.h"
 #include "cloud_noise_volume.comp.h"
 #include "cloud_noise_weather.comp.h"
+#include "cloud_noise_mip.comp.h"
 #include "cloudscape_field.comp.h"
 #include "cloudscape_skip.comp.h"
 #include "cloudscape_far_light.comp.h"
@@ -184,6 +185,8 @@ namespace SushiEngine
                 {"cloud_noise_weather.comp", ShaderStage::Compute,
                  Shaders::cloud_noise_weather_comp_spv,
                  Shaders::cloud_noise_weather_comp_spv_word_count, "cloud_noise_weather.comp"},
+                {"cloud_noise_mip.comp", ShaderStage::Compute, Shaders::cloud_noise_mip_comp_spv,
+                 Shaders::cloud_noise_mip_comp_spv_word_count, "cloud_noise_mip.comp"},
                 {"cloudscape_field.comp", ShaderStage::Compute, Shaders::cloudscape_field_comp_spv,
                  Shaders::cloudscape_field_comp_spv_word_count, "cloudscape_field.comp"},
                 {"cloudscape_skip.comp", ShaderStage::Compute, Shaders::cloudscape_skip_comp_spv,

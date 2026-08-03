@@ -41,6 +41,7 @@
 #include <SushiEngine/physics/cooking/cooking_service.hpp>
 #include <SushiEngine/physics/cooking/import_profile.hpp>
 #include <SushiEngine/physics/cooking/mesh_post_processor.hpp>
+#include <SushiEngine/physics/cooking/node_beam_asset.hpp>
 #include <SushiEngine/physics/cooking/soft_body_asset.hpp>
 
 using namespace SushiEngine;
@@ -209,6 +210,30 @@ TEST(Unit_ImportProfile, FoldsAPerAssetOverrideOverTheProjectDefault)
     EXPECT_FLOAT_EQ(library.resolve("crate.gltf").parameters.fidelity, 0.3f);
 }
 
+TEST(Unit_ImportProfile, ReadsBackTheRawOverrideRatherThanTheResolvedProfile)
+{
+    // §16.45's editor audit: an override editor needs the raw, partially-set record back —
+    // "this asset asked for cook_soft_body and nothing else" — not a fully resolved profile
+    // that cannot tell an unset field apart from one that happens to match the default.
+    ImportProfileLibrary library;
+    ImportProfile project;
+    project.parameters.fidelity = 0.3f;
+    library.set_project_default(project);
+
+    EXPECT_FALSE(library.get_override("rock.gltf").fidelity.has_value())
+        << "an asset with no override has an empty one back, not the project's fidelity";
+
+    ImportProfileOverride crate;
+    crate.cook_soft_body = true;
+    library.set_override("crate.gltf", crate);
+
+    const ImportProfileOverride read_back = library.get_override("crate.gltf");
+    ASSERT_TRUE(read_back.cook_soft_body.has_value());
+    EXPECT_TRUE(*read_back.cook_soft_body);
+    EXPECT_FALSE(read_back.fidelity.has_value())
+        << "a field the asset never touched must read back unset, not defaulted";
+}
+
 TEST(Unit_MeshPostProcessorChain, RunsInOrderRegardlessOfRegistrationOrder)
 {
     std::vector<std::string> log;
@@ -268,23 +293,30 @@ TEST(Unit_MeshPostProcessorChain, SkipsWhatTheProfileDoesNotWantAndSurvivesAFail
 TEST(Unit_MeshPostProcessorChain, TheShippedChainAsksTheProfileWhichCookersRun)
 {
     const MeshPostProcessorChain chain = MeshPostProcessorChain::with_shipped_processors();
-    ASSERT_EQ(chain.size(), 2u);
+    ASSERT_EQ(chain.size(), 3u);
     EXPECT_STREQ(chain.at(0).name(), "CollisionPostProcessor");
     EXPECT_STREQ(chain.at(1).name(), "SoftBodyPostProcessor");
-    // The cheap one first: a collider is milliseconds and wanted by almost everything, a
-    // tetrahedral mesh is minutes and wanted by few assets.
+    EXPECT_STREQ(chain.at(2).name(), "NodeBeamPostProcessor");
+    // The cheap one first, and the node-beam cook last: a collider is milliseconds and
+    // wanted by almost everything, a tetrahedral mesh is minutes and wanted by few assets,
+    // and a node-beam cook is wanted by fewer still.
     EXPECT_LT(chain.at(0).order(), chain.at(1).order());
+    EXPECT_LT(chain.at(1).order(), chain.at(2).order());
 
     ImportProfile collider_only = quick_profile();
     collider_only.parameters.cook_collision = true;
     collider_only.parameters.cook_soft_body = false;
+    collider_only.parameters.cook_node_beam = false;
     EXPECT_TRUE(chain.at(0).wants(collider_only));
     EXPECT_FALSE(chain.at(1).wants(collider_only));
+    EXPECT_FALSE(chain.at(2).wants(collider_only));
 
-    ImportProfile both = collider_only;
-    both.parameters.cook_soft_body = true;
-    EXPECT_TRUE(chain.at(0).wants(both));
-    EXPECT_TRUE(chain.at(1).wants(both));
+    ImportProfile all_three = collider_only;
+    all_three.parameters.cook_soft_body = true;
+    all_three.parameters.cook_node_beam = true;
+    EXPECT_TRUE(chain.at(0).wants(all_three));
+    EXPECT_TRUE(chain.at(1).wants(all_three));
+    EXPECT_TRUE(chain.at(2).wants(all_three));
 
     ImportProfile neither = collider_only;
     neither.parameters.cook_collision = false;
@@ -316,6 +348,44 @@ TEST(Unit_MeshPostProcessorChain, ProducesBothAssetKindsForAMeshThatAsksForBoth)
     // And both are in the cache, under different keys, so neither cook repeats and neither
     // serves the other's entry.
     EXPECT_EQ(store.size(), 2u);
+}
+
+// PX-9: the node-beam cooker reachable through the same chain the editor's Bake panel
+// drives, rather than only through the cooker's own suite in C++.
+TEST(Unit_MeshPostProcessorChain, CooksANodeBeamAssetWhenTheProfileAsksForOne)
+{
+    const MeshPostProcessorChain chain = MeshPostProcessorChain::with_shipped_processors();
+    MemoryCookedAssetStore store;
+
+    ImportProfile profile = quick_profile();
+    profile.parameters.cook_collision = false;
+    profile.parameters.cook_soft_body = false;
+    profile.parameters.cook_node_beam = true;
+
+    const Geometry::TriangleMesh mesh = box_mesh(0.5f);
+    const std::vector<MeshPostProcessResult> results =
+        chain.run(mesh.view(), profile, &store, nullptr);
+
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_EQ(results[0].kind, CookedAssetKind::NodeBeam);
+    EXPECT_EQ(results[0].processor, "NodeBeamPostProcessor");
+    EXPECT_TRUE(results[0].report.has_asset());
+    EXPECT_GT(results[0].report.node_count, 0u);
+    EXPECT_GT(results[0].report.beam_count, 0u);
+
+    const NodeBeamAssetView view = load_node_beam_blob(results[0].bytes.data(),
+                                                        results[0].bytes.size());
+    ASSERT_TRUE(view.valid);
+    EXPECT_EQ(view.node_count, results[0].report.node_count);
+
+    // Cooked once, and the second cook of the same profile is served from the cache -- the
+    // settings the profile carries (§8.1's third key component, folded in by the cooker
+    // itself) have to be part of the key or this would be silently wrong.
+    EXPECT_EQ(store.size(), 1u);
+    const std::vector<MeshPostProcessResult> second = chain.run(mesh.view(), profile, &store,
+                                                                 nullptr);
+    ASSERT_EQ(second.size(), 1u);
+    EXPECT_TRUE(second[0].report.served_from_cache);
 }
 
 TEST(Unit_CookingService, CooksOffTheCallingThreadAndHandsBackEachImportOnce)

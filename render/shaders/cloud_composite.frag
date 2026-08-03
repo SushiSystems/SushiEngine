@@ -239,12 +239,43 @@ void main()
         float mu_near = dot(near_p / r_near, view_dir);
         float mu_far = dot(far_p / r_far, view_dir);
 
-        // t_near / t_far, not the other way round: the near point has *more* atmosphere ahead
-        // of it, so t_near <= t_far and the quotient is the segment's own transmittance. The
-        // clamp guards the discretised LUT and the grazing rays where mu folds sign.
-        vec3 t_near = sample_transmittance(transmittance_lut, medium, r_near, mu_near);
-        vec3 t_far = sample_transmittance(transmittance_lut, medium, r_far, mu_far);
-        vec3 tail = clamp(t_near / max(t_far, vec3(1e-5)), vec3(0.0), vec3(1.0));
+        // **The identity has two branches, and using only one of them is what turned an
+        // orbital view of the Earth yellow.**
+        //
+        // `T(near->top) = T(near->far) * T(far->top)` holds only while the near point's path
+        // to the top actually runs *through* the far point — that is, while the ray is
+        // climbing. Look down from orbit and it is the far point that lies deeper, so the
+        // containment is the other way round and the quotient has to be inverted with it.
+        //
+        // Taking the wrong branch is not merely an inaccuracy. `transmittance_to_top`
+        // integrates the straight line from `r` along `mu` to the top *sphere*, with no planet
+        // in the way, so at a downward `mu` it marches through the body: the path's closest
+        // approach is `r * sqrt(1 - mu^2)`, which for a near-vertical look-down is essentially
+        // the planet's centre, where an exponential density profile evaluated below the
+        // surface is astronomically large. Both fetches underflow to near zero, they underflow
+        // by different amounts per wavelength, and their ratio is then an arbitrary saturated
+        // colour — the yellow deck seen from 100 km.
+        //
+        // The test is Bruneton's own: does the ray from the near point meet the ground.
+        vec3 numerator;
+        vec3 denominator;
+        if (atmo_ray_sphere(r_near, mu_near, medium.bottom_radius) > 0.0)
+        {
+            // Descending. Walk the same segment backwards, where the far point is the one
+            // whose upward path to the top passes through the near point.
+            numerator = sample_transmittance(transmittance_lut, medium, r_far, -mu_far);
+            denominator = sample_transmittance(transmittance_lut, medium, r_near, -mu_near);
+        }
+        else
+        {
+            // Climbing (or grazing without meeting the ground, where the LUT's straight-line
+            // integral still stays above the surface and remains physical).
+            numerator = sample_transmittance(transmittance_lut, medium, r_near, mu_near);
+            denominator = sample_transmittance(transmittance_lut, medium, r_far, mu_far);
+        }
+        // The numerator's point always has more atmosphere ahead of it, so the quotient is the
+        // segment's own transmittance; the clamp guards the discretised LUT.
+        vec3 tail = clamp(numerator / max(denominator, vec3(1e-5)), vec3(0.0), vec3(1.0));
         float tail_luma = max(dot(tail, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
 
         // The tail's own glow. The froxel volume reports in-scatter `aerial.rgb` accumulated

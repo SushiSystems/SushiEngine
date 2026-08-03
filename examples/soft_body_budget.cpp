@@ -44,10 +44,13 @@
  * at least that many colours and the graph carries one node per colour per substep.
  */
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <map>
+#include <string>
 #include <vector>
 
 #include <SushiEngine/physics/soft/fem_projection.hpp>
@@ -163,7 +166,16 @@ int main()
     configuration.substeps.minimum = 32;
     configuration.substeps.maximum = 32;
 
-    SushiRuntime::API::Runtime runtime = SushiRuntime::API::Runtime::create();
+    // P8-A (docs/slop/physics_system.md §16.21/§16.36-37): the earlier measurement
+    // could not tell whether the tick's cost is arithmetic or the 1 024 graph-node
+    // barriers 32 colours x 32 substeps impose. Profiling on is what makes that
+    // answerable -- it costs the run nothing this probe cares about, since the
+    // number reported below is the mean of TIMED_TICKS wall-clock measurements
+    // taken independently of the runtime's own device timestamps.
+    SushiRuntime::API::RuntimeConfig runtime_config;
+    runtime_config.profiling = true;
+    SushiRuntime::API::Runtime runtime =
+        SushiRuntime::API::Runtime::create({}, runtime_config);
     Execution::Context execution(runtime);
     RuntimeGraphBuilder<Scalar> solver(execution, configuration);
 
@@ -257,6 +269,67 @@ int main()
     std::printf("  best              %.3f ms/tick\n", best_ms);
     std::printf("  budget            %.3f ms/tick -> %s\n", BUDGET_MS,
                 mean_ms <= BUDGET_MS ? "UNDER" : "OVER");
+
+    // §18 R8, consumed: which of arithmetic or barriers the tick's cost is. Node
+    // timings are grouped by name because the substep loop unrolls into one node
+    // per colour per substep, all sharing the constraint kind's name -- summing
+    // them answers "how much of the tick is spent inside that kind of kernel"
+    // without needing per-colour resolution. Only the last timed tick's report is
+    // read: recompositions are 0 by then, so every tick's node shape is identical.
+    const SushiRuntime::Core::RunReport& native = solver.native_report();
+    std::printf("\nsoft_body_budget: section 18 R8, where the last tick's time went\n");
+    if (native.node_timings.empty())
+    {
+        std::printf("  no per-node timings reported (profiling did not populate the report)\n");
+    }
+    else
+    {
+        struct NamedCost
+        {
+            double device_ms = 0.0;
+            double host_ms = 0.0;
+            std::size_t invocations = 0;
+        };
+        std::map<std::string, NamedCost> by_name;
+        for (const auto& node : native.node_timings)
+        {
+            NamedCost& cost = by_name[node.name];
+            cost.device_ms += node.device_ms;
+            cost.host_ms += node.host_ms;
+            cost.invocations += node.invocations;
+        }
+        for (const auto& entry : by_name)
+        {
+            const double share =
+                mean_ms > 0.0 ? 100.0 * (entry.second.device_ms + entry.second.host_ms) / mean_ms
+                              : 0.0;
+            std::printf("  %-20s %8zu dispatches  %8.3f ms device  %8.3f ms host  (%5.1f%% "
+                        "of the tick)\n",
+                        entry.first.c_str(), entry.second.invocations, entry.second.device_ms,
+                        entry.second.host_ms, share);
+        }
+    }
+
+    if (native.worker_timings.empty())
+    {
+        std::printf("  no per-worker timings reported (profiling did not populate the report)\n");
+    }
+    else
+    {
+        double busy_ms = 0.0;
+        double overhead_ms = 0.0;
+        for (const auto& worker : native.worker_timings)
+        {
+            busy_ms += worker.busy_ms;
+            overhead_ms += worker.stealing_ms + worker.polling_ms + worker.idle_ms;
+        }
+        const double total_ms = busy_ms + overhead_ms;
+        std::printf("  %zu workers: %8.3f ms busy (%5.1f%%), %8.3f ms "
+                    "stealing+polling+idle (%5.1f%%) -- summed across workers, not per tick\n",
+                    native.worker_timings.size(), busy_ms,
+                    total_ms > 0.0 ? 100.0 * busy_ms / total_ms : 0.0, overhead_ms,
+                    total_ms > 0.0 ? 100.0 * overhead_ms / total_ms : 0.0);
+    }
 
     // Only a scene that could not be built is a failure. The number above is a property
     // of this machine, and this program's job is to report it, not to grade it.

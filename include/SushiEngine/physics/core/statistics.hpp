@@ -39,6 +39,7 @@
  * meaningless. They are reported for exactly that reason.
  */
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -48,6 +49,109 @@ namespace SushiEngine
 {
     namespace Physics
     {
+        /**
+         * @brief The named graph-node kinds `RuntimeGraphBuilder::build_graph` emits.
+         *
+         * One entry per distinct node label the solve graph names (§18 R8) — not per
+         * colour or substep instance. The compiled graph holds one node per colour
+         * per substep for every persistent constraint kind, and all of those share
+         * one of these names; attributing cost to "how much of the tick
+         * `element_project` spent" means summing every instance with this label
+         * together, which is exactly what @ref PhysicsNodeTiming holds one row of.
+         *
+         * @ref Count is not a kind. It is the array bound every fixed-capacity
+         * breakdown in this file is sized to, following the same never-grow
+         * discipline `PhysicsCapacities` uses for its device buffers: the kind set
+         * is fixed at compile time, so the breakdown is a `std::array`, not a
+         * `std::map` a hot path would have to allocate into.
+         */
+        enum class PhysicsNodeKind : std::size_t
+        {
+            Predict = 0,
+            DistanceProject,
+            BeamProject,
+            ElementProject,
+            JointProject,
+            ContactPrepare,
+            ContactPosition,
+            UpdateVelocity,
+            BeamVelocity,
+            JointVelocity,
+            ContactVelocity,
+            MotionMeasure,
+            Count
+        };
+
+        /** @brief How many named node kinds exist; the bound every fixed array below uses. */
+        constexpr std::size_t PHYSICS_NODE_KIND_COUNT = static_cast<std::size_t>(PhysicsNodeKind::Count);
+
+        /**
+         * @brief The exact node label `RuntimeGraphBuilder::build_graph` emits for @p kind.
+         *
+         * The single definition the conversion in `statistics_from_report.hpp`
+         * depends on: `runtime_graph_builder.hpp`'s `emit_node` calls are the source
+         * of truth for each string, and this function is the one place that copy of
+         * the string lives outside that file. A `switch` over the enum rather than a
+         * table, so a kind added to @ref PhysicsNodeKind without a case here is a
+         * compiler warning, not a silent gap.
+         */
+        constexpr const char* physics_node_kind_name(PhysicsNodeKind kind) noexcept
+        {
+            switch (kind)
+            {
+                case PhysicsNodeKind::Predict:
+                    return "predict";
+                case PhysicsNodeKind::DistanceProject:
+                    return "distance_project";
+                case PhysicsNodeKind::BeamProject:
+                    return "beam_project";
+                case PhysicsNodeKind::ElementProject:
+                    return "element_project";
+                case PhysicsNodeKind::JointProject:
+                    return "joint_project";
+                case PhysicsNodeKind::ContactPrepare:
+                    return "contact_prepare";
+                case PhysicsNodeKind::ContactPosition:
+                    return "contact_position";
+                case PhysicsNodeKind::UpdateVelocity:
+                    return "update_velocity";
+                case PhysicsNodeKind::BeamVelocity:
+                    return "beam_velocity";
+                case PhysicsNodeKind::JointVelocity:
+                    return "joint_velocity";
+                case PhysicsNodeKind::ContactVelocity:
+                    return "contact_velocity";
+                case PhysicsNodeKind::MotionMeasure:
+                    return "motion_measure";
+                case PhysicsNodeKind::Count:
+                    break;
+            }
+            return "";
+        }
+
+        /**
+         * @brief One named node kind's summed device/host cost for one tick, in milliseconds.
+         *
+         * Summed across every colour and substep instance sharing @ref
+         * physics_node_kind_name's label for this kind, the same grouping
+         * `soft_body_budget.cpp` already does by hand with a `std::map`. Zero unless
+         * `PhysicsConfiguration::profiling` is on, for the same reason every timing
+         * in this file is: an unmeasured field must read as absent, not as a
+         * plausible-looking zero.
+         */
+        template <typename T>
+        struct PhysicsNodeTiming
+        {
+            /** @brief Summed kernel device time (from SYCL event profiling). */
+            T device_ms = 0;
+
+            /** @brief Summed wall-clock for native/host work run on a worker. */
+            T host_ms = 0;
+
+            /** @brief Times a node with this label was dispatched this tick. */
+            std::size_t invocations = 0;
+        };
+
         /**
          * @brief Per-stage wall-clock timings for one tick, in milliseconds.
          *
@@ -62,14 +166,18 @@ namespace SushiEngine
          * island partition, and the transfers back. `solve_ms` is the device
          * composition's own measured cost, from the run report.
          *
-         * There is deliberately no per-stage breakdown *inside* `solve_ms`. The
-         * runtime reports device time per node and names each one, but its public
-         * `add()` surface carries no label, so every physics node arrives as
-         * `unnamed_task` and the only way to attribute one is its plan index — a
-         * compile-time internal, and exactly the kind of engine-side claim about a
-         * runtime detail that §18 records the cost of making. Splitting predict from
-         * the projection sweeps from the velocity derivation is a runtime ask, not
-         * something to guess at here.
+         * `solve_ms` itself stays one number — it is one `run()`, and the one case
+         * that is not the same device solve at all, the soft-body host schedule, is
+         * already broken out below as @ref soft_body_ms rather than folded in here.
+         * What §18 R8 closed is the breakdown *inside* `solve_ms`, once it needed
+         * one: the runtime's ordinary `add()` overloads used to drop every node's label, so a node
+         * arrived as `unnamed_task` and the only way to attribute one was its plan
+         * index — a compile-time internal, and exactly the kind of engine-side claim
+         * about a runtime detail §18 records the cost of making. `add_parallel` /
+         * `add_host` (`runtime_backend.hpp`) now forward `NodeDescriptor::name`
+         * through, so `predict`, every projection kind, the two velocity passes and
+         * `motion_measure` each report under their real name, and @ref node_timings
+         * below is that attribution, folded by name.
          */
         template <typename T>
         struct PhysicsStageTimings
@@ -81,11 +189,27 @@ namespace SushiEngine
              * @brief The whole device composition: one `run()`, every substep.
              *
              * Predict, every constraint kind's projection sweep, the velocity
-             * derivation, the velocity pass and the motion reduction — all of it,
-             * because that is the granularity the runtime's report gives without
-             * node labels. See this struct's note.
+             * derivation, the velocity pass and the motion reduction — all of it, at
+             * the granularity of one wall-clock number for the whole `run()`. See
+             * this struct's note and @ref node_timings for how much of it went to
+             * which named kind.
              */
             T solve_ms = 0;
+
+            /**
+             * @brief @ref solve_ms, broken down by @ref PhysicsNodeKind.
+             *
+             * Populated by `physics_node_timings_from_report`
+             * (`core/statistics_from_report.hpp`) from the same
+             * `SushiRuntime::Core::RunReport` `solve_ms` is read from. Every entry
+             * stays zero unless profiling is on, same as every other field here; a
+             * scene with no joints or contacts correctly reports zero device time
+             * for `joint_project`, `contact_prepare` and the rest, because those
+             * nodes dispatch against zero live elements and do nothing — that is a
+             * true measurement, not a missing one.
+             */
+            std::array<PhysicsNodeTiming<T>, PHYSICS_NODE_KIND_COUNT> node_timings{};
+
             T write_back_ms = 0;
 
             /**
@@ -179,6 +303,19 @@ namespace SushiEngine
 
             /** @brief Bodies escalated to continuous collision this tick. */
             std::size_t continuous_escalations = 0;
+
+            /**
+             * @brief Pairs that asked for continuous collision but lost the budget.
+             *
+             * A skipped pair is not dropped — it keeps tier 1's speculative
+             * manifold (§7.5) rather than tier 2's exact sweep, which is safe in
+             * the over-generation direction and simply less exact. Non-zero is not
+             * an error, the same reading `FemFractureReport::elements_skipped`
+             * gets; it is how a caller measures whether
+             * `PhysicsConfiguration::continuous_advancement_budget` actually bound
+             * this tick.
+             */
+            std::size_t continuous_advancement_skipped = 0;
 
             /** @brief Constraints that broke or elements that fractured this tick. */
             std::size_t fracture_events = 0;

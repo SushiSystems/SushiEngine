@@ -57,3 +57,19 @@ vec4 atmosphere_nest_params;
 // the shapes stand still in the world and advect with the wind, like the envelope itself.
 // float32 like the bake's own push constants, which already accept that precision.
 vec4 cloud_field_pattern;
+// Where the weather is over the whole body (atmosphere_system.md, WM-SEED). This is what the
+// cloud march reads out past every baked window, where the two camera-centred windows above
+// have nothing to say and a lattice of any affordable size would resolve nothing: at planetary
+// distance one texel of a 64-cell global grid is six hundred kilometres.
+//   synoptic_params.x = populated centre count      synoptic_params.y = ITCZ latitude (rad)
+//   synoptic_params.z = 1 when the body has a latitudinal cloud structure at all
+// The last two say different things: a planet with an atmosphere has an ITCZ and a clear
+// subtropical belt even with no systems placed on it, so a provider publishing zero centres
+// still wants the climatology.
+//   centre_a[i].xyz = unit direction from the planet centre, **already in scene space**
+//   centre_a[i].w   = chord falloff; weight is exp(-w * (1 - dot(radial, xyz)))
+//   centre_b[i].x   = signed coverage anomaly (+ a low, − a high)
+//   centre_b[i].y   = convective fraction     centre_b[i].z = surface precipitation
+vec4 synoptic_params;
+vec4 synoptic_centre_a[12];
+vec4 synoptic_centre_b[12];

@@ -87,6 +87,8 @@ layout(set = 0, binding = 1) uniform SceneBlock
 #include "scene_weather_tail.glsl"
 } scene;
 
+#include "cloud_field_window.glsl"
+
 // Bindings 2/3/5 (shape, detail, cirrus) are still part of this pass's descriptor layout but
 // deliberately no longer sampled: the carve that read them runs per march sample in
 // cloud.frag now (CloudsV2), against the precombined march volume. Declarations kept so the
@@ -167,11 +169,6 @@ const int GENUS_CUMULONIMBUS = 9;
 
 const int BAND_COUNT = 3;
 
-float remap(float v, float a, float b, float c, float d)
-{
-    return c + (v - a) / (b - a) * (d - c);
-}
-
 // The carve, its CDF-uniformisation and its Nyquist floor all lived here once; they moved
 // with the shape work into cloud_noise_volume.comp (the precombined march volume, where the
 // base shape is uniformised at generation) and cloud.frag (the per-sample carve, whose
@@ -179,17 +176,9 @@ float remap(float v, float a, float b, float c, float d)
 // for exactly the reason the bake used to floor against its texel). What stays below is the
 // envelope: coverage, water, vertical structure.
 
-float cloud_height_gradient(float height01, float stratiform, float anvil)
-{
-    float cumuliform = clamp(remap(height01, 0.0, 0.15, 0.0, 1.0), 0.0, 1.0) *
-                       clamp(remap(height01, 0.55, 1.0, 1.0, 0.0), 0.0, 1.0);
-    float sheet = clamp(remap(height01, 0.0, 0.08, 0.0, 1.0), 0.0, 1.0) *
-                  clamp(remap(height01, 0.80, 1.0, 1.0, 0.0), 0.0, 1.0);
-    float tower = clamp(remap(height01, 0.0, 0.10, 0.0, 1.0), 0.0, 1.0) *
-                  clamp(remap(height01, 0.90, 1.0, 1.0, 0.0), 0.0, 1.0);
-    float g = mix(cumuliform, sheet, stratiform);
-    return mix(g, tower, anvil);
-}
+// `cloud_height_gradient` moved to cloud_field_window.glsl (included above). The planet-scale
+// far field in cloud.frag builds the same deck envelope for the world no window covers, and
+// the two disagreeing about where a deck's top is would read as a step at the far rim.
 
 // One deck's *envelope* at a world pattern position: the coverage the march's carve will
 // threshold against, tapered vertically by the deck's own height gradient so the carve eats

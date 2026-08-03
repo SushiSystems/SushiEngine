@@ -28,6 +28,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -249,6 +250,61 @@ TEST(Unit_CookBakeState, CooksBothKindsWhenTheProfileAsksForThem)
     ASSERT_NE(pillar, nullptr);
     EXPECT_TRUE(pillar->has_collision());
     EXPECT_FALSE(pillar->has_soft_body());
+}
+
+TEST(Unit_CookBakeState, TheProjectDefaultAndAnOverrideSurviveASaveAndLoad)
+{
+    // §16.45.3: the Bake panel's settings had no storage path at all — every edit made in a
+    // session was gone the moment the editor closed. This is the claim that they are not,
+    // written the way an editor restart actually exercises it: a fresh `CookBakeState`,
+    // pointed at the same path, must read back exactly what the first one wrote.
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "sushiengine_cook_bake_state_test.json";
+    std::filesystem::remove(path);
+
+    {
+        CookBakeState writer(table_loader(), std::string());
+        writer.set_profile_storage_path(path.string());
+
+        Physics::Cooking::ImportProfile project;
+        project.parameters.fidelity = 0.75f;
+        project.parameters.cook_soft_body = true;
+        project.parameters.hull_vertex_budget = 48;
+        project.node_beam_settings.core_mass_fraction = 0.6f;
+        writer.profiles().set_project_default(project);
+
+        Physics::Cooking::ImportProfileOverride crate;
+        crate.cook_node_beam = true;
+        writer.profiles().set_override("crate.gltf", crate);
+
+        ASSERT_TRUE(writer.save_profiles());
+    }
+
+    CookBakeState reader(table_loader(), std::string());
+    reader.set_profile_storage_path(path.string());
+    ASSERT_TRUE(reader.load_profiles());
+
+    const Physics::Cooking::ImportProfile& loaded_project = reader.profiles().project_default();
+    EXPECT_FLOAT_EQ(loaded_project.parameters.fidelity, 0.75f);
+    EXPECT_TRUE(loaded_project.parameters.cook_soft_body);
+    EXPECT_EQ(loaded_project.parameters.hull_vertex_budget, 48);
+    EXPECT_FLOAT_EQ(loaded_project.node_beam_settings.core_mass_fraction, 0.6f);
+
+    ASSERT_TRUE(reader.profiles().has_override("crate.gltf"));
+    const Physics::Cooking::ImportProfileOverride loaded_override =
+        reader.profiles().get_override("crate.gltf");
+    ASSERT_TRUE(loaded_override.cook_node_beam.has_value());
+    EXPECT_TRUE(*loaded_override.cook_node_beam);
+    EXPECT_FALSE(loaded_override.fidelity.has_value());
+
+    std::filesystem::remove(path);
+}
+
+TEST(Unit_CookBakeState, AnUnsetStoragePathIsANoOpRatherThanAFailure)
+{
+    CookBakeState state(table_loader(), std::string());
+    EXPECT_TRUE(state.save_profiles());
+    EXPECT_TRUE(state.load_profiles());
 }
 
 TEST(Unit_CollisionWireframe, DrawsStaticGeometryAsItsOwnTriangles)

@@ -1,0 +1,51 @@
+#version 450
+
+// One level of the march carve volume's mip chain (docs/slop/atmosphere_system.md §11, CV3).
+//
+// **Why the chain exists.** The view march carves cloud shape per sample out of this volume,
+// at a world scale that is fixed in metres — so a sample a hundred kilometres away, whose own
+// integration step spans a kilometre, was reading a texel eighteen metres across. That is not
+// filtering, it is a point sample of a field varying sixty times faster than the sampler, and
+// it is what made distant cloud read as white: whichever peaks the lattice happened to land on
+// survived the threshold at full strength. The chain gives `cloud.frag` a real band limit to
+// select with `textureLod`, which is what a LOD is supposed to be — the previous "LOD" inflated
+// the *feature scale* instead, turning distant cumuli into three-to-five kilometre blobs.
+//
+// **Why a compute pass rather than vkCmdBlitImage.** Two reasons, both about exactness.
+// The volume tiles: it is sampled with REPEAT addressing, so its filter must wrap. A blit's
+// linear filter clamps at the border instead, which at the coarse levels — where every texel
+// *is* a border texel — would leave the tile seam baked into the chain. And a blit's filter is
+// a hardware detail; this one is stated. Because every extent here is a power of two, the
+// source of a destination texel is exactly the eight texels `2*x + (0,1)^3`, all in range, so
+// the wrap the argument above demands costs nothing to honour: there is no edge case to write.
+//
+// The box average is also what makes the chain *statistically* usable. A level is then the
+// conditional expectation of the field over its block, which is an orthogonal projection, so
+// the variance the filter removed is exactly `Var(level 0) - Var(level l)` — the quantity
+// CloudNoise measures on the host and the carve restates its coverage threshold against.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(set = 0, binding = 0, rgba8) uniform readonly image3D source;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image3D destination;
+
+layout(push_constant) uniform Params
+{
+    uint resolution; /**< Destination extent along each axis; the source is twice this. */
+} params;
+
+void main()
+{
+    uvec3 texel = gl_GlobalInvocationID;
+    if (any(greaterThanEqual(texel, uvec3(params.resolution))))
+        return;
+
+    ivec3 base = ivec3(texel) * 2;
+    vec4 sum = vec4(0.0);
+    for (int z = 0; z < 2; ++z)
+        for (int y = 0; y < 2; ++y)
+            for (int x = 0; x < 2; ++x)
+                sum += imageLoad(source, base + ivec3(x, y, z));
+
+    imageStore(destination, ivec3(texel), sum * 0.125);
+}

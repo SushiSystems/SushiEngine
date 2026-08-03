@@ -238,6 +238,16 @@ namespace SushiEngine
             // a headless editor, which is why every use is guarded.
             CookBakeState* cook_bake_state = nullptr;
 
+            // The asset the Cooking Override modal is open for; empty means closed. Staged
+            // here rather than as a modal-local static so a right-click on a second asset
+            // while the modal is up retargets it instead of the two fighting over one popup.
+            std::string cooking_override_target;
+
+            // The Inspector's Soft Body section stages the source mesh path here between
+            // frames -- `SoftBodyParams::asset` holds cooked bytes by value, not a path, so
+            // there is nowhere on the component itself for a text field to write into.
+            std::string soft_body_source_path;
+
             // The Inspector/gizmo's single "primary" target (the most recently clicked
             // entity). `selected_entities` is the full Hierarchy multi-selection (Ctrl
             // toggles membership, Shift extends a range from `selection_anchor`); a plain
@@ -452,6 +462,15 @@ namespace SushiEngine
              * other could not see with the first one closed.
              */
             PhysicsOverlaySettings physics_overlay;
+
+            /**
+             * @brief Whether a sleeping island's joints should be dropped from the solve graph.
+             *
+             * `ISimulation::set_park_sleeping_joints`, staged the same way as everything else
+             * a panel sets and main.cpp pushes into the live simulation each frame — off by
+             * default, matching the engine-side default (§16.44).
+             */
+            bool park_sleeping_joints = false;
 
             /**
              * @brief The driving controls' ramped positions, between frames.

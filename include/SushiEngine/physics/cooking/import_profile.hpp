@@ -36,8 +36,8 @@
  * to be cheap enough that the one crate in a hundred that wants to be deformable can say so
  * without a project-wide setting changing.
  *
- * **The override is deliberately partial, and deliberately small.** Four fields, and they
- * are the four an artist actually touches per asset: how accurately, and which of the three
+ * **The override is deliberately partial, and deliberately small.** Five fields, and they
+ * are the ones an artist actually touches per asset: how accurately, and which of the three
  * kinds of thing this mesh is. Everything else in @ref CookingParameters — the vertex
  * budget, the weld tolerance, the sampling order — is engineering policy that belongs to the
  * project, and letting it be overridden per asset would produce a project where no two
@@ -51,6 +51,7 @@
 
 #include <SushiEngine/physics/cooking/cooking_parameters.hpp>
 #include <SushiEngine/physics/cooking/cooking_report.hpp>
+#include <SushiEngine/physics/cooking/node_beam_cooker.hpp>
 
 namespace SushiEngine
 {
@@ -71,6 +72,18 @@ namespace SushiEngine
 
                 /** @brief The limits a produced asset is judged against (§8.5). */
                 CookingThresholds thresholds;
+
+                /**
+                 * @brief The vehicle-shaped decisions a node-beam cook needs.
+                 *
+                 * Here rather than in @ref CookingParameters for the reason
+                 * @ref NodeBeamCookerSettings states: it is read by one cooker, folded
+                 * into that cooker's own cache key, and would otherwise sit unused on
+                 * every collision and soft-body cook in the project. It follows
+                 * @ref thresholds' placement, which is the existing precedent for
+                 * "a cooker's own state, set from the profile, outside the shared dial."
+                 */
+                NodeBeamCookerSettings node_beam_settings;
 
                 /**
                  * @brief Drop any cached asset before cooking, this once.
@@ -105,6 +118,9 @@ namespace SushiEngine
                 /** @brief Whether to produce a `.sushisoft` for it. */
                 std::optional<bool> cook_soft_body;
 
+                /** @brief Whether to produce a `.sushinodebeam` for it. */
+                std::optional<bool> cook_node_beam;
+
                 /** @brief Whether this is authored-static geometry (§8.4 item 4). */
                 std::optional<bool> static_geometry;
 
@@ -112,7 +128,8 @@ namespace SushiEngine
                 bool empty() const noexcept
                 {
                     return !fidelity.has_value() && !cook_collision.has_value() &&
-                           !cook_soft_body.has_value() && !static_geometry.has_value();
+                           !cook_soft_body.has_value() && !cook_node_beam.has_value() &&
+                           !static_geometry.has_value();
                 }
             };
 
@@ -133,6 +150,8 @@ namespace SushiEngine
                     resolved.parameters.cook_collision = *asset.cook_collision;
                 if (asset.cook_soft_body.has_value())
                     resolved.parameters.cook_soft_body = *asset.cook_soft_body;
+                if (asset.cook_node_beam.has_value())
+                    resolved.parameters.cook_node_beam = *asset.cook_node_beam;
                 if (asset.static_geometry.has_value())
                     resolved.parameters.static_geometry = *asset.static_geometry;
                 return resolved;
@@ -183,6 +202,35 @@ namespace SushiEngine
 
                 /** @brief How many assets carry an override. */
                 std::size_t override_count() const noexcept { return overrides_.size(); }
+
+                /**
+                 * @brief Every asset's override, keyed by path.
+                 *
+                 * Read-only and whole rather than an iterator pair, for the one caller that
+                 * needs all of them at once: persisting the library to disk (§16.45.3).
+                 */
+                const std::unordered_map<std::string, ImportProfileOverride>& overrides() const noexcept
+                {
+                    return overrides_;
+                }
+
+                /**
+                 * @brief The raw override recorded for @p asset_path.
+                 *
+                 * Distinct from @ref resolve, which folds the override over the default —
+                 * an editor showing "what does this asset say differs" needs the override
+                 * itself, with its unset fields still unset, not a fully-resolved profile
+                 * that cannot tell "this asset wants fidelity 0.5" apart from "this asset
+                 * has no opinion and the project default happens to be 0.5".
+                 *
+                 * @param asset_path The asset's path.
+                 * @return The stored override, or an empty one if @p asset_path has none.
+                 */
+                ImportProfileOverride get_override(const std::string& asset_path) const
+                {
+                    const auto found = overrides_.find(asset_path);
+                    return found == overrides_.end() ? ImportProfileOverride{} : found->second;
+                }
 
                 /**
                  * @brief The profile @p asset_path is cooked at.

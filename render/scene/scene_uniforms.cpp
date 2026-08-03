@@ -241,6 +241,34 @@ namespace SushiEngine
                     // to decide.
                 }
 
+                // The planetary placement. No eye folding and no camera term at all, unlike the
+                // block above: these are *directions* from the planet centre, and a direction
+                // does not move when the observer does. The simulation has already rotated them
+                // into scene space (RuntimeSimulation::publish_synoptic_field), so this is a
+                // straight copy.
+                {
+                    const SynopticFieldView& synoptic = environment.synoptic;
+                    const int count =
+                        std::min(std::max(synoptic.count, 0), SYNOPTIC_FIELD_MAX_CENTRES);
+                    uniforms.synoptic_params[0] = static_cast<float>(count);
+                    uniforms.synoptic_params[1] = synoptic.itcz_latitude;
+                    uniforms.synoptic_params[2] = synoptic.valid ? 1.0f : 0.0f;
+                    uniforms.synoptic_params[3] = 0.0f;
+                    for (int i = 0; i < SYNOPTIC_FIELD_MAX_CENTRES; ++i)
+                    {
+                        const SynopticFieldCentre& centre = synoptic.centres[i];
+                        const bool live = i < count;
+                        uniforms.synoptic_centre_a[i][0] = live ? centre.direction[0] : 0.0f;
+                        uniforms.synoptic_centre_a[i][1] = live ? centre.direction[1] : 0.0f;
+                        uniforms.synoptic_centre_a[i][2] = live ? centre.direction[2] : 0.0f;
+                        uniforms.synoptic_centre_a[i][3] = live ? centre.falloff : 0.0f;
+                        uniforms.synoptic_centre_b[i][0] = live ? centre.amplitude : 0.0f;
+                        uniforms.synoptic_centre_b[i][1] = live ? centre.convective : 0.0f;
+                        uniforms.synoptic_centre_b[i][2] = live ? centre.precipitation : 0.0f;
+                        uniforms.synoptic_centre_b[i][3] = 0.0f;
+                    }
+                }
+
                 uniforms.ambient[0] = static_cast<float>(environment.ambient.x);
                 uniforms.ambient[1] = static_cast<float>(environment.ambient.y);
                 uniforms.ambient[2] = static_cast<float>(environment.ambient.z);

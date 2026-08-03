@@ -45,7 +45,7 @@
 
 #include "core/command_history.hpp"
 #include "scene/physics_sample_scene.hpp"
-#include "serialization/scene_serializer.hpp"
+#include "scene_serializer.hpp"
 
 using namespace SushiEngine;
 using namespace SushiEngine::Simulation;
@@ -111,6 +111,16 @@ namespace
         transform.position = position;
         transform.scale = Vector3{20, 1, 20};
         world.set_transform(id, transform);
+
+        // Static: inv_mass = 0 pins it in place. Without a physics body at all the
+        // entity never becomes a RigidBodyDesc (extract_rigid_bodies requires
+        // has_physics_body) and, being a box rather than a Plane primitive, it is
+        // not picked up by extract_static_planes either -- it would simply not
+        // exist for anything to fall onto.
+        PhysicsBodyParams body;
+        body.inv_mass = 0;
+        world.set_has_physics_body(id, true);
+        world.set_physics_body_params(id, body);
         return id;
     }
 }
@@ -238,7 +248,14 @@ TEST(Integration_PhysicsAuthoring, ExcludedLayersPassThroughEachOther)
 
     // The ghosts end up at the same height, both resting on the floor, having passed
     // through one another. The control pair cannot, because one is standing on the other.
-    EXPECT_GT(solid_gap, 0.5) << "the control pair must stack, or nothing here is colliding";
+    //
+    // 0.5 is the geometric ideal (two 0.5-tall blocks stacked with zero overlap), not what
+    // an iterative XPBD solver actually settles to: rest_offset defaults to 0 (the solver
+    // aims for zero penetration) but never fully closes it in a finite number of substeps,
+    // so a resting stack keeps a few millimetres of overlap per contact -- the same slop
+    // every iterative contact solver (Bullet, PhysX, Jolt) carries. 0.49 leaves room for
+    // that without accepting "nothing collided at all" (which would read near zero).
+    EXPECT_GT(solid_gap, 0.49) << "the control pair must stack, or nothing here is colliding";
     EXPECT_LT(ghost_gap, solid_gap * 0.5)
         << "bodies on mutually excluded layers must end up side by side, not stacked";
 }
@@ -299,11 +316,13 @@ TEST(Integration_PhysicsAuthoring, TheSurfaceAndTheFilterSurviveTheSceneFile)
     authored.restitution_combine = 2;
     authored.layer = 7;
     authored.collides_with = 0x0F0F0F0Fu;
+    authored.trigger = true;
+    authored.continuous_collision = true;
     world.set_collider_params(id, authored);
 
-    const nlohmann::json snapshot = Editor::capture_scene(world);
+    const nlohmann::json snapshot = Scene::capture_scene(world);
     world.set_collider_params(id, ColliderParams{});
-    Editor::apply_scene(world, snapshot);
+    Scene::apply_scene(world, snapshot);
 
     const ColliderParams restored = world.collider_params(find_by_name(world, "Surface"));
     EXPECT_DOUBLE_EQ(double(restored.static_friction), double(authored.static_friction));
@@ -313,6 +332,46 @@ TEST(Integration_PhysicsAuthoring, TheSurfaceAndTheFilterSurviveTheSceneFile)
     EXPECT_EQ(restored.restitution_combine, authored.restitution_combine);
     EXPECT_EQ(restored.layer, authored.layer);
     EXPECT_EQ(restored.collides_with, authored.collides_with);
+    EXPECT_EQ(restored.trigger, authored.trigger);
+    EXPECT_EQ(restored.continuous_collision, authored.continuous_collision);
+}
+
+TEST(Integration_PhysicsAuthoring, ATriggerVolumeReportsOverlapButNeverStopsTheBody)
+{
+    // §16.45.1: `Collider::flags` (trigger, continuous collision) has been read by the
+    // solver since the collision system was built — `record.trigger` skips resolving the
+    // contact (`physics_simulation.hpp`'s "reported, never resolved") and still reports it
+    // via `ContactEvent::trigger` — but nothing on `ColliderParams` ever set the bit, so a
+    // trigger volume was solvable and not placeable. This is that field, proved both ways:
+    // the body passes straight through, and the overlap is still seen.
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    const EntityId floor = make_floor(world, Vector3{0, 0, 0});
+    ColliderParams floor_collider = world.collider_params(floor);
+    floor_collider.trigger = true;
+    world.set_collider_params(floor, floor_collider);
+
+    const EntityId box =
+        make_block(world, "Falling", Vector3{0, 3, 0}, Scalar(0.6), Scalar(0.5), Scalar(0));
+
+    bool saw_trigger_event = false;
+    for (int i = 0; i < 120; ++i)
+    {
+        simulation->tick(simulation->fixed_dt_seconds());
+        for (const ContactEvent& event : world.physics_contacts())
+        {
+            if (event.trigger &&
+                ((event.a == floor && event.b == box) || (event.a == box && event.b == floor)))
+                saw_trigger_event = true;
+        }
+    }
+
+    EXPECT_TRUE(saw_trigger_event) << "a trigger-flagged floor must still report the overlap";
+    EXPECT_LT(double(world.transform(box).position.y), -1.0)
+        << "a trigger never stops the body; it must fall straight through";
 }
 
 TEST(Integration_PhysicsAuthoring, TheDebugReadoutReportsWhatTheSolverKnows)

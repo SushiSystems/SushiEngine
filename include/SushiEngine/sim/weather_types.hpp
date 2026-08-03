@@ -63,6 +63,37 @@ namespace SushiEngine
         };
 
         /**
+         * @brief Where a scene's weather comes from.
+         *
+         * A named mode rather than a boolean, and the difference is not cosmetic. "Procedural
+         * weather is on" used to be answered by `static_cast<bool>(weather_provider_)`, which
+         * made "no provider at all" the *definition* of the other mode — so Manual could not
+         * have a provider, and therefore could not have a weather field, and therefore applied
+         * one authored deck stack to an entire planet. See `docs/slop/atmosphere_system.md`'s
+         * WM-SEED for what that looked like from orbit.
+         *
+         * Both modes install a provider now, and the choice is genuinely about *where the sky
+         * comes from* rather than about whether anything is running:
+         *
+         * * @c Manual — placed. `SeededWeather` puts a dozen pressure systems on a zonal
+         *   climatology from a seed. Deterministic, defined over the whole body, costs nothing
+         *   to run, and does not evolve. What an author asking for a specific sky wants.
+         * * @c Procedural — grown. `ProceduralWeather`'s quasi-geostrophic core and the GPU
+         *   regional nest. Evolves on its own, and only resolves the nest's own footprint.
+         */
+        enum class WeatherMode : std::uint32_t
+        {
+            Manual = 0,
+            Procedural,
+        };
+
+        /** @brief The stable string form of a @ref WeatherMode, for scene files and panels. */
+        inline const char* weather_mode_name(WeatherMode mode) noexcept
+        {
+            return mode == WeatherMode::Procedural ? "procedural" : "manual";
+        }
+
+        /**
          * @brief The three WMO vertical étages T2 tracks per grid column.
          *
          * `Render::CloudGenus`/`cloud_genus_profile` already partitions the ten genera into

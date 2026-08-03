@@ -957,6 +957,9 @@ Working constraints:
 | CV11 | Snow-white deck against a black evening sky | `cloud.frag` never sampled the transmittance LUT and had no horizon gate, so the sun that lit a cloud was identical at midnight and noon |
 | CV12 | After CV11, clouds went perfectly black at night | Nothing replaced the sun: no skylight, and the Moon — which the ephemeris already derives as a real directional light — never reached the cloud pass |
 | CV13 | A one-pixel white line at the horizon | The depth-aware upsample demotes a mismatched tap to 0.05; when *all four* miss, `/ wsum` renormalises them back into plain bilinear and the rejection cancels itself out |
+| CV3 | *"berbat LOD, bulutları direkt beyaz render ediyor"* | The carve band-limited the **feature size** instead of the sampling: `carve_scale = max(carve_scale, footprint * 4)` made a distant cumulus 3–5 km wide at full solidity. Under it, every tap was an implicit-LOD `texture()` on a `mipLevels = 1` volume through a `max_lod = 0` sampler. Fixed by a real mip chain plus a threshold integrated over the detail the filter removes — see the eighth entry |
+| WM-SEED | A planet was uniformly overcast; no place could be clear while another was stormy | "Manual mode" was *defined* as having no `IWeatherProvider`, so nothing published a `WeatherField` and one authored deck stack covered the body. Both modes install a provider now; Manual places weather from a seed (`SeededWeather` + `Atmosphere::SynopticField`) — see the eleventh entry |
+| CV15 | Lit clouds went black when the *camera* entered shadow; night-side clouds vanished entirely | The solar zenith cosine, the horizon gate and the Moon's gate were all taken once per pixel in the **camera's** radial frame. The code's own bound — "under a degree, finer than the LUT resolves" — was invalidated by PL1 and was never valid anyway, because the gate is a step function. Per-sample now, with a solar-disc penumbra — see the tenth entry |
 | — | Auto-exposure could not reach a physically lit night | `min_ev` is a *maximum-exposure* control despite the name, and the editor slider stopped at −10 (184×) when moonlight needs ~1000× |
 | — | `sky`/`clouds` vanished from the profiler at Ultra | `MAX_TIMED_PASSES` was 16 against ~44 passes, and its truncated sum drives auto-exposure adaptation and dynamic resolution |
 
@@ -992,14 +995,12 @@ Working constraints:
 
 #### Open, in the order they should be done
 
-1. **CV3 — far-field LOD that keeps its shape.** The user's words: *"berbat LOD, bulutları
-   direkt beyaz render ediyor."* Two halves. (a) Band-limit the carve properly: the march noise
-   volume has `mipLevels = 1` and shares a `max_lod = 0` sampler, so every erosion octave is
-   sampled far below Nyquist. Give it a real mip chain, its own sampler, `textureLod` with
-   `lod = log2(footprint / texel)`, and derive the erosion ladder from `carve_scale` so it
-   inherits the footprint floor from one place. (b) The far field must keep *structure*, not
-   collapse to a smooth mean — a real LOD band-limits detail and preserves the pattern.
-   Reference the user gave: Google Earth, where distant cloud still reads as cloud.
+1. ~~**CV3 — far-field LOD that keeps its shape.**~~ **Written 2026-08-02, unverified by eye.**
+   Both halves: the mip chain and the `textureLod` selection for (a), and for (b) a threshold
+   integrated over the removed detail rather than a hard cut against a filtered mean — which is
+   what stops the far field from collapsing into an all-or-nothing decision. See the eighth
+   entry for what shipped and for the one judgement call inside it (which footprint the LOD is
+   selected against) that a screenshot could still overturn.
 2. **CV5 + CV9 together — the generation model.** The user has said twice that this is the real
    problem and they are right. One noise scale (2400 m) decides where every cloud is, so there
    is no mesoscale organisation — no clusters, no shear-aligned streets, no clear lanes — and
@@ -1007,16 +1008,52 @@ Working constraints:
    interior structure. CV5 is the per-genus vertical envelope (a real cumulonimbus trunk and
    anvil); CV9 is the distribution and the fill. They meet in the same code and should land
    together.
-3. **PL1 — planet scale.** Both cloud windows are camera-centred flat XZ squares (32 km and
-   262 km) that fade to nothing at the rim *by design*; `cloud_field_window.glsl` documents why
-   a flat prism is meaningless at orbital distance. So the system does not cover the orbital
-   camera the user has been shooting from. §7.5's coarse planet-scale far field and the
-   panorama impostor are what is supposed to cover it and neither is wired up. This was queued
-   last and that was wrong — the user's stated goal is *"dünyanın havasını modellemek"*, which
-   makes planet scale central rather than optional.
-4. **CV6, CV7, CV8** — physical extinction end to end; advection on the game clock at the
+3. ~~**PL1 — planet scale.**~~ **Written 2026-08-02, unverified by eye** — §7.5's coarse
+   planet-scale field is in, built from the deck stack and a globe-addressed pattern, and the
+   windows now fade into it instead of into nothing. See the ninth entry. The panorama impostor
+   is still unwired, and this remains the *cheap* form of the tier: it carries no nest and no
+   T1 structure, because neither reaches the GPU beyond 384 km.
+4. ~~**WM-SEED — Manual mode becomes a seed, not a preset.**~~ **Written 2026-08-02, unverified
+   by eye.** See the eleventh entry for what shipped, the two-evaluator structure, and the four
+   named limits — of which the live one is that Procedural mode publishes no centres, so from
+   orbit it shows the zonal climatology alone until T1's own pressure extrema are extracted.
+   The original statement of the item follows.
+
+   Promoted here by the user on
+   2026-08-02 against a side-by-side of our globe and Google Earth (`image5`/`image6`): ours is a
+   uniformly milky sphere, theirs is mostly *clear* ocean with discrete bands and swirls over it.
+   *"manual mod artık fair weather overcast ile değil seed ile belirlenecek. bu şekilde dünyanın
+   bir yeri bulutlu fırtınalı iken bir yeri tam olarak açık hava olacak."*
+
+   Today Manual mode is not a mode at all: `RuntimeSimulation::procedural_weather_enabled()` is
+   literally `static_cast<bool>(weather_provider_)`, so Manual means **no provider**, and the bake
+   applies one authored deck stack to the entire planet. `StaticWeather` exists in
+   `weather_provider.hpp` for exactly this job and is never installed, so it is dead code.
+   Two consequences that shape the work:
+   * The mode must become an explicit enum before a Manual provider can exist, because installing
+     one would otherwise flip the predicate every consumer keys off.
+   * A varying field fixes the *near* view but not the orbital one. `cloud_globe_envelope` reads
+     the deck stack and a hard-coded `GLOBE_PATTERN_*` modulation — no seed, one scale (~300 km),
+     and it modulates a coverage that is already high everywhere, so it can never produce the
+     clear ocean that is most of `image6`. The globe field needs the seeded synoptic field too,
+     and it must be able to reach **zero**.
+
+   This overlaps CV5+CV9 above and they should agree about what a cloud system is: that item is
+   organisation *within* a scene, this one is organisation *across the globe*.
+5. **CV14 — the limb speckle.** *"LOD sistemi resmen göz kanatıyor."* Bright unstable fireflies
+   along the terminator limb in `image5`. Partly predicted to fall out of CV15 (tenth entry); if
+   not, the suspects in order are the step schedule on rays that graze a 2 km shell for hundreds
+   of kilometres, the equal-volume footprint being the wrong band limit for a tangential path,
+   and `GLOBE_PATTERN_LOD` being a hard-coded 2.0 with nothing tying it to the pixel.
+6. **CV6, CV7, CV8** — physical extinction end to end; advection on the game clock at the
    simulated wind; lighting coupled to the carved density.
-5. **The UX and mode work (MU1, MU2, WM1–WM3) and fog (FG1–FG3)**, then aerodynamics (AE1–AE5).
+7. **The rest of the UX and mode work (MU1, MU2, WM1–WM3) and fog (FG1–FG3)**, then aerodynamics
+   (AE1–AE5). On fog, as of 2026-08-02 it is **not** bound to meteorology: `FogParams` is authored
+   end to end and meteorology contributes exactly one scalar, `WeatherCoupling::fog_density_bias`,
+   added to the author's density in `VolumetricFogPass` and zero whenever no provider is
+   installed. It also has no horizontal field at all — the froxel volume is camera-frustum
+   aligned, so "foggy in the valley, clear on the ridge" is reachable today only through
+   hand-placed `FogVolume` primitives. FG1–FG3 is where that changes.
 
 #### Decisions the user has already made — treat as settled
 
@@ -1042,6 +1079,552 @@ Working constraints:
 inverted-Worley F1 standard deviation taken as ~0.18, which the shader cannot measure. They
 move **together**, keeping roughly a 2.5:1 ratio. `BILLOW_MAX_DISPLACE` exists so that a wrong
 estimate bounds the turret size instead of swallowing the coverage threshold.
+
+### Where this stands — 2026-08-02, fourteenth entry: the rings were a loop counter
+
+The bisection the thirteenth entry asked for came back clean and immediately useful: with
+`Clouds Enabled` cleared the globe is spotless, and with it set the rings are back at the same
+viewpoint. **The rings are cloud-path, the terrain is innocent**, and the user had already fixed
+what terrain issues there were.
+
+That narrows it enough to reason instead of guess, and the decisive observation is that the rings
+are concentric about the **sub-camera point**, not the pole. So they are contours of something
+that varies with angle from the nadir — equivalently, with the chord length a ray takes through
+the shell. Now go through everything in the march that is a function of distance from the eye,
+with the camera in orbit: `detail_fade` (14–42 km), `near_field` (16 km), `CARVE_END_METERS`
+(80 km), both step clamps (1 km and 60 km). **Every one of them is saturated** — the shell entry
+is a thousand kilometres away, so all of them return the same answer for every pixel on the disc.
+None of the pre-existing distance-driven machinery can draw a contour from orbit at all.
+
+One thing could, and it was added by the twelfth entry the same day: the budget coarsening,
+`exp2(0.5 * (real_samples - STEPS))`.
+
+`real_samples` is an **integer**. The step size therefore took discrete values, and two adjacent
+pixels whose rays landed on different overdraft counts marched at step sizes a factor of √2
+apart, which the accumulated density shows. The set of pixels sharing an overdraft count is a
+curve of constant chord length through the shell — a circle centred on the sub-camera point.
+Rings. And they concentrate toward the limb, because that is where the chord is long enough
+(~780 km grazing a 12 km shell) to overrun any tier's budget in the first place, which matches
+where they actually appear.
+
+**The general lesson is worth more than the fix: anything derived from a loop counter is
+quantised by construction, and a quantised quantity that varies smoothly across the frame is a
+visible contour unless something downstream smooths it.** A ray march has nothing downstream. The
+same statement covers mip level indices, iteration counts, and early-out depths — a whole family
+of "why is there a ring" bugs reduces to it.
+
+So the budget is a *distance* now, not a count. The natural step is geometric —
+`t_{n+1} = t_n * (1 + march_angular)` — so the distance at which `STEPS` of them would be spent
+is the closed form `t_0 * (1 + march_angular)^STEPS`, computed once before the loop and
+continuous in `t_0`. Past it the step scales by how far past it the sample is. Nothing integer
+appears anywhere in the step size, so no contour of any shape can form. Growth is quadratic
+overall (the natural step is already ∝ t and this multiplies by t again), so the remaining reach
+still falls in a few dozen samples. `real_samples` itself is deleted rather than left in place
+implying a limit nothing enforces.
+
+Not verified. The reasoning that no *other* distance-driven term can produce a camera-centred
+contour from orbit is solid, but "nothing else I found can do this" is weaker than a measurement.
+
+### Where this stands — 2026-08-02, thirteenth entry: the shell was a sphere, the planet was not
+
+The user, looking at the globe: *"wgs84 şeklinden bulut shaderları çok etkileniyor sanki, halka
+halka kesiklikler var"*. That reading was correct, and the mechanism is worth writing down
+because **the line that caused it is well-written, well-commented, and was right when it was
+written.**
+
+`Environment::planet_surface_reference_metres` is `length(observer_center)` — the observer's own
+geocentric radius — and its comment explains the choice: put altitude zero at the ground *under
+the camera*, because the naive alternative (the equatorial radius) is worth kilometres of air
+density at mid latitudes. For a scene that is a few hundred kilometres across, that is not just
+defensible, it is the better of the two available answers.
+
+Then PL1 made the cloud field planetary, and nobody went back to the assumption it invalidated.
+
+WGS84's geocentric radius runs 6 356 752 m at the pole to 6 378 137 m at the equator. A sphere
+fitted at one latitude is wrong by up to 21 km at another, and every cloud reader subtracted that
+sphere from a position to get the altitude a 1 300 m deck is placed against. With the observer at
+41° N the shell sits at ~6 368 900 m, so the ground is 9.2 km **above** it at the equator and
+12.1 km **below** it at the pole. The deck was buried underground across the tropics, stratospheric
+over the caps, and swept smoothly between the two — crossing every boundary in the deck stack on
+the way. Each crossing is a circle of constant latitude. Rings.
+
+This is the third time in this document that the same *shape* of failure has appeared: a bound
+that was true under the conditions it was derived for, silently carried into conditions that
+broke it. The eighth entry's approximation (an error bound on an input said nothing about a step
+function's output). The tenth entry's camera-frame lighting ("the angle differs by under a
+degree" — true until the march reached the whole globe). Now this one. **The recurring hazard is
+not bad reasoning, it is correct reasoning whose preconditions expired**, and the thing that
+expired them every time was the same event: the field's reach growing.
+
+#### Why the fix stayed small
+
+Fixing the *altitude* fixes everything downstream on its own:
+
+* The horizon gate takes the **ratio** of a radius to the surface radius, so it is right the
+  moment the altitude is. No separate correction.
+* The Bruneton LUTs are parameterised by altitude above their own spherical bottom, so handing
+  them a true altitude is strictly better than handing them a latitude-dependent error. The
+  atmosphere medium therefore **stays spherical deliberately** — that is the parameterisation,
+  not an oversight — and only the geometry became oblate.
+* The bake, light volume, shadow map and far-light passes are all parameterised in `height01` and
+  never convert a position at all, so they needed no change. The entire defect was reader-side.
+  That is the layering earning its keep: the bake says "at height fraction h the envelope is E"
+  and stays out of the argument about where h is.
+
+`cloud_planet_radius_at` and `cloud_ray_shell` live in `cloud_field_window.glsl` for the reason
+everything else in that file does — the view march and the panorama impostor must bound the *same*
+shell, or the impostor continues the sky at a different altitude than the march ended it at.
+
+#### Verified partially: "bir nebze düzeldi"
+
+The re-shoot after this landed improved the globe but did **not** clear the ring banding, which
+is the most informative result available: one ring family went and another stayed. The altitude
+fix is therefore real and not the whole story, and the remaining family has to be found rather
+than guessed at — four hypotheses had already been spent on this artifact by that point, which is
+three more than the evidence supported.
+
+What turned up while looking is that **the cloud path is not the only thing in this frame that
+generates concentric rings**, and the other candidate had not been considered at all:
+`terrain.vert:106` computes its CDLOD morph weight as `length(unmorphed)` against a per-node
+band, and positions are camera-relative, so that length is the distance from the eye. Morph
+bands are therefore **spherical shells about the camera**, which project onto the globe as
+circles centred on the sub-camera point — the same shape, from geometry that has nothing to do
+with clouds. The user's reading attributed the rings to the cloud shaders and that was reasonable
+given what changed recently, but it is not established.
+
+One toggle separates them completely: **Clouds Enabled off, same viewpoint.** Rings that survive
+are terrain and the cloud path is innocent. Rings that vanish are in the cloud path, and
+*Atmosphere Enabled* off with clouds on then separates a LUT-driven band from a field-driven one.
+Until that is run, anything written here about the remaining family would be a fifth guess.
+
+...and asking for that test is how the next bug surfaced: **the checkbox did not work.**
+`WeatherCloudscapeCompiler::compile` forced `clouds.enabled = true` and `RuntimeSimulation`
+assigns its result back over the environment every tick, so the author's click was overwritten
+before the next frame. The override predates WM-SEED, but it only ever ran under `Procedural`,
+which is not the mode anyone was in; making both modes install a provider switched it on
+everywhere. A regression caused by this document's own eleventh entry, found only because an
+unrelated experiment needed the control.
+
+Two things worth keeping from it. First, **the override was level-triggered to answer a
+edge-triggered question** — its reasoning ("a scene authored with clouds off would leave
+procedural weather invisible") is about the moment a scene loads, but it was enforced every tick,
+and per-tick it cannot distinguish an authored state from a decision made a second ago. Second,
+it is the second time in two days that a change to *who installs a provider* silently activated
+behaviour written for a narrower case; the first was Manual mode having no `WeatherField` at all.
+`IWeatherProvider`'s installation is load-bearing in ways its call sites do not advertise.
+
+#### The horizon is a separate problem, and it is not fixed
+
+The same round included `image12`: from low altitude the cloud near the horizon resolves into long
+thin radial streaks converging on the vanishing point. That is **not** this bug — at the
+observer's own latitude the old sphere was exact, and 138 km of horizon is 1.2° of arc, worth at
+most ~440 m of the 21 km error.
+
+The leading hypothesis is the windows' own geometry. They are flat axis-aligned XZ lattices with
+128 m horizontal texels and 32 vertical texels over the whole shell (~350 m each). A ray one
+degree below horizontal climbs 350 m in about 20 km, so it stays inside a single vertical texel
+row for tens of kilometres and returns a value that barely changes along that stretch — a streak.
+Adjacent rays fall into adjacent rows, and every such streak converges where the window's plane
+vanishes, which is the horizon. The carve, which is what would normally put structure back, is
+*correctly* band-limited to nothing out there (the equal-volume footprint at 100 km is ~700 m).
+
+If that is right then nothing is malfunctioning: the field's own resolution is simply showing
+through at the one incidence angle that maximises the path length per texel. It belongs with CV14
+and CV5/CV9 rather than being a defect with a local fix, and it is tracked separately. It has not
+been verified.
+
+### Where this stands — 2026-08-02, twelfth entry: the two edges the budget drew
+
+Two reports, one screenshot each, and they turned out to be the same *kind* of defect in two
+different passes: a resource limit implemented as a **domain** limit instead of a **resolution**
+limit. Both produced a boundary anchored to the observer rather than to anything in the world,
+which is the signature to recognise — an artifact that slides across the frame when the camera
+moves is almost never about what is in the world at that place.
+
+#### The march stopped instead of coarsening (CV16)
+
+`cloud.frag`'s loop ran `while (iter < max_iterations && real_samples < STEPS)`. When the sample
+budget ran out the ray simply ended, contributing nothing for whatever remained of its length.
+The user's words: *"kameraya yakın yerde bulut renderlanmaması hem büyük ölçekte hem küçük
+ölçekte hala var"* — and a second shot at 1 500 m showing a cloud mass sliced off along a hard
+line, with *"eğer sola doğru gidersem renderlanmayan kısım renderlanmaya başlıyor"*.
+
+That last clause is the diagnosis. A boundary that retreats as you approach it is a boundary
+that depends on the eye, and the only eye-dependent quantity in the march is how much budget a
+ray has spent by the time it gets somewhere.
+
+Why it hit the near field hardest is the part worth remembering: **the budget is charged per
+envelope sample, and the envelope is non-zero across far more sky than the carve ever fills.**
+The coarse probe answers "cloud may exist here", so ordinary clear-but-not-provably-empty air is
+charged the full price of a carve evaluation and returns nothing. Combined with the 20 m near
+step — which exists for good reasons and costs 25 samples over the first 500 m — the cheap
+tier's 48 samples were gone by about 1.2 km. Someone standing under a deck could see the horizon
+and not the air in front of their face.
+
+The fix is one line of principle: a cost bound degrades resolution, not reach. Past the budget
+the step coarsens rather than the march stopping. It is safe because the quadrature was already
+built for it — `carve_shape` integrates the threshold over the sample's own footprint and
+converges to the carve's exact mean yield as that footprint grows, which is the identical
+mechanism the `CARVE_END_METERS` hand-off rests on. So a coarsened sample is a low-resolution
+rendering of the cloud that is there, not its absence.
+
+**The first version of the coarsening was itself wrong, and the fourteenth entry is about how.**
+It scaled the step by `exp2(0.5 * (real_samples - STEPS))` — geometric in the number of samples
+already spent. Correct in magnitude, quantised in the worst possible variable. See below.
+
+#### The cloud resolve had nothing to evict history with (CV17)
+
+*"kamera hareket ederken shader bu şekilde trail bırakıyor. aşırı rahatsız edici."* The Low tier
+set `cloud_variance_clip = false`, and reading `cloud_taa.comp` it becomes clear that flag did
+not select a cheaper clip — it removed the clip entirely, leaving a plain EMA at up to 0.97
+feedback. The neighbourhood clip is the **only** mechanism in that resolve that ever rejects a
+stale sample, so without it reprojection error does not decay, it compounds over ~33 frames.
+
+This is a general trap in tiering temporal passes: a temporal filter is a feedback loop, and the
+rejection test is not a quality feature layered on top of it, it is the loop's stability
+condition. Cutting it does not make the tier cheaper and softer; it makes the tier divergent. The
+knob now chooses *which* rejection — 9-tap YCoCg variance clip, or a 5-tap cross min/max clamp on
+the cheap floor — and there is no setting that blends history unrejected.
+
+The second half was there under both settings: **alpha was never clipped at all.** This buffer's
+alpha is the march's transmittance and `CloudCompositePass` folds the sky through it, so an
+unbounded alpha history leaves a stale *silhouette* — a cloud-shaped hole in the sky with
+correctly resolved colour inside it. Clipping colour alone would have fixed the trail's hue and
+left its shape, which is the sort of half-fix that reads as "better" in a screenshot and is still
+wrong.
+
+#### Not yet verified
+
+None of this has been seen on screen. The march change is confident — the mechanism is plainly
+in the code and its signature matches the report exactly — but whether it is the *whole* of what
+image10 shows needs the re-shoot. If a hard azimuthal cut survives, the next suspects are the far
+window's square rim (a square centred on the camera reaches 131 km along an axis and 185 km along
+its diagonal, and the horizon at 1 500 m is ~138 km, so the corners cross it and the edges do
+not) and `max_iterations` running out on near-horizontal rays.
+
+### Where this stands — 2026-08-02, eleventh entry: WM-SEED, weather that is somewhere
+
+The user put our Earth next to Google Earth's. Ours: a uniformly milky sphere. Theirs: mostly
+*clear* ocean, with weather on it in discrete pieces. Then the instruction:
+
+> *"manual mod artık fair weather overcast ile değil seed ile belirlenecek. bu şekilde dünyanın
+> bir yeri bulutlu fırtınalı iken bir yeri tam olarak açık hava olacak."*
+
+**The defect was structural and it was hiding in a predicate.**
+`RuntimeSimulation::procedural_weather_enabled()` was literally
+`static_cast<bool>(weather_provider_)`. So "Manual" did not mean *a* provider — it meant **no
+provider**, and no provider means no published `WeatherField`, which means one hand-authored
+deck stack applied to every square metre of a planet. Every downstream symptom followed from
+that one line, and `StaticWeather` had been sitting in `weather_provider.hpp` since W4 for
+exactly this job, never installed, dead code. A boolean whose two states are "the system" and
+"the absence of the system" is not a mode, and it is worth noticing when one is written.
+
+The mode is named now, and both states install a provider. The distinction that replaced it is
+worth more than the one it removed — **placed** versus **grown**:
+
+* `SeededWeather` places it. Deterministic, defined at every point on the body, costs nothing to
+  run, and evolves in nothing but the season. That is not a weaker `ProceduralWeather`; it is
+  what an author who typed a seed asked for.
+* `ProceduralWeather` grows it. Evolves on its own, and resolves only the nest's 384 km.
+
+#### The zonal term is the half that costs nothing and does most of the work
+
+Most of what makes a photograph of Earth recognisable is a function of **latitude alone**: a
+cloudy ITCZ, startlingly clear subtropics under the descending branch of the Hadley cell, a
+cloudy midlatitude storm track, a moderate polar cap. Three Gaussians on a base land it near
+0.64 / **0.06** / 0.66 / 0.31 with ordinary midlatitudes at 0.30, and it needs no seed, no
+simulation and no data because it is the same every year.
+
+Those numbers were 0.72 / 0.32 / 0.76 / 0.51 when this shipped, taken from annual-mean **total
+cloud fraction** climatologies, and the user's first look at the result was "her yer bulutlu
+seedde, bulutlu olmayan yer yok mu?" — everywhere is cloudy, is there nowhere clear? They were
+right, and the mistake is worth keeping written down because nothing about it looks like a
+mistake: the numbers are accurate, sourced, and cited to the right measurement. They are simply
+*a different quantity from the one every consumer downstream reads them as*. Total cloud fraction
+counts sub-visual cirrus and broken fields that read as clear sky from orbit; the carve treats
+this value as the fraction of sky it fills with opaque, lit cloud. So the clearest place on the
+planet was drawn a third solid. **An error bound on a number says nothing if the units are
+wrong** — the same shape of failure as the eighth entry's approximation, arriving through
+dimensional analysis instead of through calculus.
+
+The subtropical minimum is the term that earns its place. It is why an orbital photograph has
+large, genuinely clear ocean in it — and a field without it reads as overcast everywhere no
+matter how anything else is tuned. Getting the *clear* right turned out to matter more than
+getting the cloudy right, which is the opposite of where the previous nine entries spent their
+effort.
+
+#### One definition, two evaluators, and why they could not be one
+
+The placement has two consumers on opposite sides of the render seam: the simulation samples it
+per column to publish the weather field the bake reads, and the cloud march samples it per step
+out past every baked window. The obvious answer — publish a global coverage texture — dies on a
+binding: `cloud.frag` has none free (2–6 are taken, 7–10 are named/reserved), and the bindless
+heap would drag a descriptor set into a pass that deliberately avoids one.
+
+So it is a **closed form**, and the centre list is the only thing that crosses: twelve
+directions and two scalars each. Both sides then evaluate the same function from the same
+numbers. That is not merely cheap, it is the correctness property — a bake and the field it
+fades into holding different opinions about where the weather is would show up as a seam at the
+far window's rim, which is the exact artefact PL1 was written to remove.
+
+The frame conversion lives on the host, in `publish_synoptic_field`, because the host is the
+only object holding both halves of it: the provider answers in latitude and longitude, the march
+has nothing but a radial in scene space, and `Environment::planet_body_axes` is the rotation
+between them. Twelve vectors once on the CPU, versus two inverse trigonometric functions per
+centre per march sample.
+
+#### What changed in the globe field, and why the noise had to become multiplicative
+
+`cloud_globe_envelope` was reading `cloud_deck_a[i].z` for its coverage. That value is compiled
+from the **camera's own column**, so using it out there restated the weather over the observer's
+head as the weather everywhere on the body — the uniformity bug, in the one place written to
+cure it.
+
+The mesoscale noise pattern stays, because the placement carries synoptic scale and a satellite
+image plainly has structure below it. But it is now a **multiplier** rather than an additive
+swing. An additive one cannot leave a sky clear: whatever the weather says, the noise veils half
+of it back over, and a subtropical high never reads as empty. A multiplier preserves zero.
+
+#### Named limits, honestly
+
+* **Nothing advects and nothing evolves.** A seeded sky is the same sky an hour later. That is
+  the definition of the mode, not a gap — but it does mean a seeded storm arrives nowhere.
+* **The cost is a loop per march sample.** Twelve dot products and twelve exponentials, and
+  `cloud_globe_envelope` can be called up to three times per sample (probe, envelope, light).
+  Hoisting it to one evaluation per sample is the first lever if the far field turns out
+  expensive; it was not done pre-emptively because it costs the call sites their independence.
+* **Procedural mode publishes no centres**, so from orbit it shows the zonal climatology and
+  nothing placed. That is truthful — a core resolving a 384 km nest genuinely does not know
+  whether it is raining on the far side of the planet — but the obvious next step is to *extract*
+  centres from T1's own pressure field, whose extrema are real highs and lows. A coarse lat/lon
+  scan at publish cadence would do it, and then the globe would show the simulated systems.
+* **Unverified by eye.** As with the last three entries.
+
+### Where this stands — 2026-08-02, tenth entry: the sun was where the camera was
+
+Two reports, one line of code:
+
+> *"kamera karanlığa girerse aydınlık taraftaki bulutlar kararıyor — oysaki o bulutlar ışık görüyor"*
+> *"bulutlar, LOD dahil, akşam güneş görmeyen yerlerde kayboluyor. bir nebze gözükmeli"*
+
+`cloud.frag` computed the solar zenith cosine once per pixel, in the **camera's** radial frame,
+and gated the direct beam on it:
+
+```glsl
+vec3 camera_up = normalize(-center);
+float mu_sun = dot(camera_up, sun);
+if (atmo_ray_sphere(deck_mid_radius, mu_sun, surface_radius) > 0.0)
+    sun_radiance = vec3(0.0);
+```
+
+So the question "is the sun up?" was asked once, about the observer, and its answer was applied
+to every cloud in the frame. Stand in your own shadow at sunset and the sunlit tops to the west
+go black with you. Look at the Earth from orbit and the whole globe is lit or unlit as one unit,
+with no terminator anywhere on the deck.
+
+**The interesting part is that the code argued for itself, and the argument was checkable.** It
+said the angle at the deck and the angle at the observer "differ by the deck's angular extent
+about the planet centre — under a degree for anything this march can reach — which is finer than
+the LUT resolves." Both clauses fail:
+
+* *"for anything this march can reach"* stopped being true earlier the same day. PL1 gave the
+  march the whole visible globe — tens of degrees of arc, with a real terminator inside the
+  frame. A change that widens a system's reach silently invalidates every bound stated in terms
+  of that reach, and this one was two entries above it in the same file.
+* *"finer than the LUT resolves"* was **never** true, and this is the part worth keeping. The LUT's
+  resolution is irrelevant when what consumes the angle is a **step function**. Near sunset the
+  gate's output changes by 1.0 across the degree the argument dismissed. An error bound on an
+  input says nothing about the output unless you also bound the derivative, and a discontinuity
+  has none. The approximation was exactly wrong at the only moment anyone looks at a sunset.
+
+The fix is per-sample solar geometry (`cloud_sun_at`), inside the `density > 0.001` branch so
+only samples that get shaded pay the fetch. The gate is softened across the Sun's angular radius
+— it is a disc, not a point, so a deck darkens over the half-degree its limb takes to set, and a
+hard test would draw the terminator across the cloud tops as a razor line, which is the one place
+on Earth nobody has ever seen one.
+
+**The Moon had the identical bug, and it is what emptied the night side.** The reflected-body
+loop gated each body on the *camera's* horizon, so from a daylit camera the Moon is below it,
+`continue` fires, and the one light the dark limb had was skipped for the entire frame. The sum
+is now accumulated ungated and cut off at each sample's own horizon, using the dominant body's
+direction — after sunset the ephemeris sorts the Moon first and it outweighs everything behind it
+by orders of magnitude, so one direction for the sum is accurate to well past what is visible.
+
+Skylight is the one term that stayed where it was, and deliberately: the sky-view LUT is a
+directional map of the *camera's own* sky and there is no honest way to ask it about a point a
+thousand kilometres away. The march adds back only the **difference** — `max(daylight(sample) −
+daylight(camera), 0)` against the same 2 % of the top-of-atmosphere beam `CLOUD_SKY_AMBIENT` was
+originally calibrated to. A sample no sunnier than the camera contributes exactly zero, so every
+view that was already right is bit-identical and the only thing this can change is the case that
+was wrong.
+
+**Unverified by eye.** One prediction worth checking against the next screenshot: the limb
+speckle (CV14 below) should get *better*, because a large part of it is the old code handing the
+full noon beam to samples past the terminator, where a saturated cloud sits against a dark limb
+and any density flicker reads as a firefly. If it does not improve, the cause is the step
+schedule on grazing rays and not the lighting.
+
+### Where this stands — 2026-08-02, ninth entry: the planet, and the yellow
+
+Four screenshots, and each answered a different question. Two from ~100 km looking down, two from
+low altitude looking up; Manual weather mode, fair-weather preset, Ultra.
+
+**PL1 — from orbit the sky was a box, and it was exactly the box the design predicted.** Both
+windows are camera-centred flat squares in world XZ (32 km and 262 km) that fade to nothing
+across their rim *by design*; `cloud_field_window.glsl` has carried the paragraph explaining why
+a flat prism is meaningless at planetary distance since it was written. What was missing was the
+thing that paragraph defers to — §7.5's coarse planet-scale far field — and nothing had ever
+been put there, so past 131 km the planet simply had no weather.
+
+What went in is deliberately the *cheap* form, and the reason is not effort: **there is no data
+to be finer with.** The nest is 384 km across and T1 runs on the host (§3.3), so anything
+detailed out there would be invention wearing the clothes of meteorology. So the planet-scale
+field is the deck stack's own envelope — the same authored or compiled sky both windows bake
+from, through the same `cloud_height_gradient` and the same union — modulated by a planetary
+pattern read from the carve volume along the sample's own geocentric unit vector. A unit vector
+into a seamlessly tiling volume needs no projection, so it has no rim to distort: that is the
+whole reason this can cover a sphere where a window cannot. Its dominant feature lands near
+300 km, the scale of a real synoptic cloud mass.
+
+Three consequences worth recording:
+
+* **The windows now fade *into* it rather than into nothing**, so the far rim is a hand-off. The
+  layers agree in the mean because they are built from the same decks; they differ only in the
+  structure the coarse one cannot know about, which is what a LOD hand-off should look like.
+* `cloud_height_gradient` moved into `cloud_field_window.glsl`. Two answers about where a deck's
+  top is would have shown as a step at the rim, and the bake and the march are now one answer.
+* **The skip guarantee weakens, and it is stated rather than quietly assumed.** Inside the
+  windows a zero probe *proves* a region empty (it is a max-pool, and the carve only removes).
+  The planet-scale field is a point evaluation, so out there the hop is a bound tied to the
+  pattern's own scale — a fortieth of a feature — not a proof. The near-field cone light march
+  is also gated to the near window now: past it the volume it refines does not exist, and each
+  call is twelve probes.
+
+**The yellow was a real bug, and a satisfying one.** From orbit the deck rendered saturated
+yellow, and closer in the whole frame went orange. `cloud_composite.frag` continues the view
+path past the froxel volume with Bruneton's ratio identity — `T(near→top) = T(near→far) ·
+T(far→top)` — which holds only while the near point's path to the top runs *through* the far
+point, i.e. while the ray climbs. Look down from orbit and the far point is the deeper one; the
+containment reverses and so must the quotient.
+
+Taking the wrong branch is not an inaccuracy. `transmittance_to_top` integrates the straight
+line from `r` along `mu` to the top *sphere*, with no planet in the way, so at a downward `mu`
+it marches through the body: the closest approach is `r·sqrt(1 − mu²)`, essentially the centre
+for a near-vertical look-down, and an exponential density profile evaluated below the surface is
+astronomically large. Both fetches underflow toward zero, they underflow by different amounts
+per wavelength — blue first, because Rayleigh — and their ratio is then an arbitrary saturated
+colour. Hence yellow, and hence *only* on the clouds: the ground reaches the frame through
+`sky.frag`, which never asks this question.
+
+It also explains something in the ground-level shots. For a slightly downward ray the wrong
+quotient exceeds one and clamps, which means near-horizon pixels were getting **no distance
+extinction at all** — part of the bright horizon slab that this document has blamed on the carve
+twice.
+
+**And the eighth entry's named lever got pulled the same day.** That entry chose the integration
+step as the carve's LOD footprint and wrote down the case that would overturn it. The orbital
+screenshots are that case: looking straight down, the ray crosses a 2 km deck almost
+perpendicular — so along-ray error is bounded by the deck's own thickness — while the lateral
+footprint on the deck is under a hundred metres. Band-limiting that to the step's kilometre
+erases the cloud field outright. The LOD now selects against `pow(lateral² · axial, 1/3)`, the
+equal-volume isotropic stand-in for the real anisotropic footprint, which lands near the step at
+the horizon and near the pixel from orbit. The ladder's Nyquist fade still uses the step alone,
+because that test genuinely is about the quadrature and not about the texture filter.
+
+**Still open after this, and both were confirmed by eye rather than argued:** the clouds do not
+read as cumulus at any distance (CV5+CV9 — flat lozenges, no vertical development, no mesoscale
+organisation), and the horizon still carries a bright slab, of which the aerial fix above
+addresses one contributor and not the rest.
+
+**One risk in this change that the next screenshot should be read for.** The planet-scale field
+puts cloud past 131 km where there was none, and from the ground that is precisely the horizon
+strip already under complaint. Two things should more than pay for it — the extinction those
+rays were not getting at all (above), and the fact that the far window already reached 131 km,
+so the slab was never coming only from beyond it — but the honest statement is that the horizon
+could read *more* solid rather than less, and if it does, the lever is that strip's extinction
+and step rule rather than removing the planet.
+
+### Where this stands — 2026-08-02, eighth entry: CV3, the LOD was band-limiting the wrong thing
+
+The complaint was *"berbat LOD, bulutları direkt beyaz render ediyor"*. There were two defects
+under it, and the second one is the interesting one because fixing only the first would have
+replaced a white far field with a flat grey one.
+
+**The floor was the LOD, and it was the wrong kind.** `cloud_density_carved` ended its scale
+selection with `carve_scale = max(carve_scale, footprint * 4)` — never carve a feature the
+march's own step cannot sample. The rule is right and the remedy was backwards: it keeps the
+sampler inside its Nyquist limit by *inflating the cloud*. At sixty kilometres the High tier's
+step is 1 200 m, so the floor is 4 800 m, and a five-kilometre blob at full solidity is fifteen
+optical depths across. That is not a badly-filtered cloud, it is a wall — which is exactly what
+"renders them white" describes.
+
+Underneath it, nothing was filtered at all. The march volume was created with `mipLevels = 1`
+and read through the shared `max_lod = 0` sampler, so a sample whose step spans a kilometre
+point-sampled an 18 m texel: sixty times faster than the sampler, with whichever peak the
+lattice landed on surviving the threshold at full amplitude. The taps were also implicit-LOD
+`texture()` calls, which a fragment shader resolves from screen-space derivatives — undefined
+inside the non-uniform control flow a ray march is made of. Every tap is now `textureLod` with a
+stated level.
+
+**Why a compute box filter and not `vkCmdBlitImage`.** The volume tiles under REPEAT addressing,
+so its filter has to wrap; a blit's clamps instead, and at the coarse levels *every* texel is a
+border texel, which would bake the tile seam into the chain. Because every extent is a power of
+two the wrap costs nothing to honour — the eight sources of a destination texel are exactly
+`2x + (0,1)³`, all in range — so `cloud_noise_mip.comp` is fifteen lines and states its filter
+rather than inheriting one.
+
+**The half that matters: a percentile threshold cannot be applied to a filtered field.**
+`coverage` selects the top `coverage` of a field that is uniform on [0, 1] — that uniformity is
+the CDF transform's whole purpose, and it is a property of the *unfiltered* field. Filtering
+narrows a distribution; by the coarse levels it is nearly a constant at 0.5, so a hard threshold
+against a filtered fetch answers "all cloud" or "no cloud" for a whole region, and the delivered
+coverage stops resembling the requested one. Band-limiting alone would have traded a white far
+field for a binary one.
+
+So the march evaluates the *expectation* of its ramp over the detail the filter removed, and the
+amount removed is not estimated. A mip level of a box chain is the conditional expectation of
+the field given its block — an orthogonal projection — so the variance decomposes with no cross
+term and the residual is exactly `Var(level 0) − Var(level l)`. `CloudNoise` measures it on the
+host from a one-time readback of the finest level (the bring-up submit already blocks on a
+fence) and pushes eight floats. The residual is modelled as uniform rather than Gaussian,
+because the field itself is, which also makes the convolution a closed form instead of an `erf`.
+
+Two properties are what make it worth the plumbing:
+
+* At zero spread it is bit-for-bit the previous ramp, so the near field is untouched by
+  construction rather than by tuning.
+* As the filter takes everything, the mean goes to 0.5 and the spread to the field's own, and
+  the result converges to `envelope · (1 − 1/(2·solidity))` = 0.8 of the envelope's water — the
+  same mass `CLOUD_ENVELOPE_MEAN_SHAPE` (0.75, the difference being the erosion, which has
+  faded out by 42 km) already tells every sun-depth integral in the frame to assume. So
+  `CARVE_END_METERS`'s hand-off to the statistical mean stops being a cross-fade between two
+  different answers and becomes purely a cost cut.
+
+**The rag octave is deliberately not faded out at distance, and the billow ladder still is.**
+They differ in their mean. The ladder is zero-mean, so fading it *is* its mean effect — and it
+must keep fading, because a fully filtered tap converges to the channel's true mean while the
+ladder subtracts `BILLOW_MEAN`, an estimate of it; the residual would be a uniform coverage
+shift across the whole far field instead of averaging out between neighbouring samples. The rag
+removes mass, so dropping it would make cloud undersides grow *denser* with distance — the same
+"brighter the further away" failure by another route. The mip fetch converges it to its mean
+bite on its own, which is the right limit and needs no fade.
+
+**The judgement call, stated so a screenshot can overturn it.** The LOD is selected against the
+*integration step*, not the pixel footprint, and the two differ by more than an order of
+magnitude (0.02 of the distance against ~0.001). The step is the defensible choice — the march
+is a quadrature and detail it cannot sample along the ray is not detail it can integrate — and
+it matters that past `JITTER_FREEZE_METERS` the dither is frozen on purpose, so quadrature error
+there is *not* averaged away and would read as stable structure that is not cloud. The cost is
+that individual cumuli dissolve into coverage past roughly 25–30 km, and the structure beyond
+that comes from the envelope — the nest's own cloud fraction, real weather at 2 km. If that
+reads too smooth, the levers are `steps_far` (more samples, so a finer footprint follows) and
+the equal-volume compromise `pow(lateral² · axial, 1/3)`; **not** the floor that was removed.
+
+One cost note, unmeasured: at distance a larger fraction of in-envelope samples now return a
+small non-zero density instead of exactly zero, so more of them take the shading path. The
+sample budget itself is unchanged — `real_samples < STEPS` still caps density evaluations — so
+the worst case is a ray spending its whole budget on lit samples, which was already the near
+thick-cloud case.
 
 ### Where this stands — 2026-08-01, seventh entry: the carve had the wrong sign
 

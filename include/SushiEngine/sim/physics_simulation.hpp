@@ -86,6 +86,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -593,11 +594,24 @@ namespace SushiEngine
                 bool joint_state(JointId joint, JointState& out) const override
                 {
                     const JointEntry* entry = find_joint(joint);
-                    if (entry == nullptr || !solver_)
+                    if (entry == nullptr)
                         return false;
                     Physics::JointConstraintT<T> solved;
-                    if (!solver_->read_joint(entry->handle, solved))
+                    // §16.44: a parked joint has no live handle to read, but its last
+                    // solved state is exactly what `parked` is holding onto for it.
+                    if (entry->handle.valid())
+                    {
+                        if (!solver_ || !solver_->read_joint(entry->handle, solved))
+                            return false;
+                    }
+                    else if (entry->parked.has_value())
+                    {
+                        solved = *entry->parked;
+                    }
+                    else
+                    {
                         return false;
+                    }
                     out.force = from_vector(Physics::joint_force(solved));
                     out.torque = from_vector(Physics::joint_torque(solved));
                     out.peak_force = Scalar(solved.peak_force);
@@ -608,8 +622,15 @@ namespace SushiEngine
                 /** @copydoc IJointService::set_joint_motor */
                 bool set_joint_motor(JointId joint, const JointMotorDesc& motor) override
                 {
-                    const JointEntry* entry = find_joint(joint);
+                    JointEntry* entry = find_joint_mutable(joint);
                     if (entry == nullptr || !solver_)
+                        return false;
+                    // §16.44: editing a parked joint is a disturbance exactly like
+                    // creating one, so it unparks first — a script that just told a
+                    // resting door's motor to open should see it open, not wait for
+                    // something else to wake the island.
+                    unpark_joint(*entry);
+                    if (!entry->handle.valid())
                         return false;
                     Physics::JointConstraintT<T> stored;
                     if (!solver_->read_joint(entry->handle, stored))
@@ -623,8 +644,12 @@ namespace SushiEngine
                                       const JointLimitDesc& twist,
                                       const JointLimitDesc& swing) override
                 {
-                    const JointEntry* entry = find_joint(joint);
+                    JointEntry* entry = find_joint_mutable(joint);
                     if (entry == nullptr || !solver_)
+                        return false;
+                    // §16.44, same reasoning as set_joint_motor above.
+                    unpark_joint(*entry);
+                    if (!entry->handle.valid())
                         return false;
                     Physics::JointConstraintT<T> stored;
                     if (!solver_->read_joint(entry->handle, stored))
@@ -809,7 +834,13 @@ namespace SushiEngine
                     step_soft_bodies(gravity, delta_time, floor);
                     timer.lap(stage_timings_.soft_body_ms);
 
-                    if (!solver_ || (rigid_.empty() && cloth_.empty()))
+                    // `vehicles_` belongs here too: a vehicle's bodies never pass through
+                    // `extract_rigid_bodies` (§5.5's boundary adds them straight to the
+                    // solver via `set_vehicles`), so a scene of nothing but a vehicle left
+                    // `rigid_` and `cloth_` both empty and this guard used to return before
+                    // gravity, the solve, or `step_vehicles_begin`/`_end` ever ran — a car
+                    // that neither fell nor revved its engine.
+                    if (!solver_ || (rigid_.empty() && cloth_.empty() && vehicles_.empty()))
                     {
                         const T soft_ms = stage_timings_.soft_body_ms;
                         statistics_ = Physics::PhysicsStatistics{};
@@ -875,6 +906,10 @@ namespace SushiEngine
                     // without it.
                     update_islands(delta_time);
                     timer.lap(stage_timings_.island_build_ms);
+                    // On this tick's just-written sleep decision, not last tick's —
+                    // §16.44, opt-in and off by default.
+                    if (park_sleeping_joints_)
+                        update_joint_parking();
                     // After the solve and after the poses came back, so an event
                     // reports where the contact ended up and what impulse it took —
                     // not where it was predicted to be before anything was resolved.
@@ -895,6 +930,12 @@ namespace SushiEngine
                 void set_profiling_requested(bool enabled) override
                 {
                     profiling_requested_ = enabled;
+                }
+
+                /** @copydoc IPhysicsStepper::set_park_sleeping_joints_requested */
+                void set_park_sleeping_joints_requested(bool enabled) override
+                {
+                    park_sleeping_joints_ = enabled;
                 }
 
                 // -- IContactEventService ------------------------------------------
@@ -1095,6 +1136,17 @@ namespace SushiEngine
                     Physics::JointHandle handle;
                     EntityId a = NULL_ENTITY;
                     EntityId b = NULL_ENTITY;
+
+                    /**
+                     * @brief The joint's full solved state while parked; empty while live.
+                     *
+                     * §16.44's park_sleeping_joints: set the tick a live joint's island
+                     * goes to sleep (its solver-side descriptor captured before removal,
+                     * so nothing — motor state, limits, peak load — is lost), cleared
+                     * the tick it wakes back into the solver. `handle.valid()` and
+                     * `parked.has_value()` are never both true.
+                     */
+                    std::optional<Physics::JointConstraintT<T>> parked;
                 };
 
                 /** @brief What a soft body was built from, for the rebuild comparison. */
@@ -1333,6 +1385,12 @@ namespace SushiEngine
                     configuration.capacities.constraints = 65536;
                     configuration.capacities.joints = 2048;
                     configuration.capacities.contacts = 16384;
+                    // Zero by default (configuration.hpp) because most scenes carry no
+                    // vehicles at all, but this boundary's whole job is to be the one
+                    // that does (§5.5) — a scene author who reaches for `set_vehicle_params`
+                    // must find a solver that actually has room for beams, the same way it
+                    // already has room for the joints their attachments need.
+                    configuration.capacities.beams = 8192;
                     configuration.capacities.colors = 16;
                     configuration.substeps.minimum = 4;
                     configuration.substeps.maximum = 16;
@@ -1348,6 +1406,7 @@ namespace SushiEngine
                     // about what "settled" means.
                     sleep_motion_threshold_ = configuration.sleep_motion_threshold;
                     sleep_delay_ = configuration.sleep_delay;
+                    continuous_advancement_budget_ = configuration.continuous_advancement_budget;
                     bodies_dirty_ = true;
                 }
 
@@ -1390,6 +1449,15 @@ namespace SushiEngine
                 const JointEntry* find_joint(JointId joint) const noexcept
                 {
                     for (const JointEntry& entry : joints_)
+                        if (entry.id == joint)
+                            return &entry;
+                    return nullptr;
+                }
+
+                /** @copydoc find_joint */
+                JointEntry* find_joint_mutable(JointId joint) noexcept
+                {
+                    for (JointEntry& entry : joints_)
                         if (entry.id == joint)
                             return &entry;
                     return nullptr;
@@ -2149,6 +2217,100 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief Drops a joint from the solve graph while its island sleeps.
+                 *
+                 * §16.44. Mirrors the exact condition `joint_projection.hpp` already
+                 * early-outs the projection on — `has_any_flag(a.flags | b.flags,
+                 * BodyFlags::sleeping)` — so this changes nothing about what the solve
+                 * computes: a joint is parked only when the kernel was already going to
+                 * do nothing for it, and a joint that was never going to do nothing
+                 * stays exactly as dispatched as it always was.
+                 *
+                 * Called after `update_islands` has written this tick's sleep decision,
+                 * so a joint that just settled parks the same tick rather than paying
+                 * one more dispatch first, and a joint whose island just woke unparks
+                 * before the very next `step()` needs it.
+                 */
+                void update_joint_parking()
+                {
+                    if (!solver_)
+                        return;
+                    for (JointEntry& entry : joints_)
+                    {
+                        if (entry.handle.valid())
+                        {
+                            Physics::JointConstraintT<T> descriptor;
+                            if (!solver_->read_joint(entry.handle, descriptor))
+                                continue;
+                            const bool at_rest = Physics::has_any_flag(
+                                bodies_[descriptor.a].flags | bodies_[descriptor.b].flags,
+                                Physics::BodyFlags::sleeping);
+                            if (!at_rest)
+                                continue;
+                            solver_->remove_joint(entry.handle);
+                            entry.handle = Physics::JointHandle{};
+                            entry.parked = descriptor;
+                        }
+                        else if (entry.parked.has_value())
+                        {
+                            const Physics::JointConstraintT<T> descriptor = *entry.parked;
+                            const bool at_rest = Physics::has_any_flag(
+                                bodies_[descriptor.a].flags | bodies_[descriptor.b].flags,
+                                Physics::BodyFlags::sleeping);
+                            if (at_rest)
+                                continue;
+                            const Physics::JointHandle restored =
+                                solver_->add_joint(descriptor);
+                            // A capacity overflow on the way back in is reported by
+                            // `add_joint` itself (`capacity_overflows`) and left parked
+                            // rather than dropped — a joint that cannot fit this tick is
+                            // not a joint that should cease to exist, and it tries again
+                            // on the next transition it observes.
+                            if (!restored.valid())
+                                continue;
+                            entry.handle = restored;
+                            entry.parked.reset();
+                        }
+                    }
+                }
+
+                /**
+                 * @brief Restores a parked joint to the solve graph, unconditionally.
+                 *
+                 * The waking half of a caller-driven disturbance — `create_joint`
+                 * already wakes both bodies rather than waiting for the tick to notice,
+                 * and an edit to a parked joint's motor or limits is the same kind of
+                 * disturbance: a door a script just told to open should open, not stay
+                 * parked until something else happens to wake its island.
+                 *
+                 * @param entry The parked entry to restore; a no-op if already live.
+                 */
+                void unpark_joint(JointEntry& entry)
+                {
+                    if (entry.handle.valid() || !entry.parked.has_value() || !solver_)
+                        return;
+                    const std::uint32_t a = entry.parked->a;
+                    const std::uint32_t b = entry.parked->b;
+                    const Physics::JointHandle restored = solver_->add_joint(*entry.parked);
+                    if (!restored.valid())
+                        return; // capacity overflow; stays parked, reported by add_joint
+                    entry.handle = restored;
+                    entry.parked.reset();
+
+                    // Re-adding the joint is not enough on its own: the projection's
+                    // early return reads a body's own sleeping flag, not whether it has
+                    // a live constraint, so the two ends must actually wake or the
+                    // freshly-live joint would dispatch and still do nothing.
+                    refresh_bodies();
+                    const std::size_t count = live_slot_count();
+                    if (a < count)
+                        Physics::wake_island(bodies_.data(), count, a, islands_);
+                    if (b < count)
+                        Physics::wake_island(bodies_.data(), count, b, islands_);
+                    write_every_body();
+                }
+
+                /**
                  * @brief Rebuilds or refreshes the contact broadphase from the poses.
                  *
                  * Rebuilt only when the membership changed; otherwise every proxy's
@@ -2359,6 +2521,8 @@ namespace SushiEngine
                     solver_->begin_contacts();
                     previous_.swap(current_);
                     current_.clear();
+                    continuous_escalations_this_tick_ = 0;
+                    continuous_advancement_skipped_this_tick_ = 0;
 
                     const T substep = delta_time / T(floor > 0 ? floor : 1);
                     // The two numbers that are properties of the *step* rather than of the
@@ -2435,8 +2599,16 @@ namespace SushiEngine
                         // advancement finds the exact time of impact by construction,
                         // so when it reports one it is trusted over tier 1's answer
                         // rather than only filling in for it.
-                        if (lhs.needs_conservative_advancement || rhs.needs_conservative_advancement)
+                        const bool wants_continuous_advancement =
+                            lhs.needs_conservative_advancement ||
+                            rhs.needs_conservative_advancement;
+                        if (wants_continuous_advancement &&
+                            continuous_escalations_this_tick_ >= continuous_advancement_budget_)
+                            ++continuous_advancement_skipped_this_tick_;
+                        if (wants_continuous_advancement &&
+                            continuous_escalations_this_tick_ < continuous_advancement_budget_)
                         {
+                            ++continuous_escalations_this_tick_;
                             const Vector3T<T> lhs_velocity = bodies_[lhs.slot].velocity;
                             const Vector3T<T> lhs_angular = bodies_[lhs.slot].angular_velocity;
                             const Vector3T<T> rhs_velocity =
@@ -2680,6 +2852,12 @@ namespace SushiEngine
                     // joints and not a running total. Assigned after the solver's
                     // statistics are copied in, because that copy would overwrite it.
                     statistics_.fracture_events = joint_events_.size();
+                    // §7.5 tier 2 runs on the host, in `submit_contacts`, entirely
+                    // outside the solver — so the solver's own copy above has nothing
+                    // to say about it and this was structurally always zero until now.
+                    statistics_.continuous_escalations = continuous_escalations_this_tick_;
+                    statistics_.continuous_advancement_skipped =
+                        continuous_advancement_skipped_this_tick_;
                 }
 
                 // -- The query side ------------------------------------------------
@@ -2815,6 +2993,24 @@ namespace SushiEngine
                 Physics::IslandSet islands_{};
                 T sleep_motion_threshold_ = T(0.01);
                 T sleep_delay_ = T(0.5);
+
+                // §7.5 tier 2's per-tick cap and its counter (§13.2 item 6, "budgets"),
+                // read by `refresh_statistics` and reset every `submit_contacts`.
+                std::size_t continuous_advancement_budget_ = 256;
+                std::size_t continuous_escalations_this_tick_ = 0;
+                // A pair that loses the budget keeps tier 1's manifold rather than
+                // being dropped (see `continuous_advancement_budget`'s own doc), so
+                // this is not an error count — it is what lets a caller measure
+                // whether the budget actually bound this tick, the same reason
+                // `FemFractureReport::elements_skipped` exists.
+                std::size_t continuous_advancement_skipped_this_tick_ = 0;
+
+                // §16.44's opt-in: a joint whose island is asleep is dropped from the
+                // solve graph rather than dispatched for its projection to early-out.
+                // A live toggle rather than solver-construction state like `profiling`
+                // — `update_joint_parking()` reads it fresh every tick, so there is no
+                // "before the scene first steps" window to hit.
+                bool park_sleeping_joints_ = false;
 
                 // The contact side: proxies numbered once per membership change, the
                 // hierarchy refreshed in place every tick, and the manifolds keyed by

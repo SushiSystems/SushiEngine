@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <system_error>
@@ -99,6 +100,34 @@ namespace SushiEngine
                                             "' as a rigged character.",
                                LogLevel::Warning);
                 }
+            }
+
+            // §8.1's per-asset override, one field: a checkbox that decides whether this
+            // asset has an opinion at all, and the value it holds when it does. Unchecked
+            // shows the project default, dimmed, rather than a blank — the same "what would
+            // this use" convention `pinned_int_row` (Bake panel) draws for pinned fields.
+            bool optional_bool_row(const char* label, std::optional<bool>& value,
+                                   bool project_default)
+            {
+                bool changed = false;
+                bool overridden = value.has_value();
+                ImGui::PushID(label);
+                if (ImGui::Checkbox("##override", &overridden))
+                {
+                    value = overridden ? std::optional<bool>(project_default) : std::nullopt;
+                    changed = true;
+                }
+                ImGui::SameLine();
+                bool shown = value.value_or(project_default);
+                ImGui::BeginDisabled(!overridden);
+                if (ImGui::Checkbox(label, &shown) && overridden)
+                {
+                    value = shown;
+                    changed = true;
+                }
+                ImGui::EndDisabled();
+                ImGui::PopID();
+                return changed;
             }
 
             // A file is opened into the text editor only when it looks textual; the
@@ -475,6 +504,10 @@ namespace SushiEngine
                             else
                                 open_with_default_app(entry.path());
                         }
+                        if (has_character_extension(entry.path()) &&
+                            context.cook_bake_state != nullptr &&
+                            ImGui::MenuItem("Cooking Override..."))
+                            context.cooking_override_target = path_string;
                         if (ImGui::MenuItem("Rename"))
                             context.renaming_project_path = path_string;
                         if (ImGui::MenuItem("Delete"))
@@ -529,6 +562,97 @@ namespace SushiEngine
 
             ImGui::EndChild();
             ImGui::End();
+        }
+
+        void draw_cooking_override_modal(EditorContext& context)
+        {
+            if (context.cooking_override_target.empty())
+                return;
+            if (context.cook_bake_state == nullptr)
+            {
+                context.cooking_override_target.clear();
+                return;
+            }
+
+            using Physics::Cooking::ImportProfileLibrary;
+            using Physics::Cooking::ImportProfileOverride;
+
+            // Reloaded whenever the target changes, not every frame — reading the working
+            // copy back out of the library each frame would discard whatever the artist is
+            // mid-edit on the moment the library's own default happens to redraw the modal.
+            static std::string loaded_for;
+            static ImportProfileOverride working;
+            ImportProfileLibrary& profiles = context.cook_bake_state->profiles();
+            if (loaded_for != context.cooking_override_target)
+            {
+                working = profiles.get_override(context.cooking_override_target);
+                loaded_for = context.cooking_override_target;
+            }
+
+            const char* popup_id = "Cooking Override";
+            ImGui::OpenPopup(popup_id);
+            if (ImGui::BeginPopupModal(popup_id, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            {
+                const auto& project = profiles.project_default().parameters;
+                ImGui::TextDisabled("%s", context.cooking_override_target.c_str());
+                ImGui::TextDisabled("What this asset says differs from the project default.");
+                ImGui::Separator();
+
+                bool fidelity_overridden = working.fidelity.has_value();
+                ImGui::PushID("fidelity");
+                if (ImGui::Checkbox("##override", &fidelity_overridden))
+                    working.fidelity = fidelity_overridden
+                                            ? std::optional<float>(project.fidelity)
+                                            : std::nullopt;
+                ImGui::SameLine();
+                float shown_fidelity = working.fidelity.value_or(project.fidelity);
+                ImGui::BeginDisabled(!fidelity_overridden);
+                ImGui::SetNextItemWidth(160.0f);
+                if (ImGui::SliderFloat("Fidelity", &shown_fidelity, 0.0f, 1.0f, "%.2f") &&
+                    fidelity_overridden)
+                    working.fidelity = shown_fidelity;
+                ImGui::EndDisabled();
+                ImGui::PopID();
+
+                optional_bool_row("Cook collision", working.cook_collision,
+                                  project.cook_collision);
+                optional_bool_row("Cook soft body", working.cook_soft_body,
+                                  project.cook_soft_body);
+                optional_bool_row("Cook node beam", working.cook_node_beam,
+                                  project.cook_node_beam);
+                optional_bool_row("Authored static", working.static_geometry,
+                                  project.static_geometry);
+
+                ImGui::Separator();
+                const bool close = [&]
+                {
+                    if (ImGui::Button("Apply"))
+                    {
+                        profiles.set_override(context.cooking_override_target, working);
+                        context.cook_bake_state->save_profiles();
+                        context.cook_bake_state->rebake(context.cooking_override_target);
+                        return true;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Clear Override"))
+                    {
+                        profiles.set_override(context.cooking_override_target,
+                                              ImportProfileOverride{});
+                        context.cook_bake_state->save_profiles();
+                        context.cook_bake_state->rebake(context.cooking_override_target);
+                        return true;
+                    }
+                    ImGui::SameLine();
+                    return ImGui::Button("Cancel");
+                }();
+                if (close)
+                {
+                    context.cooking_override_target.clear();
+                    loaded_for.clear();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndPopup();
+            }
         }
 
         namespace

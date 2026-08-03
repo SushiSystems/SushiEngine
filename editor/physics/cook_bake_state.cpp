@@ -24,12 +24,205 @@
 #include "cook_bake_state.hpp"
 
 #include <algorithm>
+#include <fstream>
 #include <utility>
+
+#include <nlohmann/json.hpp>
 
 namespace SushiEngine
 {
     namespace Editor
     {
+        namespace
+        {
+            using nlohmann::json;
+            using Physics::Cooking::CookingParameters;
+            using Physics::Cooking::CookingThresholds;
+            using Physics::Cooking::ImportProfile;
+            using Physics::Cooking::ImportProfileLibrary;
+            using Physics::Cooking::ImportProfileOverride;
+            using Physics::Cooking::NodeBeamCookerSettings;
+
+            // §16.45.3's storage format: everything the Bake panel and the Cooking Override
+            // modal can set, and nothing they cannot — `force_recook` is deliberately absent
+            // (it describes one press of a button, not a saved property, per its own doc
+            // comment on `ImportProfile`) and `DerivedCookingParameters` is never stored at
+            // all, since it is recomputed from `CookingParameters` on every read.
+
+            json cooking_parameters_to_json(const CookingParameters& p)
+            {
+                return json{{"fidelity", p.fidelity},
+                           {"voxel_resolution", p.voxel_resolution},
+                           {"target_tetrahedron_count", p.target_tetrahedron_count},
+                           {"simulation_level_count", p.simulation_level_count},
+                           {"convex_piece_count", p.convex_piece_count},
+                           {"distance_field_resolution", p.distance_field_resolution},
+                           {"surface_conforming_passes", p.surface_conforming_passes},
+                           {"suggested_substep_count", p.suggested_substep_count},
+                           {"hull_vertex_budget", p.hull_vertex_budget},
+                           {"weld_tolerance", p.weld_tolerance},
+                           {"density", p.density},
+                           {"accuracy_lattice_order", p.accuracy_lattice_order},
+                           {"cook_collision", p.cook_collision},
+                           {"cook_soft_body", p.cook_soft_body},
+                           {"cook_node_beam", p.cook_node_beam},
+                           {"static_geometry", p.static_geometry}};
+            }
+
+            CookingParameters cooking_parameters_from_json(const json& j)
+            {
+                CookingParameters p;
+                p.fidelity = j.value("fidelity", p.fidelity);
+                p.voxel_resolution = j.value("voxel_resolution", p.voxel_resolution);
+                p.target_tetrahedron_count =
+                    j.value("target_tetrahedron_count", p.target_tetrahedron_count);
+                p.simulation_level_count =
+                    j.value("simulation_level_count", p.simulation_level_count);
+                p.convex_piece_count = j.value("convex_piece_count", p.convex_piece_count);
+                p.distance_field_resolution =
+                    j.value("distance_field_resolution", p.distance_field_resolution);
+                p.surface_conforming_passes =
+                    j.value("surface_conforming_passes", p.surface_conforming_passes);
+                p.suggested_substep_count =
+                    j.value("suggested_substep_count", p.suggested_substep_count);
+                p.hull_vertex_budget = j.value("hull_vertex_budget", p.hull_vertex_budget);
+                p.weld_tolerance = j.value("weld_tolerance", p.weld_tolerance);
+                p.density = j.value("density", p.density);
+                p.accuracy_lattice_order =
+                    j.value("accuracy_lattice_order", p.accuracy_lattice_order);
+                p.cook_collision = j.value("cook_collision", p.cook_collision);
+                p.cook_soft_body = j.value("cook_soft_body", p.cook_soft_body);
+                p.cook_node_beam = j.value("cook_node_beam", p.cook_node_beam);
+                p.static_geometry = j.value("static_geometry", p.static_geometry);
+                return p;
+            }
+
+            json cooking_thresholds_to_json(const CookingThresholds& t)
+            {
+                return json{{"max_unembedded_vertices", t.max_unembedded_vertices},
+                           {"max_inverted_elements", t.max_inverted_elements},
+                           {"min_element_quality", t.min_element_quality},
+                           {"max_hausdorff_error", t.max_hausdorff_error},
+                           {"require_watertight_source", t.require_watertight_source}};
+            }
+
+            CookingThresholds cooking_thresholds_from_json(const json& j)
+            {
+                CookingThresholds t;
+                t.max_unembedded_vertices =
+                    j.value("max_unembedded_vertices", t.max_unembedded_vertices);
+                t.max_inverted_elements =
+                    j.value("max_inverted_elements", t.max_inverted_elements);
+                t.min_element_quality = j.value("min_element_quality", t.min_element_quality);
+                t.max_hausdorff_error = j.value("max_hausdorff_error", t.max_hausdorff_error);
+                t.require_watertight_source =
+                    j.value("require_watertight_source", t.require_watertight_source);
+                return t;
+            }
+
+            json node_beam_settings_to_json(const NodeBeamCookerSettings& s)
+            {
+                return json{
+                    {"material",
+                     json{{"young_modulus", double(s.material.young_modulus)},
+                          {"poisson_ratio", double(s.material.poisson_ratio)},
+                          {"density", double(s.material.density)},
+                          {"damping", double(s.material.damping)},
+                          {"yield_stress", double(s.material.yield_stress)},
+                          {"plastic_creep", double(s.material.plastic_creep)},
+                          {"maximum_plastic_strain", double(s.material.maximum_plastic_strain)},
+                          {"fracture_stress", double(s.material.fracture_stress)}}},
+                    {"core_mass_fraction", s.core_mass_fraction},
+                    {"structural_length_ratio", s.structural_length_ratio},
+                    {"skin_search_ratio", s.skin_search_ratio},
+                    {"attach_shell_to_core", s.attach_shell_to_core}};
+            }
+
+            NodeBeamCookerSettings node_beam_settings_from_json(const json& j)
+            {
+                NodeBeamCookerSettings s;
+                if (j.contains("material"))
+                {
+                    const json& m = j["material"];
+                    s.material.young_modulus =
+                        Scalar(m.value("young_modulus", double(s.material.young_modulus)));
+                    s.material.poisson_ratio =
+                        Scalar(m.value("poisson_ratio", double(s.material.poisson_ratio)));
+                    s.material.density = Scalar(m.value("density", double(s.material.density)));
+                    s.material.damping = Scalar(m.value("damping", double(s.material.damping)));
+                    s.material.yield_stress =
+                        Scalar(m.value("yield_stress", double(s.material.yield_stress)));
+                    s.material.plastic_creep =
+                        Scalar(m.value("plastic_creep", double(s.material.plastic_creep)));
+                    s.material.maximum_plastic_strain = Scalar(
+                        m.value("maximum_plastic_strain", double(s.material.maximum_plastic_strain)));
+                    s.material.fracture_stress =
+                        Scalar(m.value("fracture_stress", double(s.material.fracture_stress)));
+                }
+                s.core_mass_fraction = j.value("core_mass_fraction", s.core_mass_fraction);
+                s.structural_length_ratio =
+                    j.value("structural_length_ratio", s.structural_length_ratio);
+                s.skin_search_ratio = j.value("skin_search_ratio", s.skin_search_ratio);
+                s.attach_shell_to_core = j.value("attach_shell_to_core", s.attach_shell_to_core);
+                return s;
+            }
+
+            json import_profile_to_json(const ImportProfile& profile)
+            {
+                return json{{"parameters", cooking_parameters_to_json(profile.parameters)},
+                           {"thresholds", cooking_thresholds_to_json(profile.thresholds)},
+                           {"node_beam_settings",
+                            node_beam_settings_to_json(profile.node_beam_settings)}};
+            }
+
+            ImportProfile import_profile_from_json(const json& j)
+            {
+                ImportProfile profile;
+                if (j.contains("parameters"))
+                    profile.parameters = cooking_parameters_from_json(j["parameters"]);
+                if (j.contains("thresholds"))
+                    profile.thresholds = cooking_thresholds_from_json(j["thresholds"]);
+                if (j.contains("node_beam_settings"))
+                    profile.node_beam_settings =
+                        node_beam_settings_from_json(j["node_beam_settings"]);
+                return profile;
+            }
+
+            json import_profile_override_to_json(const ImportProfileOverride& o)
+            {
+                json j = json::object();
+                if (o.fidelity.has_value())
+                    j["fidelity"] = *o.fidelity;
+                if (o.cook_collision.has_value())
+                    j["cook_collision"] = *o.cook_collision;
+                if (o.cook_soft_body.has_value())
+                    j["cook_soft_body"] = *o.cook_soft_body;
+                if (o.cook_node_beam.has_value())
+                    j["cook_node_beam"] = *o.cook_node_beam;
+                if (o.static_geometry.has_value())
+                    j["static_geometry"] = *o.static_geometry;
+                return j;
+            }
+
+            ImportProfileOverride import_profile_override_from_json(const json& j)
+            {
+                ImportProfileOverride o;
+                if (j.contains("fidelity"))
+                    o.fidelity = j["fidelity"].get<float>();
+                if (j.contains("cook_collision"))
+                    o.cook_collision = j["cook_collision"].get<bool>();
+                if (j.contains("cook_soft_body"))
+                    o.cook_soft_body = j["cook_soft_body"].get<bool>();
+                if (j.contains("cook_node_beam"))
+                    o.cook_node_beam = j["cook_node_beam"].get<bool>();
+                if (j.contains("static_geometry"))
+                    o.static_geometry = j["static_geometry"].get<bool>();
+                return o;
+            }
+        } // namespace
+
+        using nlohmann::json;
+
         CookBakeState::CookBakeState(Physics::Cooking::MeshLoader loader,
                                      const std::string& cache_directory)
             : chain_(Physics::Cooking::MeshPostProcessorChain::with_shipped_processors())
@@ -54,6 +247,54 @@ namespace SushiEngine
             // The loader is moved into the service, which owns the worker that calls it.
             service_ = std::make_unique<Physics::Cooking::CookingService>(std::move(loader),
                                                                          chain_, store_.get());
+        }
+
+        bool CookBakeState::load_profiles()
+        {
+            if (profile_storage_path_.empty())
+                return true;
+            std::ifstream stream(profile_storage_path_, std::ios::binary);
+            if (!stream)
+                return true; // Nothing to load yet; not an error.
+
+            json document;
+            try
+            {
+                stream >> document;
+            }
+            catch (const json::parse_error&)
+            {
+                return false;
+            }
+
+            if (document.contains("project_default"))
+                profiles_.set_project_default(import_profile_from_json(document["project_default"]));
+            if (document.contains("overrides") && document["overrides"].is_object())
+            {
+                for (const auto& [asset_path, override_json] : document["overrides"].items())
+                    profiles_.set_override(asset_path,
+                                          import_profile_override_from_json(override_json));
+            }
+            return true;
+        }
+
+        bool CookBakeState::save_profiles() const
+        {
+            if (profile_storage_path_.empty())
+                return true;
+
+            json overrides = json::object();
+            for (const auto& [asset_path, override_values] : profiles_.overrides())
+                overrides[asset_path] = import_profile_override_to_json(override_values);
+
+            json document{{"project_default", import_profile_to_json(profiles_.project_default())},
+                         {"overrides", overrides}};
+
+            std::ofstream stream(profile_storage_path_, std::ios::binary | std::ios::trunc);
+            if (!stream)
+                return false;
+            stream << document.dump(2);
+            return static_cast<bool>(stream);
         }
 
         CookBakeState::~CookBakeState()
@@ -108,6 +349,13 @@ namespace SushiEngine
                 {
                     entry_value.soft_body_bytes = soft->bytes;
                     entry_value.soft_body_report = soft->report;
+                }
+                const Physics::Cooking::MeshPostProcessResult* node_beam =
+                    imported.product(Physics::Cooking::CookedAssetKind::NodeBeam);
+                if (node_beam != nullptr)
+                {
+                    entry_value.node_beam_bytes = node_beam->bytes;
+                    entry_value.node_beam_report = node_beam->report;
                 }
 
                 // One entry per asset, replaced in place: a re-cook of a crate should update

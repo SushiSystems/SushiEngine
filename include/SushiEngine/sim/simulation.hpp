@@ -550,6 +550,26 @@ namespace SushiEngine
             Scalar restitution = Scalar(0);
 
             /**
+             * @brief Reports overlaps instead of resolving them.
+             *
+             * `Physics::BodyFlags::trigger`, authored: the solver has carried this bit and
+             * eventing it (`ContactEvent::trigger`) since the collision system was built, but
+             * nothing authored one until now — a trigger volume was solvable and not placeable.
+             */
+            bool trigger = false;
+
+            /**
+             * @brief Opts this body in to conservative-advancement continuous collision.
+             *
+             * `Physics::BodyFlags::continuous_collision`, authored. For anything fast and
+             * thin enough to tunnel through a thin static collider in one substep — the
+             * budget for how many advancement sweeps this may cost is
+             * `PhysicsConfiguration::continuous_advancement_budget` (§16.45.1), a scene-wide
+             * setting, not per-body.
+             */
+            bool continuous_collision = false;
+
+            /**
              * @brief How this surface's friction combines with the one it touches.
              *
              * `Physics::MaterialCombineMode`'s underlying value: Average, Minimum, Multiply,
@@ -1115,27 +1135,47 @@ namespace SushiEngine
                 virtual void set_environment(const Render::Environment& environment) = 0;
 
                 /**
-                 * @brief Whether `Environment::clouds` is currently driven by procedural weather.
+                 * @brief Where this scene's weather comes from.
                  *
-                 * The W4 seam (`docs/slop/weather_and_clouds.md` §3): `IWeatherProvider`'s
-                 * `ProceduralWeather` implementation (T1+T2) compiles into `Cloudscape` every
-                 * tick when enabled, exactly where manual deck authoring already writes it, so
-                 * `CloudscapeCompilePass` (T3) sees no difference either way. Disabled by
-                 * default — a fresh scene keeps today's static manual-authoring behavior.
+                 * The W4 seam (`docs/slop/weather_and_clouds.md` §3): whichever
+                 * `IWeatherProvider` the mode selects compiles into `Environment::clouds` every
+                 * tick, exactly where manual deck authoring used to write it, so
+                 * `CloudscapeCompilePass` (T3) sees no difference between them.
+                 *
+                 * @see Simulation::WeatherMode, which carries the argument for why this is a
+                 *      mode rather than the boolean it replaced.
                  */
-                virtual bool procedural_weather_enabled() const noexcept = 0;
+                virtual WeatherMode weather_mode() const noexcept = 0;
 
                 /**
-                 * @brief Enables or disables procedural weather.
+                 * @brief Installs the provider the given mode calls for.
                  *
-                 * Enabling starts (or resumes) T1/T2 ticking and overwriting
-                 * `Environment::clouds` every tick; disabling leaves whatever `Cloudscape` was
-                 * last compiled in place as a plain, further hand-editable manual deck stack —
-                 * the Advanced section's existing controls keep working unmodified either way.
+                 * Switching modes replaces the provider outright rather than converting one into
+                 * the other: a placed sky and a grown one have no state in common, and pretending
+                 * otherwise would mean a seed that silently stopped meaning anything.
                  *
-                 * @param value Whether procedural weather should drive the sky after this call.
+                 * @param mode Where the weather should come from after this call.
                  */
-                virtual void set_procedural_weather_enabled(bool value) = 0;
+                virtual void set_weather_mode(WeatherMode mode) = 0;
+
+                /**
+                 * @brief The seed Manual mode places its weather from.
+                 *
+                 * Kept by the host across a mode switch, so leaving Manual and coming back
+                 * returns the same sky rather than a new one — a seed an author chose is a
+                 * decision, and losing it on a radio button would be a bug that reads as
+                 * randomness.
+                 */
+                virtual std::uint64_t weather_seed() const noexcept = 0;
+
+                /**
+                 * @brief Chooses the sky Manual mode places.
+                 *
+                 * Takes effect immediately in Manual and is remembered in Procedural.
+                 *
+                 * @param seed Any 64-bit value; identical seeds reproduce identical weather.
+                 */
+                virtual void set_weather_seed(std::uint64_t seed) = 0;
 
                 /**
                  * @brief The installed weather provider's authoring surface, or null.
@@ -2095,6 +2135,21 @@ namespace SushiEngine
                  * @param enabled Whether solvers built from now on collect timings.
                  */
                 virtual void set_physics_profiling(bool enabled) { (void)enabled; }
+
+                /**
+                 * @brief Requests that a joint whose island is asleep be dropped from
+                 * the physics solve graph rather than dispatched and left to its
+                 * projection's own early return (§16.44).
+                 *
+                 * Forwards to the physics stepper's request. Unlike @ref
+                 * set_physics_profiling this is a live toggle, not construction-time
+                 * state: it takes effect from the next tick. Off by default. Virtual
+                 * with a no-op default so a headless or physics-less implementation
+                 * ignores it harmlessly.
+                 *
+                 * @param enabled Whether a sleeping joint should be parked from now on.
+                 */
+                virtual void set_park_sleeping_joints(bool enabled) { (void)enabled; }
 
                 /** @brief The editor's read/write surface onto this world. */
                 virtual IWorldEditor& world() noexcept = 0;

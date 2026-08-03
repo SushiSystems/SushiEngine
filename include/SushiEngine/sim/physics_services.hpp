@@ -797,6 +797,24 @@ namespace SushiEngine
                  * @param enabled Whether solvers built from now on should collect timings.
                  */
                 virtual void set_profiling_requested(bool enabled) { (void)enabled; }
+
+                /**
+                 * @brief Requests that a joint whose island is asleep be dropped from
+                 * the solve graph rather than dispatched for its projection to early
+                 * out on the same sleeping check (§16.44).
+                 *
+                 * Unlike @ref set_profiling_requested this is a live toggle: parking
+                 * is simulation-tick state, not solver-construction state, so it takes
+                 * effect from the next `step()` rather than the next solver rebuild.
+                 * Off by default. Default implementation ignores the request, for
+                 * steppers with nothing to park.
+                 *
+                 * @param enabled Whether a sleeping joint should be parked from now on.
+                 */
+                virtual void set_park_sleeping_joints_requested(bool enabled)
+                {
+                    (void)enabled;
+                }
         };
 
         /**

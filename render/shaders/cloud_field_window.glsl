@@ -51,11 +51,118 @@
 // much cloud is there.
 const float CLOUD_ENVELOPE_MEAN_SHAPE = 0.75;
 
+// ---- Altitude on an oblate planet ----------------------------------------------------------
+//
+// The radius of the reference ellipsoid along a geocentric direction @p up. Every consumer that
+// turns a *position* into a cloud *altitude* must go through this, and the reason is a defect
+// that survived until the field went planetary.
+//
+// The shells are spheres of radius `Environment::planet_surface_reference_metres`, and that
+// value is `length(observer_center)` — **the observer's own geocentric radius**. Read its
+// comment and the intent is plain and, for a local scene, exactly right: it puts altitude zero
+// at the ground *under the camera*, which is worth kilometres of air density at mid latitudes
+// against the naive choice of the equatorial radius. It was written when a cloud shell only had
+// to be correct near the camera.
+//
+// PL1 made the shell planetary, and at that moment the assumption stopped holding anywhere but
+// under the observer. WGS84's geocentric radius runs from 6 356 752 m at the pole to 6 378 137 m
+// at the equator, so a sphere fitted at one latitude is wrong by up to 21 km at another — and
+// the reader subtracts it from a position to get an altitude that a 1 300 m deck is then placed
+// against. With the observer at 41° N the sphere sits at ~6 368 900 m, which puts the ground
+// 9.2 km *above* it at the equator and 12.1 km *below* it at the pole: the deck is buried
+// underground across the tropics and sitting in the stratosphere over the caps, sweeping
+// smoothly between the two and crossing every boundary in the deck stack on the way. Each
+// crossing is a circle of constant latitude. That is the reported ring banding, and it is why
+// it looked like "the WGS84 shape is affecting the cloud shaders" — it was.
+//
+// Fixing the altitude fixes everything downstream on its own, which is what makes this
+// containable: the horizon gate takes the *ratio* of a radius to the surface, so it is right as
+// soon as the altitude is, and the atmosphere LUTs are parameterised by altitude above their
+// own spherical bottom, so feeding them a true altitude is strictly better than feeding them a
+// latitude-dependent error. The Bruneton medium therefore deliberately stays spherical — that
+// is the parameterisation, not an oversight — and only the geometry becomes oblate.
+//
+// Exact rather than approximate, and cheap: a point r*up lies on x²/a² + y²/a² + z²/b² = 1 when
+// r²((1 - s²)/a² + s²/b²) = 1 for s = dot(up, pole). One dot product and one inverse square root.
+float cloud_planet_radius_at(vec3 up, vec3 pole, float semi_major, float semi_minor)
+{
+    float s = dot(up, pole);
+    float s2 = clamp(s * s, 0.0, 1.0);
+    float a2 = max(semi_major * semi_major, 1.0);
+    float b2 = max(semi_minor * semi_minor, 1.0);
+    return inversesqrt(max((1.0 - s2) / a2 + s2 / b2, 1e-30));
+}
+
+// The altitude of @p p above that ellipsoid, with its geocentric direction returned so a caller
+// that needs the local up (most of them do) does not normalise twice.
+float cloud_planet_altitude(vec3 p, vec3 center, vec3 pole, float semi_major, float semi_minor,
+                            out vec3 up)
+{
+    vec3 radial = p - center;
+    float radius = max(length(radial), 1.0);
+    up = radial / radius;
+    return radius - cloud_planet_radius_at(up, pole, semi_major, semi_minor);
+}
+
+// Where a ray enters and leaves a shell surface, on the usual `vec2(-1)`-on-a-miss contract, so
+// a march's bounds can be swapped from a sphere to the ellipsoid without its structure changing.
+// Shared for the same reason as everything else here: the view march and the panorama impostor
+// must bound the same shell, or the impostor continues the sky at a different altitude than the
+// march ends it at.
+//
+// The shell surfaces are the reference ellipsoid with both semi-axes offset by an altitude. That
+// is not the exact constant-altitude offset surface — a true offset of an ellipsoid is not an
+// ellipsoid — but the discrepancy is of order h*f, about 40 m at a 12 km shell top against
+// WGS84's flattening. Beside the 21 km the sphere it replaces was wrong by, the approximation is
+// not worth the closed form it would cost to avoid.
+vec2 cloud_ray_shell(vec3 ro, vec3 rd, vec3 c, float a, float b, vec3 pole)
+{
+    vec3 o = ro - c;
+    float o_ax = dot(o, pole);
+    vec3 o_rad = o - pole * o_ax;
+    float d_ax = dot(rd, pole);
+    vec3 d_rad = rd - pole * d_ax;
+    float inv_a2 = 1.0 / max(a * a, 1.0);
+    float inv_b2 = 1.0 / max(b * b, 1.0);
+    float qa = dot(d_rad, d_rad) * inv_a2 + d_ax * d_ax * inv_b2;
+    float qb = dot(o_rad, d_rad) * inv_a2 + o_ax * d_ax * inv_b2;
+    float qc = dot(o_rad, o_rad) * inv_a2 + o_ax * o_ax * inv_b2 - 1.0;
+    float h = qb * qb - qa * qc;
+    if (h < 0.0 || qa <= 0.0)
+        return vec2(-1.0, -1.0);
+    h = sqrt(h);
+    return vec2((-qb - h) / qa, (-qb + h) / qa);
+}
+
 // Decodes the field's water-amplitude channel (a): the in-cloud extinction multiplier,
 // stored at half scale so an authored density_scale of up to 2 survives the UNORM channel.
 float cloud_field_water(float encoded)
 {
     return encoded * 2.0;
+}
+
+// Prefixed so a shader may include this alongside its own `remap` without a redefinition;
+// every file that wants one already has one.
+float cloud_remap(float v, float a, float b, float c, float d)
+{
+    return c + (v - a) / (b - a) * (d - c);
+}
+
+// A deck's vertical profile: 0 at its base and top, 1 through its middle, with the shoulder
+// widths set by what kind of cloud it is. Lives here rather than in the bake because the
+// planet-scale far field (cloud.frag, §7.5) has to build the same envelope the bake would
+// have, for the part of the world no window covers — and an envelope that disagreed about
+// where a deck's top is would show as a step at the far window's rim.
+float cloud_height_gradient(float height01, float stratiform, float anvil)
+{
+    float cumuliform = clamp(cloud_remap(height01, 0.0, 0.15, 0.0, 1.0), 0.0, 1.0) *
+                       clamp(cloud_remap(height01, 0.55, 1.0, 1.0, 0.0), 0.0, 1.0);
+    float sheet = clamp(cloud_remap(height01, 0.0, 0.08, 0.0, 1.0), 0.0, 1.0) *
+                  clamp(cloud_remap(height01, 0.80, 1.0, 1.0, 0.0), 0.0, 1.0);
+    float tower = clamp(cloud_remap(height01, 0.0, 0.10, 0.0, 1.0), 0.0, 1.0) *
+                  clamp(cloud_remap(height01, 0.90, 1.0, 1.0, 0.0), 0.0, 1.0);
+    float g = mix(cumuliform, sheet, stratiform);
+    return mix(g, tower, anvil);
 }
 
 // Where the near window starts giving way to the far one, as a fraction of the way from the

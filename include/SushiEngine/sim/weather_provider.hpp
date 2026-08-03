@@ -50,6 +50,7 @@
 
 #include <SushiEngine/atmosphere/climatology.hpp>
 #include <SushiEngine/atmosphere/quasigeostrophic_core.hpp>
+#include <SushiEngine/atmosphere/synoptic_field.hpp>
 #include <SushiEngine/render/environment.hpp>
 #include <SushiEngine/sim/atmosphere_forcing_buffer.hpp>
 #include <SushiEngine/sim/season.hpp>
@@ -201,6 +202,29 @@ namespace SushiEngine
                  * a struct here would be this file guessing which.
                  */
                 virtual const Atmosphere::Climatology* climatology() const noexcept
+                {
+                    return nullptr;
+                }
+
+                /**
+                 * @brief This provider's planetary placement of weather, or null.
+                 *
+                 * The answer to "where on the *body* is it cloudy", which @ref publish_field
+                 * structurally cannot give: that lattice spans a few hundred kilometres, and a
+                 * camera in orbit sees ten thousand. `Render::SynopticFieldView` is where it
+                 * goes and `cloud.frag`'s planet-scale field is what reads it.
+                 *
+                 * **Null is the honest answer for a provider whose solution is regional**, not a
+                 * stub. A dynamical core resolving a 384 km nest genuinely does not know whether
+                 * it is raining on the far side of the planet, and saying so leaves the renderer
+                 * on the zonal climatology — which remains true of every body with an
+                 * atmosphere — instead of on invented structure.
+                 *
+                 * Geographic, deliberately: rotating it into the scene frame needs
+                 * `Environment::planet_body_axes`, which is the host's to know and not a
+                 * provider's.
+                 */
+                virtual const Atmosphere::SynopticField* synoptic_field() const noexcept
                 {
                     return nullptr;
                 }

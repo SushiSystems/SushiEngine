@@ -156,6 +156,9 @@ namespace SushiEngine
             // an unshifted index would collide with layer 0 and nothing else, silently.
             collider.filter.layer = std::uint32_t(1) << (params.layer & 31u);
             collider.filter.collides_with = params.collides_with;
+            collider.flags = (params.trigger ? Physics::BodyFlags::trigger : 0u) |
+                              (params.continuous_collision ? Physics::BodyFlags::continuous_collision
+                                                            : 0u);
             switch (params.kind)
             {
                 case PrimitiveKind::Sphere:

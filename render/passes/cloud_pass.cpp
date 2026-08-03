@@ -24,7 +24,9 @@
 #include "passes/cloud_pass.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "frame/frame_context.hpp"
 #include "graph/render_graph.hpp"
@@ -48,6 +50,16 @@ namespace SushiEngine
     {
         namespace Passes
         {
+            namespace
+            {
+                // How many mip levels of carve spread the push block carries. The march volume
+                // is 128^3, so eight levels reach 1^3 and nothing is truncated; the shader
+                // mirrors this as a vec4[2] and clamps its own indexing to the count actually
+                // pushed, so a volume with fewer levels is a legal configuration rather than a
+                // hazard.
+                constexpr std::size_t CARVE_SPREAD_CAPACITY = 8;
+            } // namespace
+
             CloudPass::CloudPass(Vulkan::VulkanDevice& device, Resources::ShaderLibrary& shaders,
                                  Resources::GraphicsPipelineFactory& pipelines,
                                  Scene::SceneLayout& layout, CloudscapeCompilePass& cloudscape,
@@ -164,7 +176,11 @@ namespace SushiEngine
                                      VK_IMAGE_LAYOUT_GENERAL);
                         // The precombined march noise volume the CloudsV2 analytic carve
                         // reads at every distance; see cloud.frag's cloud_density_carved.
-                        writer.image(4, noise_.march(), noise_.sampler());
+                        // Through its own sampler, which is the one allowed to reach the
+                        // volume's coarser levels — the shared one stops at level 0 and would
+                        // pin the carve to its finest detail at every distance, which is the
+                        // aliasing CV3 is about.
+                        writer.image(4, noise_.march(), noise_.march_sampler());
                         writer.image(5, light_volume_.view(), light_volume_.sampler(),
                                      VK_IMAGE_LAYOUT_GENERAL);
                         // The far window, in the last free per-pass image slot. It is where the
@@ -201,7 +217,9 @@ namespace SushiEngine
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
                         // The tier's march budget rides the shared push range's fragment
                         // bytes, which this fullscreen pass otherwise leaves unused. Mirrors
-                        // cloud.frag's CloudBudget block, byte for byte.
+                        // cloud.frag's CloudBudget block, byte for byte — including the two
+                        // padding words, which exist because the spread array is a vec4[2] and
+                        // std430 aligns it to sixteen.
                         struct
                         {
                             std::uint32_t steps_near;
@@ -209,11 +227,40 @@ namespace SushiEngine
                             std::uint32_t light_steps;
                             std::uint32_t light_taps;
                             std::uint32_t near_far_split;
+                            std::uint32_t carve_mip_count;
+                            // NDC per buffer row of this pass's own target, which is what the
+                            // carve turns into a sample's lateral world footprint. Taken from
+                            // the graph's own description of the target rather than
+                            // recomputing the tier's resolution scale, so the two can never
+                            // disagree about how big this buffer is.
+                            float pixel_ndc;
+                            std::uint32_t padding;
+                            // Per-mip standard deviation of the carve shape each level filtered
+                            // away, measured from the generated volume (CloudNoise::
+                            // measure_carve_spread). The march integrates its coverage
+                            // threshold over this instead of thresholding a filtered mean,
+                            // which is what keeps distant coverage correct rather than
+                            // all-or-nothing.
+                            float carve_spread[CARVE_SPREAD_CAPACITY];
                         } budget{frame.quality.cloud_primary_steps_near,
                                  frame.quality.cloud_primary_steps_far,
                                  frame.quality.cloud_light_steps,
                                  frame.quality.cloud_light_taps,
-                                 frame.quality.cloud_near_far_split ? 1u : 0u};
+                                 frame.quality.cloud_near_far_split ? 1u : 0u,
+                                 0u,
+                                 0.0f,
+                                 0u,
+                                 {}};
+
+                        const std::uint32_t cloud_height = std::max<std::uint32_t>(
+                            1u, context.texture_desc(frame.targets.cloud).height);
+                        budget.pixel_ndc = 2.0f / static_cast<float>(cloud_height);
+
+                        const std::vector<float>& spread = noise_.march_carve_spread();
+                        budget.carve_mip_count = static_cast<std::uint32_t>(
+                            std::min<std::size_t>(spread.size(), CARVE_SPREAD_CAPACITY));
+                        for (std::uint32_t level = 0; level < budget.carve_mip_count; ++level)
+                            budget.carve_spread[level] = spread[level];
                         // The shared push-constant range is declared VERTEX|FRAGMENT (see
                         // SceneLayout::MeshPushConstants), so a push touching any of its bytes
                         // must cover both stages even though only the fragment shader reads these.

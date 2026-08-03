@@ -51,6 +51,7 @@
 #include <SushiEngine/physics/cooking/cooking_service.hpp>
 #include <SushiEngine/physics/cooking/import_profile.hpp>
 #include <SushiEngine/physics/cooking/mesh_post_processor.hpp>
+#include <SushiEngine/physics/cooking/node_beam_asset.hpp>
 #include <SushiEngine/physics/cooking/soft_body_asset.hpp>
 
 namespace SushiEngine
@@ -81,11 +82,20 @@ namespace SushiEngine
             /** @brief Its report. */
             Physics::Cooking::CookingReport soft_body_report;
 
+            /** @brief The node-beam product, when one was produced. */
+            std::vector<std::byte> node_beam_bytes;
+
+            /** @brief Its report. */
+            Physics::Cooking::CookingReport node_beam_report;
+
             /** @brief Whether a collision asset exists to inspect or draw. */
             bool has_collision() const noexcept { return !collision_bytes.empty(); }
 
             /** @brief Whether a soft-body asset exists to inspect. */
             bool has_soft_body() const noexcept { return !soft_body_bytes.empty(); }
+
+            /** @brief Whether a node-beam asset exists to inspect. */
+            bool has_node_beam() const noexcept { return !node_beam_bytes.empty(); }
         };
 
         /**
@@ -115,6 +125,38 @@ namespace SushiEngine
 
             /** @brief The project default every asset without an override is cooked at. */
             Physics::Cooking::ImportProfileLibrary& profiles() noexcept { return profiles_; }
+
+            /**
+             * @brief Where the project's cooking profile is stored; empty means not persisted.
+             *
+             * Set once at startup, after the project root is known — which is after this
+             * object is constructed, hence a setter rather than a constructor parameter.
+             * `profiles()` returning a mutable reference means nothing here can intercept a
+             * write to record it automatically, so callers that mutate the profile (the Bake
+             * panel, the Cooking Override modal) call @ref save_profiles themselves once they
+             * are done, the same way they already call `set_project_default`/`set_override`.
+             *
+             * @param path The file to load from and save to.
+             */
+            void set_profile_storage_path(const std::string& path) { profile_storage_path_ = path; }
+
+            /**
+             * @brief Loads the project's cooking profile from its storage path.
+             *
+             * A no-op, succeeding, when no path is set or the file does not exist yet — a
+             * project that has never touched the Bake panel has nothing to load, and that is
+             * not a failure.
+             *
+             * @return False only when the path exists but could not be parsed.
+             */
+            bool load_profiles();
+
+            /**
+             * @brief Saves the project's cooking profile to its storage path.
+             * @return False when a path is set and the write failed; true (including a no-op)
+             *         otherwise.
+             */
+            bool save_profiles() const;
 
             /** @brief The project default, read-only. */
             const Physics::Cooking::ImportProfileLibrary& profiles() const noexcept
@@ -187,6 +229,7 @@ namespace SushiEngine
             void refresh_wireframe();
 
             Physics::Cooking::ImportProfileLibrary profiles_;
+            std::string profile_storage_path_;
             std::unique_ptr<Physics::Cooking::ICookedAssetStore> store_;
             Physics::Cooking::MeshPostProcessorChain chain_;
             std::unique_ptr<Physics::Cooking::CookingService> service_;

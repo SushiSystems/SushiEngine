@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <vector>
 
@@ -265,20 +266,30 @@ namespace SushiEngine
                     changed = true;
                 ImGui::BeginDisabled(!environment.clouds.enabled);
 
-                // Weather panel v2 (docs/slop/weather_and_clouds.md §6/§7 W4): Manual keeps
-                // today's static deck authoring; Procedural hands Environment::clouds to T1+T2
-                // (RuntimeSimulation compiles it fresh every tick) so the sky evolves on its own.
-                bool procedural = world->procedural_weather_enabled();
+                // Weather panel v2 (docs/slop/weather_and_clouds.md §6/§7 W4, and WM-SEED in
+                // docs/slop/atmosphere_system.md). Both modes install a provider now and the
+                // choice is about *where the sky comes from*: Manual places it from a seed,
+                // Procedural grows it in a dynamical core. Manual used to mean no provider at
+                // all, which is why an authored deck stack was applied to a whole planet.
+                using SushiEngine::Simulation::WeatherMode;
+                WeatherMode mode = world->weather_mode();
+                bool procedural = mode == WeatherMode::Procedural;
                 ImGui::SeparatorText("Weather Mode");
-                if (ImGui::RadioButton("Manual", !procedural))
+                if (ImGui::RadioButton("Manual (seed)", !procedural))
                 {
-                    world->set_procedural_weather_enabled(false);
+                    world->set_weather_mode(WeatherMode::Manual);
                     procedural = false;
                 }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Manual: a seed places a dozen pressure systems on a latitude "
+                        "climatology, over the whole planet. Somewhere is stormy, somewhere is "
+                        "completely clear, and the same seed always gives the same sky.\n\n"
+                        "Nothing evolves — that is what a chosen sky means.");
                 ImGui::SameLine();
                 if (ImGui::RadioButton("Procedural (T1+T2)", procedural))
                 {
-                    world->set_procedural_weather_enabled(true);
+                    world->set_weather_mode(WeatherMode::Procedural);
                     procedural = true;
                 }
                 if (ImGui::IsItemHovered())
@@ -290,31 +301,44 @@ namespace SushiEngine
                 const SushiEngine::Simulation::GeodeticPosition weather_observer{
                     environment.observer.latitude_radians, environment.observer.longitude_radians};
 
-                // Presets: in Manual mode, one click sets the whole sky (which decks, which
-                // genera, medium tuning) as before. In Procedural mode the same buttons instead
-                // inject an anomaly upstream in the global flow (design doc §6) -- the sky is not
-                // snapped to a fixed look, it evolves from that disturbance over the following
-                // minutes, and what arrives is whatever the disturbance grows into.
-                ImGui::SeparatorText("Preset");
-                for (int p = 0; p < SushiEngine::Render::WEATHER_PRESET_COUNT; ++p)
+                // The seed replaces the preset row in Manual mode, which is the whole of
+                // WM-SEED's user-facing change: a preset set one global sky, and one global sky
+                // is precisely what a planet does not have.
+                if (!procedural)
                 {
-                    SushiEngine::Render::WeatherPreset preset =
-                        static_cast<SushiEngine::Render::WeatherPreset>(p);
-                    if (p > 0)
-                        ImGui::SameLine();
-                    if (ImGui::Button(SushiEngine::Render::weather_preset_name(preset)))
+                    ImGui::SeparatorText("Seed");
+                    // Shown and edited as a signed int because ImGui has no unsigned 64-bit
+                    // scalar. Lossy above 2^31, and acceptable: this control exists for a
+                    // number an author types or steps, and a scene carrying a wider seed from
+                    // elsewhere keeps it until somebody edits *this field*, which is the point
+                    // at which they have chosen a new one anyway.
+                    int seed = static_cast<int>(world->weather_seed());
+                    if (ImGui::InputInt("Weather Seed", &seed))
+                        world->set_weather_seed(static_cast<std::uint64_t>(seed));
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reroll"))
+                        world->set_weather_seed(world->weather_seed() + 1);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "Re-places every pressure system. The weather where you are standing "
+                            "may not change much — most of the planet is not here.");
+                }
+                else
+                {
+                    // In Procedural mode the same buttons inject an anomaly upstream in the
+                    // global flow (design doc §6): the sky is not snapped to a fixed look, it
+                    // evolves from that disturbance over the following minutes, and what arrives
+                    // is whatever the disturbance grows into.
+                    ImGui::SeparatorText("Preset");
+                    for (int p = 0; p < SushiEngine::Render::WEATHER_PRESET_COUNT; ++p)
                     {
-                        if (procedural && world->weather_authoring() != nullptr)
-                        {
+                        SushiEngine::Render::WeatherPreset preset =
+                            static_cast<SushiEngine::Render::WeatherPreset>(p);
+                        if (p > 0)
+                            ImGui::SameLine();
+                        if (ImGui::Button(SushiEngine::Render::weather_preset_name(preset)) &&
+                            world->weather_authoring() != nullptr)
                             world->weather_authoring()->apply_preset(preset, weather_observer);
-                        }
-                        else
-                        {
-                            const bool was_enabled = environment.clouds.enabled;
-                            environment.clouds = SushiEngine::Render::cloud_weather_preset(preset);
-                            environment.clouds.enabled = was_enabled;
-                            changed = true;
-                        }
                     }
                 }
 
@@ -650,11 +674,15 @@ namespace SushiEngine
 
                 if (ImGui::TreeNode("Advanced"))
                 {
-                    if (procedural)
-                        ImGui::TextDisabled(
-                            "Deck editing is overwritten every tick while Procedural weather is "
-                            "active -- switch to Manual to hand-author decks. The medium below "
-                            "still applies: it describes the whole sky, not one column.");
+                    // True in *both* modes now. Manual used to be the mode with no provider, so
+                    // its decks survived being edited; it places weather from a seed today and
+                    // recompiles the stack from the local column every tick exactly as
+                    // Procedural does. Saying "switch to Manual to hand-author decks" would send
+                    // an author somewhere the same thing happens.
+                    ImGui::TextDisabled(
+                        "Deck editing is overwritten every tick: both weather modes compile this "
+                        "stack from the column under the camera. The medium below still applies "
+                        "-- it describes the whole sky, not one column.");
 
                     // The medium stays live under procedural weather. It used to be disabled
                     // along with the decks, which was right while WeatherCloudscapeCompiler's

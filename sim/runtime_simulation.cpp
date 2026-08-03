@@ -39,6 +39,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstddef>
 #include <cstdio>
 #include <fstream>
@@ -61,6 +62,7 @@
 #include <SushiEngine/sim/climatology_asset.hpp>
 #include <SushiEngine/sim/components.hpp>
 #include <SushiEngine/sim/physics_simulation.hpp>
+#include <SushiEngine/sim/seeded_weather.hpp>
 #include <SushiEngine/sim/simulation.hpp>
 #include <SushiEngine/sim/weather_cloudscape_compiler.hpp>
 #include <SushiEngine/sim/atmosphere_forcing_buffer.hpp>
@@ -130,6 +132,11 @@ namespace SushiEngine
                         world_.reserve<Transform, Orientation, Camera>(CHUNK_CAPACITY);
                         world_.reserve<Transform, Orientation, Tint, Camera>(CHUNK_CAPACITY);
                         register_systems();
+                        // Manual mode has a provider from the first frame. It used to have none
+                        // — "manual" was *defined* as the absence of one — which is what left an
+                        // authored deck stack applied uniformly to an entire planet with no way
+                        // for the sky to differ from one place to another.
+                        install_mode_provider();
                         extract(); // a valid (empty) snapshot before the first tick
                     }
 
@@ -173,6 +180,12 @@ namespace SushiEngine
                         // graph is next built (profiling is construction-time state).
                         if (physics_ != nullptr)
                             physics_->set_profiling_requested(enabled);
+                    }
+
+                    void set_park_sleeping_joints(bool enabled) override
+                    {
+                        if (physics_ != nullptr)
+                            physics_->set_park_sleeping_joints_requested(enabled);
                     }
 
                     IWorldEditor& world() noexcept override { return *this; }
@@ -552,11 +565,20 @@ namespace SushiEngine
 
                     void set_environment(const Render::Environment& value) override
                     {
+                        const double previous_radius = scene_.environment.planet.mean_radius();
                         scene_.environment = value;
                         // The observer epoch the environment carries seeds the master
                         // clock, so authoring the sky date or loading a scene sets the
                         // simulation's "now"; thereafter the sim owns and advances it.
                         julian_date_ = value.observer.julian_date;
+                        // A provider's tangent-plane maths is anchored to the body it was built
+                        // for, so a scene that swapped the dominant planet needs a new one.
+                        // Deliberately guarded rather than unconditional: this method runs on
+                        // every environment edit the editor makes, and rebuilding
+                        // `ProceduralWeather` on a colour-picker drag would throw away a
+                        // simulated atmosphere the author had been waiting on.
+                        if (scene_.environment.planet.mean_radius() != previous_radius)
+                            install_mode_provider();
                         extract();
                     }
 
@@ -576,6 +598,108 @@ namespace SushiEngine
                         weather_provider_ = std::move(provider);
                         weather_authoring_ =
                             dynamic_cast<IWeatherAuthoring*>(weather_provider_.get());
+                    }
+
+                    /**
+                     * @brief Builds and installs the provider the current mode calls for.
+                     *
+                     * The only place either concrete provider is constructed, so the two modes
+                     * cannot drift apart in what they are handed: both get the dominant body's
+                     * own radius (which anchors their tangent-plane maths to whatever the scene
+                     * is actually orbiting) and the scene's own epoch.
+                     */
+                    void install_mode_provider()
+                    {
+                        const double radius = scene_.environment.planet.mean_radius();
+                        if (weather_mode_ == WeatherMode::Manual)
+                        {
+                            install_weather_provider(std::make_unique<SeededWeather>(
+                                weather_seed_, radius, julian_date_));
+                            return;
+                        }
+
+                        // The mean state comes off disk if it is there. When it is not, the core
+                        // runs on analytic latitude bands, which is the mean state every
+                        // measurement before T0 existed was taken against -- a working
+                        // atmosphere, not a degraded one, and the same one a non-Earth body gets.
+                        // Nothing here fails over a missing asset. The epoch goes in too, so the
+                        // initial state is seeded for the season the scene actually opens in
+                        // rather than migrating into it over its first simulated weeks.
+                        auto provider = std::make_unique<ProceduralWeather>(
+                            weather_seed_, radius, load_climatology(), julian_date_);
+                        // Bound now rather than at the host's convenience: the mirror may have
+                        // been installed long before this provider existed, and a provider that
+                        // never learns about it would answer from the base state forever.
+                        provider->set_atmosphere_mirror(atmosphere_mirror_);
+                        install_weather_provider(std::move(provider));
+                        // Deliberately *not* switching the author's fog on. That nudge used to
+                        // exist so rain could be seen through something, and its cost was that
+                        // enabling weather silently added the full authored fog density to a
+                        // scene that had left fog off on purpose. VolumetricFogPass now runs on
+                        // the weather's own bias alone, so reduced visibility under rain still
+                        // shows up and an author who wanted no fog still has none.
+                    }
+
+                    /**
+                     * @brief Carries the installed provider's planetary placement to the renderer.
+                     *
+                     * The one frame conversion in this feature, and it lives here because this is
+                     * the only object that holds both sides of it: the provider answers in
+                     * geographic coordinates, the cloud march has nothing but a sample's radial
+                     * in scene space, and `Environment::planet_body_axes` — which the ephemeris
+                     * fills — is the rotation between them. Doing it once for twelve systems on
+                     * the host is also what keeps it out of the shader, where it would cost two
+                     * inverse trigonometric functions per system per march sample.
+                     *
+                     * `planet_body_axes` are the body-fixed basis vectors expressed in scene
+                     * space (the third *is* the pole), so a body-fixed direction reaches the
+                     * scene by the plain linear combination below. It is the exact inverse of the
+                     * projection `test_body_frame.cpp` reads an observer's own coordinates back
+                     * through, which is what pins the convention.
+                     */
+                    void publish_synoptic_field()
+                    {
+                        Render::SynopticFieldView view{};
+                        // Valid means "this body has an atmosphere with a latitudinal structure",
+                        // which is true wherever weather is running at all -- and is a different
+                        // statement from `count`, which is about whether anything is *placed*.
+                        view.valid = true;
+
+                        const Atmosphere::SynopticField* field =
+                            weather_provider_->synoptic_field();
+                        if (field == nullptr)
+                        {
+                            scene_.environment.synoptic = view;
+                            return;
+                        }
+
+                        const Vector3* axes = scene_.environment.planet_body_axes;
+                        view.itcz_latitude = static_cast<float>(field->itcz_latitude());
+                        view.count = std::min(field->count(), Render::SYNOPTIC_FIELD_MAX_CENTRES);
+                        for (int i = 0; i < view.count; ++i)
+                        {
+                            const Atmosphere::SynopticCentre& source = field->centres()[i];
+                            const double cos_latitude = std::cos(source.latitude_radians);
+                            const double body_x = cos_latitude * std::cos(source.longitude_radians);
+                            const double body_y = cos_latitude * std::sin(source.longitude_radians);
+                            const double body_z = std::sin(source.latitude_radians);
+                            const Vector3 direction{axes[0].x * body_x + axes[1].x * body_y +
+                                                        axes[2].x * body_z,
+                                                    axes[0].y * body_x + axes[1].y * body_y +
+                                                        axes[2].y * body_z,
+                                                    axes[0].z * body_x + axes[1].z * body_y +
+                                                        axes[2].z * body_z};
+
+                            Render::SynopticFieldCentre& out = view.centres[i];
+                            out.direction[0] = static_cast<float>(direction.x);
+                            out.direction[1] = static_cast<float>(direction.y);
+                            out.direction[2] = static_cast<float>(direction.z);
+                            out.falloff = static_cast<float>(source.falloff);
+                            out.amplitude = static_cast<float>(source.amplitude);
+                            out.convective = static_cast<float>(source.convective);
+                            out.precipitation = static_cast<float>(source.precipitation);
+                        }
+                        scene_.environment.synoptic = view;
                     }
 
                     /**
@@ -611,50 +735,30 @@ namespace SushiEngine
                             weather_provider_->set_atmosphere_mirror(mirror);
                     }
 
-                    bool procedural_weather_enabled() const noexcept override
+                    WeatherMode weather_mode() const noexcept override { return weather_mode_; }
+
+                    void set_weather_mode(WeatherMode mode) override
                     {
-                        return static_cast<bool>(weather_provider_);
+                        if (mode == weather_mode_ && weather_provider_)
+                            return;
+                        weather_mode_ = mode;
+                        install_mode_provider();
+                        extract();
                     }
 
-                    void set_procedural_weather_enabled(bool value) override
+                    std::uint64_t weather_seed() const noexcept override { return weather_seed_; }
+
+                    void set_weather_seed(std::uint64_t seed) override
                     {
-                        if (value == static_cast<bool>(weather_provider_))
+                        if (seed == weather_seed_)
                             return;
-                        if (value)
-                        {
-                            // A fixed default seed for this phase's wiring: the editor's Weather
-                            // panel v2 owns exposing a reseed control on top of this seam later.
-                            // The scene planet's mean radius anchors T1/T2's tangent-plane math to
-                            // whichever body is dominant, matching Environment::planet already.
-                            constexpr std::uint64_t DEFAULT_WEATHER_SEED = 1;
-                            // The mean state comes off disk if it is there. When it is not, the
-                            // core runs on analytic latitude bands, which is the mean state every
-                            // measurement before T0 existed was taken against -- a working
-                            // atmosphere, not a degraded one, and the same one a non-Earth body
-                            // gets. Nothing here fails over a missing asset.
-                            // The epoch goes in too, so the initial state is seeded for the
-                            // season the scene actually opens in rather than migrating into it
-                            // over its first simulated weeks.
-                            auto provider = std::make_unique<ProceduralWeather>(
-                                DEFAULT_WEATHER_SEED, scene_.environment.planet.mean_radius(),
-                                load_climatology(), julian_date_);
-                            // Bound now rather than at the host's convenience: the mirror may
-                            // have been installed long before this provider existed, and a
-                            // provider that never learns about it would answer from the base
-                            // state forever.
-                            provider->set_atmosphere_mirror(atmosphere_mirror_);
-                            install_weather_provider(std::move(provider));
-                            // Deliberately *not* switching the author's fog on. That nudge used
-                            // to exist so rain could be seen through something, and its cost was
-                            // that enabling weather silently added the full authored fog density
-                            // to a scene that had left fog off on purpose. VolumetricFogPass now
-                            // runs on the weather's own bias alone, so reduced visibility under
-                            // rain still shows up and an author who wanted no fog still has none.
-                        }
-                        else
-                        {
-                            install_weather_provider(nullptr);
-                        }
+                        weather_seed_ = seed;
+                        // Only Manual places its sky from this. Procedural remembers it — see
+                        // `ISimulation::weather_seed` for why losing it on a mode switch would
+                        // read as randomness rather than as a bug.
+                        if (weather_mode_ != WeatherMode::Manual)
+                            return;
+                        install_mode_provider();
                         extract();
                     }
 
@@ -3327,6 +3431,13 @@ namespace SushiEngine
                             weather_provider_->publish_field(observer, weather_field_buffer_);
                             scene_.environment.weather_field = weather_field_buffer_.view();
 
+                            // The planetary half. The field above is a lattice over a few
+                            // hundred kilometres, which is everything a baked window can see and
+                            // nothing a camera in orbit can; this is the same weather stated as
+                            // a closed form over the whole body, for the part of the cloud march
+                            // that runs past every baked window. See `Render::SynopticFieldView`.
+                            publish_synoptic_field();
+
                             // The parent solution the GPU nest's lateral boundary relaxes toward,
                             // plus the clock it steps on. This is the only channel the
                             // simulation's own time reaches the render tier through, and
@@ -4225,6 +4336,11 @@ namespace SushiEngine
                     // The installed provider's authoring capability, resolved once at install
                     // rather than re-queried per call; null when it has none.
                     IWeatherAuthoring* weather_authoring_ = nullptr;
+                    // Where the sky comes from, and the seed Manual places it from. The mode
+                    // decides which provider is installed; the seed is kept across a mode switch
+                    // so returning to Manual returns the same sky (ISimulation::weather_seed).
+                    WeatherMode weather_mode_ = WeatherMode::Manual;
+                    std::uint64_t weather_seed_ = 1;
                     // Storage behind Environment::weather_field, which borrows it (see
                     // Render::WeatherField). Owned here because this object outlives every frame
                     // whose environment can still be read.

@@ -56,6 +56,19 @@ namespace SushiEngine
         void draw_project_panel(EditorContext& context);
 
         /**
+         * @brief Draws the Cooking Override modal when @ref EditorContext::cooking_override_target
+         * names an asset.
+         *
+         * §8.1's per-asset half of the import profile — `ImportProfileOverride`, implemented
+         * and unit-tested since P4 but never reachable from a running editor until now. Called
+         * unconditionally every frame, matching `draw_save_scene_as_modal`'s own convention: it
+         * is a no-op whenever the target is empty.
+         *
+         * @param context Editor state; reads and clears @ref EditorContext::cooking_override_target.
+         */
+        void draw_cooking_override_modal(EditorContext& context);
+
+        /**
          * @brief Draws the Text Editor window hosting the open documents as tabs.
          * @param context Editor state; edits document buffers and saves them to disk.
          */

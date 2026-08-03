@@ -62,7 +62,10 @@ layout(set = 0, binding = 8) uniform TemporalBlock
 layout(push_constant) uniform Push
 {
     uint history_valid;  // 0 on the first bake or right after clouds were re-enabled
-    uint variance_clip;  // QualityParams::cloud_variance_clip: 0 on Low (plain EMA)
+    // QualityParams::cloud_variance_clip. Selects *which* neighbourhood rejection runs, not
+    // whether one does: 1 = the 9-tap YCoCg variance clip, 0 = the cheap 5-tap cross min/max
+    // clamp. There is no setting that blends history unrejected — see the note at the clip.
+    uint variance_clip;
 } push;
 
 // Standing in for design doc's gamma ~= 1.2 alongside the ordinary sigma-width clip: a
@@ -154,18 +157,48 @@ void main()
     vec3 current_ycocg = rgb_to_ycocg(current.rgb);
     vec3 history_ycocg = rgb_to_ycocg(history.rgb);
 
+    // ---- Neighbourhood rejection ---------------------------------------------------------
+    //
+    // Not optional at any tier. `variance_clip` used to switch this block off entirely on Low,
+    // leaving a plain EMA — and the clip is the *only* mechanism in this resolve that ever
+    // removes a stale sample from the history. Without it a reprojection error does not decay,
+    // it compounds: every frame folds up to 97 % of the previous answer forward, so a deck the
+    // camera has moved past persists for ~33 frames. That is the reported trail, and it is why
+    // it appeared under motion and nowhere else. Switching rejection off does not buy a
+    // cheaper, softer resolve; it buys a wrong one, in the most visible way available.
+    //
+    // The tier knob therefore now selects *which* rejection rather than *whether*: the 9-tap
+    // YCoCg variance clip above the cheap floor, and a 5-tap cross min/max clamp on it. The
+    // cross costs four taps of a texture already resident and bounds the history by the
+    // extremes actually present around the pixel, which is all that is needed to stop
+    // accumulation. Having no distribution model to widen it, it clips harder than the
+    // variance box — so the cheap tier trades a little temporal stability for a resolve that
+    // cannot smear, which is the right side of that trade to be on.
+    //
+    // **Alpha is clamped alongside the colour, in both paths.** It was previously blended with
+    // no rejection at all under either setting. This buffer's alpha is the march's
+    // transmittance and CloudCompositePass folds the sky through it, so an unbounded alpha
+    // history leaves a stale *silhouette* — a cloud-shaped hole in the sky with correctly
+    // resolved colour inside it. Clipping the colour alone would have fixed the trail's hue
+    // and left its shape.
+    float history_alpha = history.a;
     if (push.variance_clip != 0u)
     {
         vec3 moment1 = vec3(0.0);
         vec3 moment2 = vec3(0.0);
+        float alpha_min = current.a;
+        float alpha_max = current.a;
         for (int y = -1; y <= 1; ++y)
         {
             for (int x = -1; x <= 1; ++x)
             {
                 vec2 tap_uv = clamp(uv + vec2(x, y) * texel, vec2(0.0), vec2(1.0));
-                vec3 tap = rgb_to_ycocg(max(texture(cloud_color, tap_uv).rgb, vec3(0.0)));
+                vec4 tap_rgba = max(texture(cloud_color, tap_uv), vec4(0.0));
+                vec3 tap = rgb_to_ycocg(tap_rgba.rgb);
                 moment1 += tap;
                 moment2 += tap * tap;
+                alpha_min = min(alpha_min, tap_rgba.a);
+                alpha_max = max(alpha_max, tap_rgba.a);
             }
         }
         const float SAMPLE_COUNT = 9.0;
@@ -178,6 +211,35 @@ void main()
         vec3 magnitude = abs(unit);
         float largest = max(magnitude.x, max(magnitude.y, magnitude.z));
         history_ycocg = largest > 1.0 ? mean + offset / largest : history_ycocg;
+        history_alpha = clamp(history_alpha, alpha_min, alpha_max);
+    }
+    else
+    {
+        // The cheap floor's rejection: a cross rather than the full 3x3, since the diagonals
+        // add a third of the taps for the least new information about the local extremes.
+        vec3 box_min = current_ycocg;
+        vec3 box_max = current_ycocg;
+        float alpha_min = current.a;
+        float alpha_max = current.a;
+        // Written as four indexed steps off a single offset rather than a local const array,
+        // matching the rest of this shader set's avoidance of constructs that have historically
+        // needed per-driver goodwill. The compiler unrolls it either way.
+        for (int i = 0; i < 4; ++i)
+        {
+            vec2 offset = i == 0 ? vec2(-1.0, 0.0)
+                        : i == 1 ? vec2(1.0, 0.0)
+                        : i == 2 ? vec2(0.0, -1.0)
+                                 : vec2(0.0, 1.0);
+            vec2 tap_uv = clamp(uv + offset * texel, vec2(0.0), vec2(1.0));
+            vec4 tap_rgba = max(texture(cloud_color, tap_uv), vec4(0.0));
+            vec3 tap = rgb_to_ycocg(tap_rgba.rgb);
+            box_min = min(box_min, tap);
+            box_max = max(box_max, tap);
+            alpha_min = min(alpha_min, tap_rgba.a);
+            alpha_max = max(alpha_max, tap_rgba.a);
+        }
+        history_ycocg = clamp(history_ycocg, box_min, box_max);
+        history_alpha = clamp(history_alpha, alpha_min, alpha_max);
     }
 
     // History acceptance boosted under sub-pixel motion: a reprojection displacing less
@@ -193,7 +255,7 @@ void main()
 
     vec3 resolved_ycocg = mix(current_ycocg, history_ycocg, feedback);
     vec3 resolved = max(ycocg_to_rgb(resolved_ycocg), vec3(0.0));
-    float resolved_alpha = mix(current.a, history.a, feedback);
+    float resolved_alpha = mix(current.a, history_alpha, feedback);
 
     imageStore(out_color, pixel, vec4(resolved, resolved_alpha));
     imageStore(out_weight, pixel, vec4(new_weight));

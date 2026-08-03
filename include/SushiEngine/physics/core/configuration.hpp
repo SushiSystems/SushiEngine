@@ -223,6 +223,20 @@ namespace SushiEngine
 
             /** @brief Seconds below the threshold before a body actually sleeps. */
             T sleep_delay = T(0.5);
+
+            /**
+             * @brief Conservative-advancement sweeps (§7.5 tier 2) allowed in one tick.
+             *
+             * State-derived, not authored per body: any pair thin or fast enough to
+             * trip `needs_conservative_advancement` asks for the exact-time-of-impact
+             * sweep, and a scene of a thousand such bodies arriving at once should
+             * degrade to tier 1's speculative margin rather than spend an unbounded
+             * amount of the tick on tier 2 — the same reasoning `FemFractureBudget`
+             * states for fracture. A pair that loses the budget this tick is not
+             * dropped; it keeps tier 1's manifold, which is safe in the
+             * over-generation direction (§1.2) and simply less exact.
+             */
+            std::size_t continuous_advancement_budget = 256;
         };
 
         /** @brief The boundary configuration: `PhysicsConfigurationT` fixed to `Scalar`. */

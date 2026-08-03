@@ -45,6 +45,7 @@
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/render/atmosphere_nest.hpp>
 #include <SushiEngine/render/material.hpp>
+#include <SushiEngine/render/synoptic_field.hpp>
 #include <SushiEngine/render/weather_field.hpp>
 
 namespace SushiEngine
@@ -877,6 +878,17 @@ namespace SushiEngine
             GiParams gi;                 /**< Probe-volume global illumination. */
             PlanetParams surface;        /**< How the planet's ground shades. */
             Cloudscape clouds;           /**< The ray-marched, layered cloudscape. */
+            /**
+             * @brief Where the weather is over the whole body, for the march past every window.
+             *
+             * By value and tiny, unlike @ref weather_field below, and for a reason worth stating
+             * once: this is the *planetary* answer and that one is the *local* one. A baked
+             * cloudscape window is a few hundred kilometres across, so the field that feeds it
+             * can be a lattice; a camera in orbit sees ten thousand kilometres in one frame,
+             * where a lattice of any affordable size resolves nothing. The closed form is what
+             * covers that, and twelve pressure systems is all it takes to carry.
+             */
+            SynopticFieldView synoptic;
             WeatherCoupling weather;     /**< Weather-driven fog/turbidity/wetness/wind at the observer. */
             /**
              * @brief The spatial weather field the cloud march reads coverage from.
