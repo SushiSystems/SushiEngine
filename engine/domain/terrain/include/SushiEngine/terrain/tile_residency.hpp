@@ -27,7 +27,7 @@
  * @file tile_residency.hpp
  * @brief Which cache slot a node reads its heights from, and where inside it.
  *
- * The bookkeeping half of the tile cache (`docs/slop/solar_system_overhaul.md` §7.2),
+ * The bookkeeping half of the tile cache (`docs/design/solar_system_overhaul.md` §7.2),
  * kept away from the graphics API on purpose. Everything here is arithmetic — a slot
  * table, a least-recently-used clock, and the rectangle a node occupies inside whichever
  * tile actually answers for it — and none of it wants a device to be checked.

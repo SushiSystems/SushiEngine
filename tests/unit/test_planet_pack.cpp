@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Unit_PlanetPack: the baked terrain asset's format
-// (docs/slop/solar_system_overhaul.md §5.2), and the height source over it.
+// (docs/design/solar_system_overhaul.md §5.2), and the height source over it.
 //
 // Almost everything here is driven by *synthesized* bytes rather than by the shipped
 // asset, for the reason the climatology test gives for the same arrangement: a test that

@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Unit_BodyFrame: where a body's prime meridian is, and the rotation built on it
-// (docs/slop/solar_system_overhaul.md §9, §14).
+// (docs/design/solar_system_overhaul.md §9, §14).
 //
 // A body-fixed frame is easy to get plausibly wrong: pick the pole correctly, add the IAU
 // angle W to the wrong reference direction, and every check that only inspects the pole or

@@ -36,7 +36,7 @@
  * slower (a falling Doppler), as it shrinks it plays faster (a rising one). Modelling
  * a source's propagation as one delay line of length distance/c makes the Doppler fall
  * out for free and keeps the dry signal in sync with its reverb sends (see
- * `docs/slop/audio_system.md` §3.6, §5).
+ * `docs/design/audio_system.md` §3.6, §5).
  *
  * Allpass (Thiran) interpolation is reserved for magnitude-preserving feedback loops
  * and windowed-sinc for hero/offline resampling; cubic Lagrange is the moving-source

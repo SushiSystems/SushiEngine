@@ -255,7 +255,7 @@ int main()
             half_storage.narrow_from(half_storage_model);
         });
 
-    std::printf("soft_body_half_storage_budget: docs/slop/physics_system.md §6.5, second half\n");
+    std::printf("soft_body_half_storage_budget: docs/design/physics_system.md §6.5, second half\n");
     std::printf("  scene: %zu particles, %zu elements, %zu substeps, %d timed ticks\n",
                 scene.particles.size(), scene.elements.size(), SUBSTEPS, TIMED_TICKS);
     std::printf("\n");

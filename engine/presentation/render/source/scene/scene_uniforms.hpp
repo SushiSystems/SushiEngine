@@ -115,7 +115,7 @@ namespace SushiEngine
                  * follows. Appended after light_shadow_b so shaders reading only earlier
                  * fields keep their offsets.
                  *
-                 * Read by the cloudscape *bake* alone (`docs/slop/atmosphere_system.md` §7.4):
+                 * Read by the cloudscape *bake* alone (`docs/design/atmosphere_system.md` §7.4):
                  * the field is what the bake resolves a genus and a coverage from, per baked
                  * column, not a per-sample correction the march applies on top of a globally
                  * compiled deck stack.
@@ -257,7 +257,7 @@ namespace SushiEngine
              * @brief Switches off `sky.frag`'s analytic ellipsoid ground for this frame.
              *
              * The analytic ground is the fallback for a body with no baked terrain
-             * (`docs/slop/solar_system_overhaul.md` §10). When real terrain is drawing,
+             * (`docs/design/solar_system_overhaul.md` §10). When real terrain is drawing,
              * the two are not merely redundant — the reference ellipsoid would win every
              * pixel the real elevations dig *below* it, which on the Moon is two
              * kilometres of every mare.

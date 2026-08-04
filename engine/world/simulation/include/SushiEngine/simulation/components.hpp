@@ -143,7 +143,7 @@ namespace SushiEngine
         // → `Audio::AudioScene` → the voice manager), like the render extract reads
         // Transform/Tint. No fixed-step Schedule system reads or writes them, and the
         // extract only *reads* the world, so a deterministic run is byte-identical with
-        // audio on or off (`docs/slop/audio_system.md` §0, §9). Pose comes from
+        // audio on or off (`docs/design/audio_system.md` §0, §9). Pose comes from
         // Transform (+ Orientation for the listener's facing), the same columns the
         // renderer reads — an emitter is just an entity that also makes sound.
 

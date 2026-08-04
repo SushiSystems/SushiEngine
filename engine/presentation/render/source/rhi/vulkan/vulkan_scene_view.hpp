@@ -262,7 +262,7 @@ namespace SushiEngine
                     /**
                      * @brief Terrain's own descriptor set and the pipeline layout over it.
                      *
-                     * Set 0 is full (`docs/slop/solar_system_overhaul.md` §8.3), so terrain
+                     * Set 0 is full (`docs/design/solar_system_overhaul.md` §8.3), so terrain
                      * takes set 2 and builds its own pipeline layout around the scene's
                      * sets 0 and 1 — which is also why it must bind the bindless heap
                      * itself: Vulkan set compatibility requires identical push-constant

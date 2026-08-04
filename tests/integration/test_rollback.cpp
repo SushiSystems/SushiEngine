@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Integration_Rollback: SushiLoop M3's key invariant (docs/slop/SUSHILOOP.md) — a
+// Integration_Rollback: SushiLoop M3's key invariant (docs/design/SUSHILOOP.md) — a
 // rollback-and-replay must produce exactly the same result as an uninterrupted
 // simulation. One world runs straight through every tick as the baseline. A second
 // world runs the same recorded input stream and the same per-entity seeded RNGState,

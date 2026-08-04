@@ -34,7 +34,7 @@
  * attenuation for the current weather; the renderer does not run a full multi-band
  * filter per sample but instead reduces it to a one-pole low-pass whose corner falls
  * with distance (@ref air_absorption_cutoff), which is cheap and perceptually right
- * (see `docs/slop/audio_system.md` §5). @ref speed_of_sound feeds both the
+ * (see `docs/design/audio_system.md` §5). @ref speed_of_sound feeds both the
  * absorption and the propagation delay, so delay, Doppler, and dullness stay
  * consistent under the same temperature.
  */

@@ -28,7 +28,7 @@
  * @brief The ECS-facing half of the physics seam: entity <-> `Physics::RigidBody`.
  *
  * `physics/physics_world.hpp` deliberately knows nothing about the ECS (see
- * ARCHITECTURE.md §4.1); this file is the glue that lives on the other side of
+ * `docs/architecture/domain-physics.md` §1.1); this file is the glue that lives on the other side of
  * that seam, in `sim/` where a dependency on both `ecs/` and `physics/` is normal.
  * `PhysicsBody` names which of an entity's `PhysicsWorld` body a physics-driven
  * entity owns; `initial_rigid_body` builds that body's starting state from the

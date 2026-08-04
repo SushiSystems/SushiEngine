@@ -31,7 +31,7 @@
  * is written to `Render::Environment::clouds` exactly where manual authoring already writes
  * it (see `RuntimeSimulation`), so nothing downstream branches on where the sky came from.
  *
- * **What it stopped being.** Until `docs/slop/atmosphere_system.md` §7.4 it was the sole
+ * **What it stopped being.** Until `docs/design/atmosphere_system.md` §7.4 it was the sole
  * answer to "what is in the sky": one column, compiled into one deck stack, instantiated
  * everywhere. It is not that any more — when the published field classifies
  * (`Render::WeatherField::derives_genus`) the cloudscape bake resolves a genus and a
@@ -72,7 +72,7 @@ namespace SushiEngine
                  *
                  * @p medium is carried through untouched apart from the decks and
                  * `evolution_rate`, rather than being discarded for a default-constructed
-                 * `Cloudscape`. Per `docs/slop/atmosphere_system.md` §7.4 the decks do not
+                 * `Cloudscape`. Per `docs/design/atmosphere_system.md` §7.4 the decks do not
                  * decide what a march sample finds, so the scattering knobs, the ground-shadow
                  * strength and the erosion scale are the whole of the authored control over
                  * the look, and resetting them every tick would make them uneditable in the
@@ -153,7 +153,7 @@ namespace SushiEngine
                     // The design doc's ask: "the dead evolution_rate uniform becomes the
                     // synoptic advance multiplier" (§5.1). W0 already wired the shader side to
                     // scroll the erosion detail sample by this value every frame
-                    // (docs/slop/weather_and_clouds.md's W0 CHANGELOG entry); that consumption is
+                    // (docs/design/weather_and_clouds.md's W0 CHANGELOG entry); that consumption is
                     // unchanged here — only the *source* of the value changes, from an
                     // author-set constant to T1/T2's own activity, so weather visibly churns
                     // faster under a strong, windy, convective sky than a calm one.
@@ -167,7 +167,7 @@ namespace SushiEngine
             private:
                 // The genus choice itself lives in `Render::classify_cloud_genus`, not here.
                 // Hard-coding it here as an `if` chain is the OCP finding
-                // docs/slop/atmosphere_system.md §1.6 records against this class, and the
+                // docs/design/atmosphere_system.md §1.6 records against this class, and the
                 // cloudscape bake resolves a genus per baked column on the GPU (§7.4) — two
                 // copies of the same thresholds, one in C++ and one in GLSL, would eventually
                 // label a column as one genus and render it as another.

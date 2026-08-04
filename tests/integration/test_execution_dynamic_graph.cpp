@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// P8's "one DynamicGraph region per island" (docs/slop/physics_system.md §6.6, §18 R3)
+// P8's "one DynamicGraph region per island" (docs/design/physics_system.md §6.6, §18 R3)
 // leans on the execution seam's region wrappers, which the physics nodes themselves do
 // not use: they build against Execution::Graph. This is the seam-level proof that
 // Execution::DynamicGraph/Execution::Region behave the way RuntimeGraphBuilder's

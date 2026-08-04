@@ -1,11 +1,12 @@
 # Solar System Overhaul — real planetary terrain, from a metre to orbit
 
-**Status:** designed 2026-08-01, unbuilt. This document specifies the terrain and surface regime for
-every body in the solar system: where the elevation comes from, how it reaches the GPU, how it is
-drawn seamlessly from human scale to orbital distance, how it is collided with, how it is *edited*
-at run time, and what it publishes to the systems that have been waiting on it. Design authority
-for this pass was delegated by the owner on 2026-08-01, along with ten scoping decisions recorded
-in §0.2.
+**Status:** designed, 2026-08-01; unbuilt.
+
+This document specifies the terrain and surface regime for every body in the solar system: where the
+elevation comes from, how it reaches the GPU, how it is drawn seamlessly from human scale to orbital
+distance, how it is collided with, how it is *edited* at run time, and what it publishes to the
+systems that have been waiting on it. Design authority for this pass was delegated by the owner on
+2026-08-01, along with ten scoping decisions recorded in §0.2.
 
 **Companion documents.** `atmosphere_system.md` (§15's recorded blocker — *"no terrain height field
 exists in the engine"* — is discharged by §14 here; §16's surface-property provider is §14.2);
@@ -24,14 +25,14 @@ A planet is a **cube-sphere quadtree of height tiles**, baked once from public e
 `se planet bake` and *compiled* per node at run time into a fixed pool of GPU slots. The compile
 step is where a base tile, an ordered stack of edit layers, and synthesized sub-Nyquist detail
 become one height field — which is what makes terrain editable at run time without a second
-pipeline, and what makes a crater, a road cut, and a dam the same mechanism. Geometry is CDLOD:
-one 33×33 grid mesh, instanced once per visible node, morphed per vertex so there are no cracks
-and no popping, and projected onto the ellipsoid through a **cancellation-free difference form**
-(§9) that holds sub-millimetre accuracy at depth 20 without a single double on the GPU. The
-authoritative height — the one physics and the server evaluate — is plain C++ over the same base
-and the same layers, with no GPU in the loop, because the server has no GPU and the atmosphere's
-nest runs headless. Everything below the data's resolution is synthesis, everything at or above it
-is measurement, and the document never blurs which is which.
+pipeline, and what makes a crater, a road cut, and a dam the same mechanism. Geometry is CDLOD: one
+33×33 grid mesh, instanced once per visible node, morphed per vertex so there are no cracks and no
+popping, and projected onto the ellipsoid through a **cancellation-free difference form** (§9) that
+holds sub-millimetre accuracy at depth 20 without a single double on the GPU. The authoritative
+height — the one physics and the server evaluate — is plain C++ over the same base and the same
+layers, with no GPU in the loop, because the server has no GPU and the atmosphere's nest runs
+headless. Everything below the data's resolution is synthesis, everything at or above it is
+measurement, and the document never blurs which is which.
 
 ### 0.2 The ten decisions
 
@@ -59,11 +60,11 @@ capability the engine does not have or duplicates one it does.
 
 **G1 — There is no terrain, and the absence is already a recorded blocker.** `PlanetParams`
 (`render/environment.hpp:189`) is two colours and a roughness; `sky.frag`'s `surface_albedo`
-(`render/shaders/sky.frag:298`) paints a body from noise and its pole, and `relief_normal`
-(`:321`) fakes relief by perturbing a normal. `atmosphere_system.md` §15 names this exactly:
-*"Blocker: no terrain height field exists in the engine … Orography, surface type, valley fog,
-föhn, rain shadows, and terrain-driven turbulence — all of Phase D and part of Phase B's surface
-model — cannot start until the terrain system provides one."*
+(`render/shaders/sky.frag:298`) paints a body from noise and its pole, and `relief_normal` (`:321`)
+fakes relief by perturbing a normal. `atmosphere_system.md` §15 names this exactly: *"Blocker: no
+terrain height field exists in the engine … Orography, surface type, valley fog, föhn, rain shadows,
+and terrain-driven turbulence — all of Phase D and part of Phase B's surface model — cannot start
+until the terrain system provides one."*
 
 **G2 — The body LOD ladder is already declared, and its two near rungs are empty.**
 `Render::BodyLod` (`render/environment.hpp:697`) is `Point → Disk → Impostor → Mesh → Surface`, and
@@ -74,18 +75,18 @@ off past the hand-off. Terrain does not invent a regime; it fills two declared o
 
 **G3 — The frame stack for standing on an arbitrary body is complete and body-parametric.**
 `astro/surface_frame.hpp` supplies `geodetic_to_body_fixed`, `body_fixed_to_geodetic`,
-`geodetic_normal`, and `local_tangent_basis` for any catalogued body;
-`astro/body_orientation.hpp` supplies the IAU spin `W(t)`; `ARCHITECTURE.md` §5.2's three
-coordinate spaces (solar / planet / local) and the sphere-of-influence rebase already exist. Terrain
-consumes this and adds no frame of its own.
+`geodetic_normal`, and `local_tangent_basis` for any catalogued body; `astro/body_orientation.hpp`
+supplies the IAU spin `W(t)`; `docs/architecture/domain-astro.md` §1's three coordinate spaces
+(solar / planet / local) and the sphere-of-influence rebase already exist. Terrain consumes this and
+adds no frame of its own.
 
 **G4 — The renderer is a Vulkan 1.4 frame graph with a bindless heap, and its per-frame descriptor
-set is full.** `render/graph/render_graph.hpp` derives barriers, aliasing, culling, and async-compute
-submissions from declarations. `Scene::SceneLayout` (`render/scene/scene_layout.hpp`) is set 0 with
-**32 bindings, all named** — `POST_BINDING = 31` is documented as *"the last frame-global binding the
-guaranteed 32-entry push set has room for."* Terrain therefore **cannot** add a frame-global binding;
-it takes its own set 2, exactly as the GPU-driven instance path (`INSTANCE_SET = 2`, `:331`) and the
-meshlet path already do.
+set is full.** `render/graph/render_graph.hpp` derives barriers, aliasing, culling, and
+async-compute submissions from declarations. `Scene::SceneLayout` (`render/scene/scene_layout.hpp`)
+is set 0 with **32 bindings, all named** — `POST_BINDING = 31` is documented as *"the last
+frame-global binding the guaranteed 32-entry push set has room for."* Terrain therefore **cannot**
+add a frame-global binding; it takes its own set 2, exactly as the GPU-driven instance path
+(`INSTANCE_SET = 2`, `:331`) and the meshlet path already do.
 
 **G5 — The device tiers are known, and terrain must not require any of them.**
 `render/rhi/vulkan/vulkan_device.cpp:153` enables exactly one core feature, `samplerAnisotropy`:
@@ -105,19 +106,20 @@ already exercises it.
 `url`, `describes`, and `attribution`), `reanalysis.py`, `landmask.py`, and `asset.py`; heavy
 dependencies live behind a `[project.optional-dependencies]` extras group so `se` stays installable
 without them (`cli/pyproject.toml`). The consumer is a value type that *adopts bytes* and degrades
-rather than failing (`sim/climatology_asset.hpp:70`). `se planet bake` is this shape again, and
-§5.4 does not re-derive it.
+rather than failing (`sim/climatology_asset.hpp:70`). `se planet bake` is this shape again, and §5.4
+does not re-derive it.
 
 **G8 — Floating-origin types exist and are unconsumed.** `WorldVector3`, `SectorCoord`, and
-`FloatingOriginVector3` are in `core/blas_placeholder.hpp:229-291`; `ARCHITECTURE.md` §6 records
-them as *"the SushiLoop M0 foundation … not yet consumed by any simulation code."* §9 explains why
-terrain does **not** consume them either, and what it uses instead.
+`FloatingOriginVector3` are in `core/blas_placeholder.hpp:229-291`;
+`docs/architecture/foundation.md` §2 records them as *"the SushiLoop M0 foundation … not yet
+consumed by any simulation code."* §9 explains why terrain does **not** consume them either, and
+what it uses instead.
 
 **G9 — The precision hazard at planet scale is measured, not theoretical.** The project memory
 records `sky.frag`'s `ray_ellipsoid` trapping at ~6.4 × 10⁶ m in float32, and the shader carries a
 hand-built remedy: `scene.planet_precision` holds CPU-computed double-precision intermediates
-(`sky.frag:193-221`) precisely because the naive form loses catastrophic significance. §9 generalises
-that remedy instead of rediscovering it.
+(`sky.frag:193-221`) precisely because the naive form loses catastrophic significance. §9
+generalises that remedy instead of rediscovering it.
 
 ---
 
@@ -128,15 +130,15 @@ its data source ran out. Above that depth it is measurement; below it, synthesis
 in the format (§5.2), in the determinism class (§13), and in what the editor shows. A system that
 cannot say which is which will eventually claim accuracy it does not have.
 
-**T2 — The authority is host code with no GPU in it.** The server is headless; the atmosphere's
-nest and the physics solver run without a swapchain; a unit test must be able to ask for an
-elevation. Therefore the *definition* of terrain height is C++ (`terrain/height_function.hpp`), and
-the GPU compile shader is a **port** of it held to a stated tolerance by a conformance test — the
-same discipline the engine already applies to skinning, where the Vulkan path ships and the SYCL
-kernel is the correctness oracle.
+**T2 — The authority is host code with no GPU in it.** The server is headless; the atmosphere's nest
+and the physics solver run without a swapchain; a unit test must be able to ask for an elevation.
+Therefore the *definition* of terrain height is C++ (`terrain/height_function.hpp`), and the GPU
+compile shader is a **port** of it held to a stated tolerance by a conformance test — the same
+discipline the engine already applies to skinning, where the Vulkan path ships and the SYCL kernel
+is the correctness oracle.
 
-**T3 — Editability is a property of the pipeline, not a feature bolted to it.** A design where
-tiles are loaded and drawn cannot later grow a dam that floods a valley. A design where tiles are
+**T3 — Editability is a property of the pipeline, not a feature bolted to it.** A design where tiles
+are loaded and drawn cannot later grow a dam that floods a valley. A design where tiles are
 *compiled* gets craters, roads, cuts, and fills for the cost of one more input to a shader that had
 to exist anyway. D2 is therefore paid at P0, not deferred.
 
@@ -149,8 +151,8 @@ land-cover class are the same surface class; bathymetry is elevation below zero.
 frame budget. §17 states absolute costs on the D6 baseline, and each phase in §20 carries an exit
 criterion that is measured rather than asserted.
 
-**T6 — The engine owns the vocabulary; data sources are backends.** `IHeightSource` (D7) is named
-by the height function; a pak file, a procedural generator, and a high-resolution regional inset are
+**T6 — The engine owns the vocabulary; data sources are backends.** `IHeightSource` (D7) is named by
+the height function; a pak file, a procedural generator, and a high-resolution regional inset are
 three implementations. No consumer of terrain knows which one answered.
 
 ---
@@ -215,10 +217,10 @@ uniform grid parameter *t* ∈ [−1,1] before projecting:
 u = tan(t · π/4)
 ```
 
-so that `atan(u) = t·π/4` is uniform in angle. This drops the area ratio to ≈ 1.06 — good enough that
-no system downstream needs to compensate for it. The warp is applied on the host when a tile address
-is turned into face coordinates, and is baked into the pak's sampling grid, so the run-time hot path
-never evaluates a `tan`.
+so that `atan(u) = t·π/4` is uniform in angle. This drops the area ratio to ≈ 1.06 — good enough
+that no system downstream needs to compensate for it. The warp is applied on the host when a tile
+address is turned into face coordinates, and is baked into the pak's sampling grid, so the run-time
+hot path never evaluates a `tan`.
 
 ### 4.3 Addresses
 
@@ -231,18 +233,18 @@ struct TileAddress
 };
 ```
 
-Parent, child, and neighbour are integer arithmetic; a neighbour that crosses a face edge is a
-table of six rotations, computed once. `MAX_DEPTH` is 20, which §9 shows is within the precision
-budget and which, on Earth, is a 0.075 m render-grid cell — an order of magnitude below anything
-the data or the synthesis can justify, so the limit is never the binding constraint.
+Parent, child, and neighbour are integer arithmetic; a neighbour that crosses a face edge is a table
+of six rotations, computed once. `MAX_DEPTH` is 20, which §9 shows is within the precision budget
+and which, on Earth, is a 0.075 m render-grid cell — an order of magnitude below anything the data
+or the synthesis can justify, so the limit is never the binding constraint.
 
 ### 4.4 Node geometry and the ellipsoid
 
-A node's four corners map to the reference ellipsoid by scaling the unit direction componentwise
-by the semi-axes: `P(n) = (a·nx, a·ny, c·nz)`. This is the exact ellipsoid, and its geodetic normal
-is `normalize(Px/a², Py/b², Pz/c²)`. **Elevation displaces along the geodetic normal**, not along
-the radial direction, because that is how every DEM's heights are defined; on Earth the two differ
-by up to 0.19°, which at a 3 km mountain is a 10 m horizontal error — visible, and free to avoid.
+A node's four corners map to the reference ellipsoid by scaling the unit direction componentwise by
+the semi-axes: `P(n) = (a·nx, a·ny, c·nz)`. This is the exact ellipsoid, and its geodetic normal is
+`normalize(Px/a², Py/b², Pz/c²)`. **Elevation displaces along the geodetic normal**, not along the
+radial direction, because that is how every DEM's heights are defined; on Earth the two differ by up
+to 0.19°, which at a 3 km mountain is a 10 m horizontal error — visible, and free to avoid.
 
 ### 4.5 Resolution ladder
 
@@ -294,10 +296,10 @@ namespace SushiEngine::Terrain
 
 Three implementations ship: `PackHeightSource` (§5.2), `InsetHeightSource` (a regional pak that
 answers only inside its footprint and only below the global source's depth — this is how a 30 m
-Copernicus tile or a 1 m HiRISE DTM enters without a second pipeline), and
-`GeneratedHeightSource` (a procedural body). A `CompositeHeightSource` picks the deepest source
-that covers an address. **This is the whole of D7's cost**, and it is the reason a fictional moon
-in Sushiverse renders through the same pass as the real one.
+Copernicus tile or a 1 m HiRISE DTM enters without a second pipeline), and `GeneratedHeightSource`
+(a procedural body). A `CompositeHeightSource` picks the deepest source that covers an address.
+**This is the whole of D7's cost**, and it is the reason a fictional moon in Sushiverse renders
+through the same pass as the real one.
 
 ### 5.2 The pak format
 
@@ -314,13 +316,13 @@ payload   height tiles   131² R16, delta-coded + zstd     (129² grid + 1-texel
           class tiles    128² RG8, two classes + weights   (stored to a shallower depth, §5.5)
 ```
 
-Three deliberate choices. Heights are **integers, not floats**: R16 over a per-tile
-`(min, max)` range gives ≤ 0.15 m quantisation on a 10 km range and compresses; a float tile does
-neither. The **apron** is one texel of the neighbour's data, so central-difference normals and
-bilinear filtering never need a second tile resident — the single largest source of seams in a naive
-implementation, removed in the format rather than patched in the shader. And the **index carries
-min/max**, so a node's bounding volume is exact and free, which is what lets terrain participate in
-the existing Hi-Z occlusion pass.
+Three deliberate choices. Heights are **integers, not floats**: R16 over a per-tile `(min, max)`
+range gives ≤ 0.15 m quantisation on a 10 km range and compresses; a float tile does neither. The
+**apron** is one texel of the neighbour's data, so central-difference normals and bilinear filtering
+never need a second tile resident — the single largest source of seams in a naive implementation,
+removed in the format rather than patched in the shader. And the **index carries min/max**, so a
+node's bounding volume is exact and free, which is what lets terrain participate in the existing
+Hi-Z occlusion pass.
 
 ### 5.3 What the bake has to get right
 
@@ -328,8 +330,8 @@ the existing Hi-Z occlusion pass.
   the ellipsoid by −107 m to +85 m. The bake applies the correction so the run time only ever sees
   heights above the ellipsoid, which is the only datum the renderer, the physics, and the atmosphere
   can share. Mars (areoid) and the Moon (selenoid) get the same treatment from their own PDS
-  reference surfaces. Skipping this puts sea level up to 100 m off, which is exactly where coastlines
-  are.
+  reference surfaces. Skipping this puts sea level up to 100 m off, which is exactly where
+  coastlines are.
 - **Resampling.** Source rasters are equirectangular; the cube face is not. Resampling uses
   area-weighted averaging on the way down the pyramid (never point sampling, which aliases ridges
   into noise) and bicubic on the way across the projection.
@@ -484,8 +486,7 @@ pins the cover, not by looking at a picture — the recursive form was written f
 
 Reject a node whose bounding volume — the tile's exact `(min, max)` band over its patch, from the
 pack index — fails the frustum test or last frame's Hi-Z pyramid (the existing `OcclusionPass`).
-Output is a flat
-list of visible nodes with their per-node frames (§9).
+Output is a flat list of visible nodes with their per-node frames (§9).
 
 Cost is a few thousand node visits: measured target ≤ 0.3 ms on the D6 baseline. Selection must be
 double throughout — a node centre is a planet-scale coordinate, and this is the one place the whole
@@ -520,10 +521,10 @@ from an image that changed after it was queued.
 
 The UV rectangle is the third. A tile's own grid occupies texels 1 to 129 of a 131-texel image, so
 even the identity case is `offset = 1.5/131, scale = 128/131` rather than `(0, 1)`; an inherited
-rectangle scales that by the depth difference and offsets it by where the node sits in its
-ancestor. Half a texel of error there shifts terrain everywhere it inherits — a shimmer at LOD
-boundaries that no screenshot explains — so it is a pure function tested by computing the
-geographic point it lands on both ways, rather than four lines inside an upload path.
+rectangle scales that by the depth difference and offsets it by where the node sits in its ancestor.
+Half a texel of error there shifts terrain everywhere it inherits — a shimmer at LOD boundaries that
+no screenshot explains — so it is a pure function tested by computing the geographic point it lands
+on both ways, rather than four lines inside an upload path.
 
 ### 7.3 Streaming
 
@@ -551,8 +552,8 @@ the CPU cost of terrain is the selection and nothing else.
 
 Each vertex carries a morph weight from its distance to the camera, and its grid position is
 interpolated toward the position it would have on the parent's grid. Because the morph is applied to
-the grid parameter **before** the projection, it is geometric: neighbouring nodes at different depths
-agree exactly along their shared edge, and there is no popping as a node splits. This is what
+the grid parameter **before** the projection, it is geometric: neighbouring nodes at different
+depths agree exactly along their shared edge, and there is no popping as a node splits. This is what
 removes cracks — no skirts, no stitching strips, no T-junction repair. The height sample is morphed
 the same way, by sampling the tile at both the fine and the parent-aligned coordinate and blending
 with the same weight.
@@ -569,9 +570,9 @@ Set 0 is full (G4). Terrain therefore owns **set 2**:
 | 3 | Class slot array (RG8) |
 | 4 | Body parameters (semi-axes, class palette → bindless material indices) |
 
-Set 0 and set 1 stay identical to every other scene pipeline, so terrain is lit, shadowed,
-fogged, and tone-mapped by the shading path that already exists — no parallel lighting code. This is
-the same arrangement `SceneLayout::gpu_pipeline_layout()` already uses for GPU-driven draws.
+Set 0 and set 1 stay identical to every other scene pipeline, so terrain is lit, shadowed, fogged,
+and tone-mapped by the shading path that already exists — no parallel lighting code. This is the
+same arrangement `SceneLayout::gpu_pipeline_layout()` already uses for GPU-driven draws.
 
 ### 8.4 Passes
 
@@ -609,8 +610,8 @@ question. And doubles on the GPU are not an answer at 1/32 rate.
 
 ### 9.2 The form
 
-Split the face coordinate into a node centre `c` (held in double on the host) and a small offset
-`δ` from the grid, `f = c + δ`. Then
+Split the face coordinate into a node centre `c` (held in double on the host) and a small offset `δ`
+from the grid, `f = c + δ`. Then
 
 ```
 P(f) − camera  =  [ P(c) − camera ]  +  A · ( n(c + δ) − n(c) )  +  h · N(c)
@@ -644,23 +645,23 @@ Earth's ellipsoid, float32 against a double reference:
 | 20 | 0.299 m | 8.6 × 10⁻⁷ m | 1.04 m | 1 202 751× |
 
 The two columns say different things, and the difference between what they say is the whole
-argument. The naive form's error is **constant in depth** — about a metre, set by float32's
-absolute resolution at 6.37 × 10⁶ m and wholly indifferent to how small the tile is. It is already
-a quarter of a cell at depth 16 and three and a half cells at depth 20. The difference form's error
-is **proportional to the cell** — a constant 3 × 10⁻⁶ of it at every depth measured, which is the
-scale invariance the derivation predicts and the property that actually matters: there is no depth
-at which it degrades, so `MAX_TILE_DEPTH` is bounded by what the data and the synthesis justify
-rather than by arithmetic.
+argument. The naive form's error is **constant in depth** — about a metre, set by float32's absolute
+resolution at 6.37 × 10⁶ m and wholly indifferent to how small the tile is. It is already a quarter
+of a cell at depth 16 and three and a half cells at depth 20. The difference form's error is
+**proportional to the cell** — a constant 3 × 10⁻⁶ of it at every depth measured, which is the scale
+invariance the derivation predicts and the property that actually matters: there is no depth at
+which it degrades, so `MAX_TILE_DEPTH` is bounded by what the data and the synthesis justify rather
+than by arithmetic.
 
 Nine floating-point operations more than the naive form, no doubles, no branches, one code path from
-depth 0 to depth 20. It is the same remedy `sky.frag` already applies by hand at
-`sky.frag:193-221` (G9), generalised and given a derivation instead of a comment.
+depth 0 to depth 20. It is the same remedy `sky.frag` already applies by hand at `sky.frag:193-221`
+(G9), generalised and given a derivation instead of a comment.
 
 ### 9.3 Depth buffer
 
-The renderer already uses reverse-Z with an infinite far plane (`ARCHITECTURE.md` §5.2), which is
-what makes a 1 m rock and a 6 000 km horizon coexist in one depth buffer. Terrain inherits it and
-requires nothing further.
+The renderer already uses reverse-Z with an infinite far plane (`docs/architecture/domain-astro.md`
+§1), which is what makes a 1 m rock and a 6 000 km horizon coexist in one depth buffer. Terrain
+inherits it and requires nothing further.
 
 ### 9.4 The frame the data lives in — and the bug it exposed
 
@@ -672,8 +673,8 @@ and terrain is the first consumer that can *tell* whether that rotation is right
 It was not. The engine measured each body's spin from the wrong reference direction, and putting a
 real map on a planet is what made it visible:
 
-- `body_rotation_angle` returns the IAU angle **W**, which is measured from the ascending node of the
-  body's equator on the **J2000 equator**.
+- `body_rotation_angle` returns the IAU angle **W**, which is measured from the ascending node of
+  the body's equator on the **J2000 equator**.
 - `ecliptic_to_body_equatorial` builds a frame whose +X is the node with the **ecliptic**.
 
 Both are perfectly good frames; they are not the *same* frame, so W was never an angle in the one it
@@ -727,10 +728,10 @@ not obvious: *the analytic ground wins wherever the real elevations dig below th
 ellipsoid*. On the Moon that is every mare — two kilometres of basin floor, over which the reference
 sphere is the nearer surface and would be drawn on top of the terrain inside it. So the switch is
 made once per frame rather than per pixel: when the selection produced nodes, the frame's scene
-block turns the analytic ground off for that body (`Scene::suppress_analytic_ground`). This is
-sound because §7.1's cut is an *exact cover* — the quadtree always spans the whole body, coarsely at
-the horizon but never with a hole — so there is no pixel the analytic ground would have been needed
-for. A body with no pack keeps it, unchanged.
+block turns the analytic ground off for that body (`Scene::suppress_analytic_ground`). This is sound
+because §7.1's cut is an *exact cover* — the quadtree always spans the whole body, coarsely at the
+horizon but never with a hole — so there is no pixel the analytic ground would have been needed for.
+A body with no pack keeps it, unchanged.
 
 `planet_surface_visible` and `SURFACE_HANDOFF_ALTITUDE_RADII` keep their present meanings. The one
 new behaviour is that a *non-dominant* body may also carry terrain at the `Mesh` rung, which is what
@@ -743,12 +744,13 @@ makes the solar system look like a solar system from inside it.
 Satellite imagery is ~500 m per texel. At 1 m it is a single flat colour. The design blends three
 things:
 
-1. **The colour tile** (satellite) supplies the low-frequency truth: this valley is olive, that ridge
+1. **The colour tile** (satellite) supplies the low-frequency truth: this valley is olive, that
+   ridge
    is ochre, this ice is blue-white. It dominates beyond ~2 km.
-2. **The class tile** supplies up to two surface classes and their weights per texel, derived at bake
-   time from land cover (Earth) or geologic units (everywhere else), refined at compile time by
-   slope and elevation — a 40° slope is rock whatever the land-cover raster says, and above the
-   snow line it is snow.
+2. **The class tile** supplies up to two surface classes and their weights per texel, derived at
+   bake time from land cover (Earth) or geologic units (everywhere else), refined at compile time by
+   slope and elevation — a 40° slope is rock whatever the land-cover raster says, and above the snow
+   line it is snow.
 3. **The material palette** is a per-body set of ≤ 16 tiling PBR materials in the bindless heap
    (albedo/normal/ORM), sampled with stochastic tiling so the repeat is invisible, and blended by
    **height blend** rather than linear blend — gravel shows through sand where the gravel's own
@@ -773,9 +775,9 @@ East-North-Up frame at that patch's centre, with the view's `center`/`orientatio
 
 Two properties make this correct rather than convenient:
 
-- **Patches are evaluated on the host, from the height function — never read back from the GPU.**
-  A readback would put a frame of latency and a sync point into the physics step, and would not
-  exist at all on the server. This is T2, and it is the reason the authority is host code.
+- **Patches are evaluated on the host, from the height function — never read back from the GPU.** A
+  readback would put a frame of latency and a sync point into the physics step, and would not exist
+  at all on the server. This is T2, and it is the reason the authority is host code.
 - **A planar patch is exact enough.** Over a 256 m patch, the ellipsoid's departure from its own
   tangent plane is d²/2r = 1.3 mm on Earth, 4.7 mm on the Moon. Below any contact tolerance, so a
   patch needs no curvature term.
@@ -800,8 +802,8 @@ exists and this is exactly the split it was built for:
 The consequence for netcode is the useful one: **layers are what replicate.** They are kilobytes,
 ordered, and version-stamped; a client that has the same pak and the same layer stack computes the
 same authoritative ground. No height data crosses the wire. A player who has not baked the `full`
-tier still agrees with the server about the ground, because the tier changes the *resolution* of
-the synthesis, not the authority — which is a property worth stating explicitly, and a constraint on
+tier still agrees with the server about the ground, because the tier changes the *resolution* of the
+synthesis, not the authority — which is a property worth stating explicitly, and a constraint on
 §6.4: **detail amplitude must be a function of the data depth actually present, and the
 authoritative surface must be defined at the `standard` tier's depth.**
 
@@ -858,8 +860,8 @@ a water surface existing.
 
 Three interfaces, each defined now so the systems that consume them do not force a terrain rewrite:
 
-- **Scatter** (vegetation, rocks, debris): `ITerrainField::sample_grid` plus a tile lifecycle
-  signal — `on_tile_resident(TileAddress, ...)` / `on_tile_evicted(TileAddress)`. A scatter system
+- **Scatter** (vegetation, rocks, debris): `ITerrainField::sample_grid` plus a tile lifecycle signal
+  — `on_tile_resident(TileAddress, ...)` / `on_tile_evicted(TileAddress)`. A scatter system
   populates and releases against tile lifetime, which is the only cadence that stays bounded.
 - **Water**: the bathymetry and mask above, plus the shoreline contour a compile can emit per tile.
 - **The builder**: `LayerStack::insert/remove/reorder`, the dirty-region signal, and a
@@ -871,22 +873,22 @@ Three interfaces, each defined now so the systems that consume them do not force
 
 ## 16. SOLID
 
-- **SRP** — one reason to change each: the address algebra (`cube_sphere.hpp`), the source interface,
-  the layer stack, the height function, the pak format, the tile cache, the streamer, the compile
-  pass, the draw passes, the collision patch set. The quadtree does not know about Vulkan; the cache
-  does not know about layers; the format does not know about the frame graph.
+- **SRP** — one reason to change each: the address algebra (`cube_sphere.hpp`), the source
+  interface, the layer stack, the height function, the pak format, the tile cache, the streamer, the
+  compile pass, the draw passes, the collision patch set. The quadtree does not know about Vulkan;
+  the cache does not know about layers; the format does not know about the frame graph.
 - **OCP** — a new body is data (`se planet bake --body …`); a new data source is an `IHeightSource`;
   a new edit kind is a `LayerOperation`; a new surface class is a palette entry. None of these open
   a shipped file.
 - **LSP** — `PackHeightSource`, `InsetHeightSource`, `GeneratedHeightSource`, and
   `CompositeHeightSource` are interchangeable behind `IHeightSource`, and *installable* — a
   procedural body is configured, not compiled in.
-- **ISP** — the renderer sees tiles and node frames; gameplay and the atmosphere see `ITerrainField`;
-  physics sees `HeightFieldView`; the builder sees `LayerStack`. No consumer can reach state it has
-  no business touching, and the point-query bottleneck of `atmosphere_system.md` §1.1 is structurally
-  impossible to reintroduce.
-- **DIP** — the height function depends on `IHeightSource`, not on a pak; the render passes depend on
-  the frame graph's declarations, not on each other; Vulkan stays in `render/`, and
+- **ISP** — the renderer sees tiles and node frames; gameplay and the atmosphere see
+  `ITerrainField`; physics sees `HeightFieldView`; the builder sees `LayerStack`. No consumer can
+  reach state it has no business touching, and the point-query bottleneck of `atmosphere_system.md`
+  §1.1 is structurally impossible to reintroduce.
+- **DIP** — the height function depends on `IHeightSource`, not on a pak; the render passes depend
+  on the frame graph's declarations, not on each other; Vulkan stays in `render/`, and
   `include/SushiEngine/terrain/` includes no graphics header at all.
 
 ---
@@ -911,9 +913,9 @@ VRAM: 241 MB tile cache + 64 MB material palette + ~8 MB buffers = **313 MB**, h
 320 MB ceiling.
 Disk: 320 MB (`compact`) / 4.5 GB (`standard`) per body.
 
-For calibration against the frame it lands in: the atmosphere's whole simulation stack budgets
-≤ 2.6 ms (`atmosphere_system.md` §12), so terrain is the larger of the two and has to be held to a
-number rather than to an adjective.
+For calibration against the frame it lands in: the atmosphere's whole simulation stack budgets ≤ 2.6
+ms (`atmosphere_system.md` §12), so terrain is the larger of the two and has to be held to a number
+rather than to an adjective.
 
 **The error target is the lever, and it is now measured rather than assumed.** Node counts on the
 Moon through a 60°, 16:9 frustum, at 2 048 triangles per node (measured 2026-08-01, P2a):
@@ -926,15 +928,15 @@ Moon through a 60°, 16:9 frustum, at 2 048 triangles per node (measured 2026-08
 | 6 px | 923 | 396 | 506 | 0.8 – 1.9 M |
 
 The first draft of this document paired a 2 px target with a 1.6 M triangle budget; those are not
-the same setting, and the measurement is what caught it. **The D6 baseline ships at 4 px**, which
-is where the triangle count meets the budget above; 2 px is a quality tier for hardware that has
-the fill rate for 5 M triangles. Two properties make this a comfortable knob rather than a cliff:
-the count is close to flat across five orders of magnitude of altitude (CDLOD's scale invariance),
-and the cost falls roughly as the square of the target.
+the same setting, and the measurement is what caught it. **The D6 baseline ships at 4 px**, which is
+where the triangle count meets the budget above; 2 px is a quality tier for hardware that has the
+fill rate for 5 M triangles. Two properties make this a comfortable knob rather than a cliff: the
+count is close to flat across five orders of magnitude of altitude (CDLOD's scale invariance), and
+the cost falls roughly as the square of the target.
 
 The same table is why a frustum is not an optimisation here. Without one the selection covers the
-body's far side too — 14 000 nodes at 50 km against 2 154 with one — so frustum rejection is part
-of the selection's cost model, not a saving on top of it.
+body's far side too — 14 000 nodes at 50 km against 2 154 with one — so frustum rejection is part of
+the selection's cost model, not a saving on top of it.
 
 Three claims that must be *measured*, not assumed, and are exit criteria in §20:
 
@@ -955,8 +957,8 @@ Stated so they are decisions rather than discoveries.
 - **Global measured resolution ends at ~460 m (Earth), ~118 m (Moon), ~463 m (Mars).** Everything
   finer is either a user-selected inset or synthesis. No amount of engineering changes this; it is
   what the public data is.
-- **Below the data, the terrain is invented.** Plausible, statistically matched to its
-  surroundings, deterministic — and not a measurement. The editor must be able to show the boundary.
+- **Below the data, the terrain is invented.** Plausible, statistically matched to its surroundings,
+  deterministic — and not a measurement. The editor must be able to show the boundary.
 - **A height field has one surface per point: no caves, no overhangs, no natural arches.** These are
   mesh content placed on terrain, not terrain. This is a consequence of the representation and is
   not worked around.
@@ -966,8 +968,8 @@ Stated so they are decisions rather than discoveries.
   glaciers, if they appear, are layers and materials — authored or generated once, not simulated.
 - **Detail is `Tolerant`, not `Bitwise`, between host and device.** §13's conformance test states
   the tolerance; the authoritative surface is defined without detail.
-- **The `full` tier's insets are regional, not global.** A planet uniformly at 30 m is 857 GB and
-  is not on the roadmap at any phase.
+- **The `full` tier's insets are regional, not global.** A planet uniformly at 30 m is 857 GB and is
+  not on the roadmap at any phase.
 - **Gas giants have no terrain.** The ellipsoid is the 1-bar level.
 - **Terrain is absent from the depth prepass, so Hi-Z and GTAO do not see it.** §8.4's
   `TerrainDepthPass` is not built. The consequence is bounded and cosmetic: GPU occlusion culling
@@ -1005,15 +1007,16 @@ Recorded so they are not re-proposed.
 - **Reusing `TextureLibrary` for tiles.** It is path-keyed, material-oriented, and mip-residency
   based; a slot pool with inheritance is a different lifecycle wearing the same words.
 - **Doing the cube-to-sphere projection on the GPU in planet space.** §9.1: the error is introduced
-  before the camera subtraction, and no amount of camera-relative bookkeeping afterwards recovers it.
+  before the camera subtraction, and no amount of camera-relative bookkeeping afterwards recovers
+  it.
 - **Terrain as an ECS entity with a mesh component.** A planet is not an instance; it has its own
   selection, its own residency, and its own draw. The editor's existing `create_terrain` (a flat box
-  with a plane collider, `ARCHITECTURE.md` §4.3) stays what it is — a local authoring primitive, and
-  unrelated to this system.
-- **Consuming the floating-origin types (G8) for terrain.** They solve absolute simulation positions;
-  §9's problem is the evaluation of a curved surface, and the per-node double frame solves it
-  exactly. When SushiLoop consumes the sector types, terrain's node frames compose with them without
-  change.
+  with a plane collider, `docs/architecture/domain-physics.md` §1.3) stays what it is — a local
+  authoring primitive, and unrelated to this system.
+- **Consuming the floating-origin types (G8) for terrain.** They solve absolute simulation
+  positions; §9's problem is the evaluation of a curved surface, and the per-node double frame
+  solves it exactly. When SushiLoop consumes the sector types, terrain's node frames compose with
+  them without change.
 
 ---
 
@@ -1124,11 +1127,11 @@ In order, because each one makes the next one observable:
 
 1. **Layer persistence and replication format.** Layers are the builder's output and the network's
    payload. Default: they serialise into the scene file through the existing scene serializer, with
-   the builder owning a separate library asset for reusable authored pieces. Confirm when the builder
-   is specified.
+   the builder owning a separate library asset for reusable authored pieces. Confirm when the
+   builder is specified.
 2. **How far the `full` tier's insets go.** Default: user-named regions with a 500 km cap per inset,
-   because a 30 m global bake is off the table (§18). If Sushiverse wants specific hero regions
-   (a city, a mountain range) at 1 m, that is a named inset list, not a policy change.
+   because a 30 m global bake is off the table (§18). If Sushiverse wants specific hero regions (a
+   city, a mountain range) at 1 m, that is a named inset list, not a policy change.
 3. **Whether the Moon's permanently-shadowed and Earth's polar regions get special treatment.** The
    data quality drops sharply above ~85° latitude on several bodies. Default: fill from the coarser
    source, mark it in the class tile, and say so.
@@ -1144,7 +1147,8 @@ In order, because each one makes the next one observable:
   the depth prepass, Hi-Z occlusion, the astro frame stack, and `HeightFieldView`.
 - **P10 unblocks, rather than being blocked by, `atmosphere_system.md` Phase D** and the surface-
   property provider its §16 defers.
-- **`render_pipeline_refactor.md` Phase 7 (LUT stack) and Phase 11 (async compute)** are both shipped
+- **`render_pipeline_refactor.md` Phase 7 (LUT stack) and Phase 11 (async compute)** are both
+  shipped
   and are consumed as-is: terrain receives aerial perspective and fog through set 0, and
   `TerrainCompilePass` declares async-compute eligibility that the graph honours or ignores.
 - **UHM** supplies the determinism vocabulary §13 uses. No new request to SushiRuntime, and no
@@ -1152,8 +1156,8 @@ In order, because each one makes the next one observable:
 - **`se` CLI** gains a `planet` command group and a `planet` extras group; `CLI_GUIDE.md` is updated
   in the same change, per `CONTRIBUTING.md` §5.
 - **The pak is not committed, and this deliberately departs from the climatology precedent.**
-  `assets/atmosphere/climatology.set0` *is* committed — it is 3.4 MB, and committing it is what
-  lets a fresh clone run with a real mean state. A planet pak is 250 MB at `compact` and 4 GB at
+  `assets/atmosphere/climatology.set0` *is* committed — it is 3.4 MB, and committing it is what lets
+  a fresh clone run with a real mean state. A planet pak is 250 MB at `compact` and 4 GB at
   `standard`, so the applicable in-tree precedent is the other one: `assets/hrtf/*.sofa` is
   gitignored beside an `assets/hrtf/README.md` that says where the data comes from and how to get
   it. `assets/planet/` follows that — ignored, with a README naming the sources and the bake

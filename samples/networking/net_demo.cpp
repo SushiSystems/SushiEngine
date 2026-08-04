@@ -27,13 +27,13 @@
 // Loop::Net::make_network_id proven against an actual client/server spawn.
 //
 // "Client" and "server" are modelled as two logical roles in one process, each
-// owning its own ecs::World — this is exactly the scope docs/slop/SUSHILOOP.md's
+// owning its own ecs::World — this is exactly the scope docs/design/SUSHILOOP.md's
 // M4 commits to (loopback only, no sockets, no threads). The server world is
 // driven straight through by the authoritative command stream, with no
 // misprediction, so it is the ground truth the client must converge to.
 //
 // The demo is split into two phases that never overlap, by design, honouring
-// Loop::RollbackBuffer's hard constraint (ARCHITECTURE.md SS8): no entity may
+// Loop::RollbackBuffer's hard constraint (`docs/architecture/world.md` §1): no entity may
 // spawn or be destroyed between a capture and its matching restore.
 //   Phase 1 (ticks 0..TOTAL_TICKS-1): the client predicts a movement command every
 //   tick, sometimes wrong; captures a rollback snapshot before applying it;
@@ -47,7 +47,7 @@
 //   ended up with the identical entity state — with no matching round trip.
 //   This deliberately sidesteps rebasing RollbackBuffer across a structural
 //   change (spawning inside a rolled-back tick range) rather than solving it;
-//   that remains later SushiLoop work per ARCHITECTURE.md SS8.1.
+//   that remains later SushiLoop work per `docs/architecture/world.md` §1.1.
 
 #include <cstddef>
 #include <cstdio>
@@ -80,7 +80,7 @@ namespace
      *
      * The smallest thing that maps directly onto something real today — a
      * two-axis nudge applied to a player entity's Position — without inventing a
-     * speculative input scheme docs/slop/SUSHILOOP.md does not yet specify. Left
+     * speculative input scheme docs/design/SUSHILOOP.md does not yet specify. Left
      * to the game rather than the engine (see loop/input.hpp's Doxygen), so it
      * lives here, at the point of use, not in loop/ itself.
      */

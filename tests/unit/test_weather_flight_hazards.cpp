@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Unit_WeatherFlightHazards: W6's icing_risk()/turbulence_intensity() query API
-// (docs/slop/weather_and_clouds.md §7 W6) in isolation -- hand-built WeatherColumns and a bare
+// (docs/design/weather_and_clouds.md §7 W6) in isolation -- hand-built WeatherColumns and a bare
 // provider, the same style test_weather_world_coupling.cpp already uses for the pure
 // functions W5 added. Pure host maths; no SushiRuntime needed.
 

@@ -350,7 +350,7 @@ namespace SushiEngine
                     top_max = 0.0f;
                 }
                 // When the published field resolves genus per column
-                // (docs/slop/atmosphere_system.md §7.4), the march shell is a property of the
+                // (docs/design/atmosphere_system.md §7.4), the march shell is a property of the
                 // *field*, not of the compiled deck stack: a cumulonimbus growing 300 km away
                 // still has to be inside the span the march crosses, and the deck stack only ever
                 // saw the column under the camera. The producer takes that union as it fills the

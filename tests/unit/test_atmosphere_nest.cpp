@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Unit_AtmosphereNest: the regional nest's host-side half (docs/slop/atmosphere_system.md §6).
+// Unit_AtmosphereNest: the regional nest's host-side half (docs/design/atmosphere_system.md §6).
 //
 // **What these cases are actually for.** The nest itself runs in ten compute shaders, which a
 // unit test cannot execute. What it *can* do is pin the relations those shaders are written in

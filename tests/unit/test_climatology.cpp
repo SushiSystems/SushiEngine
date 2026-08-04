@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Unit_Climatology: T0, the mean state the global core is a departure from
-// (`docs/slop/atmosphere_system.md` §4).
+// (`docs/design/atmosphere_system.md` §4).
 //
 // Two kinds of claim are tested here and they need different instruments.
 //

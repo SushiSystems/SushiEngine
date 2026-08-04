@@ -6,7 +6,7 @@
 //     LWC    = rho_base * q_c                       [kg/m^3]
 //     sigma  = 3 * LWC / (2 * rho_water * r_eff)    [1/m]
 //
-// docs/slop/atmosphere_system.md §7.1. This is the seam where simulated meteorology becomes a
+// docs/design/atmosphere_system.md §7.1. This is the seam where simulated meteorology becomes a
 // rendered sky, and the reason the design doc puts it in its own tier: what the march
 // integrates is now a *physical quantity* with units, derived from how much water is actually
 // suspended in a cubic metre of air, rather than a remapped noise value. The formula itself is

@@ -27,7 +27,7 @@
  * @file input.hpp
  * @brief SushiLoop's per-tick input capture: a numbered command buffer.
  *
- * docs/slop/SUSHILOOP.md models input as "an abstract list of commands for each
+ * docs/design/SUSHILOOP.md models input as "an abstract list of commands for each
  * tick", numbered so the network layer can transmit it and rollback can replay it
  * exactly. `InputHistory<Command>` is the host-side buffer that records and looks
  * up a game's own command type by tick; the network/rollback layers (M3/M4) are

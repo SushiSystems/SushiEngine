@@ -27,7 +27,7 @@
  * @file random_number_generator.hpp
  * @brief A determinism guard rail: seeded RNG state that lives in the world.
  *
- * docs/slop/SUSHILOOP.md requires that "the only source of nondeterminism is
+ * docs/design/SUSHILOOP.md requires that "the only source of nondeterminism is
  * player input" and that RNG state "lives inside the world like any other
  * component" — never a hidden global or `std::random_device`. `RNGState` is a
  * trivially copyable xorshift128+ generator, so it can be stored as an ECS

@@ -25,7 +25,7 @@
 
 /**
  * @file net.hpp
- * @brief SushiLoop's Net layer (M4, docs/slop/SUSHILOOP.md): loopback-only,
+ * @brief SushiLoop's Net layer (M4, docs/design/SUSHILOOP.md): loopback-only,
  *        server-authoritative reconciliation on top of the M3 rollback machinery.
  *
  * Scope is deliberately narrow: this is a host-side, in-process, synchronous

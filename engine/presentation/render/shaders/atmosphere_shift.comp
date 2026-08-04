@@ -12,7 +12,7 @@
 // which is why there is one shader here rather than two that would inevitably disagree about
 // what a fresh cell contains.
 //
-// docs/slop/atmosphere_system.md §6 asks for exactly this ("T2 recentres on the player using
+// docs/design/atmosphere_system.md §6 asks for exactly this ("T2 recentres on the player using
 // the same absolute-lattice snap discipline the shipped grid already uses — but as a GPU shift,
 // with newly exposed cells filled from T1 rather than from a background climatology guess").
 // Snapping against the absolute lattice, rather than against a moving reference point, is what

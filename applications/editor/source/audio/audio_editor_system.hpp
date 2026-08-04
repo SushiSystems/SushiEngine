@@ -27,7 +27,7 @@
  * @file audio_editor_system.hpp
  * @brief The editor's live audio system: makes the authored world audible in-editor.
  *
- * The editor half of the S9 authoring surface (§11 of `docs/slop/audio_system.md`). It
+ * The editor half of the S9 authoring surface (§11 of `docs/design/audio_system.md`). It
  * owns a live `Audio::AudioEngine` and an SDL output device, and each frame projects the
  * world's audio components — every `AudioEmitter`, the `ReverbZone` the listener stands
  * in, read through the `IWorldEditor` seam — into the engine's voice pool, with the Scene

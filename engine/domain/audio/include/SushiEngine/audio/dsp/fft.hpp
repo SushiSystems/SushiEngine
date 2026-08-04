@@ -29,7 +29,7 @@
  * @brief The FFT seam (`IFourierTransform`) and a from-scratch radix-2 implementation.
  *
  * Fast convolution — the partitioned convolution reverb of §S10 / §3.5 — needs a forward
- * and inverse complex FFT. The `IFourierTransform` seam (§13 of `docs/slop/audio_system.md`)
+ * and inverse complex FFT. The `IFourierTransform` seam (§13 of `docs/design/audio_system.md`)
  * isolates it so a tuned vendor FFT can drop in later without touching the convolver; @ref RadixFFT
  * is the portable in-house implementation used today: an in-place iterative radix-2
  * Cooley–Tukey with a precomputed bit-reversal table and twiddle factors, so a transform

@@ -24,7 +24,7 @@
 // RHI0's golden-image harness: render a fixed scene headlessly for a fixed number of
 // frames, read the output image back, and compare it against a recorded reference.
 // This is the safety net the whole RHI programme runs on
-// (docs/slop/cross_platform_engineering_plan.md §5.6) — it is what tells a
+// (docs/design/cross_platform_engineering_plan.md §5.6) — it is what tells a
 // behaviour-preserving refactor from a silent regression.
 //
 // **What a golden pins, and what it cannot.** An exact hash is a statement about one

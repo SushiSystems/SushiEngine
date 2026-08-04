@@ -30,7 +30,7 @@
  *
  * The authoring surface for @ref SushiEngine::Terrain::LayerStack — the records that
  * decide what the ground *is*, as opposed to what was measured (design
- * `docs/slop/solar_system_overhaul.md` §6). It is the layer stack's only editor, and it
+ * `docs/design/solar_system_overhaul.md` §6). It is the layer stack's only editor, and it
  * edits it through @ref SushiEngine::Terrain::ITerrainAuthoring rather than reaching into
  * a stack directly, because an edit that does not also invalidate the compiled ground is
  * an edit that appears to do nothing.

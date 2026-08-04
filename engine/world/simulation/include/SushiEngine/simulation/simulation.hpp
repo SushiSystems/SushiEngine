@@ -325,7 +325,7 @@ namespace SushiEngine
          * field) and minus the world the grid is built into (that is
          * `RuntimeSimulation`-internal, not authorable). Row 0 of the grid is always
          * pinned, matching `build_cloth_grid`'s only supported topology today —
-         * pinning just the corners is not yet exposed (see ARCHITECTURE.md §4.2).
+         * pinning just the corners is not yet exposed (see `docs/architecture/domain-physics.md` §1.2).
          */
         struct ClothParameters
         {
@@ -1148,7 +1148,7 @@ namespace SushiEngine
                 /**
                  * @brief Where this scene's weather comes from.
                  *
-                 * The W4 seam (`docs/slop/weather_and_clouds.md` §3): whichever
+                 * The W4 seam (`docs/design/weather_and_clouds.md` §3): whichever
                  * `IWeatherProvider` the mode selects compiles into `Environment::clouds` every
                  * tick, exactly where manual deck authoring writes it, so
                  * `CloudscapeCompilePass` (T3) sees no difference between them.
@@ -1209,7 +1209,7 @@ namespace SushiEngine
                  * @brief The installed weather provider, read-only, or null if none is installed.
                  *
                  * The counterpart to @ref weather_authoring, and separate from it for the reason
-                 * the two interfaces are separate at all (ISP, `docs/slop/atmosphere_system.md`
+                 * the two interfaces are separate at all (ISP, `docs/design/atmosphere_system.md`
                  * §3.5): the Weather panel's map *draws* the pressure and thermal fields, which
                  * is a read, and *injects* an anomaly when clicked, which is a write. Handing the
                  * panel one object that does both would put the authoring surface in front of
@@ -1408,7 +1408,7 @@ namespace SushiEngine
                  *
                  * Like `has_physics_body`, cloth needs no ECS component migration —
                  * the grid is host-side bookkeeping keyed by `EntityId`, not a
-                 * per-particle entity (see ARCHITECTURE.md §4.2). The entity's own
+                 * per-particle entity (see `docs/architecture/domain-physics.md` §1.2). The entity's own
                  * `Transform`/`Orientation` are left alone; the grid's world positions
                  * are read separately via `cloth_particle_positions`.
                  */
@@ -1448,7 +1448,7 @@ namespace SushiEngine
                  * after `set_has_cloth(id, true)`). This is the read-only seam a
                  * future debug draw or a real deforming mesh renderer would consume —
                  * neither exists yet, so today nothing draws the grid (see
-                 * ARCHITECTURE.md §4.2).
+                 * `docs/architecture/domain-physics.md` §1.2).
                  */
                 virtual std::vector<Vector3> cloth_particle_positions(EntityId id) const = 0;
 
@@ -2191,7 +2191,7 @@ namespace SushiEngine
                 /**
                  * @brief Binds the renderer's readback of the GPU atmosphere.
                  *
-                 * `docs/slop/atmosphere_system.md` §3.2: the atmosphere's state lives on the GPU
+                 * `docs/design/atmosphere_system.md` §3.2: the atmosphere's state lives on the GPU
                  * and is written by exactly one path, and the coarse, stale summary the mirror
                  * carries is the only thing that flows back the other way.
                  *

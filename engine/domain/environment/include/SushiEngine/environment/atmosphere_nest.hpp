@@ -27,7 +27,7 @@
  * @file atmosphere_nest.hpp
  * @brief The regional nest's parameters, vertical grid, and base state — as data.
  *
- * `docs/slop/atmosphere_system.md` §6 and §13. The shipped W4–W6 weather kept thirteen
+ * `docs/design/atmosphere_system.md` §6 and §13. The shipped W4–W6 weather kept thirteen
  * magic constants inside the body of one 110-line tick function (§1.3); this file is the
  * opposite arrangement and the reason the design doc states it twice: **every physical
  * constant lives in @ref AtmosphereNestParameters, is serialized with the scene, and is
@@ -572,7 +572,7 @@ namespace SushiEngine
              *
              * The quantity it normalises is **in-cloud**, not the cell mean: the cloudscape bake
              * divides the cell-mean extinction by the cell's own cloud fraction before stating it
-             * against this reference (docs/slop/atmosphere_system.md §7.3), so the comparison is
+             * against this reference (docs/design/atmosphere_system.md §7.3), so the comparison is
              * "water per cubic metre *inside the cloud*" against "water per cubic metre a solid
              * deck holds". Observed solid stratocumulus runs 0.3–0.5 g/m³ near its top, which is
              * why the default sits at 0.4 g/m³ — a real overcast deck bakes at density ≈ 1 and a
@@ -1471,7 +1471,7 @@ namespace SushiEngine
              * @brief Sine of the sun's elevation at the nest centre; negative below the horizon.
              *
              * The single number that makes the surface forcing diurnal *and* seasonal. Taken
-             * from the same sun the sky is rendered with — `docs/slop/atmosphere_system.md` §1.6
+             * from the same sun the sky is rendered with — `docs/design/atmosphere_system.md` §1.6
              * records the shipped system reimplementing its own solar-position model, so that
              * "the sun that heats the ground and the sun that is rendered are two different
              * suns"; this is the same sun, read off the environment's own direction vector.
@@ -1637,7 +1637,7 @@ namespace SushiEngine
         /**
          * @brief The asynchronous readback of the nest, as gameplay reads it.
          *
-         * `docs/slop/atmosphere_system.md` §3.2's second face: the atmosphere's state lives on
+         * `docs/design/atmosphere_system.md` §3.2's second face: the atmosphere's state lives on
          * the GPU and is written by exactly one path, and *nothing reads it synchronously*.
          * This is a snapshot copied back after a step completed, two or three frames old, which
          * for a medium whose own time scale is minutes is not observable — and that staleness

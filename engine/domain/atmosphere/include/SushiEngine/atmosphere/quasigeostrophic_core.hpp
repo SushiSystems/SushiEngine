@@ -27,7 +27,7 @@
  * @file quasigeostrophic_core.hpp
  * @brief T1: the global dynamical core — two-layer moist quasi-geostrophic flow.
  *
- * `docs/slop/atmosphere_system.md` §5. The replacement for `Simulation::SynopticLayer`, which
+ * `docs/design/atmosphere_system.md` §5. The replacement for `Simulation::SynopticLayer`, which
  * is not a simulation: it translates authored elliptical Gaussians across the sphere and
  * diagnoses a wind from their summed gradient, so a low can only ever do what it was told to
  * do at genesis. What runs here instead is a dynamical core. The prognostic variables are the

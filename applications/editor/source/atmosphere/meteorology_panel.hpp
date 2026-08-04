@@ -44,7 +44,7 @@ namespace SushiEngine
          * @brief Draws the Meteorology window: the nest's tier, physics, and diagnostics.
          *
          * The nest runs on the GPU and is read back asynchronously
-         * (`docs/slop/atmosphere_system.md` §3.2), so every readout here comes from that
+         * (`docs/design/atmosphere_system.md` §3.2), so every readout here comes from that
          * same mirror — the only honest view of what the simulation actually did.
          *
          * @param context Editor state; reads the mirror through @c assets and writes the

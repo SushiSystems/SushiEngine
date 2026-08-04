@@ -31,7 +31,7 @@
  *
  * The DSP core (`dsp/fdn_reverb.hpp`) knows only decay times and delay spreads. This
  * layer is the vocabulary a sound designer and the engine actually speak (§7, §13 of
- * `docs/slop/audio_system.md`):
+ * `docs/design/audio_system.md`):
  *
  *   - @ref I3DL2Reverb — the de-facto **I3DL2 / EAX** parameter set (Room, RoomHF,
  *     DecayTime, DecayHFRatio, Reflections, Reverb, Diffusion, Density, …). Presets and

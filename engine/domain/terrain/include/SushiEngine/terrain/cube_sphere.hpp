@@ -28,7 +28,7 @@
  * @brief Where a tile is: the cube-to-ellipsoid map, and the difference form that
  *        survives planet scale in single precision.
  *
- * Two things live here (`docs/slop/solar_system_overhaul.md` §4, §9). The first is the
+ * Two things live here (`docs/design/solar_system_overhaul.md` §4, §9). The first is the
  * map itself — a tangent-warped cube projected onto a triaxial ellipsoid — together
  * with its inverse, which is what turns a direction back into a tile and therefore what
  * makes a neighbour across a face seam computable rather than tabulated.

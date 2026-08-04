@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Unit_IngestedWeather: W6's IngestedWeather provider (docs/slop/weather_and_clouds.md §5.4/§7)
+// Unit_IngestedWeather: W6's IngestedWeather provider (docs/design/weather_and_clouds.md §5.4/§7)
 // -- the three-stage GRIB-background/METAR-station blend, and the LSP substitutability proof
 // the task explicitly asks for: swap it in for any other IWeatherProvider and everything
 // downstream (WeatherCloudscapeCompiler, WeatherWorldCoupling) keeps working with zero changes.

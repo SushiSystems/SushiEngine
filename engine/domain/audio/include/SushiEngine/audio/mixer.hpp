@@ -29,7 +29,7 @@
  * @brief The mixer: a bus DAG with insert chains and aux sends, evaluated per block.
  *
  * Voices sum into **buses**, not into each other, so an effect runs once on a summed
- * bus buffer (O(bus)) instead of once per voice (see `docs/slop/audio_system.md`
+ * bus buffer (O(bus)) instead of once per voice (see `docs/design/audio_system.md`
  * §8). A @ref Bus has an **insert chain** (effects in series on its own signal), a
  * post-fader **gain**, an **output** route into a parent bus, and any number of **aux
  * sends** that copy its signal at a level into a parallel bus (the reverb-send

@@ -6,7 +6,7 @@
 // drive convection, and the Davies relaxation that ties the lateral boundary to the parent
 // solution.
 //
-// docs/slop/atmosphere_system.md §6's momentum and thermodynamic equations, minus the pressure
+// docs/design/atmosphere_system.md §6's momentum and thermodynamic equations, minus the pressure
 // gradient — that is the next two dispatches' job, and separating it is the whole point of a
 // projection method: this shader produces a provisional velocity that is *not*
 // divergence-free, and the pressure solve then removes exactly the part that is not.

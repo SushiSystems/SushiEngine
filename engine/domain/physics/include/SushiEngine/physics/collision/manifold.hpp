@@ -31,7 +31,7 @@
  * enough for either of them to *rest*. A box lying on the ground touches it over
  * a square, and a solver handed one point of that square holds the box by one
  * corner at a time: it rocks, it never settles, and a stack of them never
- * converges. That is §1.2 item 3 of `docs/slop/physics_system.md`, and this file
+ * converges. That is §1.2 item 3 of `docs/design/physics_system.md`, and this file
  * is where it is fixed.
  *
  * The manifold is produced by **face clipping** (§7.3): the separating-axis test

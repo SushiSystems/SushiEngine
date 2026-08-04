@@ -30,7 +30,7 @@
  *        PCM and IMA-ADPCM implementations.
  *
  * A bank stores each sound in the codec that suits it (§10, §13 of
- * `docs/slop/audio_system.md`): **PCM** for tiny, critical SFX where size is no object;
+ * `docs/design/audio_system.md`): **PCM** for tiny, critical SFX where size is no object;
  * **IMA-ADPCM** for the dense, repetitive SFX where a 4:1 squeeze is free because the
  * quantisation artefacts hide under the content. Compressed streaming formats
  * (Vorbis/Opus, for music and dialogue) slot in behind the same @ref IAudioCodec seam

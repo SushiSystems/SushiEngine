@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Unit_Season: the path from the simulation's epoch to T0's month axis, and what the global
-// core does when it moves (`docs/slop/atmosphere_system.md` §4.2).
+// core does when it moves (`docs/design/atmosphere_system.md` §4.2).
 //
 // Three separable claims, and each has failed at least once during development:
 //

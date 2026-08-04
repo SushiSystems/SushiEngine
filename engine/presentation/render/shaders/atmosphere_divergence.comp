@@ -4,7 +4,7 @@
 // The right-hand side of the anelastic pressure equation: the mass divergence the provisional
 // velocity carries and the projection has to remove.
 //
-// docs/slop/atmosphere_system.md §6's constraint is `div(rho_base * u) = 0`, not `div(u) = 0`.
+// docs/design/atmosphere_system.md §6's constraint is `div(rho_base * u) = 0`, not `div(u) = 0`.
 // Holding the *reference* density fixed rather than the true one is precisely what filters
 // sound waves out of the system, and that filtering is the reason the nest's time step is set
 // by advection and buoyancy — seconds — instead of by the speed of sound, which at this grid

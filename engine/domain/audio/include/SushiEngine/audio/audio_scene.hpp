@@ -29,7 +29,7 @@
  * @brief The control-plane bridge: a world snapshot of emitters/listener → live voices.
  *
  * This is "*the control-plane structure the voice manager reads*" of the design (§9 of
- * `docs/slop/audio_system.md`). The ECS world produces a @ref SceneSnapshot each
+ * `docs/design/audio_system.md`). The ECS world produces a @ref SceneSnapshot each
  * wall-clock frame — the listener's facing and every audible emitter's **listener-local**
  * position and play parameters — and @ref AudioScene reconciles that against the live
  * voice pool: it starts a voice when an emitter first appears, updates the position and

@@ -1,6 +1,7 @@
 # Repository restructure (RESTRUCTURE0)
 
-Status: approved 2026-08-03, not started.
+**Status:** in progress — phases 1 to 3 complete, phase 4 (documentation) under way as of
+2026-08-04.
 
 ## 1. Why
 
@@ -318,10 +319,10 @@ when wiring needs shader or pass work that cannot be verified without a GPU.
   serialization and no test.
 - `Terrain::LayerStack` (Flatten/Raise/Crater) is implemented and unit-tested and
   `PlanetTerrain::layers()` exposes it, but nothing ever adds a layer.
-- `Vfx::BeamModule` + `RenderAlignment::Beam` have a working GPU path
+- `VFX::BeamModule` + `RenderAlignment::Beam` have a working GPU path
   (`particle_ribbon.vert`, `is_beam`) but no Alignment combo entry and no serializer
   field.
-- `Vfx::SortMode` is authored, serialized, compiled and uploaded to the GPU emitter
+- `VFX::SortMode` is authored, serialized, compiled and uploaded to the GPU emitter
   table, and read by no shader or pass.
 - `PlanetTerrain::statistics()` is computed every frame and displayed nowhere.
 - `create_interop_buffer` / `IInteropBuffer`, `IVehicleService::vehicle_surface` and
@@ -357,7 +358,7 @@ The restructure:
   script walks both trees and fails on asymmetry. Each module also keeps a short
   `README.md` stating what it owns, its tier and its dependencies.
 - `docs/getting-started/`, `docs/guides/`, `docs/reference/`, `docs/contributing/`.
-- `docs/design/` → `docs/design/`, indexed, each file carrying a status header,
+- `docs/slop/` → `docs/design/`, indexed, each file carrying a status header,
   excluded from Doxygen `INPUT` and from every public link.
 - `docs/documentation-style-guide.md` (new) — voice, naming, link and path-reference
   rules, **and explicit length ceilings**: one line per changelog bullet, a paragraph
@@ -370,6 +371,40 @@ The restructure:
 
 Documents obey the repository's own no-abbreviation and acronym-casing rules in prose
 and headings, and every markdown link must resolve.
+
+### As built, and where it departs from the plan above
+
+Three departures, each decided rather than drifted into:
+
+- **The community-health files stay at `docs/` root.** `docs/contributing/` is never
+  created. GitHub resolves `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` and `SECURITY.md`
+  from the repository root, `docs/` and `.github/` only, so a fourth location silently
+  drops the "Contribute" and "Report a vulnerability" affordances from the repository
+  page.
+- **A module's facts live in one file, not two.** `engine/<tier>/<module>/README.md` is
+  the single source of what a module owns, its tier, its dependencies and its coverage,
+  because it sits where a change to that module already has to walk past it.
+  `docs/modules/README.md` is an index and holds no facts of its own. The symmetry check
+  (`tools/documentation/check_module_documentation.py`) enforces the link in both
+  directions, and each README carries a `{#module-<name>}` label so twenty-two files
+  named `README.md` do not collide on one Doxygen page identifier.
+- **The changelog ceiling cuts only what overflows.** A bullet is 240 characters and the
+  check is fatal past 400. Bullets already inside the ceiling were left byte-for-byte
+  alone rather than rewritten, because most of the long ones carried the engineering
+  reason for a change and that reason exists nowhere else when the bullet cites no design
+  document. One bullet is held at 399 characters for exactly that reason.
+
+Two checks the plan did not ask for, added because phase 4 surfaced the gaps:
+
+- `tools/documentation/check_documentation_length.py` validates a link's **anchor**, not
+  only that its file exists. Splitting the architecture guide turned several hundred
+  section-number citations into anchor links, and a heading renamed later would break
+  them with nothing to notice.
+- `tools/layering/check_include_layering.py` applies the tier rule to a raw
+  `target_include_directories()` naming another module's include root.
+  `sushiengine_add_module()` only sees declared dependencies, so that form is the same
+  coupling by a route the configure-time check cannot see. Three world modules use it
+  legally today; nothing would have caught a fourth that pointed up.
 
 ## 11. Verification
 

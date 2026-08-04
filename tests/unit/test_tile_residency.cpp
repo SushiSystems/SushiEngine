@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Unit_TileResidency: the tile cache's bookkeeping
-// (docs/slop/solar_system_overhaul.md §7.2).
+// (docs/design/solar_system_overhaul.md §7.2).
 //
 // The decisive case is inheritance. When a node draws from a coarser ancestor's image, the
 // UV rectangle has to land on the *same geographic point* the node's own tile would have —

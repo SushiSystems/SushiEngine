@@ -307,7 +307,7 @@ int main(int argc, char** argv)
         context.simulation = simulation.get();
         context.assets = &renderer->assets();
         // The one thing that flows renderer -> simulation: the GPU atmosphere's asynchronous
-        // readback (docs/slop/atmosphere_system.md §3.2). Bound once here rather than ferried
+        // readback (docs/design/atmosphere_system.md §3.2). Bound once here rather than ferried
         // every frame, because the host is the only party that owns both. A host that skips this
         // is not broken -- every weather query then answers from the base state, a clear sky with
         // the synoptic wind, instead of from a sky that has silently stopped evolving.

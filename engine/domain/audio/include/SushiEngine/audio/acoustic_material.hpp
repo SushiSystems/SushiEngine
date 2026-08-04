@@ -32,7 +32,7 @@
  * A surface interacts with sound in three ways, and each is frequency-dependent, so
  * every coefficient is carried as a three-band triple centred on ≈ 400 Hz (low),
  * 2.5 kHz (mid), and 15 kHz (high) — the split the whole occlusion/reverb layer speaks
- * (see `docs/slop/audio_system.md` §6):
+ * (see `docs/design/audio_system.md` §6):
  *
  *   - **absorption** — the fraction of incident energy the surface *removes* (the rest
  *     reflects); feeds the room-geometry RT60 (`reverb.hpp`).

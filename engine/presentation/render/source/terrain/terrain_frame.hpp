@@ -29,7 +29,7 @@
  *
  * The scene is anchored to an observer standing on a body; the terrain lives in that
  * body's own fixed frame, where its elevations were baked and where its ellipsoid sits at
- * the origin (`docs/slop/solar_system_overhaul.md` §9). Something has to carry the camera
+ * the origin (`docs/design/solar_system_overhaul.md` §9). Something has to carry the camera
  * and its frustum across that boundary once per frame, and this is it.
  *
  * Deliberately free of Vulkan and of @ref PlanetTerrain: it is arithmetic over an

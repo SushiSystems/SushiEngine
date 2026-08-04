@@ -29,7 +29,7 @@
  * @brief The late-reverberation primitive — a Jot feedback delay network.
  *
  * The portable DSP core's diffuse-tail generator (§3.7 of
- * `docs/slop/audio_system.md`). `N = 16` delay lines are scattered into each other
+ * `docs/design/audio_system.md`). `N = 16` delay lines are scattered into each other
  * every round trip by a **lossless** mixing matrix (`feedback_matrix.hpp`); the *only*
  * loss in the loop is a **per-line one-pole damping filter**, which is what turns
  * "decay time" and "how much faster the highs decay" into two clean physical knobs

@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Unit_WeatherWorldCoupling: docs/slop/weather_and_clouds.md §5.3/W5's world-coupling bridge
+// Unit_WeatherWorldCoupling: docs/design/weather_and_clouds.md §5.3/W5's world-coupling bridge
 // (WeatherWorldCoupling, weather_wind(), and WeatherCloudscapeCompiler's cloud-base
 // darkening addition), in isolation from T1/T2 -- hand-built WeatherColumns and a bare
 // provider, exercising exactly the pure functions RuntimeSimulation::extract() calls.

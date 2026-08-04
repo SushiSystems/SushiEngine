@@ -35,7 +35,7 @@
  * and pulls in the DSP core; a `ReverbZone` ECS component (`sim/components.hpp`) needs
  * only the *data*, so it includes this and not the engine. Keeping the parameter POD
  * free of the DSP is the Interface-Segregation cut between "what a designer authors"
- * and "what renders it". See `docs/slop/audio_system.md` §7.
+ * and "what renders it". See `docs/design/audio_system.md` §7.
  *
  * The struct is a plain aggregate of `float`s, so it is trivially copyable — the ECS
  * component requirement (`component_id<T>()`).

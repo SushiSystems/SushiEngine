@@ -28,7 +28,7 @@
  * @file procedural.hpp
  * @brief Procedural sound sources — modal impacts and wind — as playable voices.
  *
- * The optional in-engine procedural-SFX feature of §S10 (`docs/slop/audio_system.md`),
+ * The optional in-engine procedural-SFX feature of §S10 (`docs/design/audio_system.md`),
  * exposed as ordinary @ref VoiceSource objects so they route through the whole voice /
  * mixer / spatializer / reverb pipeline like any sampled sound, but synthesised from a
  * handful of parameters with no asset:

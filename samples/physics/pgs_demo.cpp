@@ -79,8 +79,8 @@ namespace
 
 int main()
 {
-    auto runtime = SushiRuntime::API::Runtime::create();
-    Execution::Context execution(runtime);
+    auto runtime = Execution::Runtime::create();
+    Execution::Context execution = runtime.context();
     auto positions = execution.allocate<Vector3>(N);
     auto inv_mass = execution.allocate<Scalar>(N);
 

@@ -219,6 +219,28 @@ jobs:
           cmake --build build/native
           ctest --test-dir build/native -L "unit|integration|regression" --output-on-failure
 
+  structure:
+    name: Structure and documentation rules
+    runs-on: ubuntu-latest
+    # Cheap and dependency-free on purpose: three Python scripts over the tree, no toolchain
+    # and no checkout of the runtime sibling. The rules they enforce — a module has a README, a
+    # changelog bullet is a bullet, a link resolves — have existed in prose since the project
+    # started and were ignored the whole time, because nothing measured them.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that no module reaches above its tier by include path
+        # sushiengine_add_module() checks declared dependencies; a raw
+        # target_include_directories() into another module's include root is the same coupling
+        # by a route the configure-time check cannot see.
+        run: python3 tools/layering/check_include_layering.py
+
+      - name: Check that every module documents itself
+        run: python3 tools/documentation/check_module_documentation.py
+
+      - name: Check the documentation length and link ceilings
+        run: python3 tools/documentation/check_documentation_length.py
+
   docs:
     name: API docs site
     runs-on: ubuntu-latest

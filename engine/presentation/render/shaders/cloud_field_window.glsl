@@ -3,7 +3,7 @@
 // shadow lookup. One file so those five can never disagree about which piece of the world a
 // texel is.
 //
-// docs/slop/atmosphere_system.md §7.2. The field is a **camera-centred, non-wrapping window**
+// docs/design/atmosphere_system.md §7.2. The field is a **camera-centred, non-wrapping window**
 // rather than a *periodic 32 km tile*. A tile addressed by `fract(p.xz / tile)` is coherent
 // only while the weather above it is the same everywhere, and it is not: the bake resolves
 // coverage and genus per column from the simulated field (§7.4). Two things the window gives
@@ -27,7 +27,7 @@
 // field, so the two agree about where the weather is and differ only in how finely they
 // resolve its shape — which is exactly what makes the cross-fade invisible.
 
-// CloudsV2 (docs/slop/atmosphere_system.md §7.6): the field stores the *envelope* — where
+// CloudsV2 (docs/design/atmosphere_system.md §7.6): the field stores the *envelope* — where
 // cloud may exist (r = coverage) and how much water fills it (a, encoded half) — and the view
 // march carves the actual shape out of that envelope analytically, per sample. Everything
 // that integrates the field along a sun ray (the light volume, the far light channel, the

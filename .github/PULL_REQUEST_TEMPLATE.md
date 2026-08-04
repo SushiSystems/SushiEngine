@@ -12,7 +12,7 @@
 
 ## Docs touched
 
-<!-- Which docs did you update (README.md, ARCHITECTURE.md, Doxygen), or state
+<!-- Which docs did you update (README.md, `docs/architecture/`, Doxygen), or state
      explicitly that this change is doc-invisible (internal refactor, no API or
      behavior change). "Docs later" is not accepted. -->
 

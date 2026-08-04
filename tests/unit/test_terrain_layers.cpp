@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Unit_TerrainLayers: the editable half of the terrain height
-// (docs/slop/solar_system_overhaul.md §6), and the height function that composes it over
+// (docs/design/solar_system_overhaul.md §6), and the height function that composes it over
 // a measured source (§2 T2).
 //
 // The claim that carries the most weight is order stability. Composed ground has to be a

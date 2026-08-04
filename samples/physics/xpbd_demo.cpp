@@ -23,7 +23,7 @@
 
 // SushiLoop M2 worked example: pgs_demo.cpp's hanging chain, ported from plain
 // Projected Gauss-Seidel to the unified rigid-body XPBD solver
-// (docs/slop/SUSHILOOP.md). Bodies carry zero inverse inertia and anchors at their
+// (docs/design/SUSHILOOP.md). Bodies carry zero inverse inertia and anchors at their
 // own centre, so no angular coupling is possible and the chain's linear behaviour
 // is the rigid-body solver's `compliance == 0` case of the original constraint —
 // the device result is checked against a byte-for-byte host mirror of

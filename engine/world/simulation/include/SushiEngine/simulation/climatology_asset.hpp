@@ -25,7 +25,7 @@
 
 /**
  * @file climatology_asset.hpp
- * @brief Reads T0's baked climatology off disk (`docs/slop/atmosphere_system.md` §4).
+ * @brief Reads T0's baked climatology off disk (`docs/design/atmosphere_system.md` §4).
  *
  * **This file exists because `sushiengine_atmosphere` links nothing.**
  * `Atmosphere::Climatology` is a value that adopts bytes; it deliberately cannot open a file, so

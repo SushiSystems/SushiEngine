@@ -266,8 +266,8 @@ namespace SushiEngine
                     changed = true;
                 ImGui::BeginDisabled(!environment.clouds.enabled);
 
-                // Weather panel v2 (docs/slop/weather_and_clouds.md §6/§7 W4, and WM-SEED in
-                // docs/slop/atmosphere_system.md). Both modes install a provider, and the choice
+                // Weather panel v2 (docs/design/weather_and_clouds.md §6/§7 W4, and WM-SEED in
+                // docs/design/atmosphere_system.md). Both modes install a provider, and the choice
                 // is about *where the sky comes from*: Manual places it from a seed, Procedural
                 // grows it in a dynamical core.
                 using SushiEngine::Simulation::WeatherMode;
@@ -680,7 +680,7 @@ namespace SushiEngine
                         "-- it describes the whole sky, not one column.");
 
                     // The medium stays live under procedural weather. The decks do not decide
-                    // what a march sample finds (docs/slop/atmosphere_system.md §7.4: the
+                    // what a march sample finds (docs/design/atmosphere_system.md §7.4: the
                     // cloudscape bake resolves genus and coverage per column from the simulated
                     // field), so these knobs are the author's only control over how the sky
                     // *looks*. Disabling them would leave a procedurally driven sky with no

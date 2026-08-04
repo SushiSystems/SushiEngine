@@ -28,7 +28,7 @@
  * @brief Uploading this frame's tiles and drawing the body they belong to.
  *
  * Two graph passes registered together, in the order they must run: the tile upload, then
- * one instanced draw covering every selected node (`docs/slop/solar_system_overhaul.md`
+ * one instanced draw covering every selected node (`docs/design/solar_system_overhaul.md`
  * §8.1). Registering them from one object is what keeps the barrier between them derived
  * rather than hand-placed — the upload declares the slot image as a transfer destination
  * and the draw declares it as a vertex-stage sampled read, and the graph does the rest.

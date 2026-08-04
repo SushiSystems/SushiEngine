@@ -29,7 +29,7 @@
  *
  * A planet is six square faces, each subdivided as a quadtree, so a tile is named by
  * a face, a depth, and a cell in that face's grid at that depth
- * (`docs/slop/solar_system_overhaul.md` §4.3). Everything here is integer arithmetic
+ * (`docs/design/solar_system_overhaul.md` §4.3). Everything here is integer arithmetic
  * on that name: parent, child, same-face neighbour, and a packed key. Where a tile
  * *is* in space belongs to `cube_sphere.hpp`, which is also where the neighbour that
  * crosses a face edge lives — crossing a seam is a geometric fact, not an integer one.

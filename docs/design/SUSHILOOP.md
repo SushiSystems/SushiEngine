@@ -1,5 +1,7 @@
 # SushiLoop — Design
 
+**Status:** shipped — M0 through M5 landed.
+
 SushiLoop is the deterministic, network-ready game loop for SushiEngine. It is the
 foundation for building actual games on the engine, and eventually for "sushiverse",
 a physics-driven virtual universe. This document records the design decisions and the

@@ -1,62 +1,66 @@
-# Physics System — unified XPBD rigid + soft bodies, the cooking pipeline, and the road to vehicle-grade soft-body simulation (`SushiEngine::Physics`)
+# Physics System — unified XPBD, cooking, and deformable vehicles (`SushiEngine::Physics`)
+
+**Status:** in progress, P0 to P7 and PX complete but for PX-9, P8 under way, P9 not started (§16).
 
 This document is the **umbrella** for SushiEngine's AAA physics simulation: the product vision (one
 unified XPBD solver that carries rigid bodies, articulated assemblies, cloth, and volumetric soft
 bodies with real material strength), the offline **cooking pipeline** that turns any imported mesh
-into a simulation-ready asset with a single fidelity dial, the **penetration** contract that binds the
-visible mesh to the simulated one, and the multi-phase road to a BeamNG-class deformable-vehicle
+into a simulation-ready asset with a single fidelity dial, the **penetration** contract that binds
+the visible mesh to the simulated one, and the multi-phase road to a BeamNG-class deformable-vehicle
 simulation. It specifies the **architecture and the seams**, not the kernel source.
 
 Companion docs: `SUSHILOOP.md` (the determinism rules and the locked "GPU XPBD in double with a
-floating origin" decision this plan implements), `vfx_particle_system.md` (the structural template for
-a two-backend subsystem behind one seam), `animation_system.md` (the ragdoll/pose seam physics feeds),
-`atmosphere_system.md` (the wind field vehicle aerodynamics and cloth will sample), and the renderer's
-`../ARCHITECTURE.md` §4 (the physics layer as it stands today).
+floating origin" decision this plan implements), `vfx_particle_system.md` (the structural template
+for a two-backend subsystem behind one seam), `animation_system.md` (the ragdoll/pose seam physics
+feeds), `atmosphere_system.md` (the wind field vehicle aerodynamics and cloth will sample), and the
+renderer's `docs/architecture/domain-physics.md` §1 (the physics layer as it stands today).
 
-**Status (2026-07-28): nothing in this document is implemented.** §1 is an honest audit of what exists
-now; everything from §3 onward is the plan. The roadmap in §16 marks each phase's state and is the
-single place progress is recorded. The four decisions the project owner has settled — the hybrid
-vehicle structure, cosmetic narrow precision, phase order, and running the simulation on SushiRuntime
-— are recorded in §17.3; §6.6 is the concrete runtime execution model that follows from the last of
-them, and §8.6 is the mesh-to-physics binding written out end to end.
+§1 is an honest audit of what exists now; everything from §3 onward is the plan. The roadmap in §16
+marks each phase's state and is the single place progress is recorded. The four decisions the
+project owner has settled — the hybrid vehicle structure, cosmetic narrow precision, phase order,
+and running the simulation on SushiRuntime — are recorded in §17.3; §6.6 is the concrete runtime
+execution model that follows from the last of them, and §8.6 is the mesh-to-physics binding written
+out end to end.
 
 ---
 
 ## §0 The decisions that shape everything
 
-Five decisions determine the whole design. Each is stated with its cost, because each one closes doors.
+Five decisions determine the whole design. Each is stated with its cost, because each one closes
+doors.
 
 ### 0.1 One solver, not a family of solvers
 
 Every simulated thing — a crate, a car door on a hinge, a rope, a flag, a tyre sidewall, a dented
-fender — is a set of **particles or rigid bodies plus constraints**, projected by one substepping XPBD
-solver. `ARCHITECTURE.md` §4.1 already claims this and cloth already proves it; this plan holds the
-line for FEM soft bodies, joints, contacts, and node-beam vehicles as well.
+fender — is a set of **particles or rigid bodies plus constraints**, projected by one substepping
+XPBD solver. `docs/architecture/domain-physics.md` §1.1 already claims this and cloth already proves
+it; this plan holds the line for FEM soft bodies, joints, contacts, and node-beam vehicles as well.
 
 *Cost:* XPBD is a positional method, so quantities other engines get for free — exact constraint
-forces, reduced-coordinate articulations, analytic stiffness — have to be **recovered** from Lagrange
-multipliers rather than solved for directly (§10.4). We accept that; the payoff is that a car's chassis,
-its door hinge, its deforming panel, and the cloth seat inside it all converge in the same sweep and
-couple two-way for free.
+forces, reduced-coordinate articulations, analytic stiffness — have to be **recovered** from
+Lagrange multipliers rather than solved for directly (§10.4). We accept that; the payoff is that a
+car's chassis, its door hinge, its deforming panel, and the cloth seat inside it all converge in the
+same sweep and couple two-way for free.
 
 ### 0.2 Small steps, not many iterations
 
 The solver takes **many substeps with one constraint iteration each**, not one step with many
-iterations (Macklin et al. 2019, *Small Steps in Physics Simulation*). Error falls with the square of
-the substep, so N substeps beat N iterations at identical cost, and stiff constraints (a suspension
-spring, a rigid hinge) stop needing compliance hacks.
+iterations (Macklin et al. 2019, *Small Steps in Physics Simulation*). Error falls with the square
+of the substep, so N substeps beat N iterations at identical cost, and stiff constraints (a
+suspension spring, a rigid hinge) stop needing compliance hacks.
 
-*Consequence:* the outer tick rate and the substep count are the two knobs that buy stability, and the
-substep count must be derived from **simulation state, never from the wall clock** (SushiLoop's rule).
-A 60 Hz tick at 32 substeps is a 1920 Hz effective solve — the rate a node-beam vehicle needs.
+*Consequence:* the outer tick rate and the substep count are the two knobs that buy stability, and
+the substep count must be derived from **simulation state, never from the wall clock** (SushiLoop's
+rule). A 60 Hz tick at 32 substeps is a 1920 Hz effective solve — the rate a node-beam vehicle
+needs.
 
 ### 0.3 Cooked assets, not runtime discovery
 
 Anything expensive and deterministic — tetrahedralization, convex decomposition, signed-distance
 fields, bounding-volume hierarchies, mass properties, render-mesh embedding, simulation levels of
-detail — is computed **once, offline, into a versioned blob keyed by a content hash**, exactly the way
-`Animation::SkeletonBlob` and `Vfx::CompiledEffect` already work. The runtime loads and simulates; it
-never cooks.
+detail — is computed **once, offline, into a versioned blob keyed by a content hash**, exactly the
+way `Animation::SkeletonBlob` and `VFX::CompiledEffect` already work. The runtime loads and
+simulates; it never cooks.
 
 *Consequence:* the "drop a mesh in and it becomes a soft body" experience is an **import processor**
 that runs the cooker in the background, not a runtime feature. And the fidelity dial is a *cooking*
@@ -68,37 +72,37 @@ The penetration contract, stated once and enforced everywhere: **what the player
 interpenetrates more deeply than what the solver resolved.** Two mechanisms deliver it, and both are
 mandatory, not optional quality settings:
 
-- **Rigid:** collision geometry is a cooked approximation of the render mesh whose one-sided Hausdorff
-  error is measured and reported at cook time, so "the collider is fatter than the mesh" is a number
-  in the inspector rather than a surprise. Contacts carry a `rest_offset` so surfaces come to rest
-  *touching*, and a `contact_offset` so they are generated *before* they touch (§7.6).
+- **Rigid:** collision geometry is a cooked approximation of the render mesh whose one-sided
+  Hausdorff error is measured and reported at cook time, so "the collider is fatter than the mesh"
+  is a number in the inspector rather than a surprise. Contacts carry a `rest_offset` so surfaces
+  come to rest *touching*, and a `contact_offset` so they are generated *before* they touch (§7.6).
 - **Soft:** the render mesh is barycentrically **embedded** in the simulated tetrahedral mesh, so it
   is not "synced" to the simulation — it *is* the simulation, interpolated. The collision surface is
   the simulated surface. There is no second geometry to disagree.
 
-*Cost:* an embedded render mesh cannot be edited independently of its simulation mesh at runtime, and
-a re-cook invalidates the embedding. Accepted.
+*Cost:* an embedded render mesh cannot be edited independently of its simulation mesh at runtime,
+and a re-cook invalidates the embedding. Accepted.
 
 ### 0.5 Determinism is a build-time property, not a mode
 
-Every part of this system lives **inside** SushiLoop's deterministic island: fixed substep count from
-state, fixed constraint colour order, contacts sorted by a stable key before they are solved, no
-wall-clock, no unseeded randomness, no iteration over a hash container where order is observable. GPU
-execution is allowed because SushiLoop's promise is *same-binary* determinism, not cross-vendor
+Every part of this system lives **inside** SushiLoop's deterministic island: fixed substep count
+from state, fixed constraint colour order, contacts sorted by a stable key before they are solved,
+no wall-clock, no unseeded randomness, no iteration over a hash container where order is observable.
+GPU execution is allowed because SushiLoop's promise is *same-binary* determinism, not cross-vendor
 determinism.
 
-*Cost:* several attractive optimizations are forbidden — non-deterministic atomic accumulation orders,
-"solve whatever is ready" work stealing, floating-point reassociation. Where a parallel reduction is
-needed, it is a **fixed-order** reduction (§12.2).
+*Cost:* several attractive optimizations are forbidden — non-deterministic atomic accumulation
+orders, "solve whatever is ready" work stealing, floating-point reassociation. Where a parallel
+reduction is needed, it is a **fixed-order** reduction (§12.2).
 
 ---
 
 ## §1 Audit — what exists today, honestly
 
-`include/SushiEngine/physics/` is 2 233 lines of header-only templates and it is a *good* skeleton: the
-XPBD core, graph colouring, a device solve graph, and a clean precision-parametric design. It is also
-roughly 8 % of a AAA physics engine. This section is the honest inventory, because every phase in §16
-is scoped against it.
+`include/SushiEngine/physics/` is 2 233 lines of header-only templates and it is a *good* skeleton:
+the XPBD core, graph colouring, a device solve graph, and a clean precision-parametric design. It is
+also roughly 8 % of a AAA physics engine. This section is the honest inventory, because every phase
+in §16 is scoped against it.
 
 ### 1.1 What is there and works
 
@@ -124,23 +128,24 @@ bridge, and cloth. That test culture is the reason this plan can be aggressive.
 
 These are not "nice to have" — each one is load-bearing for something the user asked for.
 
-1. **No joints.** The only constraint is a distance constraint. A hinged car door is unbuildable today:
-   there is no hinge, ball, slider, fixed, or cone-twist constraint, no limits, no motors, no drives,
-   and no articulation concept at all. *(Blocks: assemblies, MBD, ragdolls, vehicles.)*
-2. **No friction and no restitution, anywhere.** `contact_solver.hpp` is a positional projection only;
-   velocity is whatever the position change implies. Every contact in the engine is perfectly
+1. **No joints.** The only constraint is a distance constraint. A hinged car door is unbuildable
+   today: there is no hinge, ball, slider, fixed, or cone-twist constraint, no limits, no motors, no
+   drives, and no articulation concept at all. *(Blocks: assemblies, MBD, ragdolls, vehicles.)*
+2. **No friction and no restitution, anywhere.** `contact_solver.hpp` is a positional projection
+   only; velocity is whatever the position change implies. Every contact in the engine is perfectly
    inelastic and perfectly frictionless. A box cannot rest on a ramp, a ball cannot bounce, a tyre
    cannot grip. *(Blocks: everything that matters.)*
 3. **Single-point contact manifolds.** `collide_obb_obb` returns the midpoint of the two support
-   points. `contact_solver.hpp`'s own comment says it: *"a box resting on a face is held by one corner
-   at a time and rocks slightly."* Stacking, resting, and any large flat contact are wrong.
+   points. `contact_solver.hpp`'s own comment says it: *"a box resting on a face is held by one
+   corner at a time and rocks slightly."* Stacking, resting, and any large flat contact are wrong.
 4. **The narrowphase knows three shapes.** Sphere, oriented box, half-space plane. `ColliderParams`
    authors Box / Sphere / Cylinder / Plane, and `RuntimeSimulation::gather_rigid_descs()` collapses
-   anything that is not a Box into **a sphere of one radius** — a Cylinder collider silently simulates
-   as a sphere. No convex hulls, no capsules, no triangle meshes, no height fields, no signed-distance
-   fields. Static world geometry can only be an **infinite half-space plane**.
-5. **No entity scale reaches the collider.** `Transform::scale` is a render concept; the physics reads
-   the authored collider extents directly. Scaling an object in the editor does not scale its physics.
+   anything that is not a Box into **a sphere of one radius** — a Cylinder collider silently
+   simulates as a sphere. No convex hulls, no capsules, no triangle meshes, no height fields, no
+   signed-distance fields. Static world geometry can only be an **infinite half-space plane**.
+5. **No entity scale reaches the collider.** `Transform::scale` is a render concept; the physics
+   reads the authored collider extents directly. Scaling an object in the editor does not scale its
+   physics.
 6. **No mass properties.** `PhysicsBodyParams` makes the author type an inverse mass and a *diagonal
    inverse inertia tensor* by hand. Nothing computes inertia from a shape or a density.
 7. **No continuous collision.** Nothing is swept, nothing is speculative. A fast body tunnels.
@@ -151,17 +156,18 @@ These are not "nice to have" — each one is load-bearing for something the user
    streaming, spawning.)*
 9. **No islands, no sleeping.** Every body is integrated and every constraint is projected every
    substep forever. A scene of a thousand settled crates costs the same as a thousand tumbling ones.
-10. **The broadphase is rebuilt from scratch, twice per substep.** `PhysicsSimulation::resolve_contacts`
-    runs `CONTACT_ITERATIONS = 2` sweeps, and *each* sweep refills the AABB array and re-runs
-    `sweep_and_prune`, which sorts `O(n log n)` and allocates two vectors internally. It is also
-    hard-coded to the X axis — a scene laid out along a road is the degenerate case.
+10. **The broadphase is rebuilt from scratch, twice per substep.**
+    `PhysicsSimulation::resolve_contacts` runs `CONTACT_ITERATIONS = 2` sweeps, and *each* sweep
+    refills the AABB array and re-runs `sweep_and_prune`, which sorts `O(n log n)` and allocates two
+    vectors internally. It is also hard-coded to the X axis — a scene laid out along a road is the
+    degenerate case.
 11. **Only the constraint projection is on the device; everything around it is a host loop.** Per
     substep, `PhysicsWorld::step` runs a host loop over every body (`predict`), then
     `XpbdSolver::solve()` — which **zeroes every Lagrange multiplier in a host loop over every
     constraint** before replaying the graph — then the contact pass on the host, then another host
-    loop over every body (`update_velocity`). At 32 substeps and 100 000 constraints that is
-    3.2 million host-side writes per tick before any physics happens, plus 32 blocking
-    host↔device round trips.
+    loop over every body (`update_velocity`). At 32 substeps and 100 000 constraints that is 3.2
+    million host-side writes per tick before any physics happens, plus 32 blocking host↔device round
+    trips.
 12. **The solve graph cannot change size without recompiling.** `XpbdSolver::build_graph` bakes
     `Extent{n}` per colour at construction, using the capture-style `Graph::add(Extent, Cap0, ...)`
     overload — which is the one overload with **no `Dynamic` counterpart** in the runtime API. Since
@@ -169,19 +175,22 @@ These are not "nice to have" — each one is load-bearing for something the user
     and into a host pass in the first place (`contact_solver.hpp`'s own file comment says so). §6.6
     shows this is a solvable API-shape problem, not a fundamental one.
 13. **Soft bodies are mass-spring lattices.** `build_soft_body_lattice` links axis and face-diagonal
-    neighbours with distance constraints. There is no volume preservation, so it collapses and inverts
-    under load; no bending resistance; no material parameters (Young's modulus, Poisson ratio,
-    density); no stress; no plasticity; no fracture; and no relationship to any imported mesh.
-14. **No mesh reaches the physics at all.** The only triangle-mesh representation in the engine lives
-    behind Vulkan in `render/geometry/mesh_registry.hpp` (`Geometry::MeshVertex`, device buffers), and
-    the only signed-distance baker (`render/gi/mesh_sdf_baker.hpp`, `Gi::MeshSdfBrick`) is a
-    render-side global-illumination tool. There is no engine-neutral triangle mesh, no cooking step,
-    no physics asset, and no import hook. **This is the single biggest gap relative to what the
-    project wants**, and §8 exists to close it.
+    neighbours with distance constraints. There is no volume preservation, so it collapses and
+    inverts under load; no bending resistance; no material parameters (Young's modulus, Poisson
+    ratio, density); no stress; no plasticity; no fracture; and no relationship to any imported
+    mesh.
+14. **No mesh reaches the physics at all.** The only triangle-mesh representation in the engine
+    lives behind Vulkan in `render/geometry/mesh_registry.hpp` (`Geometry::MeshVertex`, device
+    buffers), and the only signed-distance baker (`render/gi/mesh_sdf_baker.hpp`,
+    `Gi::MeshSdfBrick`) is a render-side global-illumination tool. There is no engine-neutral
+    triangle mesh, no cooking step, no physics asset, and no import hook. **This is the single
+    biggest gap relative to what the project wants**, and §8 exists to close it.
 15. **`ContactBody::is_cloth` is a type tag inside a value type.** Behaviour switches on a boolean
     (`if (a.is_cloth && b.is_cloth) return;`). Adding soft bodies, characters, triggers, or vehicles
-    this way multiplies the flags and the branches — the exact Open/Closed violation §4 exists to stop.
-16. **Cloth rebuilds lose all state**, by documented design: any `ClothParams` edit replaces the grid.
+    this way multiplies the flags and the branches — the exact Open/Closed violation §4 exists to
+    stop.
+16. **Cloth rebuilds lose all state**, by documented design: any `ClothParams` edit replaces the
+    grid.
 17. **No queries.** No raycast, no sweep, no overlap, no trigger volumes, no collision layers or
     filters, no contact events. Gameplay cannot ask the physics anything.
 18. **No character controller, no kinematic bodies.**
@@ -189,13 +198,15 @@ These are not "nice to have" — each one is load-bearing for something the user
 
 ### 1.3 Two small correctness notes worth fixing early
 
-- `collide_box_sphere` and `collide_obb_sphere` push out along **+Y** when the sphere centre is exactly
-  inside the box (distance ≈ 0), rather than out of the nearest face. Deep penetration recovery picks
+- `collide_box_sphere` and `collide_obb_sphere` push out along **+Y** when the sphere centre is
+  exactly
+  inside the box (distance ≈ 0), rather than out of the nearest face. Deep penetration recovery
+  picks
   an arbitrary direction.
-- `contact_solver.hpp`'s plane path scales the impulse by `inv_mass / w` so the centre-of-mass motion
-  matches the old purely-positional behaviour. That is a deliberate compatibility choice, and it means
-  the angular share of a plane contact does **not** conserve the correction — it is not the same
-  projection the pair path uses. Worth unifying when manifolds arrive.
+- `contact_solver.hpp`'s plane path scales the impulse by `inv_mass / w` so the centre-of-mass
+  motion matches the old purely-positional behaviour. That is a deliberate compatibility choice, and
+  it means the angular share of a plane contact does **not** conserve the correction — it is not the
+  same projection the pair path uses. Worth unifying when manifolds arrive.
 
 ---
 
@@ -216,16 +227,16 @@ Model only. No code, no dependency, unless §17.2 says otherwise.
 | **BeamNG.drive** | The node/beam soft-body vehicle: point-mass nodes, spring-damper beams with *deform* and *break* thresholds, bracing beams for torsion, and a high substep rate. The permanent-deformation model in §11 is this, expressed as XPBD plasticity. |
 | **Houdini Vellum / Blender** | The tetrahedralization-and-embed workflow: cook a simulation mesh at a chosen resolution, embed the render mesh in it, simulate the coarse mesh, display the fine one. |
 | **V-HACD** | Approximate convex decomposition as the default rigid mesh collider strategy. |
-| SushiEngine `Vfx::EmitterCompiler` | The authoring→compile→POD-blob pipeline shape (`vfx_particle_system.md` §3). The physics cooker is the same shape with heavier geometry. |
+| SushiEngine `VFX::EmitterCompiler` | The authoring→compile→POD-blob pipeline shape (`vfx_particle_system.md` §3). The physics cooker is the same shape with heavier geometry. |
 | SushiEngine `Animation::SkeletonBlob` | The versioned, trivially-loadable cooked-asset blob format and its import path. |
 | SushiEngine `Gi::MeshSdfBrick` | An existing, working signed-distance baker to **lift and share**, not to duplicate (§3.4). |
 | SushiRuntime `SIMULATION_ENGINE_SUBSTRATE_PLAN.md` | The substrate contract: late-bound sizes, region graphs, device residency, native host nodes, and the WP-4 determinism analysis. Its locked decisions L7/L8/L11/L12/L14 name this system as the runtime's target workload (§6.6). |
 
-**Skip list, deliberately:** fluid simulation (SPH/FLIP/PBF) — a separate system, not this one; runtime
-Voronoi fracture of arbitrary rigid geometry (§17.1 revisits it); reduced-coordinate Featherstone
-articulations as the *primary* path (§10.5 keeps it as an escape hatch); cross-vendor bit-exact
-determinism (SushiLoop already ruled it out); soft-body **self**-collision at cloth scale in the first
-soft-body phase (§9.6 schedules it).
+**Skip list, deliberately:** fluid simulation (SPH/FLIP/PBF) — a separate system, not this one;
+runtime Voronoi fracture of arbitrary rigid geometry (§17.1 revisits it); reduced-coordinate
+Featherstone articulations as the *primary* path (§10.5 keeps it as an escape hatch); cross-vendor
+bit-exact determinism (SushiLoop already ruled it out); soft-body **self**-collision at cloth scale
+in the first soft-body phase (§9.6 schedules it).
 
 ---
 
@@ -296,27 +307,28 @@ class IPhysicsScene               // the ECS-facing facade over the ISP-split se
 
 ### 3.4 One refactor this plan depends on: a neutral `geometry/` module
 
-`render/gi/mesh_sdf_baker.hpp` bakes a signed-distance brick from `Geometry::MeshVertex`. The physics
-needs exactly that, plus a triangle mesh it can traverse on the host and the device, and it must not
-depend on Vulkan to get it.
+`render/gi/mesh_sdf_baker.hpp` bakes a signed-distance brick from `Geometry::MeshVertex`. The
+physics needs exactly that, plus a triangle mesh it can traverse on the host and the device, and it
+must not depend on Vulkan to get it.
 
 **Action (phase P0):** create a top-level `geometry/` module holding an engine-neutral
 `Geometry::TriangleMesh` (positions, indices, optional normals, bounds — no device handles) and move
 the signed-distance baker there as `Geometry::SignedDistanceFieldBaker`. `render/gi/` and
 `render/geometry/mesh_registry.cpp` consume it from the new home; `Gi::MeshSdfBrick` becomes a thin
-alias or is replaced outright. This is a **pure move plus a rename**, doc-visible but behaviour-neutral,
-and it unblocks every mesh-aware feature in this plan.
+alias or is replaced outright. This is a **pure move plus a rename**, doc-visible but
+behaviour-neutral, and it unblocks every mesh-aware feature in this plan.
 
-*Why this and not "physics reads the mesh registry":* the physics layer sits **below** the renderer in
-the dependency order. Pointing it at a Vulkan-owning class inverts the layering and makes the cooker
-require a device. The neutral module is the correct fix, and the renderer benefits too — a mesh's
-distance field stops being a global-illumination private.
+*Why this and not "physics reads the mesh registry":* the physics layer sits **below** the renderer
+in the dependency order. Pointing it at a Vulkan-owning class inverts the layering and makes the
+cooker require a device. The neutral module is the correct fix, and the renderer benefits too — a
+mesh's distance field stops being a global-illumination private.
 
 ---
 
 ## §4 The SOLID contract
 
-The user's stated first priority, and `CLAUDE.md`'s. Stated per principle, with the concrete mechanism
+The user's stated first priority, and `CLAUDE.md`'s. Stated per principle, with the concrete
+mechanism
 that enforces it and the test that catches a violation.
 
 ### 4.1 Single responsibility
@@ -348,11 +360,12 @@ uniform accessor), (2) a captureless projection functor with the established
 the solver's constraint-kind list. `XpbdSolver` gains **nothing** — this is the pattern
 `XpbdDistanceProjectionT` already establishes, generalized to a heterogeneous constraint set (§6.3).
 
-**A new soft-body material model** implements `ISoftBodyModel` and is selected by the cooked asset. The
-solver schedules it by the constraints it emits; it does not know the model exists.
+**A new soft-body material model** implements `ISoftBodyModel` and is selected by the cooked asset.
+The solver schedules it by the constraints it emits; it does not know the model exists.
 
 The cooker follows the same rule: a cooking stage is an `ICookingStage` in an ordered pipeline
-(`Repair → Voxelize → Tetrahedralize → Optimize → Embed → Decompose → BakeDistanceField → BuildLevelsOfDetail → Serialize`),
+(`Repair → Voxelize → Tetrahedralize → Optimize → Embed → Decompose → BakeDistanceField →
+BuildLevelsOfDetail → Serialize`),
 so adding a stage inserts an object rather than editing a function.
 
 ### 4.3 Interface segregation — splitting `IPhysicsSimulation`
@@ -372,17 +385,17 @@ class IPhysicsStepper       { step(substeps, gravity_sampler)/statistics/... };
 class IPhysicsScene : public IRigidBodyService, public ISoftBodyService, /* ... */ {};
 ```
 
-A gameplay system that only raycasts depends on `ICollisionQueryService` and nothing else. The editor's
-soft-body panel depends on `ISoftBodyService`. `IPhysicsScene` exists only for the host that owns the
-whole thing.
+A gameplay system that only raycasts depends on `ICollisionQueryService` and nothing else. The
+editor's soft-body panel depends on `ISoftBodyService`. `IPhysicsScene` exists only for the host
+that owns the whole thing.
 
 ### 4.4 Liskov — the substitutability tests
 
 Every seam in §3.3 ships with a **shared conformance test suite** run against every implementation:
 `IBroadphase` implementations must all emit the same sorted pair set for the same input;
 `IConstraintSolver` implementations must agree within a stated tolerance on a reference scene;
-`ISoftBodyModel` implementations must all converge to the same rest shape. This is how a
-device solver is allowed to replace a host solver without silently changing behaviour, and it is the
+`ISoftBodyModel` implementations must all converge to the same rest shape. This is how a device
+solver is allowed to replace a host solver without silently changing behaviour, and it is the
 generalization of what `test_xpbd_solver.cpp` already does with its host mirror.
 
 The `ContactBody::is_cloth` flag (§1.2 item 15) is deleted: behaviour differences become **filter
@@ -390,7 +403,8 @@ masks and material properties**, which are data, not type tags.
 
 ### 4.5 Dependency inversion — who names whom
 
-- `physics/` names `Geometry::TriangleMesh`. It never names `Render::Geometry::MeshRegistry`, Vulkan,
+- `physics/` names `Geometry::TriangleMesh`. It never names `Render::Geometry::MeshRegistry`,
+  Vulkan,
   or the editor.
 - `physics/scene` reports collisions to an `IPhysicsEventSink` it is handed. It never calls audio,
   VFX, or gameplay.
@@ -423,8 +437,8 @@ copyable:
 
 `inverse_inertia` stays a diagonal in the body-local frame — the existing choice is correct and the
 projection code already handles the similarity transform. Bodies whose cooked inertia tensor is not
-diagonal store the **principal-axis rotation** produced by the cooker's eigendecomposition, folded into
-`center_of_mass_local`'s frame.
+diagonal store the **principal-axis rotation** produced by the cooker's eigendecomposition, folded
+into `center_of_mass_local`'s frame.
 
 ### 5.2 Shapes
 
@@ -432,14 +446,15 @@ diagonal store the **principal-axis rotation** produced by the cooker's eigendec
 Sphere · Capsule · Box · ConvexHull · TriangleMesh(static) · HeightField · SignedDistanceField · Compound
 ```
 
-A shape is a value type in `physics/geometry`, referencing cooked data by handle (a convex hull's plane
-and vertex arrays, a mesh's bounding-volume hierarchy, a distance field's brick) so a shape itself
-stays small and copyable. `Compound` is a list of child shapes with local transforms — this is how one
-body gets several colliders, which is how a car chassis is one body with a dozen convex pieces.
+A shape is a value type in `physics/geometry`, referencing cooked data by handle (a convex hull's
+plane and vertex arrays, a mesh's bounding-volume hierarchy, a distance field's brick) so a shape
+itself stays small and copyable. `Compound` is a list of child shapes with local transforms — this
+is how one body gets several colliders, which is how a car chassis is one body with a dozen convex
+pieces.
 
-Every shape carries a **`convex_radius`** (a small inflation used by the closest-point routines to keep
-them numerically stable — the standard trick) and the body-level `contact_offset` / `rest_offset`
-(§7.6).
+Every shape carries a **`convex_radius`** (a small inflation used by the closest-point routines to
+keep them numerically stable — the standard trick) and the body-level `contact_offset` /
+`rest_offset` (§7.6).
 
 ### 5.3 Materials
 
@@ -480,8 +495,8 @@ New components (trivially copyable, per `components.hpp`'s rule) and new host-si
 + CollisionFilter      { std::uint32_t layer; std::uint32_t collides_with_mask; }
 ```
 
-`ColliderParams` is superseded by a `Collider` record that can name a cooked `CollisionAsset` **or** a
-primitive, and that finally honours `Transform::scale` (§1.2 item 5).
+`ColliderParams` is superseded by a `Collider` record that can name a cooked `CollisionAsset` **or**
+a primitive, and that finally honours `Transform::scale` (§1.2 item 5).
 
 ---
 
@@ -507,12 +522,12 @@ PhysicsScene::step(dt, substeps):
 Two deliberate departures from what exists today:
 
 - **Collision detection runs once per tick, not once per substep.** Manifolds are generated against
-  *swept* bounds with a contact offset, then re-evaluated (depth and points refreshed, features kept)
-  cheaply each substep. This is the standard XPBD-with-substeps arrangement and it is what makes 32
-  substeps affordable. Today's code runs a full broadphase twice *per substep*.
+  *swept* bounds with a contact offset, then re-evaluated (depth and points refreshed, features
+  kept) cheaply each substep. This is the standard XPBD-with-substeps arrangement and it is what
+  makes 32 substeps affordable. Today's code runs a full broadphase twice *per substep*.
 - **A velocity pass is added.** XPBD's positional projection cannot express restitution or dynamic
-  friction; both are velocity-level. Today's engine has no velocity pass at all, which is exactly why
-  it has neither.
+  friction; both are velocity-level. Today's engine has no velocity pass at all, which is exactly
+  why it has neither.
 
 ### 6.2 Substep count derived from state
 
@@ -521,9 +536,9 @@ substeps = clamp(ceil(max_body_motion_per_tick / motion_budget), minimum, maximu
 ```
 
 where `max_body_motion_per_tick` is the largest `|velocity| * dt / characteristic_size` over awake
-bodies. Derived from **simulation state only** — SushiLoop's determinism rule. A vehicle scene pins it
-near the maximum; an idle scene drops to the minimum. Per-island substepping is a §13 optimization,
-not a first-phase feature.
+bodies. Derived from **simulation state only** — SushiLoop's determinism rule. A vehicle scene pins
+it near the maximum; an idle scene drops to the minimum. Per-island substepping is a §13
+optimization, not a first-phase feature.
 
 ### 6.3 Heterogeneous constraints in one graph
 
@@ -535,8 +550,8 @@ structure and adds a **kind dimension**:
   `color_constraints` is generalized to take a body-pair accessor rather than requiring `.a`/`.b`
   fields — one small change, and every existing caller keeps working.
 - The graph emits one node per `(kind, colour)` pair. Within a colour the kinds are independent by
-  construction, so their relative order does not matter; across colours the runtime orders them, as it
-  does now.
+  construction, so their relative order does not matter; across colours the runtime orders them, as
+  it does now.
 - Contacts are a constraint kind like any other, but their buffers are **rebuilt each tick** rather
   than at finalize time — which is why §6.4 exists.
 
@@ -555,11 +570,11 @@ backed by:
 
 - **Generational handles** over a free-list, so a removed body's index can be reused without a stale
   handle silently addressing the wrong body.
-- **Fixed-capacity device buffers with a live count**, not capacity doubling. A `SushiRuntime::Buffer`
-  cannot be resized in place — a growth reallocates and moves, which invalidates the pointer every
-  graph node captured. So the scene allocates at a configured capacity, the *live* element count is a
-  per-step value (§6.6), and exceeding capacity is a budgeted, reported, recomposing event rather than
-  a routine one.
+- **Fixed-capacity device buffers with a live count**, not capacity doubling. A
+  `SushiRuntime::Buffer` cannot be resized in place — a growth reallocates and moves, which
+  invalidates the pointer every graph node captured. So the scene allocates at a configured
+  capacity, the *live* element count is a per-step value (§6.6), and exceeding capacity is a
+  budgeted, reported, recomposing event rather than a routine one.
 - **Incremental recolouring**: a new constraint takes the lowest colour free on both its bodies (the
   existing greedy rule, applied to one constraint); a removed constraint vacates its slot. A full
   recolour runs only when the colour count would grow past a threshold or fragmentation exceeds a
@@ -573,20 +588,20 @@ This unblocks fracture, breakable joints, spawning, streaming, and vehicle damag
 ### 6.5 Precision
 
 The gameplay solve stays `double`: SushiLoop's locked decision, `Scalar` is already double, and a
-planet-scale world with a floating origin needs it. Everything precision-related is already a template
-parameter (`RigidBodyT<T>`, `XpbdDistanceConstraintT<T>`, `PhysicsWorld<Constraint>::Real`), so this is
-a policy choice per body kind, not new machinery.
+planet-scale world with a floating origin needs it. Everything precision-related is already a
+template parameter (`RigidBodyT<T>`, `XpbdDistanceConstraintT<T>`,
+`PhysicsWorld<Constraint>::Real`), so this is a policy choice per body kind, not new machinery.
 
-**Cosmetic bodies get a narrower column.** A soft body or cloth marked non-gameplay lives outside the
-deterministic island's authority in exactly the way cosmetic VFX already do, so it may run:
+**Cosmetic bodies get a narrower column.** A soft body or cloth marked non-gameplay lives outside
+the deterministic island's authority in exactly the way cosmetic VFX already do, so it may run:
 
 - **`float`** as the default cosmetic column — half the bandwidth, and bandwidth is what a soft-body
   solve is actually limited by.
-- **`sycl::half` for storage only**, where profiling shows it pays: positions and velocities stored at
-  half precision and widened to `float` inside the projection. Half-precision *arithmetic* is not used
-  for the projection itself — a neo-Hookean solve in 11 significant bits is not a stability trade, it
-  is a broken solve. The rule is **half to store, float to compute**, and it applies to a curtain, a
-  flag, or a distant vehicle's shell, never to anything a rollback replays.
+- **`sycl::half` for storage only**, where profiling shows it pays: positions and velocities stored
+  at half precision and widened to `float` inside the projection. Half-precision *arithmetic* is not
+  used for the projection itself — a neo-Hookean solve in 11 significant bits is not a stability
+  trade, it is a broken solve. The rule is **half to store, float to compute**, and it applies to a
+  curtain, a flag, or a distant vehicle's shell, never to anything a rollback replays.
 
 The precision of a body is a property of its cooked asset and its component flags, resolved once at
 instantiation. A body cannot change precision while it is simulating.
@@ -599,14 +614,14 @@ Positions are relative to the floating origin, which the engine already implemen
 
 **Yes — the simulation runs on SushiRuntime**, and more of it than does today. This section is the
 concrete mapping, because "put it on the GPU" is not a plan and the runtime's shape dictates the
-solver's shape. Everything below is checked against the runtime tree at
-`../sushiruntime` (`docs/ARCHITECTURE.md`, `include/SushiRuntime/api/`) as of 2026-07-28.
+solver's shape. Everything below is checked against the runtime tree at `../sushiruntime`
+(`docs/architecture/`, `include/SushiRuntime/api/`) as of 2026-07-28.
 
 #### The runtime was designed for this workload
 
 Worth stating first, because it changes how much of this plan is speculative. SushiRuntime's own
-engineering plan (`sushiruntime/docs/design/SIMULATION_ENGINE_SUBSTRATE_PLAN.md`) records the owner's
-locked decisions, and four of them name this system directly:
+engineering plan (`sushiruntime/docs/design/SIMULATION_ENGINE_SUBSTRATE_PLAN.md`) records the
+owner's locked decisions, and four of them name this system directly:
 
 - **L7** — *"Full physics is in scope: particle/N-body, grid/field PDE, soft-body/constraint, **and
   rigid body**, with **collision detection as a central feature**. Frame-varying graph topology is
@@ -664,47 +679,46 @@ Three exact constraints that come with it, and they shape the buffer design:
   `add(Extent, In(...), ..., fn(id, ptrs...))` form `XpbdSolver` uses today, and it is the enabling
   P0 task for most of §7 and §13.
 
-**2. `DynamicGraph` — regions that stream in and out.**
-Regions are keyed by a caller-chosen identity; `region(key)` records with the same `add()` surface,
-`drop(key)` removes one, and mutations apply **at a step boundary, never against a running DAG**. A
-commit costs *O(changed region + affected boundary pins)*, and `compose_count()` advances once per
-mutation, not per region. Physics maps **one region per island**: a sleeping island is dropped, a
-waking one composed. That is how §13.2's "a settled island costs nothing" is actually implemented.
+**2. `DynamicGraph` — regions that stream in and out.** Regions are keyed by a caller-chosen
+identity; `region(key)` records with the same `add()` surface, `drop(key)` removes one, and
+mutations apply **at a step boundary, never against a running DAG**. A commit costs *O(changed
+region + affected boundary pins)*, and `compose_count()` advances once per mutation, not per region.
+Physics maps **one region per island**: a sleeping island is dropped, a waking one composed. That is
+how §13.2's "a settled island costs nothing" is actually implemented.
 
-The constraint to design around: **cross-region edges are derived in ascending region-key order — the
-lower-keyed region is the producer.** Island keys must therefore be assigned deterministically and,
-where two islands genuinely share an allocation, ordered intentionally. Islands are disjoint by
+The constraint to design around: **cross-region edges are derived in ascending region-key order —
+the lower-keyed region is the producer.** Island keys must therefore be assigned deterministically
+and, where two islands genuinely share an allocation, ordered intentionally. Islands are disjoint by
 construction, so the common case has no cross-region edges at all; the shared static-geometry
 hierarchy is the exception and is read-only, and read/read sharing stays parallel.
 
-**3. Sub-region dependency tracking.**
-The tracker keys on `ResourceRegion{base, offset, length}` and orders by **overlap**, not pointer
-equality: *"disjoint sub-regions stay parallel"*. `Buffer::region(ElementRange)` names a slice, and
-`Reads(...)`/`Writes(...)` accept it in place of a whole buffer. So the per-colour constraint views
-become slices of **one** constraint allocation rather than one allocation per colour (today's
-`constraint_buffers_` vector), and two colours writing disjoint slices are still parallel.
+**3. Sub-region dependency tracking.** The tracker keys on `ResourceRegion{base, offset, length}`
+and orders by **overlap**, not pointer equality: *"disjoint sub-regions stay parallel"*.
+`Buffer::region(ElementRange)` names a slice, and `Reads(...)`/`Writes(...)` accept it in place of a
+whole buffer. So the per-colour constraint views become slices of **one** constraint allocation
+rather than one allocation per colour (today's `constraint_buffers_` vector), and two colours
+writing disjoint slices are still parallel.
 
-**4. Residency, and reading back.**
-`Residency::Device` allocates device-only USM behind the same handle API. The hot state columns
-become device-resident, which is what stops the per-substep host traffic in §1.2 item 11. The price
-is explicit and worth stating: **`operator[]` and the bulk `host()` span throw `invalid_access` on a
-device-resident handle** — the host uses `read_range()` / `write_range()`, which copy a sub-range
-through the owning queue. Every host-side loop in today's physics has to go, not be ported.
+**4. Residency, and reading back.** `Residency::Device` allocates device-only USM behind the same
+handle API. The hot state columns become device-resident, which is what stops the per-substep host
+traffic in §1.2 item 11. The price is explicit and worth stating: **`operator[]` and the bulk
+`host()` span throw `invalid_access` on a device-resident handle** — the host uses `read_range()` /
+`write_range()`, which copy a sub-range through the owning queue. Every host-side loop in today's
+physics has to go, not be ported.
 
-**5. `add_host()` — native CPU nodes inside the graph.**
-A task that submits no device work runs directly on the worker thread and reports an empty event, so
-its successors release through the ordinary path. The sequential stages (island building, sleep
-transitions, level-of-detail selection) stay **inside** the one composition instead of splitting the
-tick into several `run()` calls.
+**5. `add_host()` — native CPU nodes inside the graph.** A task that submits no device work runs
+directly on the worker thread and reports an empty event, so its successors release through the
+ordinary path. The sequential stages (island building, sleep transitions, level-of-detail selection)
+stay **inside** the one composition instead of splitting the tick into several `run()` calls.
 
 #### Two runtime constraints that are easy to get wrong
 
-- **The fluent API only tracks dependencies through handle-based overloads.** The runtime cannot infer
-  what a kernel touches — a per-element callable is `void(std::size_t)` capturing raw USM pointers —
-  so every physics node must name its data with `In`/`Out`/`InOut` or `Reads`/`Writes`. The runtime
-  now spells the dependency-blind overloads `add_untracked` (§18, R5), so the rule this plan needs
-  becomes a mechanical one: **`add_untracked` does not appear anywhere under `physics/`**. Every
-  launch shape has a tracked overload, so there is never a reason for it to.
+- **The fluent API only tracks dependencies through handle-based overloads.** The runtime cannot
+  infer what a kernel touches — a per-element callable is `void(std::size_t)` capturing raw USM
+  pointers — so every physics node must name its data with `In`/`Out`/`InOut` or `Reads`/`Writes`.
+  The runtime now spells the dependency-blind overloads `add_untracked` (§18, R5), so the rule this
+  plan needs becomes a mechanical one: **`add_untracked` does not appear anywhere under
+  `physics/`**. Every launch shape has a tracked overload, so there is never a reason for it to.
 - **One node's buffers must share one device context.** USM is context-bound; the scheduler verifies
   co-location on a node's first dispatch and fails the run with `invalid_graph` if a node's buffers
   straddle a boundary. All of a scene's physics allocations are pinned to one `DeviceIndex`.
@@ -714,20 +728,20 @@ tick into several `run()` calls.
 #### The rule that follows: one `run()` per tick, not one per substep
 
 `Graph::run()` blocks. The runtime is a throughput engine with no asynchronous step, so 32 substeps
-implemented as 32 blocking `run()` calls is 32 round trips per tick, and at a 60 Hz tick that latency
-dominates everything else in this document.
+implemented as 32 blocking `run()` calls is 32 round trips per tick, and at a 60 Hz tick that
+latency dominates everything else in this document.
 
 **The whole substep loop is unrolled into the graph** — predict, the colour sweep, derive, velocity
 pass, repeated `substeps` times — and the tick issues exactly **one** `run()`. `XpbdSolver` already
-does this for its *iterations*; the plan extends it to the substeps and to the stages around them. The
-state-derived substep count (§6.2) becomes a `when()` predicate on the trailing substeps' nodes, so
-varying it does **not** recompose the graph: the nodes exist for the maximum substep count and the
-surplus ones are disabled that tick.
+does this for its *iterations*; the plan extends it to the substeps and to the stages around them.
+The state-derived substep count (§6.2) becomes a `when()` predicate on the trailing substeps' nodes,
+so varying it does **not** recompose the graph: the nodes exist for the maximum substep count and
+the surplus ones are disabled that tick.
 
 Two consequences worth stating plainly:
 
-- Anything the host must see *between* substeps has to move onto the device, because there is no cheap
-  point to look. That is a feature: it forces the design that was correct anyway.
+- Anything the host must see *between* substeps has to move onto the device, because there is no
+  cheap point to look. That is a feature: it forces the design that was correct anyway.
 - The graph is composed per **structure**, and structure changes are budgeted and reported through
   `compose_count()`. A `compose_count()` that climbs every tick is a bug, and a test asserts it does
   not — the same way `XpbdSolver::compile_count()` is already asserted in the existing tests.
@@ -737,11 +751,11 @@ Two consequences worth stating plainly:
 Three settings, each with a reason:
 
 - **`Runtime::rebalancer(false)`.** The thermal rebalancer is a background thread on a ~5 ms
-  heartbeat that migrates tasks mid-run. The runtime's architecture doc names the case exactly:
-  *"Disable it for a low-jitter real-time frame or a deterministic/replay run."* For a 60 Hz physics
-  tick the reason is **jitter**, not correctness — the runtime's WP-4 analysis is that work stealing
-  and migration do not change results as long as no accumulation depends on schedule order (below).
-  Off for physics, either way.
+  heartbeat that migrates tasks mid-run. The runtime's architecture doc names the case
+  exactly: *"Disable it for a low-jitter real-time frame or a deterministic/replay run."* For a 60
+  Hz physics tick the reason is **jitter**, not correctness — the runtime's WP-4 analysis is that
+  work stealing and migration do not change results as long as no accumulation depends on schedule
+  order (below). Off for physics, either way.
 - **Profiling on only when asked.** `RunReport::node_timings` / `worker_timings` are populated only
   when the runtime was created with `RuntimeConfig::profiling`; with it off, the dispatch hot path
   reads no timestamps. `PhysicsStatistics` (§13.3) reports what it can either way and the per-node
@@ -751,16 +765,16 @@ Three settings, each with a reason:
 #### Deterministic reductions: the runtime provides them
 
 The runtime's WP-4 is explicit that on a single architecture determinism reduces to *"making every
-order-sensitive reduction use a fixed combination order"*, and equally explicit about the hard case:
-*"GPU reductions are the hard case — a device `reduce` is not guaranteed fixed-order. Deterministic
-state-affecting reductions on GPU must use an explicit fixed-order kernel."*
+order-sensitive reduction use a fixed combination order"*, and equally explicit about the hard
+case: *"GPU reductions are the hard case — a device `reduce` is not guaranteed fixed-order.
+Deterministic state-affecting reductions on GPU must use an explicit fixed-order kernel."*
 
-This plan was written when that primitive did not exist and assumed the physics layer would build it.
-It now exists (§18, R2): `Graph::add_reduce` and `Graph::add_segmented_reduce`, guaranteeing that the
-combination order is a function of the element layout alone — not of the worker count, the device, the
-steal pattern, or the work-group size. The segmented form is precisely the shape §12.2 needs: one
-work-item folds one segment left to right, which is per-body contact-impulse accumulation and
-per-vertex accumulation across the tetrahedra sharing a vertex.
+This plan was written when that primitive did not exist and assumed the physics layer would build
+it. It now exists (§18, R2): `Graph::add_reduce` and `Graph::add_segmented_reduce`, guaranteeing
+that the combination order is a function of the element layout alone — not of the worker count, the
+device, the steal pattern, or the work-group size. The segmented form is precisely the shape §12.2
+needs: one work-item folds one segment left to right, which is per-body contact-impulse accumulation
+and per-vertex accumulation across the tetrahedra sharing a vertex.
 
 So **§12.2's fixed-order accumulation is a call, not a deliverable**, and it leaves P0's scope. What
 does not leave is the *conformance requirement*: the byte-equality test with the worker count varied
@@ -771,13 +785,13 @@ guarantee and is the caller's layout problem, i.e. ours.
 
 #### Cooking on the runtime, optionally
 
-The cooker is host code, but its two heaviest stages — voxelization and signed-distance-field baking —
-are embarrassingly parallel grid problems. Since SushiRuntime resolves a CPU/OpenCL backend when no
-GPU toolchain is present (`SR_GPU_BACKEND=auto` falls through to `cpu`), the cooker may dispatch those
-two stages through the runtime when one is available, behind the same `ICookingStage` seam, with a
-host implementation as the reference. This is an optimization with a conformance test (§4.4), not a
-dependency: **cooking must work with no device present**, because an importer that needs a GPU is an
-importer that fails on a build machine.
+The cooker is host code, but its two heaviest stages — voxelization and signed-distance-field baking
+— are embarrassingly parallel grid problems. Since SushiRuntime resolves a CPU/OpenCL backend when
+no GPU toolchain is present (`SR_GPU_BACKEND=auto` falls through to `cpu`), the cooker may dispatch
+those two stages through the runtime when one is available, behind the same `ICookingStage` seam,
+with a host implementation as the reference. This is an optimization with a conformance test (§4.4),
+not a dependency: **cooking must work with no device present**, because an importer that needs a GPU
+is an importer that fails on a build machine.
 
 #### Keeping the seam thin — and honouring a decision already taken
 
@@ -800,21 +814,22 @@ and P0 is where that drift is paid back.
 
 ## §7 Collision and the penetration contract
 
-This section is the direct answer to *"penetrasyon çok önemli — rigid ve soft farketmeksizin, hem mesh
-hem fiziksel olarak."*
+This section is the direct answer to *"penetrasyon çok önemli — rigid ve soft farketmeksizin, hem
+mesh hem fiziksel olarak."*
 
 ### 7.1 Broadphase
 
-`SweepAndPruneBroadphase` (today's, fixed: incremental, three-axis, no per-call allocation) is kept as
-the reference implementation and the small-scene fast path. The production path is
+`SweepAndPruneBroadphase` (today's, fixed: incremental, three-axis, no per-call allocation) is kept
+as the reference implementation and the small-scene fast path. The production path is
 `BoundingVolumeHierarchyBroadphase`: a dynamic bounding-volume hierarchy with
 
-- **fat bounds** (an inflation proportional to velocity), so a body only re-inserts when it leaves its
-  fattened box — most bodies do nothing most ticks,
+- **fat bounds** (an inflation proportional to velocity), so a body only re-inserts when it leaves
+  its fattened box — most bodies do nothing most ticks,
 - **refit on move, rebalance on budget**, never a full rebuild,
-- a **persistent pair cache** producing `added` / `persisted` / `removed` pair streams, which is what
-  lets manifolds and their warm-start impulses survive across ticks,
-- **swept bounds** for bodies flagged for continuous collision, so the pair exists before the impact.
+- a **persistent pair cache** producing `added` / `persisted` / `removed` pair streams, which is
+  what lets manifolds and their warm-start impulses survive across ticks,
+- **swept bounds** for bodies flagged for continuous collision, so the pair exists before the
+  impact.
 
 Static geometry lives in a separate, never-rebuilt tree.
 
@@ -830,10 +845,10 @@ Static geometry lives in a separate, never-rebuilt tree.
   correction** so a shape sliding across a tessellated floor does not catch on internal edges. (The
   classic "ghost collision" bug; the fix is to reject contact normals that point into an adjacent
   triangle's Voronoi region.)
-- **Signed-distance field vs anything**: sample the field at the query point, take the gradient as the
-  normal. `O(1)`, exact to the field's resolution, and the *right* answer for deep penetration where
-  hull-based methods degrade. This is the primary path for soft-body vertices against rigid bodies and
-  for concave static geometry.
+- **Signed-distance field vs anything**: sample the field at the query point, take the gradient as
+  the normal. `O(1)`, exact to the field's resolution, and the *right* answer for deep penetration
+  where hull-based methods degrade. This is the primary path for soft-body vertices against rigid
+  bodies and for concave static geometry.
 - **Height field** by direct cell lookup.
 
 Dispatch is the table from §4.2. Every routine returns the same `ContactManifold`.
@@ -860,18 +875,18 @@ struct ContactManifold
 
 Generated by **face clipping** (Sutherland–Hodgman against the reference face's side planes) and
 reduced to at most four points by maximizing the enclosed area — the standard reduction, and the fix
-for the rocking box in §1.2 item 3. Points are matched to the previous tick's by `feature_id`, so their
-`lambda` values carry over: **warm starting**, which is what makes a stack of ten crates converge in
-one iteration per substep instead of never.
+for the rocking box in §1.2 item 3. Points are matched to the previous tick's by `feature_id`, so
+their `lambda` values carry over: **warm starting**, which is what makes a stack of ten crates
+converge in one iteration per substep instead of never.
 
 ### 7.4 Friction and restitution
 
 Per Müller et al. 2020, and this is the recipe the implementation follows exactly:
 
-- **Positional pass, per contact point:** apply the normal correction Δλ_n; then compute the tangential
-  relative displacement of the contact anchors since the substep began and apply a tangential
-  correction, **clamped to the static-friction cone** `λ_t ≤ μ_static λ_n`. Static friction that is
-  positional is what lets a box sit still on a ramp instead of creeping.
+- **Positional pass, per contact point:** apply the normal correction Δλ_n; then compute the
+  tangential relative displacement of the contact anchors since the substep began and apply a
+  tangential correction, **clamped to the static-friction cone** `λ_t ≤ μ_static λ_n`. Static
+  friction that is positional is what lets a box sit still on a ramp instead of creeping.
 - **Velocity pass, per contact point:** dynamic friction as an impulse
   `p_t = -t̂ · min(|v_tangent| / w, μ_dynamic |λ_n| / h)` — *both* terms are impulses: the first is
   what would halt the slide outright, the second is what the normal impulse can pay for. Writing the
@@ -892,14 +907,18 @@ Three tiers, cheapest first, chosen per body by its flags and motion:
 
 1. **Speculative contacts (default, always on).** Generate contacts out to `contact_offset + |v·n|h`
    with a *positive* target separation. The solver treats an approaching body as constrained not to
-   pass the surface, so the vast majority of fast motion never needs a sweep at all. Cost: near zero.
+   pass the surface, so the vast majority of fast motion never needs a sweep at all. Cost: near
+   zero.
 2. **Conservative advancement** for bodies whose per-substep motion exceeds a fraction of their
    thinnest dimension: iteratively advance to the earliest time of impact using the closest-distance
-   query, then solve at that time. Cost: a few closest-point queries for the few bodies that need it.
-3. **Substep escalation** for the pathological case (a bullet, a wheel at speed): the island's substep
+   query, then solve at that time. Cost: a few closest-point queries for the few bodies that need
+   it.
+3. **Substep escalation** for the pathological case (a bullet, a wheel at speed): the island's
+   substep
    count is raised locally. Deterministic, because the trigger is a state-derived threshold.
 
-Soft bodies get the continuous treatment differently (§9.6): vertex-triangle and edge-edge continuous
+Soft bodies get the continuous treatment differently (§9.6): vertex-triangle and edge-edge
+continuous
 tests with a thickness, per Bridson.
 
 ### 7.6 The visible-penetration contract, made concrete
@@ -909,19 +928,19 @@ Two per-shape distances, PhysX's model, and the reason it is in this plan explic
 - **`contact_offset`** — contacts are *generated* at this separation. Larger means earlier detection
   and more stable stacking. Default: a small fraction of the shape's size.
 - **`rest_offset`** — contacts are *resolved* to this separation. Zero means surfaces come to rest
-  exactly touching. A small positive value keeps a visible sliver of air; a small negative value lets
-  a tyre visibly deform into the ground.
+  exactly touching. A small positive value keeps a visible sliver of air; a small negative value
+  lets a tyre visibly deform into the ground.
 
-The **enforced invariant**, checked by a regression test rather than asserted in prose: in the standard
-stacking, ramp, and vehicle-landing scenes, the maximum measured penetration of any contact at rest
-does not exceed `rest_offset + tolerance`, and no contact's penetration exceeds a hard *depenetration
-budget* mid-motion — a maximum depenetration velocity clamps recovery so a deeply-overlapping spawn
-pushes apart smoothly instead of exploding.
+The **enforced invariant**, checked by a regression test rather than asserted in prose: in the
+standard stacking, ramp, and vehicle-landing scenes, the maximum measured penetration of any contact
+at rest does not exceed `rest_offset + tolerance`, and no contact's penetration exceeds a hard
+*depenetration budget* mid-motion — a maximum depenetration velocity clamps recovery so a
+deeply-overlapping spawn pushes apart smoothly instead of exploding.
 
-For **mesh accuracy**, the cooker reports the one-sided Hausdorff distance between the render mesh and
-its cooked collision geometry, in metres, in the inspector. "The collider is 3 cm fatter than the
-visible mesh along the wheel arch" becomes a number the artist can see and fix by raising the convex
-piece budget — instead of a mystery gap at runtime.
+For **mesh accuracy**, the cooker reports the one-sided Hausdorff distance between the render mesh
+and its cooked collision geometry, in metres, in the inspector. "The collider is 3 cm fatter than
+the visible mesh along the wheel arch" becomes a number the artist can see and fix by raising the
+convex piece budget — instead of a mystery gap at runtime.
 
 For **soft bodies**, §0.4's second mechanism removes the problem at the root: there is no second
 geometry. The render mesh is the embedded interpolation of the simulated mesh, and the simulated
@@ -929,16 +948,17 @@ surface is what collided.
 
 ### 7.7 Queries
 
-`ICollisionQueryService`: `raycast_closest`, `raycast_all`, `sweep`, `overlap`, `closest_point`, each
-taking a filter (layer mask plus an optional predicate). Built on the same broadphase tree, so a query
-costs a tree descent, not a scan. Triggers are shapes flagged `Trigger` that generate events and no
-impulses.
+`ICollisionQueryService`: `raycast_closest`, `raycast_all`, `sweep`, `overlap`, `closest_point`,
+each taking a filter (layer mask plus an optional predicate). Built on the same broadphase tree, so
+a query costs a tree descent, not a scan. Triggers are shapes flagged `Trigger` that generate events
+and no impulses.
 
 ---
 
 ## §8 The cooking pipeline — a mesh goes in, a simulation asset comes out
 
-This is the user's headline feature: *"mesh'i projeye attıktan sonra otomatik olarak soft body optimized
+This is the user's headline feature: *"mesh'i projeye attıktan sonra otomatik olarak soft body
+optimized
 bake eden bir motor, ve bunun hassasiyetini ayarlayabiliyoruz."*
 
 ### 8.1 The import path
@@ -978,7 +998,8 @@ mapping. The artist turns one knob; the engineer can still override any individu
 | Surface-conforming passes | 0 (voxel-blocky) | 3 (marching-tetrahedra fit + smoothing) |
 | Suggested substep count | 8 | 32 |
 
-The inspector shows what the dial *produced* — tetrahedron count, cook time, estimated per-tick cost,
+The inspector shows what the dial *produced* — tetrahedron count, cook time, estimated per-tick
+cost,
 memory, Hausdorff error — so the trade-off is visible rather than felt three weeks later.
 
 ### 8.3 The soft-body cooker, stage by stage
@@ -986,48 +1007,52 @@ memory, Hausdorff error — so the trade-off is visible rather than felt three w
 Each stage is an `ICookingStage`; the pipeline is a list.
 
 1. **Repair.** Weld duplicate vertices, drop degenerate triangles, orient consistently, compute a
-   connected-component report. Report — do not silently fix — a non-manifold or non-watertight input,
-   because the artist needs to know.
-2. **Voxelize.** Rasterize the surface into a grid at the fidelity-derived resolution, then flood-fill
-   the exterior from a corner. Everything not reached is interior. This is robust to the meshes real
-   projects actually contain: self-intersecting, non-manifold, open-shelled. **Choosing voxelization
-   over direct constrained Delaunay tetrahedralization is deliberate** — Delaunay is more accurate on
-   clean input and fails on dirty input, and dirty input is the common case.
+   connected-component report. Report — do not silently fix — a non-manifold or non-watertight
+   input, because the artist needs to know.
+2. **Voxelize.** Rasterize the surface into a grid at the fidelity-derived resolution, then
+   flood-fill the exterior from a corner. Everything not reached is interior. This is robust to the
+   meshes real projects actually contain: self-intersecting, non-manifold, open-shelled. **Choosing
+   voxelization over direct constrained Delaunay tetrahedralization is deliberate** — Delaunay is
+   more accurate on clean input and fails on dirty input, and dirty input is the common case.
 3. **Tetrahedralize.** Fill the interior with a **body-centred cubic lattice** (each cell yields
-   tetrahedra that tile without slivers), then conform the boundary: cells straddling the surface are
-   split by marching tetrahedra against the surface's distance field, and boundary vertices are snapped
-   onto the surface within a tolerance. This is the Houdini/Blender approach — predictable element
-   quality, resolution driven by one number, no failure mode that produces zero output.
+   tetrahedra that tile without slivers), then conform the boundary: cells straddling the surface
+   are split by marching tetrahedra against the surface's distance field, and boundary vertices are
+   snapped onto the surface within a tolerance. This is the Houdini/Blender approach — predictable
+   element quality, resolution driven by one number, no failure mode that produces zero output.
 4. **Optimize.** Remove tetrahedra below a minimum-volume or minimum-dihedral-angle threshold
-   (slivers destroy the conditioning of a finite-element solve), smooth interior vertices toward their
-   neighbourhood centroid, and re-check that no element is inverted. Report the worst element quality.
-5. **Compute rest state.** Per tetrahedron: the inverse rest-shape matrix `Dm⁻¹`, the rest volume, and
-   the mass distributed to its four vertices from the material density. Per vertex: the summed inverse
-   mass. Also compute the whole body's mass, centre of mass, and inertia tensor (for the rigid
-   approximation the level-of-detail system falls back to).
-6. **Embed the render mesh.** For every render-mesh vertex, find the containing tetrahedron and store
-   its index plus four barycentric weights. Vertices outside every tetrahedron (thin features that
-   fell through the lattice) bind to the nearest tetrahedron by the *extrapolated* barycentric
+   (slivers destroy the conditioning of a finite-element solve), smooth interior vertices toward
+   their neighbourhood centroid, and re-check that no element is inverted. Report the worst element
+   quality.
+5. **Compute rest state.** Per tetrahedron: the inverse rest-shape matrix `Dm⁻¹`, the rest volume,
+   and the mass distributed to its four vertices from the material density. Per vertex: the summed
+   inverse mass. Also compute the whole body's mass, centre of mass, and inertia tensor (for the
+   rigid approximation the level-of-detail system falls back to).
+6. **Embed the render mesh.** For every render-mesh vertex, find the containing tetrahedron and
+   store its index plus four barycentric weights. Vertices outside every tetrahedron (thin features
+   that fell through the lattice) bind to the nearest tetrahedron by the *extrapolated* barycentric
    coordinates, which keeps them attached and moving correctly. This table **is** §0.4's guarantee.
 7. **Build the surface set.** Extract the tetrahedral mesh's boundary triangles — this is the soft
    body's collision surface — and build its bounding-volume hierarchy.
 8. **Bake the rest distance field.** A narrow-band signed-distance field of the rest shape, used for
    fast "is this point inside me" queries during collision and for the self-collision broad pass.
-9. **Build levels of detail.** Coarser lattices at halved resolution, plus a barycentric mapping from
-   each level to the next finer one, so a distant body simulates 500 tetrahedra and the render mesh is
-   still driven correctly through the chain. The coarsest level is a shape-matching cluster set; below
-   that, the body falls back to its rigid approximation.
-10. **Serialize.** One `.sushisoft` blob, with the cooking parameters recorded inside it so a re-cook
+9. **Build levels of detail.** Coarser lattices at halved resolution, plus a barycentric mapping
+   from each level to the next finer one, so a distant body simulates 500 tetrahedra and the render
+   mesh is still driven correctly through the chain. The coarsest level is a shape-matching cluster
+   set; below that, the body falls back to its rigid approximation.
+10. **Serialize.** One `.sushisoft` blob, with the cooking parameters recorded inside it so a
+    re-cook
     is reproducible and a mismatch is detectable.
 
 ### 8.4 The collision cooker (rigid)
 
-1. **Mass properties** by exact polyhedral integration over the closed mesh (Mirtich's method) — mass,
-   centre of mass, full inertia tensor, then an eigendecomposition to principal axes so the runtime's
-   diagonal `inverse_inertia` is *correct* rather than authored by hand (§1.2 item 6).
-2. **Approximate convex decomposition** into at most `N(fidelity)` pieces, each simplified to a vertex
+1. **Mass properties** by exact polyhedral integration over the closed mesh (Mirtich's method) —
+   mass, centre of mass, full inertia tensor, then an eigendecomposition to principal axes so the
+   runtime's diagonal `inverse_inertia` is *correct* rather than authored by hand (§1.2 item 6).
+2. **Approximate convex decomposition** into at most `N(fidelity)` pieces, each simplified to a
+   vertex
    budget, with the volumetric error and the Hausdorff error reported.
-3. **A narrow-band distance field** of the whole shape, for deep-penetration recovery and soft-vertex
+3. **A narrow-band distance field** of the whole shape, for deep-penetration recovery and
+   soft-vertex
    queries.
 4. For geometry authored as **static**, skip decomposition: cook a triangle-mesh bounding-volume
    hierarchy instead, which is both cheaper and exact.
@@ -1037,13 +1062,13 @@ Each stage is an `ICookingStage`; the pipeline is a list.
 
 The cooker emits a `CookingReport` — element count and worst quality, watertightness, inverted
 elements, unembedded render vertices, Hausdorff error, estimated per-tick cost, memory. The editor
-shows it, and a cook that violates a configured threshold **fails loudly** rather than shipping a body
-that explodes on the first frame.
+shows it, and a cook that violates a configured threshold **fails loudly** rather than shipping a
+body that explodes on the first frame.
 
 ### 8.6 The mesh binding, end to end
 
-The connection between a mesh and its physics is the thing this whole system is built to get right, so
-it is written out as one continuous path rather than left implied across four sections. Today the
+The connection between a mesh and its physics is the thing this whole system is built to get right,
+so it is written out as one continuous path rather than left implied across four sections. Today the
 engine has **no** link at all (§1.2 item 14): the only triangle mesh lives behind Vulkan and the
 physics has never seen it.
 
@@ -1081,29 +1106,31 @@ physics has never seen it.
 
 **The deformed-vertex path to the renderer.** Cloth already proves this route end to end:
 `Simulation::ClothInstance` + a shared `cloth_vertices` array → `Render::ClothStrandView` →
-`render/geometry/cloth_buffers.cpp` (`ARCHITECTURE.md` §4.2). A soft body is the same channel with a
-triangle topology that comes from the asset instead of from a grid, so the plan **generalizes
-`ClothStrandView` into a `DeformableMeshView`** rather than adding a third parallel path. Cloth becomes
-one kind of deformable mesh, not a special case — the same consolidation §4.2 asks for everywhere else.
+`render/geometry/cloth_buffers.cpp` (`docs/architecture/domain-physics.md` §1.2). A soft body is the
+same channel with a triangle topology that comes from the asset instead of from a grid, so the plan
+**generalizes `ClothStrandView` into a `DeformableMeshView`** rather than adding a third parallel
+path. Cloth becomes one kind of deformable mesh, not a special case — the same consolidation §4.2
+asks for everywhere else.
 
-The vertex deformation itself (applying the embedding) is a per-vertex parallel kernel and runs in the
-same runtime graph as the solve (§6.6), so the deformed positions are produced device-side and handed
-to the renderer without a host round trip.
+The vertex deformation itself (applying the embedding) is a per-vertex parallel kernel and runs in
+the same runtime graph as the solve (§6.6), so the deformed positions are produced device-side and
+handed to the renderer without a host round trip.
 
-**Normals** are recomputed from the deformed positions — per-face, then area-weighted per-vertex — in
-the same kernel, because a dented panel that keeps its rest normals looks undented no matter how
+**Normals** are recomputed from the deformed positions — per-face, then area-weighted per-vertex —
+in the same kernel, because a dented panel that keeps its rest normals looks undented no matter how
 accurate the simulation is.
 
 **The invariants, each with a test (§15):**
 
-1. Every render vertex is bound. Unbound vertices are counted at cook time and the count is reported;
+1. Every render vertex is bound. Unbound vertices are counted at cook time and the count is
+   reported;
    a non-zero count above a threshold fails the cook (§8.5).
-2. At rest, the reconstructed render mesh reproduces the source mesh within a stated tolerance —
-   the embedding round-trips.
-3. A deformation applied to the simulated mesh is visible in the render mesh in the *same* tick; there
-   is no lag, because there is no synchronization step to lag.
-4. Fracture (§9.5) preserves binding: a duplicated simulation vertex inherits its parent's binding, so
-   a crack does not tear a hole in the render mesh.
+2. At rest, the reconstructed render mesh reproduces the source mesh within a stated tolerance — the
+   embedding round-trips.
+3. A deformation applied to the simulated mesh is visible in the render mesh in the *same* tick;
+   there is no lag, because there is no synchronization step to lag.
+4. Fracture (§9.5) preserves binding: a duplicated simulation vertex inherits its parent's binding,
+   so a crack does not tear a hole in the render mesh.
 5. Collision happens against the simulated surface, so §0.4's contract holds by construction rather
    than by convention.
 
@@ -1115,8 +1142,10 @@ accurate the simulation is.
 
 Two XPBD constraints per tetrahedron (Macklin & Müller 2021), replacing today's distance lattice:
 
-- **Deviatoric** (resists shape change): `C_deviatoric = ‖F‖_Frobenius − √3`, compliance `1/(μ·V_rest)`.
-- **Hydrostatic** (resists volume change): `C_hydrostatic = det(F) − 1 − μ/λ`, compliance `1/(λ·V_rest)`.
+- **Deviatoric** (resists shape change): `C_deviatoric = ‖F‖_Frobenius − √3`, compliance
+  `1/(μ·V_rest)`.
+- **Hydrostatic** (resists volume change): `C_hydrostatic = det(F) − 1 − μ/λ`, compliance
+  `1/(λ·V_rest)`.
 
 where `F = Ds · Dm⁻¹` is the deformation gradient and `μ`, `λ` are the Lamé parameters derived from
 Young's modulus and Poisson's ratio. This is a stable neo-Hookean solid: it resists inversion, it
@@ -1148,23 +1177,24 @@ material name rather than from a number they have to guess.
 
 ### 9.3 Strength — the *mukavemet* readout
 
-Every element's **Green strain tensor** and **Cauchy stress** fall out of the deformation gradient the
-solver already computed; the **von Mises equivalent stress** is one scalar per tetrahedron. It costs
-almost nothing because `F` is already in hand, and it delivers:
+Every element's **Green strain tensor** and **Cauchy stress** fall out of the deformation gradient
+the solver already computed; the **von Mises equivalent stress** is one scalar per tetrahedron. It
+costs almost nothing because `F` is already in hand, and it delivers:
 
 - a **stress heat map** debug view (blue → red over the body) — the thing that makes "is this beam
   strong enough" answerable rather than guessable,
 - the trigger for plasticity (§9.4) and fracture (§9.5),
-- a gameplay query: `ISoftBodyService::maximum_stress(entity)` and per-region aggregates, so a game can
-  ask "how badly is this damaged."
+- a gameplay query: `ISoftBodyService::maximum_stress(entity)` and per-region aggregates, so a game
+  can ask "how badly is this damaged."
 
-For **rigid** assemblies, the analogue is the joint-force readout in §10.4 — the same question, asked
+For **rigid** assemblies, the analogue is the joint-force readout in §10.4 — the same question,
+asked
 of a constraint instead of an element.
 
 ### 9.4 Plasticity — the permanent dent
 
-Multiplicative decomposition: the total deformation `F` splits into an elastic part and a plastic part,
-and the cooked rest matrix `Dm⁻¹` is what stores the plastic part. Each substep, per element:
+Multiplicative decomposition: the total deformation `F` splits into an elastic part and a plastic
+part, and the cooked rest matrix `Dm⁻¹` is what stores the plastic part. Each substep, per element:
 
 ```
   if (elastic strain measure > yield_stress-derived threshold)
@@ -1173,54 +1203,56 @@ and the cooked rest matrix `Dm⁻¹` is what stores the plastic part. Each subst
       write back the updated rest matrix and rest volume
 ```
 
-Because the plastic state lives in the rest configuration, a dented panel *stays* dented, springs back
-elastically around its new shape, and needs no separate damage system. This is the mechanism behind
-car-body deformation in §11, and it is a dozen lines inside the element projection.
+Because the plastic state lives in the rest configuration, a dented panel *stays* dented, springs
+back elastically around its new shape, and needs no separate damage system. This is the mechanism
+behind car-body deformation in §11, and it is a dozen lines inside the element projection.
 
 ### 9.5 Fracture
 
 When an element's von Mises stress exceeds `fracture_stress`, the element is removed and its shared
 vertices are duplicated along the crack surface, splitting the topology. This requires the mutable
-world of §6.4 — constraints removed, vertices added, colouring updated incrementally — and it requires
-the render embedding to follow, which it does, because embedding is per-vertex and a duplicated vertex
-inherits its parent's binding.
+world of §6.4 — constraints removed, vertices added, colouring updated incrementally — and it
+requires the render embedding to follow, which it does, because embedding is per-vertex and a
+duplicated vertex inherits its parent's binding.
 
-Guard rails: a per-tick fracture budget (deterministic, state-derived), a minimum fragment size, and a
-scene-level cap. Uncapped fracture is how a physics engine dies.
+Guard rails: a per-tick fracture budget (deterministic, state-derived), a minimum fragment size, and
+a scene-level cap. Uncapped fracture is how a physics engine dies.
 
 ### 9.6 Soft-body collision — three problems, three answers
 
-1. **Soft vs rigid.** Surface vertices query the rigid body's cooked signed-distance field: `O(1)` per
-   vertex, exact depth, exact gradient normal, and correct at any penetration depth. This is *the*
-   reason §8.4 bakes a distance field for every rigid collider. Two-way: the correction's reaction is
-   applied to the rigid body weighted by generalized inverse mass, so a soft body actually pushes back.
+1. **Soft vs rigid.** Surface vertices query the rigid body's cooked signed-distance field: `O(1)`
+   per vertex, exact depth, exact gradient normal, and correct at any penetration depth. This is
+   *the* reason §8.4 bakes a distance field for every rigid collider. Two-way: the correction's
+   reaction is applied to the rigid body weighted by generalized inverse mass, so a soft body
+   actually pushes back.
 2. **Soft vs soft.** Broad: each body's bounding-volume hierarchy against the other's. Narrow:
-   vertex-triangle and edge-edge with a thickness, continuous (Bridson) for thin bodies, discrete for
-   thick ones.
+   vertex-triangle and edge-edge with a thickness, continuous (Bridson) for thin bodies, discrete
+   for thick ones.
 3. **Self-collision.** A spatial hash over the surface vertices at a cell size of the collision
-   thickness, excluding topological neighbours, with the continuous vertex-triangle and edge-edge tests.
-   Off by default (it is the expensive one), enabled per body, scheduled in the phase where it can be
-   measured rather than assumed.
+   thickness, excluding topological neighbours, with the continuous vertex-triangle and edge-edge
+   tests. Off by default (it is the expensive one), enabled per body, scheduled in the phase where
+   it can be measured rather than assumed.
 
 ### 9.7 Levels of detail
 
-Cooked in §8.3 step 9, selected at runtime by screen coverage and distance, with hysteresis so a body
-does not oscillate between levels. The transition maps the fine state onto the coarse one through the
-stored barycentric mapping, so a body does not pop. The coarsest tier is shape matching; below that, a
-rigid body with the cooked inertia tensor. `ISoftBodyModel` (§3.3) is the seam that makes the swap a
-substitution rather than a special case.
+Cooked in §8.3 step 9, selected at runtime by screen coverage and distance, with hysteresis so a
+body does not oscillate between levels. The transition maps the fine state onto the coarse one
+through the stored barycentric mapping, so a body does not pop. The coarsest tier is shape matching;
+below that, a rigid body with the cooked inertia tensor. `ISoftBodyModel` (§3.3) is the seam that
+makes the swap a substitution rather than a special case.
 
 ---
 
 ## §10 Assemblies and multibody dynamics
 
-The direct answer to *"otomobil şasisi üzerine menteşe ile bağlanmış kapı, mukavemet ve MBD hesapları."*
+The direct answer to *"otomobil şasisi üzerine menteşe ile bağlanmış kapı, mukavemet ve MBD
+hesapları."*
 
 ### 10.1 The joint library
 
 Every joint is a POD descriptor plus a projection functor, registered per §4.2. Each holds two
-**joint frames** — a position and orientation in each body's local space — which is the uniform way to
-express "where and how these two bodies are attached."
+**joint frames** — a position and orientation in each body's local space — which is the uniform way
+to express "where and how these two bodies are attached."
 
 | Joint | Removes | Authored parameters |
 |---|---|---|
@@ -1233,31 +1265,31 @@ express "where and how these two bodies are attached."
 | `GearJoint` / `RackJoint` | Couples two rotations | Ratio. **Differentials, steering rack.** Deferred to §11.4 — see the note below. |
 | `SixDegreeOfFreedomJoint` | Configurable | Per-axis free/limited/locked, with per-axis drives. The general case. |
 
-**The frame convention, fixed once:** a joint frame's **local x axis is its primary axis** — the hinge's
-rotation axis, the slider's travel axis, the cone-twist's twist axis. The whole angular vocabulary is a
-swing/twist decomposition about one named axis, and a convention that varied per kind would mean each
-kind re-deriving which of three axes it meant.
+**The frame convention, fixed once:** a joint frame's **local x axis is its primary axis** — the
+hinge's rotation axis, the slider's travel axis, the cone-twist's twist axis. The whole angular
+vocabulary is a swing/twist decomposition about one named axis, and a convention that varied per
+kind would mean each kind re-deriving which of three axes it meant.
 
-**Limits** are inequality constraints projected only when violated. `lower == upper` locks the axis and a
-disabled limit leaves it free, so free/limited/locked are three readings of one range rather than a mode
-word that could disagree with the numbers. **Motors** are target-position or target-velocity drives with
-a maximum force; the position drive is a positional row so its stiffness is step-size independent like
-everything else here, and the rate drive is velocity-level because a rate is not a position. A rate drive
-with a target of zero and a small force limit *is* joint friction — which is how §10.2's "it does not
-swing free" is expressed.
+**Limits** are inequality constraints projected only when violated. `lower == upper` locks the axis
+and a disabled limit leaves it free, so free/limited/locked are three readings of one range rather
+than a mode word that could disagree with the numbers. **Motors** are target-position or
+target-velocity drives with a maximum force; the position drive is a positional row so its stiffness
+is step-size independent like everything else here, and the rate drive is velocity-level because a
+rate is not a position. A rate drive with a target of zero and a small force limit *is* joint
+friction — which is how §10.2's "it does not swing free" is expressed.
 
-**Two entries above were refined when the library was built (§16.8).** A ball joint *with* limits is a
-cone-twist, so `BallJoint` carries none: two kinds differing only in whether an author remembered to
-enable a limit are two names for one thing. And `GearJoint`/`RackJoint` couple two *accumulated*
+**Two entries above were refined when the library was built (§16.8).** A ball joint *with* limits is
+a cone-twist, so `BallJoint` carries none: two kinds differing only in whether an author remembered
+to enable a limit are two names for one thing. And `GearJoint`/`RackJoint` couple two *accumulated*
 rotations, which needs an unwrapped angle carried across ticks that no other joint needs — and §10.5
-already rules that a drivetrain is solved as an independent one-dimensional chain, so the gear belongs
-with the powertrain rather than in the three-dimensional solver.
+already rules that a drivetrain is solved as an independent one-dimensional chain, so the gear
+belongs with the powertrain rather than in the three-dimensional solver.
 
 ### 10.2 The assembly asset
 
 `PhysicsAssembly` (§5.4) is authored in the editor and instanced atomically: parts become bodies,
-joints become constraints, collision-filter groups stop the door from colliding with the chassis it is
-attached to. One entity carries the `AssemblyInstance`; child entities carry the parts, so the
+joints become constraints, collision-filter groups stop the door from colliding with the chassis it
+is attached to. One entity carries the `AssemblyInstance`; child entities carry the parts, so the
 hierarchy the editor already supports (`set_parent`, `move_entity`) is the authoring surface.
 
 The car-door scenario end to end:
@@ -1283,10 +1315,10 @@ mutable world (§6.4), and a `JointBroken` event fires. Swap `part[1]`'s collisi
 
 ### 10.3 Two-way coupling between body kinds
 
-A joint's endpoint may be a rigid body **or** a soft-body vertex set (an "attachment", which averages
-the correction across a small vertex neighbourhood so it does not tear a single vertex out of the
-mesh). This is what mounts a rigid hinge to a deformable panel — the exact case a real car door is —
-and it is the same generalized-inverse-mass split the engine already performs.
+A joint's endpoint may be a rigid body **or** a soft-body vertex set (an "attachment", which
+averages the correction across a small vertex neighbourhood so it does not tear a single vertex out
+of the mesh). This is what mounts a rigid hinge to a deformable panel — the exact case a real car
+door is — and it is the same generalized-inverse-mass split the engine already performs.
 
 ### 10.4 Multibody quantities — reading forces back out
 
@@ -1296,38 +1328,39 @@ XPBD gives Lagrange multipliers, not forces. The recovery is exact and cheap:
   force  = λ · direction / h²          torque = λ_angular · axis / h²
 ```
 
-accumulated per joint per substep and exposed as `IJointService::joint_state(id)`. That single quantity
-delivers: break thresholds, the "how much load is this mount carrying" readout that is the rigid-body
-half of *mukavemet*, motor-effort feedback for a drivetrain, and a diagnostic overlay showing which joint
-in an assembly is the one about to fail.
+accumulated per joint per substep and exposed as `IJointService::joint_state(id)`. That single
+quantity delivers: break thresholds, the "how much load is this mount carrying" readout that is the
+rigid-body half of *mukavemet*, motor-effort feedback for a drivetrain, and a diagnostic overlay
+showing which joint in an assembly is the one about to fail.
 
-**Two accumulations, not one, and the distinction decides whether break thresholds work at all.** The
-*mean* over the tick's substeps — a vector — is the load readout: which way and how hard the mount is
-being pulled. The *peak* single-substep magnitude is what a break threshold reads. §16.8 records why:
-an impact is a large correction followed by an almost equally large one the other way, so the mean of a
-hard hit is nearly its resting load while the substeps either side of it carry a thousand times that.
-Averaging a load whose direction reverses measures the net pull, and what tears a mount out is the
-magnitude.
+**Two accumulations, not one, and the distinction decides whether break thresholds work at all.**
+The *mean* over the tick's substeps — a vector — is the load readout: which way and how hard the
+mount is being pulled. The *peak* single-substep magnitude is what a break threshold reads. §16.8
+records why: an impact is a large correction followed by an almost equally large one the other way,
+so the mean of a hard hit is nearly its resting load while the substeps either side of it carry a
+thousand times that. Averaging a load whose direction reverses measures the net pull, and what tears
+a mount out is the magnitude.
 
 ### 10.5 When XPBD is not enough
 
-A drivetrain has mass ratios in the thousands (a crankshaft against a vehicle) and joints that must be
-exactly rigid. Substepping handles a great deal of it, but not all. Two escape hatches, in order of
-preference:
+A drivetrain has mass ratios in the thousands (a crankshaft against a vehicle) and joints that must
+be exactly rigid. Substepping handles a great deal of it, but not all. Two escape hatches, in order
+of preference:
 
-1. **Solve the stiff sub-chain in one dimension.** A powertrain is a chain of rotational inertias, not
-   a spatial mechanism. Simulating it as an independent one-dimensional multibody system (§11.4) and
-   coupling it to the wheels through a torque constraint is both cheaper and more accurate than
+1. **Solve the stiff sub-chain in one dimension.** A powertrain is a chain of rotational inertias,
+   not a spatial mechanism. Simulating it as an independent one-dimensional multibody system (§11.4)
+   and coupling it to the wheels through a torque constraint is both cheaper and more accurate than
    forcing it through the three-dimensional solver.
 2. **A reduced-coordinate articulation path** (Featherstone) behind `IConstraintSolver`, for chains
-   that genuinely need it. Kept as a documented option, not a phase-one commitment, because it doubles
-   the solver surface and every AAA engine that shipped both regrets the maintenance.
+   that genuinely need it. Kept as a documented option, not a phase-one commitment, because it
+   doubles the solver surface and every AAA engine that shipped both regrets the maintenance.
 
 ---
 
 ## §11 Vehicles — the BeamNG evolution
 
-The user's stated destination. This phase is late in the roadmap because it composes everything before
+The user's stated destination. This phase is late in the roadmap because it composes everything
+before
 it; nothing here is new physics, it is new *assembly*.
 
 ### 11.1 The node-beam model, in XPBD terms
@@ -1345,26 +1378,29 @@ it; nothing here is new physics, it is new *assembly*.
 ### 11.2 The structure: a rigid core with a deformable shell — and the BeamNG mistakes it avoids
 
 **Decided (§17.3): the hybrid is the default.** A pure node-beam vehicle is beautiful and expensive:
-every gram of the car is in the solver, and handling quality depends on beam tuning that takes months.
-The structure is:
+every gram of the car is in the solver, and handling quality depends on beam tuning that takes
+months. The structure is:
 
-- The **chassis core** is a rigid body carrying the bulk of the mass and the inertia tensor. Handling is
+- The **chassis core** is a rigid body carrying the bulk of the mass and the inertia tensor.
+  Handling is
   stable, tunable, and cheap.
-- The **shell** (panels, bumpers, doors, bonnet) is node-beam or FEM soft, attached to the core by the
-  §10.3 attachment constraint. It deforms, dents permanently, and tears off.
-- **Suspension** is joints and drives (§10.1), not beams — a slider joint with a spring-damper drive is
-  more controllable and more stable than a beam network, and it is what every shipping racing game does.
+- The **shell** (panels, bumpers, doors, bonnet) is node-beam or FEM soft, attached to the core by
+  the §10.3 attachment constraint. It deforms, dents permanently, and tears off.
+- **Suspension** is joints and drives (§10.1), not beams — a slider joint with a spring-damper drive
+  is more controllable and more stable than a beam network, and it is what every shipping racing
+  game does.
 - **Wheels** are rigid bodies with a tyre force model (§11.5).
 
 The pure node-beam path stays open, because `VehicleInstance` names a `NodeBeamAsset` and an asset
-whose rigid core is empty *is* a pure node-beam vehicle. **The architecture does not choose; the asset
-does.**
+whose rigid core is empty *is* a pure node-beam vehicle. **The architecture does not choose; the
+asset does.**
 
 #### What BeamNG got wrong, and what we do instead
 
 BeamNG is the reference for what a deformable vehicle should *feel* like. It is also a decade-old
-design with known structural limits, and the point of arriving later is to not inherit them. Each row
-is a real limitation of that architecture and the specific mechanism in this plan that avoids it.
+design with known structural limits, and the point of arriving later is to not inherit them. Each
+row is a real limitation of that architecture and the specific mechanism in this plan that avoids
+it.
 
 | BeamNG limitation | Why it happens | What SushiEngine does instead |
 |---|---|---|
@@ -1379,46 +1415,46 @@ is a real limitation of that architecture and the specific mechanism in this pla
 | **The render mesh is skinned to nodes with limited fidelity**, so fine deformation detail is bounded by node count. | One binding strategy, node-weighted. | Two bindings, chosen per part by the cooker: **barycentric tetrahedral embedding** for FEM parts (smooth, exact, §8.3 step 6) and distance-weighted node skinning for node-beam parts — with unembedded-vertex counts reported (§8.5). |
 
 The honest counterpoint: BeamNG's pure node-beam model produces emergent behaviour a hybrid cannot —
-a chassis that twists under load, a structure whose failure mode was never authored. The hybrid keeps
-that reachable (an empty rigid core), and §17.4 records the open question of the core-to-shell seam,
-which is where visual artifacts will show up first.
+a chassis that twists under load, a structure whose failure mode was never authored. The hybrid
+keeps that reachable (an empty rigid core), and §17.4 records the open question of the core-to-shell
+seam, which is where visual artifacts will show up first.
 
 ### 11.3 The node-beam cooker
 
-`NodeBeamCooker` turns a vehicle mesh plus an authored structure into a `NodeBeamAsset`: place nodes at
-mesh features or on a lattice at the fidelity-derived resolution, connect them with structural beams,
-add bracing beams by a diagonal rule, distribute mass by density, and skin the render mesh onto the
-node cloud with distance-weighted blending. Manual authoring stays possible — the asset is data, and a
-hand-authored node-beam file is as valid as a cooked one.
+`NodeBeamCooker` turns a vehicle mesh plus an authored structure into a `NodeBeamAsset`: place nodes
+at mesh features or on a lattice at the fidelity-derived resolution, connect them with structural
+beams, add bracing beams by a diagonal rule, distribute mass by density, and skin the render mesh
+onto the node cloud with distance-weighted blending. Manual authoring stays possible — the asset is
+data, and a hand-authored node-beam file is as valid as a cooked one.
 
 ### 11.4 Powertrain
 
-A one-dimensional multibody chain, simulated inside the physics tick at the same substep rate: engine
-torque curve and inertia → clutch (a torque-limited coupling) → gearbox (a ratio) → differential (a
-`GearJoint`-style constraint splitting torque between outputs) → axle → wheel angular velocity. The
-coupling to the three-dimensional world is a torque applied to each wheel body and the reaction on the
-chassis. §10.5's first escape hatch, applied.
+A one-dimensional multibody chain, simulated inside the physics tick at the same substep rate:
+engine torque curve and inertia → clutch (a torque-limited coupling) → gearbox (a ratio) →
+differential (a `GearJoint`-style constraint splitting torque between outputs) → axle → wheel
+angular velocity. The coupling to the three-dimensional world is a torque applied to each wheel body
+and the reaction on the chassis. §10.5's first escape hatch, applied.
 
 ### 11.5 Tyres
 
 A slip-based force model (a Pacejka-style magic-formula curve, or a simpler Brush model as the first
-implementation) evaluated per wheel per substep: compute longitudinal and lateral slip from the wheel's
-contact patch velocity, look up the force curve, apply the force at the contact point. Combined-slip
-handling by the friction ellipse. Load sensitivity from the contact normal force the solver already
-recovered.
+implementation) evaluated per wheel per substep: compute longitudinal and lateral slip from the
+wheel's contact patch velocity, look up the force curve, apply the force at the contact point.
+Combined-slip handling by the friction ellipse. Load sensitivity from the contact normal force the
+solver already recovered.
 
-The alternative — a node-beam tyre with pressurized volume, which is what BeamNG actually does — is a
-soft body with a volume constraint over its interior surface (§9.1's hydrostatic constraint, applied to
-a closed shell). It is genuinely better and genuinely much more expensive. Both are supported by the
-same asset structure; the vehicle asset chooses.
+The alternative — a node-beam tyre with pressurized volume, which is what BeamNG actually does — is
+a soft body with a volume constraint over its interior surface (§9.1's hydrostatic constraint,
+applied to a closed shell). It is genuinely better and genuinely much more expensive. Both are
+supported by the same asset structure; the vehicle asset chooses.
 
 ### 11.6 Aerodynamics — a cross-system tie-in
 
 The engine already has a full atmosphere and wind system (`sim/weather_wind.hpp`,
-`sim/atmosphere_forcing_buffer.hpp`, `docs/design/atmosphere_system.md`). Vehicle drag and downforce, and
-cloth and rope wind response, sample it through a `WindSampler` seam that mirrors the existing
-`GravitySampler` exactly (§4.5) — the physics names the abstraction, never the meteorology behind it.
-A flag on a pole in a storm and a car's high-speed lift come from the same field.
+`sim/atmosphere_forcing_buffer.hpp`, `docs/design/atmosphere_system.md`). Vehicle drag and
+downforce, and cloth and rope wind response, sample it through a `WindSampler` seam that mirrors the
+existing `GravitySampler` exactly (§4.5) — the physics names the abstraction, never the meteorology
+behind it. A flag on a pole in a storm and a car's high-speed lift come from the same field.
 
 ---
 
@@ -1429,10 +1465,12 @@ A flag on a pole in a storm and a car's high-speed lift come from the same field
 1. **Body order is stable.** Bodies are iterated by handle index, never by hash-container order.
    Where the boundary layer keeps an `std::unordered_map<EntityId, BodyHandle>` (as it does today),
    any iteration whose *order is observable* is replaced by a sorted index vector.
-2. **Contacts are sorted before they are solved**, by `(body_a, body_b, feature_id)`. Broadphase output
-   order is an implementation detail and must never reach the solver.
-3. **Colour order is fixed** and the incremental recolouring is deterministic — the greedy rule already
-   is; the incremental version must produce the same colouring as a full recolour would, or explicitly
+2. **Contacts are sorted before they are solved**, by `(body_a, body_b, feature_id)`. Broadphase
+   output order is an implementation detail and must never reach the solver.
+3. **Colour order is fixed** and the incremental recolouring is deterministic — the greedy rule
+   already
+   is; the incremental version must produce the same colouring as a full recolour would, or
+   explicitly
    record its divergence in the snapshot.
 4. **Substep counts, fracture budgets, level-of-detail selections, and sleep transitions derive from
    simulation state**, never from the clock or a frame index.
@@ -1453,28 +1491,28 @@ determinism problems. Exactly three things are:
    constraints. What remains is genuine accumulation across parallel work: per-body contact impulse
    summation in a Jacobi-style pass, and soft-body vertex accumulation across the tetrahedra that
    share a vertex. Both use a **fixed-order** reduction — a scatter into a deterministically-ordered
-   slot list followed by an in-order segmented tree reduce — never floating-point atomics and never a
-   device `reduce` whose combination order is unspecified. Since the runtime does not ship this
+   slot list followed by an in-order segmented tree reduce — never floating-point atomics and never
+   a device `reduce` whose combination order is unspecified. Since the runtime does not ship this
    primitive (§6.6), the physics layer builds it, as a P0 deliverable.
 2. **Schedule-order leakage into state.** No "first writer wins" race, no non-commutative in-place
-   update whose result depends on which sibling ran first. The region-overlap tracker makes a genuine
-   write-write conflict an explicit dependency rather than a silent race, which is what makes this
-   auditable at all.
-3. **Random number generation.** Per-body and per-element streams seeded by stable identity, never by
-   a global counter touched in schedule order. Nothing in this plan needs randomness today; the rule
-   is recorded so nothing introduces it carelessly later.
+   update whose result depends on which sibling ran first. The region-overlap tracker makes a
+   genuine write-write conflict an explicit dependency rather than a silent race, which is what
+   makes this auditable at all.
+3. **Random number generation.** Per-body and per-element streams seeded by stable identity, never
+   by a global counter touched in schedule order. Nothing in this plan needs randomness today; the
+   rule is recorded so nothing introduces it carelessly later.
 
-The rebalancer is still switched off for physics (§6.6) — for frame-time jitter, not for correctness.
-The distinction matters: turning it on would not make the simulation wrong, it would make the frame
-time unpredictable.
+The rebalancer is still switched off for physics (§6.6) — for frame-time jitter, not for
+correctness. The distinction matters: turning it on would not make the simulation wrong, it would
+make the frame time unpredictable.
 
 ### 12.3 Snapshot and rollback
 
 The physics state that must be snapshottable per tick: body state columns, soft-body vertex state,
-plastic rest matrices, joint multipliers and break flags, sleep state, and the warm-start accumulators.
-All of it is already a pointer-free column, which is what makes SushiLoop's dirty-chunk snapshot
-(`SUSHILOOP.md`) applicable without a special case. The **cooked assets are immutable and shared** and
-are never snapshotted — only the handles.
+plastic rest matrices, joint multipliers and break flags, sleep state, and the warm-start
+accumulators. All of it is already a pointer-free column, which is what makes SushiLoop's
+dirty-chunk snapshot (`SUSHILOOP.md`) applicable without a special case. The **cooked assets are
+immutable and shared** and are never snapshotted — only the handles.
 
 Rollback correctness gets its own test: simulate N ticks, snapshot at tick K, roll back, replay, and
 assert byte equality of the whole physics state (§15.4).
@@ -1485,7 +1523,8 @@ assert byte equality of the whole physics state (§15.4).
 
 ### 13.1 Targets
 
-Stated so they can be measured and failed, not as aspiration. Reference: one desktop-class GPU through
+Stated so they can be measured and failed, not as aspiration. Reference: one desktop-class GPU
+through
 SushiRuntime, 60 Hz tick.
 
 | Scene | Target |
@@ -1502,34 +1541,35 @@ SushiRuntime, 60 Hz tick.
 1. **Sleeping and islands.** The single largest win in any real scene and the cheapest to implement.
    A settled island costs its broadphase bound update and nothing else.
 2. **Persistent everything.** The broadphase tree, the pair cache, the manifolds, the warm-start
-   accumulators, and the colouring all survive across ticks. Today's code rebuilds all of them, twice
-   per substep.
+   accumulators, and the colouring all survive across ticks. Today's code rebuilds all of them,
+   twice per substep.
 3. **Collision once per tick, not per substep** (§6.1).
 4. **Device-resident solve, one `run()` per tick.** The constraint solve is already on the device;
-   the plan moves the broadphase, the narrowphase, the contact solve, and the predict/derive/velocity
-   stages there too, and unrolls the whole substep loop into a single graph composition so a tick is
-   one blocking call rather than 32 (§6.6). Structure-of-arrays layout for the state columns, since a
-   projection touches four of twelve fields. Sleeping islands are dropped from the `DynamicGraph`
-   rather than run and discarded.
-5. **Levels of detail.** Distance-based soft-body tiers (§9.7); a distant vehicle's shell freezing to
-   its rigid core; a coarse substep count for distant islands.
-6. **Budgets.** Per-tick caps on contacts, fracture events, and continuous-collision escalations, all
-   state-derived, all reported when hit — a physics engine that silently exceeds its budget is how a
-   frame-time spike becomes a mystery.
+   the plan moves the broadphase, the narrowphase, the contact solve, and the
+   predict/derive/velocity stages there too, and unrolls the whole substep loop into a single graph
+   composition so a tick is one blocking call rather than 32 (§6.6). Structure-of-arrays layout for
+   the state columns, since a projection touches four of twelve fields. Sleeping islands are dropped
+   from the `DynamicGraph` rather than run and discarded.
+5. **Levels of detail.** Distance-based soft-body tiers (§9.7); a distant vehicle's shell freezing
+   to its rigid core; a coarse substep count for distant islands.
+6. **Budgets.** Per-tick caps on contacts, fracture events, and continuous-collision escalations,
+   all state-derived, all reported when hit — a physics engine that silently exceeds its budget is
+   how a frame-time spike becomes a mystery.
 
 ### 13.3 Instrumentation
 
-`PhysicsStatistics` per tick: awake/sleeping body counts, island count and largest island, broadphase
-pairs tested and produced, manifolds and contact points, constraints per colour, substeps taken,
-continuous-collision escalations, fracture events, and per-stage timings — wired into the existing GPU
-profiler (`render/graph/gpu_profiler.hpp`) for device stages and an editor panel for the rest. Nothing
-in §13.1 is verifiable without it, so it is a P0 deliverable, not a P8 one.
+`PhysicsStatistics` per tick: awake/sleeping body counts, island count and largest island,
+broadphase pairs tested and produced, manifolds and contact points, constraints per colour, substeps
+taken, continuous-collision escalations, fracture events, and per-stage timings — wired into the
+existing GPU profiler (`render/graph/gpu_profiler.hpp`) for device stages and an editor panel for
+the rest. Nothing in §13.1 is verifiable without it, so it is a P0 deliverable, not a P8 one.
 
 ---
 
 ## §14 The editor and authoring surface
 
-Following the established pattern from `editor-component-inspector-pattern`: panels edit the **selected
+Following the established pattern from `editor-component-inspector-pattern`: panels edit the
+**selected
 entity's** component, and previews get their own viewport.
 
 - **Physics Material** — a project asset with a preview (a ball dropped on a ramp at the authored
@@ -1540,17 +1580,21 @@ entity's** component, and previews get their own viewport.
 - **Soft Body inspector** — the asset, the **fidelity slider**, the material, a "Bake" button with
   progress, and the cook report (tetrahedra, worst element quality, unembedded vertices, estimated
   cost). Debug views: wireframe tetrahedra, stress heat map, plastic-strain heat map.
-- **Assembly editor** — the parts list, the joints list, joint gizmos (an axis and an arc for a hinge's
-  limits, drawn in the viewport and draggable), collision-filter matrix, and a live joint-load readout
+- **Assembly editor** — the parts list, the joints list, joint gizmos (an axis and an arc for a
+  hinge's
+  limits, drawn in the viewport and draggable), collision-filter matrix, and a live joint-load
+  readout
   while playing.
-- **Vehicle editor** — node/beam visualization, group colouring, mass distribution readout, powertrain
+- **Vehicle editor** — node/beam visualization, group colouring, mass distribution readout,
+  powertrain
   curve editing.
 - **Physics debug draw** — contacts and normals, manifold points, island colouring, sleeping state,
   broadphase bounds, query results. Toggled per category.
 - **Physics profiler panel** — §13.3's statistics over time.
 
-`.sushiscene` serialization extends for each new component, following the existing independent-field-pair
-convention (`ARCHITECTURE.md` §4.1).
+`.sushiscene` serialization extends for each new component, following the existing
+independent-field-pair
+convention (`docs/architecture/domain-physics.md` §1.1).
 
 ---
 
@@ -1564,7 +1608,8 @@ functional`.
    cylinder. Tetrahedralization invariants: no inverted elements, every render vertex embedded,
    volume preserved within tolerance. Distance-field sampling against brute-force triangle distance.
 2. **Unit — solver.** Each constraint projection against a host mirror, exactly as
-   `test_xpbd_solver.cpp` does today. Convergence: N substeps must reduce the residual by the expected
+   `test_xpbd_solver.cpp` does today. Convergence: N substeps must reduce the residual by the
+   expected
    order.
 3. **Integration — physical correctness.** These are the tests that make the difference between "it
    runs" and "it is right":
@@ -1573,16 +1618,17 @@ functional`.
      today's engine would fail outright.
    - A stack of ten crates is stable and does not drift for 10 000 ticks.
    - A pendulum's period matches the analytic value; energy drift over 10 000 ticks stays bounded.
-   - A hinge with limits does not exceed them; a motor reaches its target; a break threshold breaks at
-     the right load.
-   - A cantilever beam's tip deflection under load matches Euler–Bernoulli theory within the tolerance
+   - A hinge with limits does not exceed them; a motor reaches its target; a break threshold breaks
+     at the right load.
+   - A cantilever beam's tip deflection under load matches Euler–Bernoulli theory within the
+     tolerance
      the element count justifies. **This is the *mukavemet* test** — it proves the FEM material
      parameters mean what they say.
    - A soft body under sustained load past its yield stress keeps a permanent deformation of the
      predicted magnitude.
 4. **Regression — the penetration contract.** Golden-metric scenes measuring maximum penetration at
-   rest and in motion, tunneling at escalating speeds (a 200 m/s sphere through a 1 cm plate must not
-   pass), and the render-versus-collision Hausdorff error for a set of reference meshes.
+   rest and in motion, tunneling at escalating speeds (a 200 m/s sphere through a 1 cm plate must
+   not pass), and the render-versus-collision Hausdorff error for a set of reference meshes.
 5. **Determinism.** Byte-equal replay over 10 000 ticks; snapshot-rollback-replay byte equality;
    identical results with a shuffled body insertion order (which catches every accidental
    order-dependence); and — the one that actually catches §12.2 violations — **byte-equal results
@@ -1601,9 +1647,9 @@ functional`.
 
 ## §16 Roadmap
 
-Each phase is independently shippable, ends green under `se build` / `se test --suite functional`, and
-has an acceptance criterion that is a **test**, not an opinion. The status column is the single place
-progress is recorded.
+Each phase is independently shippable, ends green under `se build` / `se test --suite functional`,
+and has an acceptance criterion that is a **test**, not an opinion. The status column is the single
+place progress is recorded.
 
 | Phase | Deliverable | Acceptance | Status |
 |---|---|---|---|
@@ -1732,11 +1778,11 @@ whole body buffer — the serialization between colours is deliberate, not an ov
 
 **Ordering rationale.** P0–P2 fix the foundation, because every later phase multiplies whatever is
 underneath it — and P0's runtime work in particular, since a solver that recomposes its graph every
-tick makes every performance number in §13.1 unreachable no matter what is built on top. P3 lands the
-assembly scenario as early as it can be landed (confirmed in §17.3), since it depends only on the
-solver, not on cooking. P4 must precede P5 and P6 because both consume cooked distance fields and
-tetrahedral meshes. P7 composes P3, P5, and P6, and cannot come earlier. P8 optimizes a correct system
-rather than a moving one, which is the only order that works.
+tick makes every performance number in §13.1 unreachable no matter what is built on top. P3 lands
+the assembly scenario as early as it can be landed (confirmed in §17.3), since it depends only on
+the solver, not on cooking. P4 must precede P5 and P6 because both consume cooked distance fields
+and tetrahedral meshes. P7 composes P3, P5, and P6, and cannot come earlier. P8 optimizes a correct
+system rather than a moving one, which is the only order that works.
 
 ### 16.4 P2, and where it leaves P1
 
@@ -1811,16 +1857,16 @@ since an island's key *is* its lowest body index, walking bodies in ascending or
 each island's key exactly when it first appears, so the partition is two linear passes and
 no comparison sort at all.
 
-**What P2 did not do.** One item deliberately, and — as §16.10 records — one item that was
-not noticed at all: the island layer below was never called by the live tick, and stayed a
-library with a benchmark until 2026-07-30. The deliberate one: **one `DynamicGraph` region
-per island is not wired**, and it has since moved to P8. The island layer produces exactly what that wiring needs — a deterministic
-partition, keys in ascending order, and a revision that moves only on a transition — and
-sleeping already removes a settled body from the predict, the projection and the velocity
-pass. What is missing is the composition-side change in `runtime_graph_builder.hpp`, whose
-constraint bands are per colour rather than per island; re-cutting them is a solver change
-with P0's `compile_count() == 1` property to preserve, and it belongs with the same move
-that puts contacts inside the graph. That move is P1's remaining work, below.
+**What P2 did not do.** One item deliberately, and — as §16.10 records — one item that was not
+noticed at all: the island layer below was never called by the live tick, and stayed a library with
+a benchmark until 2026-07-30. The deliberate one: **one `DynamicGraph` region per island is not
+wired**, and it has since moved to P8. The island layer produces exactly what that wiring needs — a
+deterministic partition, keys in ascending order, and a revision that moves only on a transition —
+and sleeping already removes a settled body from the predict, the projection and the velocity pass.
+What is missing is the composition-side change in `runtime_graph_builder.hpp`, whose constraint
+bands are per colour rather than per island; re-cutting them is a solver change with P0's
+`compile_count() == 1` property to preserve, and it belongs with the same move that puts contacts
+inside the graph. That move is P1's remaining work, below.
 
 **What P1 still owes.** P1's machinery is built and tested — manifolds, warm starting,
 positional static friction, the velocity pass, `contact_offset`/`rest_offset` — but the live
@@ -2924,13 +2970,13 @@ copy. Three definitions of a projection is three places for a near-plane rule to
 symptom of drift is one overlay clipping a line another draws across the whole viewport. It now
 lives once, in `editor/core/viewport_projection.hpp`.
 
-**What §14 lists that this is not.** §14 covers seven surfaces and only two are P4's. The
-assembly editor is P3's one outstanding item and still needs §5.5's `PhysicsJoint` component
-first; the vehicle editor is P7; physics debug draw is P8/P9; the profiler panel already exists.
-The soft-body panel's *debug views* — wireframe tetrahedra, stress and plastic-strain heat maps
-— are listed under §14 but two of the three read quantities a running finite-element solve
-produces, which is **P6**. The report, the fidelity dial, the progress and the collider overlay
-are what P4 can honestly deliver, and they are delivered.
+**What §14 lists that this is not.** §14 covers seven surfaces and only two are P4's. The assembly
+editor is P3's one outstanding item and still needs §5.5's `PhysicsJoint` component first; the
+vehicle editor is P7; physics debug draw is P8/P9; the profiler panel already exists. The soft-body
+panel's *debug views* — wireframe tetrahedra, stress and plastic-strain heat maps — are listed under
+§14 but two of the three read quantities a running finite-element solve produces, which is **P6**.
+The report, the fidelity dial, the progress and the collider overlay are what P4 can honestly
+deliver, and they are delivered.
 
 **On verification. 94 of 94 pass** across the nine P4 suites — the seven bake-state tests green
 on their first run, including the eighteen-unique-edge assertion that catches a wireframe dedup
@@ -2954,78 +3000,78 @@ thing that is different about this entry.
 
 **Conservative advancement (§7.5 item 2).** `physics/collision/conservative_advancement.hpp` is
 Redon et al.'s method, over the engine's own existing `collide_convex` (`geometry/gjk.hpp`): a
-distance query at an advanced pose, and a lower bound on how fast that distance can shrink
-before the next query — the pair's closing speed along the current normal, plus a conservative
-allowance for whatever either body's own rotation could add, regardless of which way it happens
-to be turning (`collision_shape_bounding_radius`, an upper bound on how far a rotation can swing
-a surface point). The bound can only overestimate the true rate, so the search can never step
-past the real time of impact.
+distance query at an advanced pose, and a lower bound on how fast that distance can shrink before
+the next query — the pair's closing speed along the current normal, plus a conservative allowance
+for whatever either body's own rotation could add, regardless of which way it happens to be turning
+(`collision_shape_bounding_radius`, an upper bound on how far a rotation can swing a surface point).
+The bound can only overestimate the true rate, so the search can never step past the real time of
+impact.
 
-The reason this is a *second* tier and not a replacement for tier 1's speculative contacts:
-tier 1's widened, once-per-tick manifold already covers straight-line fast motion for free, and
-covers it well — a body translating toward a fixed feature keeps the same closest point for the
-whole approach, so the manifold generated at the tick's start pose is the right one. What it
-cannot see is rotation: `ContactProxy::speculative_margin` (`sim/physics_simulation.hpp`) is
-built from `velocity * delta_time` alone, with no angular contribution at all, so a body that is
-only spinning — a blade, a wheel's rim — can sweep a point into something tier 1 never widened
-its query toward. `needs_conservative_advancement` (the same header) is the trigger: a body's motion this tick, translation plus the
-swept arc of its own rotation, compared against a fraction of its own thinnest dimension — the
-same state-derived, `BodyFlags::continuous_collision`-widened decision §7.5 describes. Tier 2
-only runs when tier 1's manifold came back empty *and* the trigger fired, so an ordinary tick
-pays nothing extra, and when it does run its witness points and normal — sampled at the real
-advanced pose, not guessed at the tick's start one — become the manifold tier 1 would have built,
-through the same `make_point_manifold` / `refresh_manifold` path every other narrowphase routine
-uses. `tests/functional/unit/test_conservative_advancement.cpp` checks the closed-form
+The reason this is a *second* tier and not a replacement for tier 1's speculative contacts: tier 1's
+widened, once-per-tick manifold already covers straight-line fast motion for free, and covers it
+well — a body translating toward a fixed feature keeps the same closest point for the whole
+approach, so the manifold generated at the tick's start pose is the right one. What it cannot see is
+rotation: `ContactProxy::speculative_margin` (`sim/physics_simulation.hpp`) is built from
+`velocity * delta_time` alone, with no angular contribution at all, so a body that is only spinning
+— a blade, a wheel's rim — can sweep a point into something tier 1 never widened its query toward.
+`needs_conservative_advancement` (the same header) is the trigger: a body's motion this tick,
+translation plus the swept arc of its own rotation, compared against a fraction of its own thinnest
+dimension — the same state-derived, `BodyFlags::continuous_collision`-widened decision §7.5
+describes. Tier 2 only runs when tier 1's manifold came back empty *and* the trigger fired, so an
+ordinary tick pays nothing extra, and when it does run its witness points and normal — sampled at
+the real advanced pose, not guessed at the tick's start one — become the manifold tier 1 would have
+built, through the same `make_point_manifold` / `refresh_manifold` path every other narrowphase
+routine uses. `tests/functional/unit/test_conservative_advancement.cpp` checks the closed-form
 sphere-sphere case (an exact time of impact against arithmetic, the same oracle `test_gjk.cpp`
-uses), the two honest terminations (separating, and already-touching-at-zero), and the property
-that motivates the whole file: identical geometry, zero translation, spinning versus not —
-impact found with the spin, none without it.
+uses), the two honest terminations (separating, and already-touching-at-zero), and the property that
+motivates the whole file: identical geometry, zero translation, spinning versus not — impact found
+with the spin, none without it.
 
-**The SDF narrowphase path (§7.5, "as a first-class narrowphase path").** A signed-distance
-field is not a bounded convex set, so it was never going to be a `support()` overload — the same
-treatment a half-space plane already gets in the dispatch table, for the same reason. `SdfCollider`
-(`physics/geometry/shapes.hpp`) is a non-owning view over a cooked field's baked cube, exactly
-the reference-not-own pattern `ConvexHullView` already uses for a hull's vertices, and it comes
-with a nearest-voxel sampler and a central-difference gradient — which doubles as the outward
-surface normal, by the eikonal property, valid whether the query is outside the solid or already
-deep inside it. `physics/collision/sdf_manifold.hpp`'s `generate_convex_sdf_manifold` is
-deliberately a single-point manifold, two passes of the field (a rough direction from the
-shape's centre, then a refined sample at its support point toward the solid) — the same scope
-`generate_sphere_sphere_manifold` and `generate_obb_sphere_manifold` already keep. It is
-registered in the dispatch table (`narrowphase_dispatch.hpp`'s `register_convex_row`) for every
-convex shape against `ShapeType::signed_distance_field`, both orders, the same way a plane is.
+**The SDF narrowphase path (§7.5, "as a first-class narrowphase path").** A signed-distance field is
+not a bounded convex set, so it was never going to be a `support()` overload — the same treatment a
+half-space plane already gets in the dispatch table, for the same reason. `SdfCollider`
+(`physics/geometry/shapes.hpp`) is a non-owning view over a cooked field's baked cube, exactly the
+reference-not-own pattern `ConvexHullView` already uses for a hull's vertices, and it comes with a
+nearest-voxel sampler and a central-difference gradient — which doubles as the outward surface
+normal, by the eikonal property, valid whether the query is outside the solid or already deep inside
+it. `physics/collision/sdf_manifold.hpp`'s `generate_convex_sdf_manifold` is deliberately a
+single-point manifold, two passes of the field (a rough direction from the shape's centre, then a
+refined sample at its support point toward the solid) — the same scope
+`generate_sphere_sphere_manifold` and `generate_obb_sphere_manifold` already keep. It is registered
+in the dispatch table (`narrowphase_dispatch.hpp`'s `register_convex_row`) for every convex shape
+against `ShapeType::signed_distance_field`, both orders, the same way a plane is.
 `physics/cooking/collision_asset.hpp` gained `collision_asset_field`, mirroring
 `collision_asset_hull`, so a validated `.sushicollision` blob's field can be placed in the world
 without a second copy of the placement arithmetic. `tests/functional/unit/test_sdf_manifold.cpp`
-checks the gradient against a field with a *known* closed form (a flat plane, whose signed
-distance is just a coordinate), both dispatch orders agreeing with each other, `world_bounds`
-following placement, and the empty-field refusal.
+checks the gradient against a field with a *known* closed form (a flat plane, whose signed distance
+is just a coordinate), both dispatch orders agreeing with each other, `world_bounds` following
+placement, and the empty-field refusal.
 
 **What this does not do, deliberately.** Nothing at the `sim/` authoring layer names
 `ShapeType::signed_distance_field` yet — `Simulation::Collider` (`sim/collider.hpp`) has no
-`SignedDistanceField` member of `ColliderShape`, and a `CollisionAssetId` collider still falls
-back to its bounding box exactly as it did before this session (§5.5's placeholder, unchanged).
-Wiring a cooked asset's field as a *selectable collider kind* an author can put on a body is a
+`SignedDistanceField` member of `ColliderShape`, and a `CollisionAssetId` collider still falls back
+to its bounding box exactly as it did before this session (§5.5's placeholder, unchanged). Wiring a
+cooked asset's field as a *selectable collider kind* an author can put on a body is a
 content-authoring decision — which assets get a field-backed collider instead of (or alongside)
-convex decomposition, and how the two coexist for one body — that belongs with whoever designs
-that authoring surface, not with the narrowphase routine that now exists underneath it. The path
-is real, registered, and tested; nothing yet asks for it by name outside a test.
+convex decomposition, and how the two coexist for one body — that belongs with whoever designs that
+authoring surface, not with the narrowphase routine that now exists underneath it. The path is real,
+registered, and tested; nothing yet asks for it by name outside a test.
 
 **The three §15.4 regression scenes**, `tests/functional/regression/test_penetration_contract.cpp`:
 a stack of crates checked against its analytic resting height rather than merely "does it look
 stacked"; a sphere driven to 50, 100, and 200 m/s against a 1 cm static plate — the exact figure
-§15.4 and this phase's own acceptance criterion name — built by ramping a strong acceleration for
-a few ticks while still far above anything and then coasting at that exact speed, since the live
+§15.4 and this phase's own acceptance criterion name — built by ramping a strong acceleration for a
+few ticks while still far above anything and then coasting at that exact speed, since the live
 `IRigidBodyService` seeds a new body at rest and has no velocity-setting call yet (a real, if
-narrow, gap in §4.3's interface list — recorded here rather than worked around by reaching past
-the seam); and the cooker's Hausdorff error checked against two cases with known answers — zero
-for a box (an exact hull) and a real, bounded, positive number for an L forced to one convex
-piece (`CookingParameters::convex_piece_count = 1`, which reuses the exact scenario
-`Unit_ConvexDecomposition.SplitsAConcaveShapeAndTheErrorFalls` already proves produces a
-concavity over 0.1 — chosen over the L's *default* piece budget deliberately, because that same
-test proves a generous budget can split this particular L back into close to its original two
-boxes, which would have made the scene's outcome depend on how good the decomposer happens to be
-rather than on whether the report plumbing works).
+narrow, gap in §4.3's interface list — recorded here rather than worked around by reaching past the
+seam); and the cooker's Hausdorff error checked against two cases with known answers — zero for a
+box (an exact hull) and a real, bounded, positive number for an L forced to one convex piece
+(`CookingParameters::convex_piece_count = 1`, which reuses the exact scenario
+`Unit_ConvexDecomposition.SplitsAConcaveShapeAndTheErrorFalls` already proves produces a concavity
+over 0.1 — chosen over the L's *default* piece budget deliberately, because that same test proves a
+generous budget can split this particular L back into close to its original two boxes, which would
+have made the scene's outcome depend on how good the decomposer happens to be rather than on whether
+the report plumbing works).
 
 **Update, same day: built and verified.** The code above was written without a build available
 — builds on this machine were the project owner's to run, not this assistant's, for the
@@ -3043,30 +3089,30 @@ P5 is closed.
 surfaced a genuine failure in `FastSphereDoesNotTunnelThroughAThinPlate` (alongside two unrelated,
 pre-existing failures from a same-day SushiRuntime merge that flipped the rebalancer's default).
 Temporary tracing (added to `broadphase.hpp`/`sim/physics_simulation.hpp` and removed once
-diagnosed) found the actual cause: `needs_conservative_advancement` was computed correctly but
-never told to the *broadphase* — `refresh_contact_index` widened the narrowphase's speculative
-margin but never called `contact_index_.set_proxy_state()` to fold `BodyFlags::continuous_collision`
-into the proxy's flags, so the broadphase kept using its ordinary fixed 2×-one-tick lean, which for
-a fast body can lag a tick or two behind. Since `submit_contacts` only iterates pairs the
-broadphase already proposed, a pair it never proposes gets neither tier of §7.5 no matter how wide
-the narrowphase's own margin is. Fixed by setting that flag whenever the trigger fires. A second,
+diagnosed) found the actual cause: `needs_conservative_advancement` was computed correctly but never
+told to the *broadphase* — `refresh_contact_index` widened the narrowphase's speculative margin but
+never called `contact_index_.set_proxy_state()` to fold `BodyFlags::continuous_collision` into the
+proxy's flags, so the broadphase kept using its ordinary fixed 2×-one-tick lean, which for a fast
+body can lag a tick or two behind. Since `submit_contacts` only iterates pairs the broadphase
+already proposed, a pair it never proposes gets neither tier of §7.5 no matter how wide the
+narrowphase's own margin is. Fixed by setting that flag whenever the trigger fires. A second,
 narrower bug at the highest tested speed (200 m/s): tier 1 samples geometry only at the tick's
 discrete start pose, and at high enough speed that sample can already be embedded, so the
-deep-penetration fallback resolves to the *far* face — a wrong-side answer, not a miss. Fixed by
-no longer gating tier 2 on "tier 1 found nothing": it now runs whenever the trigger fires and
-overrides tier 1's manifold when it finds an impact, since conservative advancement's
-time-of-impact search does not sample at a single discrete pose the way tier 1 does. The first fix
-was verified by the trace that found it and holds: 50 and 100 m/s pass. **The second fix does
-not fully hold.** Rebuilt and re-run the same day: 200 m/s still fails, landing at `y ≈ -0.105`
-— the exact mirror of the correct resting height, meaning tier 2 is still resolving to the wrong
-side of the crossing at this speed, not merely missing it. The "override tier 1 whenever the
-trigger fires" change is necessary (it is what fixed 50/100 m/s) but evidently not sufficient at
-200 m/s; the remaining wrong-side answer at the highest tested speed is an **open, unfixed bug**,
-not a documentation gap — the discrete-pose diagnosis above narrowed the 50/100 m/s case correctly,
-but the 200 m/s case needs its own fresh trace (the earlier one was removed once the first fix
-looked sufficient) before it is touched again. §15.4/§16's acceptance criterion — "nothing tunnels
-at the tested speeds" — is therefore **not yet met**; P5's regression suite is red at one of its
-three tested speeds. Do not mark this row "Complete" again until that trace happens.
+deep-penetration fallback resolves to the *far* face — a wrong-side answer, not a miss. Fixed by no
+longer gating tier 2 on "tier 1 found nothing": it now runs whenever the trigger fires and overrides
+tier 1's manifold when it finds an impact, since conservative advancement's time-of-impact search
+does not sample at a single discrete pose the way tier 1 does. The first fix was verified by the
+trace that found it and holds: 50 and 100 m/s pass. **The second fix does not fully hold.** Rebuilt
+and re-run the same day: 200 m/s still fails, landing at `y ≈ -0.105` — the exact mirror of the
+correct resting height, meaning tier 2 is still resolving to the wrong side of the crossing at this
+speed, not merely missing it. The "override tier 1 whenever the trigger fires" change is necessary
+(it is what fixed 50/100 m/s) but evidently not sufficient at 200 m/s; the remaining wrong-side
+answer at the highest tested speed is an **open, unfixed bug**, not a documentation gap — the
+discrete-pose diagnosis above narrowed the 50/100 m/s case correctly, but the 200 m/s case needs its
+own fresh trace (the earlier one was removed once the first fix looked sufficient) before it is
+touched again. §15.4/§16's acceptance criterion — "nothing tunnels at the tested speeds" — is
+therefore **not yet met**; P5's regression suite is red at one of its three tested speeds. Do not
+mark this row "Complete" again until that trace happens.
 
 ### 16.17 P6-A: the neo-Hookean element, host-only
 
@@ -3127,35 +3173,34 @@ decision is why nothing below touches `physics/solver/` or `physics/scene/` at a
   declines to paper over.
 
 **What was checked, given there was no build to check it against.** Every gradient formula was
-re-derived independently from `F`'s column definition (not copied from memory of the paper's
-own index conventions) and cross-checked two ways: against the standard literature identity
+re-derived independently from `F`'s column definition (not copied from memory of the paper's own
+index conventions) and cross-checked two ways: against the standard literature identity
 `∂C/∂x_i = (1/C)·F·(row i-1 of Dm^-1)`, and, in `tests/functional/unit/test_fem_projection.cpp`,
 against a central finite difference of the constraint value itself for a generic, non-symmetric
 configuration — the one test that would catch a sign or transposed-index error independent of
-whether a hand-picked closed-form case happens to be symmetric enough to hide one. Three
-closed-form cases back it further: the rest configuration gives `F = I` and a deviatoric value
-of exactly zero; a uniform scale gives `F = s·I` with the expected norm and determinant; and a
-pure rotation (translated and rotated by an arbitrary quaternion, not merely axis-aligned)
-gives `‖F‖ = √3` exactly, proving the deviatoric term really is rotation-invariant rather than
-only appearing to be at some special angle.
+whether a hand-picked closed-form case happens to be symmetric enough to hide one. Three closed-form
+cases back it further: the rest configuration gives `F = I` and a deviatoric value of exactly zero;
+a uniform scale gives `F = s·I` with the expected norm and determinant; and a pure rotation
+(translated and rotated by an arbitrary quaternion, not merely axis-aligned) gives `‖F‖ = √3`
+exactly, proving the deviatoric term really is rotation-invariant rather than only appearing to be
+at some special angle.
 
 **The acceptance test, and why it is the least certain thing in this entry.**
-`tests/functional/integration/test_finite_element_model.cpp` builds a 10×2×2-cell tetrahedral
-beam by hand (a Kuhn six-tets-per-cube lattice, sign-corrected per element so the specific
-diagonal choice cannot matter), pins the wall end, lets it sag under its own weight for 3000
-ticks at 30 sub-steps with heavy damping, and checks the tip deflection against the closed-form
-Euler-Bernoulli answer for a cantilever under distributed self-weight load,
-`δ = mgL³/(8EI)`, within 35%. Unlike the pure-math tests above, this asks something no test in
-this codebase has ever asked before: does a from-scratch constitutive model, run to
-equilibrium through XPBD at a finite substep count, reproduce a continuum elasticity result to
-within a stated tolerance. Every piece of it was reasoned through carefully — the material
-constant was chosen backward from a target deflection so the scene sits in the small-deflection
-regime the theory assumes, the lumped mass matches the cooker's own scheme, the rest-inverse
-matrix is built with the identical formula `tetrahedral_mesh.cpp`'s `invert_3x3` uses — but XPBD
-convergence at a finite substep count, and 240 tetrahedra's worth of discretization error
-against a continuum formula, are exactly the two things that cannot be verified by inspection.
-This is, honestly, the single most likely test in this session to need a numeric adjustment
-(the tolerance, the substep count, or the material constant) once it is actually run.
+`tests/functional/integration/test_finite_element_model.cpp` builds a 10×2×2-cell tetrahedral beam
+by hand (a Kuhn six-tets-per-cube lattice, sign-corrected per element so the specific diagonal
+choice cannot matter), pins the wall end, lets it sag under its own weight for 3000 ticks at 30
+sub-steps with heavy damping, and checks the tip deflection against the closed-form Euler-Bernoulli
+answer for a cantilever under distributed self-weight load, `δ = mgL³/(8EI)`, within 35%. Unlike the
+pure-math tests above, this asks something no test in this codebase has ever asked before: does a
+from-scratch constitutive model, run to equilibrium through XPBD at a finite substep count,
+reproduce a continuum elasticity result to within a stated tolerance. Every piece of it was reasoned
+through carefully — the material constant was chosen backward from a target deflection so the scene
+sits in the small-deflection regime the theory assumes, the lumped mass matches the cooker's own
+scheme, the rest-inverse matrix is built with the identical formula `tetrahedral_mesh.cpp`'s
+`invert_3x3` uses — but XPBD convergence at a finite substep count, and 240 tetrahedra's worth of
+discretization error against a continuum formula, are exactly the two things that cannot be verified
+by inspection. This is, honestly, the single most likely test in this session to need a numeric
+adjustment (the tolerance, the substep count, or the material constant) once it is actually run.
 
 **What P6-A did not do, deliberately, beyond what §16's P6 row already lists as separate
 items.** No stress/strain readout (§9.3, P6-B — the von Mises stress field `FemTetrahedronT`
@@ -3170,113 +3215,111 @@ premature abstraction §4's own principles rule out). The concrete class is name
 introduce `ISoftBodyModel`, this class already has the name the doc's own §3.3 seam table
 gives it.
 
-**Update, same day: built once, reported passing — then found failing on a later full-suite run,
-and P6-A is not closed.** The project owner's first build and test run of this section reported
-the suite passing. A later full-suite run the same day (after P6-B/C/D below had also landed)
-found `Integration_FiniteElementModel.CantileverTipDeflectionMatchesEulerBernoulli` **failing**,
-measuring a tip deflection of roughly `0.183 m` against a theoretical `0.020 m` — about 9x too
-soft, nowhere near the 35% tolerance. Whether this test was already failing at the first,
-"passing" run and simply was not individually called out, or whether something in P6-B/C/D
-changed its behavior, is **not established** — the two are read-only additions to
-`FiniteElementModel::step` gated by material defaults that should not affect this scene (P6-B's
-stress readout writes a diagnostic field nothing else reads; P6-C's plasticity is a no-op unless
-`plastic_creep`/`maximum_plastic_strain` are set, and this test's material never sets them,
-verified by inspection), and the core substep loop itself is byte-for-byte what it was before
-either landed — but "should not affect it" is exactly the kind of claim this whole document's
-running caveat exists to distrust until a build confirms it, and no build confirmed this one
-before it started failing. A quick experiment (raising `SUBSTEPS` from 30 to 200) reduced the
-measured deflection by only about 9% (`0.183 m` to `0.167 m`), which rules out plain XPBD
-under-convergence as the dominant cause — Macklin's substep theory predicts the answer converges
-*toward* the compliance-implied stiffness as the step shrinks, and a near-7x increase in step
-count moving the result by under a tenth is not that curve. Recorded as an **open, unfixed
-numerical discrepancy** — see §16.19 for the leading suspects — rather than closed. P6-A's model
-and material code are still believed correct (every one of `test_fem_projection.cpp`'s
-closed-form and finite-difference cases passed on the same build), but **its own phase acceptance
-test does not currently pass**, so the phase itself is not closed on the strength of it.
+**Update, same day: built once, reported passing — then found failing on a later full-suite run, and
+P6-A is not closed.** The project owner's first build and test run of this section reported the
+suite passing. A later full-suite run the same day (after P6-B/C/D below had also landed) found
+`Integration_FiniteElementModel.CantileverTipDeflectionMatchesEulerBernoulli` **failing**, measuring
+a tip deflection of roughly `0.183 m` against a theoretical `0.020 m` — about 9x too soft, nowhere
+near the 35% tolerance. Whether this test was already failing at the first, "passing" run and simply
+was not individually called out, or whether something in P6-B/C/D changed its behavior, is **not
+established** — the two are read-only additions to `FiniteElementModel::step` gated by material
+defaults that should not affect this scene (P6-B's stress readout writes a diagnostic field nothing
+else reads; P6-C's plasticity is a no-op unless `plastic_creep`/`maximum_plastic_strain` are set,
+and this test's material never sets them, verified by inspection), and the core substep loop itself
+is byte-for-byte what it was before either landed — but "should not affect it" is exactly the kind
+of claim this whole document's running caveat exists to distrust until a build confirms it, and no
+build confirmed this one before it started failing. A quick experiment (raising `SUBSTEPS` from 30
+to 200) reduced the measured deflection by only about 9% (`0.183 m` to `0.167 m`), which rules out
+plain XPBD under-convergence as the dominant cause — Macklin's substep theory predicts the answer
+converges *toward* the compliance-implied stiffness as the step shrinks, and a near-7x increase in
+step count moving the result by under a tenth is not that curve. Recorded as an **open, unfixed
+numerical discrepancy** — see §16.19 for the leading suspects — rather than closed. P6-A's model and
+material code are still believed correct (every one of `test_fem_projection.cpp`'s closed-form and
+finite-difference cases passed on the same build), but **its own phase acceptance test does not
+currently pass**, so the phase itself is not closed on the strength of it.
 
 ### 16.18 P6-B, P6-C, P6-D: stress, plasticity, fracture — built, own tests pass
 
 **Written 2026-08-01, same session as §16.17. Update, same day, after the full-suite run referenced
 in §16.19: all three built, and their own tests are green** — `test_fem_stress.cpp`
-(`Unit_FemStress.*`), `test_fem_plasticity.cpp` (`Unit_FemPlasticity.*`),
-`test_fem_fracture.cpp` (`Unit_FemFracture.*`), and `test_fem_plasticity_integration.cpp`
-(`Integration_FemPlasticity.*`) all passed. This does **not** extend to P6-A's own acceptance
-test — the cantilever-vs-Euler-Bernoulli case is failing, but that failure is isolated to
-P6-A's element/compliance math (see §16.19); it does not implicate the stress readout,
-plasticity, or fracture logic described below, none of which that test exercises. Since these
-three sit directly on top of P6-A and each other, an error in P6-A would still be an error in
-everything after it — but nothing found so far points there rather than at bending-specific
-discretization, per §16.19.
+(`Unit_FemStress.*`), `test_fem_plasticity.cpp` (`Unit_FemPlasticity.*`), `test_fem_fracture.cpp`
+(`Unit_FemFracture.*`), and `test_fem_plasticity_integration.cpp` (`Integration_FemPlasticity.*`)
+all passed. This does **not** extend to P6-A's own acceptance test — the
+cantilever-vs-Euler-Bernoulli case is failing, but that failure is isolated to P6-A's
+element/compliance math (see §16.19); it does not implicate the stress readout, plasticity, or
+fracture logic described below, none of which that test exercises. Since these three sit directly on
+top of P6-A and each other, an error in P6-A would still be an error in everything after it — but
+nothing found so far points there rather than at bending-specific discretization, per §16.19.
 
 **P6-B, §9.3's readout** (`physics/soft/fem_stress.hpp`): Green-Lagrange strain `E = (F^T F -
 I)/2` from the deformation gradient `fem_projection.hpp` already builds, a St. Venant-Kirchhoff
 second Piola-Kirchhoff stress `S = lambda*tr(E)*I + 2*mu*E` from the same Lame parameters the
 constraints already read (not the exact stress conjugate to the two XPBD constraints themselves,
-which is a positional formulation without one — the file's own header comment explains the
-choice), pulled forward to Cauchy stress `sigma = F*S*F^T / det(F)`, reduced to one von Mises
-scalar per element. Computed once per tick in `FiniteElementModel::step`, after the substep loop,
-reusing the tick's final pose. `FemTetrahedronT::von_mises_stress` holds it;
+which is a positional formulation without one — the file's own header comment explains the choice),
+pulled forward to Cauchy stress `sigma = F*S*F^T / det(F)`, reduced to one von Mises scalar per
+element. Computed once per tick in `FiniteElementModel::step`, after the substep loop, reusing the
+tick's final pose. `FemTetrahedronT::von_mises_stress` holds it;
 `FiniteElementModel::maximum_stress()` is the model-level aggregate query — not yet
 `ISoftBodyService::maximum_stress(entity)`, deliberately: no soft body is wired into `sim/` as an
 entity yet, so there is nothing to hang a service method or an editor heat map panel off of until
 P6-G does that wiring. Verified by hand against the one case with a textbook closed form: small
 uniaxial strain (`F = diag(1+e, 1, 1)`), whose longitudinal stress is the P-wave modulus result
 `sigma_xx = (lambda + 2*mu)*e` and whose von Mises reduction of that diagonal state comes out to
-exactly `2*mu*e` — both re-derived by hand and matched to what the code computes before writing
-the test (`test_fem_stress.cpp`), not fitted to whatever the code happened to produce.
+exactly `2*mu*e` — both re-derived by hand and matched to what the code computes before writing the
+test (`test_fem_stress.cpp`), not fitted to whatever the code happened to produce.
 
 **P6-C, §9.4's permanent dent** (`physics/soft/fem_plasticity.hpp`): the multiplicative
-decomposition `fem_element.hpp` was already shaped for since P6-A — `plastic_inverse_column_*`
-is the rest matrix every projection actually reads, separate from the original cooked
-`rest_inverse_column_*` — turns yielding into exactly one operation: blend the plastic rest
-inverse toward the *current* shape's own inverse by a fraction `plastic_creep`, derived in the
-file's own header comment from `Dp'^-1 = (1-c)*Dp^-1 + c*Ds^-1`, which at `c=1` sets the current
-shape as the new rest state exactly, dropping the elastic strain the constraints see to zero in
-one step. `Ds^-1` needs a genuine runtime 3x3 inverse — nothing bakes it in advance the way P6-A's
-cooked rest inverse is — so `fem_projection.hpp` gained `invert_fem_matrix3`, the same cofactor
-identity the cooker's own `invert_3x3` uses, reassembled into the column-major shape this file's
-matrices are already in. `accumulated_plastic_strain` (a new field on `FemTetrahedronT`) is
-clamped to `maximum_plastic_strain`, and the rest volume is recomputed from the new plastic rest
-shape rather than left at the original. Runs once per tick, gated on the von Mises stress P6-B
-just measured, rather than once per sub-step the way §9.4's pseudocode literally reads — a
-deliberate scoping choice the file's header comment states plainly, not an oversight. Tested at
-the unit level against the algebraic guarantee the derivation makes (full creep zeroes the
-elastic strain exactly, traced by hand through the geometric-series argument for why the
-ceiling-clamping test converges to its limit rather than overshooting it) and at the integration
-level by actually running `FiniteElementModel::step()` — pulling a low-yield element past yield,
-releasing the load, and checking the settled shape did not spring back.
+decomposition `fem_element.hpp` was already shaped for since P6-A — `plastic_inverse_column_*` is
+the rest matrix every projection actually reads, separate from the original cooked
+`rest_inverse_column_*` — turns yielding into exactly one operation: blend the plastic rest inverse
+toward the *current* shape's own inverse by a fraction `plastic_creep`, derived in the file's own
+header comment from `Dp'^-1 = (1-c)*Dp^-1 + c*Ds^-1`, which at `c=1` sets the current shape as the
+new rest state exactly, dropping the elastic strain the constraints see to zero in one step. `Ds^-1`
+needs a genuine runtime 3x3 inverse — nothing bakes it in advance the way P6-A's cooked rest inverse
+is — so `fem_projection.hpp` gained `invert_fem_matrix3`, the same cofactor identity the cooker's
+own `invert_3x3` uses, reassembled into the column-major shape this file's matrices are already in.
+`accumulated_plastic_strain` (a new field on `FemTetrahedronT`) is clamped to
+`maximum_plastic_strain`, and the rest volume is recomputed from the new plastic rest shape rather
+than left at the original. Runs once per tick, gated on the von Mises stress P6-B just measured,
+rather than once per sub-step the way §9.4's pseudocode literally reads — a deliberate scoping
+choice the file's header comment states plainly, not an oversight. Tested at the unit level against
+the algebraic guarantee the derivation makes (full creep zeroes the elastic strain exactly, traced
+by hand through the geometric-series argument for why the ceiling-clamping test converges to its
+limit rather than overshooting it) and at the integration level by actually running
+`FiniteElementModel::step()` — pulling a low-yield element past yield, releasing the load, and
+checking the settled shape did not spring back.
 
-**P6-D, §9.5's removal** (`physics/soft/fem_fracture.hpp`): the three guard rails §9.5 names —
-a per-tick budget, a minimum fragment size, and a scene-level cap — all deterministic, all
-state-derived, checked via a union-find over the *surviving* elements' shared vertices so a
-removal that would leave a sliver below the minimum is refused before it happens rather than
-after. **What this does not yet do, named rather than glossed over:** §9.5's other clause — "its
-shared vertices are duplicated along the crack surface" — needs face-adjacency data (which
-element sits across which of a tetrahedron's four faces) that the flat vertex list does not
-carry, so a fracture that actually severs a body into two independently falling pieces will
-currently still show them held together at whatever vertices they happen to still share after
-removal. `FemFractureReport::fragment_count` reports the union-find's component count precisely
-so this gap is visible to a caller rather than silently wrong — a real, scoped-out piece of work
-for a later P6-D pass, not a bug in what exists. The removal mechanics themselves were re-derived
-carefully after an initial draft had a genuine index-invalidation bug (removing candidates one at
-a time by mutating the element array mid-loop, which shifts every later index down by one and
-makes an already-captured later candidate index point at the wrong element) — fixed by deciding
-every removal against a boolean mask over *original* indices and only rebuilding the element
-array once, after every decision is made. Tested against hand-constructed element sets (a chain
-of three tetrahedra, severing the middle one) whose resulting connectivity is knowable by
-inspection, not against real cooked geometry.
+**P6-D, §9.5's removal** (`physics/soft/fem_fracture.hpp`): the three guard rails §9.5 names — a
+per-tick budget, a minimum fragment size, and a scene-level cap — all deterministic, all
+state-derived, checked via a union-find over the *surviving* elements' shared vertices so a removal
+that would leave a sliver below the minimum is refused before it happens rather than after. **What
+this does not yet do, named rather than glossed over:** §9.5's other clause — "its shared vertices
+are duplicated along the crack surface" — needs face-adjacency data (which element sits across which
+of a tetrahedron's four faces) that the flat vertex list does not carry, so a fracture that actually
+severs a body into two independently falling pieces will currently still show them held together at
+whatever vertices they happen to still share after removal. `FemFractureReport::fragment_count`
+reports the union-find's component count precisely so this gap is visible to a caller rather than
+silently wrong — a real, scoped-out piece of work for a later P6-D pass, not a bug in what exists.
+The removal mechanics themselves were re-derived carefully after an initial draft had a genuine
+index-invalidation bug (removing candidates one at a time by mutating the element array mid-loop,
+which shifts every later index down by one and makes an already-captured later candidate index point
+at the wrong element) — fixed by deciding every removal against a boolean mask over *original*
+indices and only rebuilding the element array once, after every decision is made. Tested against
+hand-constructed element sets (a chain of three tetrahedra, severing the middle one) whose resulting
+connectivity is knowable by inspection, not against real cooked geometry.
 
-**Read before extending any of this further:** P6-B/C/D's own tests are green (see above), but
-that is not the same as P6-E-ready — P6-E's soft-vs-rigid collision reads the same
+**Read before extending any of this further:** P6-B/C/D's own tests are green (see above), but that
+is not the same as P6-E-ready — P6-E's soft-vs-rigid collision reads the same
 `SdfCollider`/`collision_asset_field` P5 built, and would compound an error in the stress or
 plasticity pipeline into a collision response reading a wrong force. When this was written P6-A's
-acceptance test was failing, so the element math these three build on had not been shown correct
-for the case that matters most for collision response — bending under an external load — only for
+acceptance test was failing, so the element math these three build on had not been shown correct for
+the case that matters most for collision response — bending under an external load — only for
 uniaxial strain and pure creep. **That caveat is discharged:** §16.19's RESOLVED addendum records
 the three fixes and the cantilever now matches Euler-Bernoulli inside tolerance. The standing
 instruction survives it, because the coupling it warns about does. Re-run
-`se test --suite functional --filter 'Unit_FemStress.*:Unit_FemPlasticity.*:Unit_FemFracture.*:Integration_FemPlasticity.*'`
-after any change touching P6-A, not just once at the start of a session.
+`se test --suite functional --filter
+'Unit_FemStress.*:Unit_FemPlasticity.*:Unit_FemFracture.*:Integration_FemPlasticity.*'` after any
+change touching P6-A, not just once at the start of a session.
 
 ### 16.19 Full-suite run, 2026-08-01: two known-open issues, committed rather than chased further
 
@@ -3286,42 +3329,42 @@ after any change touching P6-A, not just once at the start of a session.
 `Integration_JointAssembly` force-mismatch tests — caused by a same-day, same-machine SushiRuntime
 merge that flipped the rebalancer's default (see the project memory note
 `sushiruntime-realtime-gaps`); nothing in P5 or P6 touches the rebalancer or joint assembly. The
-other two are real, and are recorded here rather than fixed on the spot, per an explicit decision
-to commit what's done and continue rather than keep debugging blind:
+other two are real, and are recorded here rather than fixed on the spot, per an explicit decision to
+commit what's done and continue rather than keep debugging blind:
 
-**Open issue 1 — P5, `Regression_PenetrationContract.FastSphereDoesNotTunnelThroughAThinPlate`
-still fails at 200 m/s.** §16.16 already covers the two fixes attempted this session: telling the
+**Open issue 1 — P5, `Regression_PenetrationContract.FastSphereDoesNotTunnelThroughAThinPlate` still
+fails at 200 m/s.** §16.16 already covers the two fixes attempted this session: telling the
 broadphase to sweep a fast body's full tick of travel (confirmed fixed — 50 and 100 m/s both pass),
 and removing tier-2 CCD's gate on "tier 1 found nothing" so it always runs and can override a
 wrong-side tier-1 manifold. The second fix does **not** hold at 200 m/s: the sphere still lands at
 `y ≈ -0.105` — the mirror image of the correct `+0.105` — meaning conservative advancement itself,
-or the manifold it hands off to tier-1's resolution path, is still picking the far side of the
-plate at this speed. This was not re-diagnosed further this session (no new tracing added) because
-doing so needs another build-and-trace cycle, which is the user's to run, not something to
-speculate through by inspection alone. Next step: re-add temporary tracing to
-`conservative_advance()` and `generate_obb_sphere_manifold`'s deep-penetration fallback,
-specifically logging which side of the plate's normal the resolved contact normal points to at
-each of the three tested speeds, to see where 200 m/s diverges from the two passing speeds.
+or the manifold it hands off to tier-1's resolution path, is still picking the far side of the plate
+at this speed. This was not re-diagnosed further this session (no new tracing added) because doing
+so needs another build-and-trace cycle, which is the user's to run, not something to speculate
+through by inspection alone. Next step: re-add temporary tracing to `conservative_advance()` and
+`generate_obb_sphere_manifold`'s deep-penetration fallback, specifically logging which side of the
+plate's normal the resolved contact normal points to at each of the three tested speeds, to see
+where 200 m/s diverges from the two passing speeds.
 
 **Open issue 2 — P6-A, `Integration_FiniteElementModel.CantileverTipDeflectionMatchesEulerBernoulli`
-measures ~9x too much sag.** Measured tip deflection is `≈0.183 m` against a theoretical
-`≈0.020 m` (35% tolerance, so this is not a near-miss). One experiment was run this session:
-raising `SUBSTEPS` from 30 to 200 (a ~7x increase) only reduced the measured deflection to
-`≈0.167 m`, an 9% change. That rules out plain XPBD under-convergence as the dominant cause —
-Macklin's substep theory predicts the answer converges *toward* the compliance-implied stiffness
-as `h` shrinks, and a near-7x step-count increase moving the result by under a tenth is not
-consistent with still being far from that limit; something else is wrong, not just under-solved.
-`SUBSTEPS` was reverted to 30 rather than left at the experimental 200, since 200 does not fix the
-test and is not otherwise justified as a runtime cost. Two suspects are named but neither
-isolated yet: (a) the test's cross-section is only 2x2 cells of linear tetrahedra, which is a
-known-weak configuration for bending specifically (linear tets are notoriously too soft in bending
-at low through-thickness resolution — "shear locking" and its relatives), independent of anything
-about XPBD; (b) a possible error in how Young's modulus/Poisson ratio map to this two-constraint
-model's deviatoric/hydrostatic compliances specifically under a bending-dominated load, as opposed
-to the uniaxial-strain case §16.18's P6-B stress readout was checked against, which would not show
-up in any test run so far because none of them load an element in bending. Next step: build a
-single-element or single-column bending test with a known closed form to isolate (a) from (b)
-before touching the cantilever test's mesh density.
+measures ~9x too much sag.** Measured tip deflection is `≈0.183 m` against a theoretical `≈0.020 m`
+(35% tolerance, so this is not a near-miss). One experiment was run this session: raising `SUBSTEPS`
+from 30 to 200 (a ~7x increase) only reduced the measured deflection to `≈0.167 m`, an 9% change.
+That rules out plain XPBD under-convergence as the dominant cause — Macklin's substep theory
+predicts the answer converges *toward* the compliance-implied stiffness as `h` shrinks, and a
+near-7x step-count increase moving the result by under a tenth is not consistent with still being
+far from that limit; something else is wrong, not just under-solved. `SUBSTEPS` was reverted to 30
+rather than left at the experimental 200, since 200 does not fix the test and is not otherwise
+justified as a runtime cost. Two suspects are named but neither isolated yet: (a) the test's
+cross-section is only 2x2 cells of linear tetrahedra, which is a known-weak configuration for
+bending specifically (linear tets are notoriously too soft in bending at low through-thickness
+resolution — "shear locking" and its relatives), independent of anything about XPBD; (b) a possible
+error in how Young's modulus/Poisson ratio map to this two-constraint model's deviatoric/hydrostatic
+compliances specifically under a bending-dominated load, as opposed to the uniaxial-strain case
+§16.18's P6-B stress readout was checked against, which would not show up in any test run so far
+because none of them load an element in bending. Next step: build a single-element or single-column
+bending test with a known closed form to isolate (a) from (b) before touching the cantilever test's
+mesh density.
 
 **Decision recorded:** rather than chase either of these further in this pass, both are marked
 known/open here, the roadmap table below reflects "in progress" rather than "complete" for P5 and
@@ -3330,22 +3373,22 @@ instruction to commit now and continue working rather than keep debugging uninte
 
 **RESOLVED (2026-08-01, later the same day) — all five failures fixed; the full suite is 992/992.**
 
-- *Rebalancer test:* updated to enable the rebalancer explicitly before asserting the builder
-  turns it off, since the runtime's default flipped to off (the property under test — construction
+- *Rebalancer test:* updated to enable the rebalancer explicitly before asserting the builder turns
+  it off, since the runtime's default flipped to off (the property under test — construction
   disables it — is unchanged).
 - *Joint force readout zero:* **not** the runtime merge after all. Tick-by-tick tracing showed the
   readout correct (343.35 N) until exactly `sleep_delay` and zero after: the door sleeps, but the
-  *pinned* chassis (`inv_mass = 0`, dynamic-flagged) never does, so `JointProjectionT`'s
-  "both ends non-simulated" guard never fired, the accumulators were reset every first substep and
-  then measured a pair nothing integrates. Fix: either endpoint sleeping now freezes the joint's
+  *pinned* chassis (`inv_mass = 0`, dynamic-flagged) never does, so `JointProjectionT`'s "both ends
+  non-simulated" guard never fired, the accumulators were reset every first substep and then
+  measured a pair nothing integrates. Fix: either endpoint sleeping now freezes the joint's
   accounting (`joint_projection.hpp`, both passes) — safe because an island sleeps as a unit and a
   static/pinned/kinematic partner cannot be moved by the projection anyway.
 - *200 m/s tunnelling:* the CCD manifold was correct (traced: normal +Y at the impact tick, all
-  three speeds). The culprit was §7.6's depenetration budget: at 200 m/s the crossing happens in
-  the tick's last substep with a ~0.4 m violation, the 3 m/s budget corrects 6 mm of it, the
-  velocity pass kills the speed, and the next tick's nearest-face manifold walks the now-buried
-  sphere out the far side — the mirror-image rest pose. Fix (`contact_projection.hpp`): the budget
-  now additionally covers however much the pair *closed during this substep* (measured from
+  three speeds). The culprit was §7.6's depenetration budget: at 200 m/s the crossing happens in the
+  tick's last substep with a ~0.4 m violation, the 3 m/s budget corrects 6 mm of it, the velocity
+  pass kills the speed, and the next tick's nearest-face manifold walks the now-buried sphere out
+  the far side — the mirror-image rest pose. Fix (`contact_projection.hpp`): the budget now
+  additionally covers however much the pair *closed during this substep* (measured from
   `prev_position` anchors), so a spawned overlap still pays out at 3 m/s while a moving body can
   always be stopped by what it hit. Cancelling the approach removes exactly the motion the substep
   added, so it cannot inject energy.
@@ -3358,8 +3401,8 @@ instruction to commit now and continue working rather than keep debugging uninte
   (linearizing the constraint pair shows effective Lame `(mu, lambda_used - mu)`). Remaining error
   is ordinary single-iteration XPBD h^2 convergence (axial rest residual measured -2.2e-2 m at 30
   substeps, -5.9e-3 at 60, -1.5e-3 at 120); the cantilever test runs at 60 substeps and passes
-  inside its 35% tolerance. The plasticity integration scene was recalibrated (50 → 800 m/s^2
-  pull) because its old load only crossed yield against the erroneously soft material.
+  inside its 35% tolerance. The plasticity integration scene was recalibrated (50 → 800 m/s^2 pull)
+  because its old load only crossed yield against the erroneously soft material.
 
 ### 16.20 Finishing P6's host side, 2026-08-01: what was built, and what a build has not yet seen
 
@@ -3370,83 +3413,85 @@ honest verification status — which is not the same thing.
 **§9.6, collision, in three parts.** Soft-vs-rigid was the one that could have gone badly and did
 not: rather than a new contact solver for particles, each contacting surface vertex becomes an
 ordinary one-point `ContactManifold` handed to the existing `solve_manifold_positions` /
-`solve_manifold_velocities`. Friction, restitution, rest offset and the depenetration budget are then
-literally the same code path a crate on a floor takes, and two-way coupling is free because the rigid
-body is the manifold's second body. It also forced a real fix underneath: the cooked distance field
-was only sampled at nearest voxel, which settles a deformable surface onto a staircase, and its
-gradient — a half-voxel central difference *inside* one voxel — reads exactly zero and fell through to
-`sdf_gradient_world`'s fixed-axis guard, returning a normal unrelated to the surface. A trilinear
-sampler with an analytic gradient sits beside the old one; the convex-pair narrowphase is untouched.
+`solve_manifold_velocities`. Friction, restitution, rest offset and the depenetration budget are
+then literally the same code path a crate on a floor takes, and two-way coupling is free because the
+rigid body is the manifold's second body. It also forced a real fix underneath: the cooked distance
+field was only sampled at nearest voxel, which settles a deformable surface onto a staircase, and
+its gradient — a half-voxel central difference *inside* one voxel — reads exactly zero and fell
+through to `sdf_gradient_world`'s fixed-axis guard, returning a normal unrelated to the surface. A
+trilinear sampler with an analytic gradient sits beside the old one; the convex-pair narrowphase is
+untouched.
 
 Soft-vs-soft is a build-once/refit-every-tick hierarchy per body, vertex-triangle both ways plus
 edge-edge, and the continuous path is Bridson's coplanarity cubic solved by bracketing over the
-derivative's roots rather than in closed form — grazing contacts are double roots and the closed form
-is worst exactly there. Contacts are keyed by feature and reduced, which removes the "as many times
-too stiff as the vertex has neighbours" error *and* makes the solve order a function of topology
-rather than traversal (§12.1).
+derivative's roots rather than in closed form — grazing contacts are double roots and the closed
+form is worst exactly there. Contacts are keyed by feature and reduced, which removes the "as many
+times too stiff as the vertex has neighbours" error *and* makes the solve order a function of
+topology rather than traversal (§12.1).
 
 Two structural consequences, both of which the later work needed anyway. `FiniteElementModel::step`
 became a composition of named phases, and `SoftBodyScene` interleaves several bodies' substeps —
 without it two soft bodies in contact cannot be correct however good the contact code is, because
 each would finish its whole tick against poses the other has not reached.
 
-**§3.3's seam, and the shape it actually wanted.** `ISoftBodyModel` is the seam; `SoftBodyBase` is the
-substep schedule three of the four model kinds share, as a template method with exactly one hole
-(`project_constraints`). Splitting them matters: a consumer of the seam should not depend on a substep
-loop it never calls, and the rigid tier of §9.7 genuinely does not want that loop — its tick is
-"integrate one body", and forcing it through the particle schedule would mean integrating hundreds of
-particles to arrive at what one `predict` already gives. §4.4's conformance suite runs one set of
-cases against all three deformable kinds through `ISoftBodyModel&`.
+**§3.3's seam, and the shape it actually wanted.** `ISoftBodyModel` is the seam; `SoftBodyBase` is
+the substep schedule three of the four model kinds share, as a template method with exactly one hole
+(`project_constraints`). Splitting them matters: a consumer of the seam should not depend on a
+substep loop it never calls, and the rigid tier of §9.7 genuinely does not want that loop — its tick
+is "integrate one body", and forcing it through the particle schedule would mean integrating
+hundreds of particles to arrive at what one `predict` already gives. §4.4's conformance suite runs
+one set of cases against all three deformable kinds through `ISoftBodyModel&`.
 
 **§9.7's transfer is written in displacements, and that is the whole of "no pop."** Reconstructing a
-coarse vertex as `sum(weight * fine_vertex)` is exact only if the fine lattice sits exactly where the
-embedding says, which it never does — a coarse lattice cannot represent every pose a finer one can, so
-the reconstruction of an *undeformed* body already lands slightly off its own rest position. Working
-in displacements makes the rest pose transfer exactly by construction and leaves only the genuinely
-unrepresentable part of the deformation to be lost, which reads as softening rather than as a jump.
-Coarsening has no stored inverse, so it is the transpose of refining — a mass-lumped scatter — chosen
-because it reproduces a rigid translation exactly, and a body that is merely falling must cross a tier
-boundary with no motion at all.
+coarse vertex as `sum(weight * fine_vertex)` is exact only if the fine lattice sits exactly where
+the embedding says, which it never does — a coarse lattice cannot represent every pose a finer one
+can, so the reconstruction of an *undeformed* body already lands slightly off its own rest position.
+Working in displacements makes the rest pose transfer exactly by construction and leaves only the
+genuinely unrepresentable part of the deformation to be lost, which reads as softening rather than
+as a jump. Coarsening has no stored inverse, so it is the transpose of refining — a mass-lumped
+scatter — chosen because it reproduces a rigid translation exactly, and a body that is merely
+falling must cross a tier boundary with no motion at all.
 
 **§9.5's vertex duplication turned out not to need what it was blocked on.** This document recorded
-the crack-splitting clause as requiring cooked face-adjacency data that `FemTetrahedronT`'s flat vertex
-list does not carry. That was wrong. A vertex's *star* is a handful of elements, not a mesh, and two
-of them lie on the same side of a crack exactly when they share three vertices one of which is that
-vertex — which the vertex lists answer directly, at a cost proportional to the crack rather than to
-the body. Splitting divides the vertex's mass rather than copying it (a copy would make a body heavier
-every time it broke), keeps a pinned vertex pinned in every copy, and starts the copies coincident so
-the split itself moves nothing. The boundary is rebuilt from the surviving elements afterward, because
-a collision surface still describing the shape a body had before it broke is worse than none.
+the crack-splitting clause as requiring cooked face-adjacency data that `FemTetrahedronT`'s flat
+vertex list does not carry. That was wrong. A vertex's *star* is a handful of elements, not a mesh,
+and two of them lie on the same side of a crack exactly when they share three vertices one of which
+is that vertex — which the vertex lists answer directly, at a cost proportional to the crack rather
+than to the body. Splitting divides the vertex's mass rather than copying it (a copy would make a
+body heavier every time it broke), keeps a pinned vertex pinned in every copy, and starts the copies
+coincident so the split itself moves nothing. The boundary is rebuilt from the surviving elements
+afterward, because a collision surface still describing the shape a body had before it broke is
+worse than none.
 
 **§9.1's bending is isometric, not dihedral, and the reason is the common case.** The textbook
 constraint `C = acos(dot(n1, n2)) - angle_rest` carries a `1 / sqrt(1 - dot^2)` factor in its
 gradient. For a flat stencil that dot product is exactly minus one — a division by zero sitting
 precisely on the configuration every piece of cloth starts at and spends most of its life near. The
-numerator vanishes too, so the correction has a finite limit, but computing it divides one cancelling
-quantity by another exactly where the constraint most needs to be reliable. The coplanarity-weight
-form has no trigonometry, no normals, no singularity, and constant gradients. P6's own acceptance
-clause — zero stiffness reproduces the old behaviour — is met structurally rather than numerically:
-at zero stiffness no bending constraints are created, so the sweep is the same sequence of the same
-projections it was before.
+numerator vanishes too, so the correction has a finite limit, but computing it divides one
+cancelling quantity by another exactly where the constraint most needs to be reliable. The
+coplanarity-weight form has no trigonometry, no normals, no singularity, and constant gradients.
+P6's own acceptance clause — zero stiffness reproduces the old behaviour — is met structurally
+rather than numerically: at zero stiffness no bending constraints are created, so the sweep is the
+same sequence of the same projections it was before.
 
 **§6.5's `float` column.** `resolve_soft_body_precision` reads the asset and the component flags;
 `SoftBodyInstance` owns one column or the other and answers in `Scalar` either way, so the decision
 does not spread past instantiation. Participation in rollback *overrides* the cosmetic flag rather
 than being weighed against it — two machines agreeing in `double` and disagreeing in `float` is the
-entire failure §0.5 exists to prevent. Half-precision storage stays in P8, where the measurement that
-justifies it lives.
+entire failure §0.5 exists to prevent. Half-precision storage stays in P8, where the measurement
+that justifies it lives.
 
-**Verification status.** Built and run: **1061 of 1061 functional tests pass.** The first run
-after this work failed nine, all of them mine, and they were worth having — two were real defects in
-the engine and the rest were tests asserting things that are not true. Both defects were found by
+**Verification status.** Built and run: **1061 of 1061 functional tests pass.** The first run after
+this work failed nine, all of them mine, and they were worth having — two were real defects in the
+engine and the rest were tests asserting things that are not true. Both defects were found by
 measurement rather than by reading, which is the only reason they were found at all.
 
 **Defect 1: the narrow phase was not widened by the tick's travel.** A cube dropped on a cube fell
 straight through it, ending 4.07 m below where it should have rested. The broad phase was already
 inflating its bounds by how far a particle can travel in a tick, so the candidate pairs were correct
 — 576 of them, every tick, throughout the fall. The narrow phase then tested those pairs against the
-pose at the *tick's start* and rejected every one for not touching yet. A body falling at 1 m/s covers
-16 mm per 60 Hz tick, which is more than a centimetre-thick surface, so the contact set was
+pose at the *tick's start* and rejected every one for not touching yet. A body falling at 1 m/s
+covers 16 mm per 60 Hz tick, which is more than a centimetre-thick surface, so the contact set was
 empty at every moment it was built and full only in the ticks where the body happened to be
 mid-surface. Contacts are found once per tick by design (§6.1); what was missing is that a set built
 once per tick has to cover the whole tick. The fix is speculative contacts — accept a pair within
@@ -3459,8 +3504,8 @@ behind the self-collision scene's falling half passing through its pinned half.
 path stops a sheet crossing at 300 m/s on its own. The continuous path still did not — because it
 *replaced* the tick's contact set with the swept one each substep instead of adding to it. A body
 marked continuous therefore tunnelled through something the same body would have hit with the flag
-off. The swept pass now adds to the speculative set, so enabling the flag can only ever find more.
-A flag that costs more and detects less is the one shape of defect nobody goes looking for, and it is
+off. The swept pass now adds to the speculative set, so enabling the flag can only ever find more. A
+flag that costs more and detects less is the one shape of defect nobody goes looking for, and it is
 now pinned by a test named after that property rather than after the scene.
 
 **Four of the nine failures were tests asserting false things**, and correcting them is worth
@@ -3472,8 +3517,8 @@ recording because each was a wrong belief rather than a loose tolerance:
   through. `MassSpringModel` had recovered its rest shape to 4.7e-17 up to a rigid motion and was
   being reported as having failed by 0.129 m. The conformance comparator now fits and removes the
   rotation.
-- *§4.4's "all implementations converge to the same rest shape" is very nearly but not exactly true.*
-  The spring and shape-matching models rest at the cooked lattice by construction; the stable
+- *§4.4's "all implementations converge to the same rest shape" is very nearly but not exactly
+  true.* The spring and shape-matching models rest at the cooked lattice by construction; the stable
   neo-Hookean pair does not. Its two constraints balance at a deformation gradient slightly off the
   identity, so an unpinned FEM body relaxes to a shape a few per cent from the lattice it was cooked
   from — measured, 4.6 mm on a 100 mm cube, and non-uniformly, since it survives removing a uniform
@@ -3482,56 +3527,57 @@ recording because each was a wrong belief rather than a loose tolerance:
   state to 1e-6 of each other so the explanation cannot silently stop being the right one.
 - *A fall was being measured at the unweighted centroid.* A tetrahedral lattice's lumped masses are
   not uniform, so the plain centroid moves whenever an internal projection redistributes particles
-  even though momentum is perfectly conserved. Measured at the centre of mass, the three models agree.
+  even though momentum is perfectly conserved. Measured at the centre of mass, the three models
+  agree.
 - *A single cube cell is self-intersecting at a large enough thickness.* Two edges of a 0.05 m cell
-  that share no vertex pass within 0.05/√3 = 0.0289 m, because the closest approach of a face diagonal
-  and an edge is not along an axis. The test had set a combined thickness of 0.03 and read the correct
-  answer as a bug.
+  that share no vertex pass within 0.05/√3 = 0.0289 m, because the closest approach of a face
+  diagonal and an edge is not along an axis. The test had set a combined thickness of 0.03 and read
+  the correct answer as a bug.
 
 **The remaining precision finding.** `Cooking::SoftBodyBinding` stores its weights as `float`, so
 after the round trip they sum to one only to about six digits. Both readers multiplied them by
-*absolute* positions, which displaces a reconstructed point by `|position| × 1e-7` — micrometres near
-the origin, centimetres at planet scale, and invisible to any test that places its body at the origin.
-Two of the nine failures were exactly this, caught only because one case deliberately placed the body
-12 m away. `Cooking::read_binding_weights` now renormalizes at the one point every reader goes
-through.
+*absolute* positions, which displaces a reconstructed point by `|position| × 1e-7` — micrometres
+near the origin, centimetres at planet scale, and invisible to any test that places its body at the
+origin. Two of the nine failures were exactly this, caught only because one case deliberately placed
+the body 12 m away. `Cooking::read_binding_weights` now renormalizes at the one point every reader
+goes through.
 
 ### 16.21 P6's acceptance number, measured
 
 P6-J1 generalized `IncrementalColoring` and `ConstraintStore` from two body indices to N, and P6-J2
-made the FEM element a constraint kind in the device graph alongside distance constraints and joints.
-That is what the 20 000-tetrahedron acceptance line was waiting on, so it can now be measured rather
-than deferred. `examples/soft_body_budget.cpp` is that measurement: a 15³ Freudenthal lattice —
-20 250 tetrahedra over 4 096 particles, top layer pinned so every element deforms — stepped at the
-32 substeps §13.1 names.
+made the FEM element a constraint kind in the device graph alongside distance constraints and
+joints. That is what the 20 000-tetrahedron acceptance line was waiting on, so it can now be
+measured rather than deferred. `examples/soft_body_budget.cpp` is that measurement: a 15³
+Freudenthal lattice — 20 250 tetrahedra over 4 096 particles, top layer pinned so every element
+deforms — stepped at the 32 substeps §13.1 names.
 
 It is a probe and not a suite assertion on purpose. §13.1 states its targets against "one
 desktop-class GPU through SushiRuntime", and a test asserting 3 ms would be asserting the machine it
-happened to run on. So the *shape* is pinned by `ATetrahedralLatticeColoursCleanlyAndComposesOnce` in
-the conformance suite — every element finds a band, the lattice colours inside the ceiling, the graph
-composes once and never again — and the *number* is reported by the probe.
+happened to run on. So the *shape* is pinned by `ATetrahedralLatticeColoursCleanlyAndComposesOnce`
+in the conformance suite — every element finds a band, the lattice colours inside the ceiling, the
+graph composes once and never again — and the *number* is reported by the probe.
 
-**The number, on the machine at hand.** 20 250 elements placed, none rejected; 32 colours of 48 used;
-zero recompositions after the first tick; **mean 29.4 ms/tick, best 25.4 ms/tick, against a 3 ms
-budget.** Roughly ten times over.
+**The number, on the machine at hand.** 20 250 elements placed, none rejected; 32 colours of 48
+used; zero recompositions after the first tick; **mean 29.4 ms/tick, best 25.4 ms/tick, against a 3
+ms budget.** Roughly ten times over.
 
-That is stated without spin, and so is its one large caveat: SushiRuntime found exactly one device on
-this machine — `AMD Ryzen 5 7600X`, twelve workers — so this is the **CPU backend**, not the desktop
-GPU the target is written against. The honest reading is not "P6 misses §13.1 by 10×" but "§13.1's
-soft-body line has not yet been measured on the hardware it was written for; on a twelve-core CPU
-backend the same scene costs 29.4 ms." Until this is run against a GPU device, the acceptance line
-stays open.
+That is stated without spin, and so is its one large caveat: SushiRuntime found exactly one device
+on this machine — `AMD Ryzen 5 7600X`, twelve workers — so this is the **CPU backend**, not the
+desktop GPU the target is written against. The honest reading is not "P6 misses §13.1 by 10×" but
+"§13.1's soft-body line has not yet been measured on the hardware it was written for; on a
+twelve-core CPU backend the same scene costs 29.4 ms." Until this is run against a GPU device, the
+acceptance line stays open.
 
 Two things the measurement does settle, because neither depends on the backend. The scene builds and
 runs without a single rejected element or recomposition, which is what J1 and J2 were for. And the
-work per tick is now a known quantity: 20 250 elements × 32 substeps × two projections is 1.3 million
-projections a tick, dispatched as 32 colours × 32 substeps = 1 024 graph nodes, so 1 024 barriers a
-tick as well. Which of those two the 29.4 ms is mostly spent on — the arithmetic or the barriers —
-this probe does not distinguish, and guessing would be worth less than profiling it.
+work per tick is now a known quantity: 20 250 elements × 32 substeps × two projections is 1.3
+million projections a tick, dispatched as 32 colours × 32 substeps = 1 024 graph nodes, so 1 024
+barriers a tick as well. Which of those two the 29.4 ms is mostly spent on — the arithmetic or the
+barriers — this probe does not distinguish, and guessing would be worth less than profiling it.
 
 **What P6 does not owe any more.** The stale list that stood here — `ClothStrandView` not yet
-generalized, no `ISoftBodyService`, no editor tetrahedra view, the FEM element not a constraint kind —
-was closed by P6-G2, P6-G3, P6-G5 and P6-J1/J2 respectively.
+generalized, no `ISoftBodyService`, no editor tetrahedra view, the FEM element not a constraint kind
+— was closed by P6-G2, P6-G3, P6-G5 and P6-J1/J2 respectively.
 
 ### 16.22 P7-A, P7-B, P7-A2: the beam, and the four decisions it forced
 
@@ -3540,13 +3586,13 @@ beams, and until a beam exists as something the solver actually projects, the co
 emit and the hybrid has nothing to attach. This entry records what was built and the four choices
 that were not obvious, each of which could have gone the other way.
 
-**A beam has no anchors, and therefore applies no torque.** `XpbdDistanceConstraintT` carries a local
-anchor per body so it can hold two *points on two rigid bodies*. §11.1 defines a node as a particle —
-zero inverse inertia, no meaningful orientation — and an anchor on a body that cannot rotate is a
-constant offset that could have been folded into the node's position. So the two anchors are dropped,
-48 bytes per beam are not spent to express nothing, and the consequence is written into the header
-rather than left to be discovered: attaching a deformable shell to a rigid chassis core is §10.3's
-attachment constraint, which does carry a lever, and never a beam.
+**A beam has no anchors, and therefore applies no torque.** `XpbdDistanceConstraintT` carries a
+local anchor per body so it can hold two *points on two rigid bodies*. §11.1 defines a node as a
+particle — zero inverse inertia, no meaningful orientation — and an anchor on a body that cannot
+rotate is a constant offset that could have been folded into the node's position. So the two anchors
+are dropped, 48 bytes per beam are not spent to express nothing, and the consequence is written into
+the header rather than left to be discovered: attaching a deformable shell to a rigid chassis core
+is §10.3's attachment constraint, which does carry a lever, and never a beam.
 
 **Plasticity runs once per tick, not once per substep.** `plastic_creep` is read as the fraction of
 the current excess that becomes permanent *per tick*, which is exactly how `apply_fem_plasticity`
@@ -3556,21 +3602,21 @@ something unrelated in the scene sped up would be the least explicable behaviour
 
 **The two plastic parameters live on the beam, not in a material it points at.** The element solver
 can afford to take a `SoftBodyMaterialT` argument because it sits in `physics/soft`, which includes
-`physics/constraints`. A constraint kind that named a soft-body material would invert that dependency.
-Two scalars per beam is the price of the layering, and `physics/soft/beam_properties.hpp` is where
-both are named at once — the derivation from a material lives on the side of the seam that may name
-both.
+`physics/constraints`. A constraint kind that named a soft-body material would invert that
+dependency. Two scalars per beam is the price of the layering, and
+`physics/soft/beam_properties.hpp` is where both are named at once — the derivation from a material
+lives on the side of the seam that may name both.
 
 **The load is `-lambda / h²`, and the sign is load-bearing.** §10.4's recovery, with the negation
 that makes tension positive, because a member's load has a direction an engineer expects to read. It
 is also what the two thresholds are measured against, and both are measured against the *peak*
-substep load rather than the mean — for the reason `JointConstraintT::break_force` records at length:
-an impact's mean over a tick that also contains the rebound is near zero, and what tears a member out
-is the magnitude.
+substep load rather than the mean — for the reason `JointConstraintT::break_force` records at
+length: an impact's mean over a tick that also contains the rebound is near zero, and what tears a
+member out is the magnitude.
 
-**What the derivation buys.** §11.2's first row against BeamNG is that a vehicle there is thousands of
-hand-tuned numbers with no stated relation to any material. `beam_properties_from_material` is the
-correction, and it is small: `compliance = L / (E·A)`, `deform_force = yield_stress · A`,
+**What the derivation buys.** §11.2's first row against BeamNG is that a vehicle there is thousands
+of hand-tuned numbers with no stated relation to any material. `beam_properties_from_material` is
+the correction, and it is small: `compliance = L / (E·A)`, `deform_force = yield_stress · A`,
 `break_force = fracture_stress · A`. The one thing that is not a material's to know is the
 cross-section, which is a property of the *structure* — how much of the body this member stands in
 for — so `beam_tributary_area` states the conservation rule (`Σ A·L` is the body's volume) here
@@ -3583,38 +3629,38 @@ One sentinel needed handling rather than passing through. A material that does n
 a big enough impact reaches. It is passed through as zero, which is what the beam reads as never.
 
 **The fifth kind, wired.** `IConstraintSolver` gained `add_beam`/`remove_beam`/`read_beam`/
-`write_beam`/`beam_capacity`; both solvers project beams immediately after the distance band (the two
-kinds that say "these two points are this far apart" belong together) and damp them immediately after
-the velocity derivation. `write_beam` exists where `write_element` does not, and that asymmetry is the
-point: a dent and a failure are decided at the tick boundary, by the scene, from the load the solve
-recovered. The band is skipped structurally when the budget is zero — the default — so a scene with no
-vehicle in it does not carry a zero-extent region per colour per substep for a kind it never uses.
+`write_beam`/`beam_capacity`; both solvers project beams immediately after the distance band (the
+two kinds that say "these two points are this far apart" belong together) and damp them immediately
+after the velocity derivation. `write_beam` exists where `write_element` does not, and that
+asymmetry is the point: a dent and a failure are decided at the tick boundary, by the scene, from
+the load the solve recovered. The band is skipped structurally when the budget is zero — the default
+— so a scene with no vehicle in it does not carry a zero-extent region per colour per substep for a
+kind it never uses.
 
 **Verification status, stated plainly.** Written with tests, compiling clean, with **no suite result
-recorded here**: sixteen unit
-cases in `test_beam_constraint.cpp` and four conformance scenes in `test_solver_conformance.cpp` (a
-beam chain across every colour, a beam and a distance constraint sharing a node, the load readout
-agreeing between the two solvers, and a removed body taking its beams with it). The unit suite pins
-the load against Hooke's law rather than against itself — a compliant beam must report `E·A·Δ/L` —
-which is the only assertion in the set that would catch a compliance derivation that is
-self-consistent and wrong.
+recorded here**: sixteen unit cases in `test_beam_constraint.cpp` and four conformance scenes in
+`test_solver_conformance.cpp` (a beam chain across every colour, a beam and a distance constraint
+sharing a node, the load readout agreeing between the two solvers, and a removed body taking its
+beams with it). The unit suite pins the load against Hooke's law rather than against itself — a
+compliant beam must report `E·A·Δ/L` — which is the only assertion in the set that would catch a
+compliance derivation that is self-consistent and wrong.
 
 ### 16.23 P7-C: the `.sushinodebeam` asset, and why five things travel together
 
-A vehicle is not one array. It is a node cloud, a beam network over that cloud, the collision surface
-the cloud presents, a rigid core the shell hangs from, and the render mesh's binding onto the nodes.
-The first decision was whether those are five assets or one, and one is not a convenience: the four
-cross-referencing sections all index the node array, so splitting them gives them four chances to be
-loaded at different versions. A shell whose attachment records name nodes from an older cook is a
-vehicle that loses its doors on load, and it loses them silently, because every index is still in
-range — just of the wrong cloud.
+A vehicle is not one array. It is a node cloud, a beam network over that cloud, the collision
+surface the cloud presents, a rigid core the shell hangs from, and the render mesh's binding onto
+the nodes. The first decision was whether those are five assets or one, and one is not a
+convenience: the four cross-referencing sections all index the node array, so splitting them gives
+them four chances to be loaded at different versions. A shell whose attachment records name nodes
+from an older cook is a vehicle that loses its doors on load, and it loses them silently, because
+every index is still in range — just of the wrong cloud.
 
-**The rigid core is a mass, not a body.** `NodeBeamCoreRecord` carries mass, centre of mass, principal
-inertia and principal rotation, and no shape at all. The core's *collision* is a `.sushicollision`
-asset the vehicle asset (P7-F) names alongside this one, because the same node-beam structure is
-legitimately reused with different core colliders and because a cooked collider is already a format
-with an owner. What is in this blob is only what the solver needs to create the core body and attach
-the shell to it.
+**The rigid core is a mass, not a body.** `NodeBeamCoreRecord` carries mass, centre of mass,
+principal inertia and principal rotation, and no shape at all. The core's *collision* is a
+`.sushicollision` asset the vehicle asset (P7-F) names alongside this one, because the same
+node-beam structure is legitimately reused with different core colliders and because a cooked
+collider is already a format with an owner. What is in this blob is only what the solver needs to
+create the core body and attach the shell to it.
 
 **A core of zero mass is a pure node-beam vehicle**, and that is §11.2's promise kept as a number
 rather than as a branch. The architecture does not choose between the hybrid and the pure structure;
@@ -3627,40 +3673,41 @@ cooked half — topology, rest length, the four derived numbers, the two plastic
 of the runtime half: no accumulated strain, no force accumulators, no live rest length. Storing the
 solver's struct would make the blob's bytes change the day that struct grows a field, which
 invalidates every cached asset in the project for a change no artist made. The second reason is the
-layering: `physics/cooking` includes `physics/constraints` nowhere, and making a cooked record *be* a
-constraint would be the first time, to save one assignment loop in the instancing code P7-E owns.
+layering: `physics/cooking` includes `physics/constraints` nowhere, and making a cooked record *be*
+a constraint would be the first time, to save one assignment loop in the instancing code P7-E owns.
 
 **Three failures a wide binary format actually has, and what is done about each.**
 
-1. *A count raised without the bytes behind it.* Every section's extent is checked against the blob's
-   own `total_size` before a pointer is handed out, so a header claiming four thousand nodes over a
-   four-node payload fails validation instead of reading the next section as node records.
+1. *A count raised without the bytes behind it.* Every section's extent is checked against the
+   blob's own `total_size` before a pointer is handed out, so a header claiming four thousand nodes
+   over a four-node payload fails validation instead of reading the next section as node records.
 2. *A cross-reference nobody re-checked on the way in.* Beams, surface indices, attachments and skin
-   slots are validated at load as well as at write, because a blob can come from an older writer or a
-   hand edit. Each unchecked reference is a read into a neighbouring section, which produces a
+   slots are validated at load as well as at write, because a blob can come from an older writer or
+   a hand edit. Each unchecked reference is a read into a neighbouring section, which produces a
    *plausible vehicle* rather than a crash — the worse of the two failures by a wide margin.
 3. *Padding.* Every record is packed with no interior holes — 56, 72, 48, 44 and 88 bytes, asserted
    rather than assumed. Padding does not break a round trip; the bytes come back as they went in. It
    makes two cooks of the same input differ in bytes nobody wrote, and §8.1's cache then serves
    entries that look changed and are not.
 
-Two smaller decisions worth recording. A beam onto itself is **refused at the cook**, and that is not
-a memory-safety check: a self-beam has no axis, projects nothing, and would sit in the structure
-reporting zero load forever while the panel it was meant to hold flaps. And every skin slot must name
-a real node **whatever its weight**, so a reader never has to test a weight before trusting an index —
-a rule enforced only where the weight is non-zero is one that fails the first time someone iterates
-all four influences.
+Two smaller decisions worth recording. A beam onto itself is **refused at the cook**, and that is
+not a memory-safety check: a self-beam has no axis, projects nothing, and would sit in the structure
+reporting zero load forever while the panel it was meant to hold flaps. And every skin slot must
+name a real node **whatever its weight**, so a reader never has to test a weight before trusting an
+index — a rule enforced only where the weight is non-zero is one that fails the first time someone
+iterates all four influences.
 
 **The skin weights are renormalized at load**, by `read_node_beam_skin_weights`, for exactly the
 reason `read_binding_weights` exists (§8.5). The weights are stored as `float` so a record is
-thirty-two bytes and an array of them is a `memcpy`; four floats that summed to one in the cooker sum
-to one within six decimal digits after the round trip. The reconstruction is a weighted sum of
-*absolute* positions, so that shortfall scales with distance from the world origin: ten micrometres at
-a hundred metres, centimetres at planet scale. It appears as the render mesh sliding off the structure
-the further the world is from its origin, which is to say nowhere near where it would be tested.
+thirty-two bytes and an array of them is a `memcpy`; four floats that summed to one in the cooker
+sum to one within six decimal digits after the round trip. The reconstruction is a weighted sum of
+*absolute* positions, so that shortfall scales with distance from the world origin: ten micrometres
+at a hundred metres, centimetres at planet scale. It appears as the render mesh sliding off the
+structure the further the world is from its origin, which is to say nowhere near where it would be
+tested.
 
-**What this is not.** The instancing that turns these records into bodies and constraints is P7-E, so
-the honest status is "produced and validated, not yet consumed" — §16.10's distinction, stated in
+**What this is not.** The instancing that turns these records into bodies and constraints is P7-E,
+so the honest status is "produced and validated, not yet consumed" — §16.10's distinction, stated in
 advance this time rather than found in a later audit. Twenty-three unit cases in
 `test_node_beam_asset.cpp` cover the round trip, the packing, the eight refusals, the four
 corruptions, the rest-pose reconstruction, the rigid-motion property, the degenerate frame and the
@@ -3668,56 +3715,57 @@ far-from-origin renormalization.
 
 ### 16.24 P7-D: the cooker, and the skinning that had to be thrown away
 
-§11.3 in six stages — Repair, PlaceNodes, ConnectBeams, Skin, BuildCore, Serialize — and the point of
-all six is §11.2's first row: a vehicle stops being thousands of hand-typed numbers and becomes a mesh,
-a dial, and a material.
+§11.3 in six stages — Repair, PlaceNodes, ConnectBeams, Skin, BuildCore, Serialize — and the point
+of all six is §11.2's first row: a vehicle stops being thousands of hand-typed numbers and becomes a
+mesh, a dial, and a material.
 
 **Two things were reused rather than written, and both were the whole decision.**
 
 *The lattice is the tetrahedralizer's.* §8.3's stage 2 already voxelizes, flood-fills the interior,
-conforms the boundary, and hands back per-vertex masses with an outward-wound surface. A node cloud is
-exactly those four things, so the cooker asks for them. The alternative — sampling the distance field
-on a grid and keeping what reads negative — is four lines and wrong in the one case that matters:
-`MeshDistanceQuery` documents that its sign comes from the nearest triangle's plane and says outright
-that deciding what is interior to a *dirty* mesh is what the flood fill is for. Two implementations of
-"inside" would agree on every test mesh and disagree on every shipped one.
+conforms the boundary, and hands back per-vertex masses with an outward-wound surface. A node cloud
+is exactly those four things, so the cooker asks for them. The alternative — sampling the distance
+field on a grid and keeping what reads negative — is four lines and wrong in the one case that
+matters: `MeshDistanceQuery` documents that its sign comes from the nearest triangle's plane and
+says outright that deciding what is interior to a *dirty* mesh is what the flood fill is for. Two
+implementations of "inside" would agree on every test mesh and disagree on every shipped one.
 
 *The bracing was already there.* A lattice tetrahedralization's edge set contains both kinds §11.1
-names — the ones along a grid axis, and the diagonals. So "add bracing beams by a diagonal rule" is a
-**classification by length**, not a second construction pass; generating more diagonals would
+names — the ones along a grid axis, and the diagonals. So "add bracing beams by a diagonal rule" is
+a **classification by length**, not a second construction pass; generating more diagonals would
 double-brace a network that is already braced, and the symptom of that is a structure that will not
-deform, which gets diagnosed as a compliance bug. On a 2×1×4 box at fidelity 0.35: 96 nodes, 429 beams,
-209 of them bracing.
+deform, which gets diagnosed as a compliance bug. On a 2×1×4 box at fidelity 0.35: 96 nodes, 429
+beams, 209 of them bracing.
 
 **The cache key had to grow, and the cooker had to be the one to grow it.** A material is not in
 `CookingParameters` — no other cooker has a use for one, and putting it there would make every
-collision asset in the project carry a field it ignores. But §8.1's key is built from that record, so
-nothing *else* can fold the material in. `NodeBeamCooker::cache_key` therefore hashes its own settings
-into the parameters half. Without it, the same mesh cooked as steel and as aluminium resolves to one
-key and the second cook is served the first one's asset: a cache that returns the wrong answer rather
-than a slow one, which is the only kind of cache bug worth designing against.
+collision asset in the project carry a field it ignores. But §8.1's key is built from that record,
+so nothing *else* can fold the material in. `NodeBeamCooker::cache_key` therefore hashes its own
+settings into the parameters half. Without it, the same mesh cooked as steel and as aluminium
+resolves to one key and the second cook is served the first one's asset: a cache that returns the
+wrong answer rather than a slow one, which is the only kind of cache bug worth designing against.
 
-**The skinning was written, measured, and thrown away.** The first formulation was the obvious one — a
-render vertex is the weighted sum of the nodes nearest it — and it is wrong in a way that only a
+**The skinning was written, measured, and thrown away.** The first formulation was the obvious one —
+a render vertex is the weighted sum of the nodes nearest it — and it is wrong in a way that only a
 measurement shows. The centroid of the four nodes nearest a box corner sits *inside* that corner; at
 the lattice spacing this cook produces, the rest pose reconstructed **0.4 m** off. That is not a
 tolerance to tighten, it is a mesh that is visibly shrunk before anything has moved, and it violates
 §0.4's contract that the render mesh is embedded in the simulated one.
 
 The replacement stores a vertex as a displacement from that centroid, expressed in a frame the nodes
-themselves define: Gram-Schmidt on the two edges from the first influence. It reproduces the rest pose
-to **1.3e-8 m** — the bound is the `float` the offset is stored in, not the formulation — rotates with
-the structure, and stretches with it. Three properties had to be checked rather than assumed, and each
-is a test: the rest pose is exact, a rigid motion of the nodes carries the vertex with it (a stored
-world-space displacement would pass every straight-line test and fail the first corner), and three
-collinear nodes fall back to the asset's own axes **identically on both sides** — which is why the
-frame is one function the cook and the runtime both call rather than the same six lines written twice.
+themselves define: Gram-Schmidt on the two edges from the first influence. It reproduces the rest
+pose to **1.3e-8 m** — the bound is the `float` the offset is stored in, not the formulation —
+rotates with the structure, and stretches with it. Three properties had to be checked rather than
+assumed, and each is a test: the rest pose is exact, a rigid motion of the nodes carries the vertex
+with it (a stored world-space displacement would pass every straight-line test and fail the first
+corner), and three collinear nodes fall back to the asset's own axes **identically on both sides** —
+which is why the frame is one function the cook and the runtime both call rather than the same six
+lines written twice.
 
 **What the cooker does not decide.** It produces one part. Splitting a vehicle into doors and panels
 cannot be inferred from a mesh, and a split invented from connectivity would produce parts no artist
 asked for and cannot rename; that is P7-J. The core/shell split it *can* make is the lattice's own:
-interior is chassis, boundary is shell, and only the interior is attached. A lattice one cell thick has
-no interior and therefore no attachments, which is a pure node-beam shell and is reported by the
+interior is chassis, boundary is shell, and only the interior is attached. A lattice one cell thick
+has no interior and therefore no attachments, which is a pure node-beam shell and is reported by the
 attachment count rather than by a failure.
 
 Fifteen unit cases in `test_node_beam_cooker.cpp`. The ones that would catch a *plausible* cook: the
@@ -3735,20 +3783,20 @@ is new physics, it is new *assembly*, and this entry is the assembly.
 **The shell-to-core attachment is a ball joint, and that is a decision rather than a shortcut.**
 §10.3 describes an attachment that averages its correction across a small vertex neighbourhood so a
 mount does not tear a single vertex out of a mesh. That averaging answers a *soft-body* question:
-which patch of a continuum the mount acts on, when the continuum has no natural unit at that scale. A
-node-beam shell has no such ambiguity. The cooker already chose which node the mount acts on, and a
-node is a whole body with a mass and an inverse mass. So the attachment is `JointKind::Ball` with the
-lever on the core and none on the node — which is exactly the constraint that was wanted, and which
-arrives with §10.4's force recovery, `joint_should_break`, and a compliance already built. A new
-constraint kind would have re-derived all three, and it would have needed its own colouring band, its
-own conformance scenes and its own device node to do it.
+which patch of a continuum the mount acts on, when the continuum has no natural unit at that scale.
+A node-beam shell has no such ambiguity. The cooker already chose which node the mount acts on, and
+a node is a whole body with a mass and an inverse mass. So the attachment is `JointKind::Ball` with
+the lever on the core and none on the node — which is exactly the constraint that was wanted, and
+which arrives with §10.4's force recovery, `joint_should_break`, and a compliance already built. A
+new constraint kind would have re-derived all three, and it would have needed its own colouring
+band, its own conformance scenes and its own device node to do it.
 
-The one thing that needed care is which frame the anchors are in. `RigidBodyT` stores its inertia as a
-body-frame *diagonal*, which is a statement that the body frame is the principal frame — so the core
-is instanced rotated into it, its centre of mass expressed there, and the attachment anchors rotated
-with it. The check that this is right is not an inspection, it is a round trip: `body_origin` of a core
-spawned at an arbitrary position and orientation must come back on the asset's authored origin, and it
-does, to 1e-12 m.
+The one thing that needed care is which frame the anchors are in. `RigidBodyT` stores its inertia as
+a body-frame *diagonal*, which is a statement that the body frame is the principal frame — so the
+core is instanced rotated into it, its centre of mass expressed there, and the attachment anchors
+rotated with it. The check that this is right is not an inspection, it is a round trip:
+`body_origin` of a core spawned at an arbitrary position and orientation must come back on the
+asset's authored origin, and it does, to 1e-12 m.
 
 **The tick boundary belongs to the owner, not the solver.** A solver projects; it does not decide
 policy. `end_tick` reads each beam back, applies §11.1's plasticity to it, removes the ones that
@@ -3760,23 +3808,24 @@ that varied would leave a device solver with a different slot layout on a replay
 whole failure mode rather than a cosmetic difference.
 
 `apply_beam_plasticity` grew a position-pair form for this, with the existing node-array form
-deferring to it. A structure holds solver slots and reads them back a pair at a time; it has no array
-indexed by `beam.a` to hand over. Writing the rule a second time against two positions would have been
-four lines and a divergence waiting to happen.
+deferring to it. A structure holds solver slots and reads them back a pair at a time; it has no
+array indexed by `beam.a` to hand over. Writing the rule a second time against two positions would
+have been four lines and a divergence waiting to happen.
 
 **A part comes off by losing its last tie, and then nothing is done to it.** This is the part of the
 acceptance criterion — *loses parts* — that looked like it needed machinery and does not. When every
-mount holding a part and every beam joining it to another part have broken, the part is already free:
-its nodes are still bodies, still beamed to each other, still colliding, and they now fly away as the
-loose node cloud a torn-off door is. There is nothing to remove, nothing to respawn, and no second
-representation to keep in step. What the structure adds is the *report* — a caller that wants to play
-a sound or spawn debris has to be told, and reconstructing "is this part still held" from outside
-would mean walking the whole beam list every tick. It is a counter per part, decremented as ties go.
+mount holding a part and every beam joining it to another part have broken, the part is already
+free: its nodes are still bodies, still beamed to each other, still colliding, and they now fly away
+as the loose node cloud a torn-off door is. There is nothing to remove, nothing to respawn, and no
+second representation to keep in step. What the structure adds is the *report* — a caller that wants
+to play a sound or spawn debris has to be told, and reconstructing "is this part still held" from
+outside would mean walking the whole beam list every tick. It is a counter per part, decremented as
+ties go.
 
 A part that was never tied to anything is never reported detached, which is deliberate and not an
 oversight: a single-part vehicle with no core is held together by nothing *by design*, and answering
-"detached" for the whole thing on its first tick would make the readout useless for the case it exists
-to report.
+"detached" for the whole thing on its first tick would make the readout useless for the case it
+exists to report.
 
 **Refusal rolls the whole vehicle back.** A budget that runs out part way through removes everything
 already added. A vehicle missing the beams that did not fit is a structure that folds the first time
@@ -3786,13 +3835,13 @@ that refused a five-body vehicle must still have four free, and the only way to 
 four in.
 
 **What the measurements say.** Fifteen unit cases in `test_node_beam_structure.cpp`, on the host
-solver. A mount holds its node to 1.4e-8 m in the core's frame across 19.5 m of travel. A beam loaded
-past its yield threshold does not dent on the first tick — it dents on the third, because a beam
-starts at its rest length and the load that yields it is the one that builds as its node pulls away —
-and it then work-hardens at exactly the authored maximum strain. A door thrown at 50 m/s tears off its
-one beam and its one mount and is reported detached exactly once, however long it keeps falling, while
-the chassis mounts authored unbreakable do not move. Two runs of that crash agree bit for bit on every
-node position.
+solver. A mount holds its node to 1.4e-8 m in the core's frame across 19.5 m of travel. A beam
+loaded past its yield threshold does not dent on the first tick — it dents on the third, because a
+beam starts at its rest length and the load that yields it is the one that builds as its node pulls
+away — and it then work-hardens at exactly the authored maximum strain. A door thrown at 50 m/s
+tears off its one beam and its one mount and is reported detached exactly once, however long it
+keeps falling, while the chassis mounts authored unbreakable do not move. Two runs of that crash
+agree bit for bit on every node position.
 
 One thing the tests had to learn the hard way and is worth writing down: **gravity cannot load a
 vehicle.** It is uniform, so a vehicle with no ground under it falls as one piece and every beam and
@@ -3803,8 +3852,8 @@ make one is to throw a single body.
 **What P7-E does not do.** Suspension, wheels, and the `VehicleAsset` that names both a
 `.sushinodebeam` and the core's `.sushicollision` are P7-F. The node cloud's collision surface is
 carried in the asset and instanced with it, but nothing generates contacts from it yet — that is the
-`physics/scene` wiring, and it belongs with the vehicle the scene can actually drive. Node drag areas
-travel with the nodes and are read by nothing until §11.6's wind coupling in P7-I.
+`physics/scene` wiring, and it belongs with the vehicle the scene can actually drive. Node drag
+areas travel with the nodes and are read by nothing until §11.6's wind coupling in P7-I.
 
 ### 16.26 P7-F: the corner, the drive the library could not express, and a leak in the integrator
 
@@ -3815,73 +3864,75 @@ what every shipping racing game does."* Building it turned up two things that we
 **A corner is two joints, and the second one is why.** The strut is a `Slider` between the chassis
 core and a carrier, and the axle is a `Hinge` between that carrier and the wheel. The carrier is not
 padding: the two statements a corner makes are about *different pairs*. The spring acts between the
-chassis and something that does not spin; the axle is between that something and something that does.
-One body cannot be both, and a slider that also let its body spin would be a six-degree-of-freedom
-joint whose single drive would then have to be the spring *and* the brake.
+chassis and something that does not spin; the axle is between that something and something that
+does. One body cannot be both, and a slider that also let its body spin would be a
+six-degree-of-freedom joint whose single drive would then have to be the spring *and* the brake.
 
 **Steering costs no third joint.** The slider locks all three rotations, which means the carrier's
 orientation *is* the slider's frame on the chassis side. Rotating that frame about its own primary
-axis therefore steers the corner — and because the primary axis is the strut axis, the rotation moves
-nothing else: the travel direction is unchanged, the spring is unchanged, and the axle turns because
-it is fixed in the carrier. That is a MacPherson strut, where the kingpin and the damper axis
-coincide, and it is worth saying that the geometry was *chosen* for this rather than assumed. A double
-wishbone would need the steering axis authored separately from the travel axis and a third joint to
-hold it. Measured: a 0.4 rad steer turns the two front axles by 0.3998 rad and leaves the rear two at
-0.0002.
+axis therefore steers the corner — and because the primary axis is the strut axis, the rotation
+moves nothing else: the travel direction is unchanged, the spring is unchanged, and the axle turns
+because it is fixed in the carrier. That is a MacPherson strut, where the kingpin and the damper
+axis coincide, and it is worth saying that the geometry was *chosen* for this rather than assumed. A
+double wishbone would need the steering axis authored separately from the travel axis and a third
+joint to hold it. Measured: a 0.4 rad steer turns the two front axles by 0.3998 rad and leaves the
+rear two at 0.0002.
 
-**The library could not express a spring-damper drive, so the drive grew a damper.** A position drive
-at a compliance is a spring. A spring alone rings forever. §10.1 offers the velocity drive with a
-force limit as damping — and that is *Coulomb* friction, a constant force, not the viscous resistance
-a damper is; and in any case a joint has one motor and one mode, so a strut could have the spring or
-the damper and not both. Two joints between the same pair was the alternative and it is worse: a
-second slider would duplicate the rotation locks and the perpendicular locks, which is not a cost but
-a *bug* — the same degree of freedom constrained twice.
+**The library could not express a spring-damper drive, so the drive grew a damper.** A position
+drive at a compliance is a spring. A spring alone rings forever. §10.1 offers the velocity drive
+with a force limit as damping — and that is *Coulomb* friction, a constant force, not the viscous
+resistance a damper is; and in any case a joint has one motor and one mode, so a strut could have
+the spring or the damper and not both. Two joints between the same pair was the alternative and it
+is worse: a second slider would duplicate the rotation locks and the perpendicular locks, which is
+not a cost but a *bug* — the same degree of freedom constrained twice.
 
 So `JointMotorT` gained `damping`, read independently of the mode. It is deliberately the same
 statement `BeamConstraintT::damping` makes and deliberately the same arithmetic: a fraction
 `min(1, damping·h)` of the coordinate's relative rate removed per substep, which makes it a **rate**
-rather than a per-substep fraction. That distinction is the one a test has to pin, because the substep
-count is derived from scene motion (§6.2) and a suspension whose firmness depended on what else was
-moving nearby would be the second-least explicable behaviour in the system. Measured: the same damping
-over the same wall time at 4 and at 16 substeps leaves within 0.71 % of the same motion. A disabled
-mode with a damping set is a pure damper, which is a real mechanism — a steering damper, a door closer
-— and not a misconfiguration.
+rather than a per-substep fraction. That distinction is the one a test has to pin, because the
+substep count is derived from scene motion (§6.2) and a suspension whose firmness depended on what
+else was moving nearby would be the second-least explicable behaviour in the system. Measured: the
+same damping over the same wall time at 4 and at 16 substeps leaves within 0.71 % of the same
+motion. A disabled mode with a damping set is a pure damper, which is a real mechanism — a steering
+damper, a door closer — and not a misconfiguration.
 
-**And a defect in the core integrator, found by a wheel.** The first version of the free-spinning-axle
-test asserted that an unbraked wheel keeps its speed, and it failed: 50 rad/s became 33 rad/s in a
-second. It was not the hinge. A **free rigid body with no constraint on it at all** lost spin at
-exactly the same rate.
+**And a defect in the core integrator, found by a wheel.** The first version of the
+free-spinning-axle test asserted that an unbraked wheel keeps its speed, and it failed: 50 rad/s
+became 33 rad/s in a second. It was not the hinge. A **free rigid body with no constraint on it at
+all** lost spin at exactly the same rate.
 
 `predict` advanced orientation with `apply_angular_correction`'s first-order form — normalize
 `q + ½(ωh)q` — whose applied rotation is `2·atan(θ/2)` and not `θ`. `update_velocity` then recovered
 `2·vec(δq)/h`, which reads `2·sin(θ/2)` and not `θ`. Together they multiply angular velocity by
-`1/sqrt(1 + (θ/2)²)` every substep. At 50 rad/s and 480 Hz that is 4 % a tick. A car at 100 km/h turns
-its wheels at 82 rad/s, so every number in §11.4's powertrain would have been tuned against a leak,
-and the leak would have looked like drivetrain drag.
+`1/sqrt(1 + (θ/2)²)` every substep. At 50 rad/s and 480 Hz that is 4 % a tick. A car at 100 km/h
+turns its wheels at 82 rad/s, so every number in §11.4's powertrain would have been tuned against a
+leak, and the leak would have looked like drivetrain drag.
 
 The fix is the exact pair: the exponential map in `predict` (`integrate_orientation`), its logarithm
 in `update_velocity`. Spin is now conserved to 2e-12 over two seconds. **Constraint corrections keep
 the first-order form**, and that is not an oversight — a correction is a fraction of a degree, where
 the first-order map is the standard, cheaper, and entirely adequate choice, and changing it would
 alter every solver result for no accuracy anyone can measure. The two uses differ by two orders of
-magnitude in angle and it is right that they differ in method. This one is recorded at length because
-it is the kind of defect that never announces itself: nothing crashes, nothing is unstable, and every
-rotating body in the engine was quietly slowing down in proportion to how fast it was going.
+magnitude in angle and it is right that they differ in method. This one is recorded at length
+because it is the kind of defect that never announces itself: nothing crashes, nothing is unstable,
+and every rotating body in the engine was quietly slowing down in proportion to how fast it was
+going.
 
 **What the measurements say.** Ten unit cases in `test_vehicle_suspension.cpp` and four added to
 `test_joint_projection.cpp`. Four planted corners settle at 0.0617 m against the 0.0617 m that
 `m·g/k` predicts, and report a corner load of 2159 N against 2158 N of corner weight — the assertion
 that earns its keep, because a strut with its spring rate read as a compliance or its travel signed
 the wrong way still holds a car up and still moves when it is pushed. The damped strut's swing is
-0.00006 m where the undamped one's is 0.082 m. A soft spring rides down onto its bump stop at 0.1200 m
-of its 0.12 m travel and stops there. A body budget one short of a four-corner car refuses the vehicle
-and gives every slot back.
+0.00006 m where the undamped one's is 0.082 m. A soft spring rides down onto its bump stop at 0.1200
+m of its 0.12 m travel and stops there. A body budget one short of a four-corner car refuses the
+vehicle and gives every slot back.
 
-**What P7-F does not do.** Nothing here generates a contact, so the tests bolt the wheels to the world
-to stand in for the ground — the tyre is §11.5's and P7-H's. Drive torque is §11.4's and P7-G's; the
-hinge each corner exposes is where it lands, and `set_brake_torque` already writes that motor, so the
-seam is present rather than promised. Ackermann geometry is a steering *rack* and belongs with §11.4's
-rack constraint, which is why `set_steer_angle` takes one angle and not one per corner.
+**What P7-F does not do.** Nothing here generates a contact, so the tests bolt the wheels to the
+world to stand in for the ground — the tyre is §11.5's and P7-H's. Drive torque is §11.4's and
+P7-G's; the hinge each corner exposes is where it lands, and `set_brake_torque` already writes that
+motor, so the seam is present rather than promised. Ackermann geometry is a steering *rack* and
+belongs with §11.4's rack constraint, which is why `set_steer_angle` takes one angle and not one per
+corner.
 
 ### 16.27 P7-G: the drivetrain, and why it is not made of constraints
 
@@ -3890,44 +3941,44 @@ thousands — a crankshaft against a car — and couplings that are exactly rigi
 through the three-dimensional solver buys a stiffness the substep count then has to pay for. Its
 first escape hatch: *"a powertrain is a chain of rotational inertias, not a spatial mechanism.
 Simulating it as an independent one-dimensional multibody system and coupling it to the wheels
-through a torque constraint is both cheaper and more accurate."* So `PowertrainT` knows nothing about
-bodies, handles or solvers. It is handed each driven wheel's spin rate and its inertia about its own
-axle and hands back a torque per wheel; which body, about which axis, and where the reaction lands
-are `VehicleInstanceT::begin_tick`'s, and that is the whole three-dimensional half.
+through a torque constraint is both cheaper and more accurate."* So `PowertrainT` knows nothing
+about bodies, handles or solvers. It is handed each driven wheel's spin rate and its inertia about
+its own axle and hands back a torque per wheel; which body, about which axis, and where the reaction
+lands are `VehicleInstanceT::begin_tick`'s, and that is the whole three-dimensional half.
 
 **The state is one number.** Gearbox and final drive are exact ratios and the differential's outputs
 *are* the wheels, so every speed downstream of the clutch is determined by speeds the caller already
 measured. The crankshaft is the only free rotational coordinate in the chain. A member per stage
-would have been a cache of derived values that went stale the first time anything else moved a
-wheel — a `GearJoint`-shaped mistake made in scalars instead of constraints.
+would have been a cache of derived values that went stale the first time anything else moved a wheel
+— a `GearJoint`-shaped mistake made in scalars instead of constraints.
 
 **The clutch is solved, not damped.** The torque for which the crank and the clutch's output arrive
 at the same speed at the end of the step is available in closed form from the two inertias and the
 engine's torque; compute it, then clamp it to the plate's capacity. Below capacity the clutch locks
 exactly; above it, it slips at exactly its rating. There is no stiffness to tune and nothing to go
 unstable — the same trade XPBD makes everywhere else in this engine. Modelled as a stiff spring
-instead it would ring, and the ringing would be blamed on the tyres. Measured: after twenty ticks the
-crank and the geared wheel speed agree to 1e-6 rad/s.
+instead it would ring, and the ringing would be blamed on the tyres. Measured: after twenty ticks
+the crank and the geared wheel speed agree to 1e-6 rad/s.
 
 **The differential is one number, not three kinds.** Open splits torque evenly and lets its outputs
 turn at any speeds; locked forces them together; limited-slip is the first with a bounded amount of
 the second. Three kinds would have been a branch, a constraint the solver does not have — §10.2's
 table defers `GearJoint` to exactly here — and two of the three untested most of the time.
 `DifferentialSettingsT::lock_torque` is one clamp: zero is open, large is a spool, between is a
-limited-slip, and the number is the one a differential is actually specified by. The lock torques are
-balanced to sum to zero before they leave, because a differential *divides* torque and can never be a
-source of it; with unequal wheel inertias or one wheel's clamp biting, the raw values do not cancel
-on their own. Balancing can push a wheel past the authored bound by at most that bound again, which
-is the right way to be wrong — a differential that invented torque would accelerate a car with its
-wheels in the air.
+limited-slip, and the number is the one a differential is actually specified by. The lock torques
+are balanced to sum to zero before they leave, because a differential *divides* torque and can never
+be a source of it; with unequal wheel inertias or one wheel's clamp biting, the raw values do not
+cancel on their own. Balancing can push a wheel past the authored bound by at most that bound again,
+which is the right way to be wrong — a differential that invented torque would accelerate a car with
+its wheels in the air.
 
 **The gearbox's own shafts take their share, and leaving that out is what broke the clutch.** The
 shafts are geared to the wheels, so they accelerate with them: referred to the wheels they weigh
 `inertia × ratio²`, which in first gear is comparable to the wheels themselves. The first draft
-delivered the full shaft torque to the wheels *and* charged the clutch solve for the shafts' inertia.
-The two halves of the chain then disagreed about how fast the driveline was turning, and the symptom
-was that the clutch never quite locked — a 3 rad/s residual that no amount of staring at the clutch
-solve would have explained, because the clutch solve was right.
+delivered the full shaft torque to the wheels *and* charged the clutch solve for the shafts'
+inertia. The two halves of the chain then disagreed about how fast the driveline was turning, and
+the symptom was that the clutch never quite locked — a 3 rad/s residual that no amount of staring at
+the clutch solve would have explained, because the clutch solve was right.
 
 **Both wheels of an axle point their axles the same way now.** `SuspensionSetupT::axle` was
 documented as pointing out of the wheel's outboard face. A wheel is symmetric about its axle, so
@@ -3935,29 +3986,30 @@ nothing physical asked for that — and it meant the two wheels of one axle spun
 when the car rolled forward. §11.4 reads one signed speed per wheel and writes one signed torque
 back, so a car built that way handed its differential a mean of zero and its chassis two reactions
 that cancelled exactly. It was caught by the reaction test reading a clean zero, which is the useful
-kind of failure: not noise, but the one number that says "these two terms are equal and opposite when
-they should have added". The axle is now a *convention the vehicle shares*, not a description of
-which way the hub cap faces, and it costs nothing because no other reader of it cares about the sign.
+kind of failure: not noise, but the one number that says "these two terms are equal and opposite
+when they should have added". The axle is now a *convention the vehicle shares*, not a description
+of which way the hub cap faces, and it costs nothing because no other reader of it cares about the
+sign.
 
 **The reaction lands on the chassis, not the carrier.** A driven wheel is turned by a shaft from the
 differential and the differential's casing is bolted to the chassis, so what a driver feels as squat
-under power is a sprung reaction. Summing the wheel impulses and negating them on the core also means
-a vehicle's own engine cannot change its total angular momentum — the statement that stops a car from
-driving itself around in mid-air. Measured: the core takes -13.402212 N·m·s against the wheels'
-+13.402212, about the axle and about nothing else.
+under power is a sprung reaction. Summing the wheel impulses and negating them on the core also
+means a vehicle's own engine cannot change its total angular momentum — the statement that stops a
+car from driving itself around in mid-air. Measured: the core takes -13.402212 N·m·s against the
+wheels' +13.402212, about the axle and about nothing else.
 
 **The engine.** A torque curve and not a peak-torque number, because the shape *is* the engine's
 character — where it peaks decides which gear a corner is taken in — and one number makes every
 engine feel like the same electric motor. Held flat outside its ends rather than extrapolated: a
-linear extrapolation past the last sample crosses zero and goes negative, and an engine that produces
-reverse torque above its highest authored speed is a bug that only shows up on a long straight. Idle
-is a proportional governor over an authored band, so its droop is a number the author chose rather
-than a surprise — a proportional controller settles wherever its output balances the load, and
-leaving the band implicit is how an engine ends up idling ten per cent low with nothing to point at.
-The limiter is a throttle cut, and its overshoot — up to one tick of peak torque on a light crank,
-22.7 rad/s here — is what a real limiter does, so the test asserts that bound rather than a round
-number. The engine does not stall: stalling needs an ignition state and a starter, and those are
-driver-input surface rather than §11.4.
+linear extrapolation past the last sample crosses zero and goes negative, and an engine that
+produces reverse torque above its highest authored speed is a bug that only shows up on a long
+straight. Idle is a proportional governor over an authored band, so its droop is a number the author
+chose rather than a surprise — a proportional controller settles wherever its output balances the
+load, and leaving the band implicit is how an engine ends up idling ten per cent low with nothing to
+point at. The limiter is a throttle cut, and its overshoot — up to one tick of peak torque on a
+light crank, 22.7 rad/s here — is what a real limiter does, so the test asserts that bound rather
+than a round number. The engine does not stall: stalling needs an ignition state and a starter, and
+those are driver-input surface rather than §11.4.
 
 **Reverse is a negative ratio and neutral is a ratio of exactly zero**, both in the one ordered list
 a driver moves through. Selecting a gear is then an index and never a mode plus an index.
@@ -3972,12 +4024,12 @@ and two identical runs agree bit for bit.
 
 **What P7-G does not do.** There is still no ground: the driven wheels spin up against nothing,
 because the tyre is §11.5's and P7-H's, and until it exists a throttle produces wheel speed rather
-than vehicle speed. One differential is shared over every driven corner, which is exactly a
-front or rear differential on two wheels and a simplification on four — a cascade with a centre
-differential is not modelled, and §11.4 names one. There is no torque converter and no automatic
-gear selection; both are policy over this chain rather than physics in it. And the coupling is
-explicit at the tick boundary: the tyre load reaches the chain as the wheel speeds it measures, one
-tick late, which is the same lag every explicit coupling in this engine already accepts.
+than vehicle speed. One differential is shared over every driven corner, which is exactly a front or
+rear differential on two wheels and a simplification on four — a cascade with a centre differential
+is not modelled, and §11.4 names one. There is no torque converter and no automatic gear selection;
+both are policy over this chain rather than physics in it. And the coupling is explicit at the tick
+boundary: the tyre load reaches the chain as the wheel speeds it measures, one tick late, which is
+the same lag every explicit coupling in this engine already accepts.
 
 ### 16.28 P7-H: the patch, and the load that was already there
 
@@ -4622,13 +4674,13 @@ are unrelated to the stream and stay exactly as open as they were.
 independent signals — the named-node breakdown and the per-worker busy/overhead split — agree,
 and neither is close.
 
-**`element_project`, the constraint kernel doing the actual FEM math, is under half the tick.**
-Two runs: 13.952 ms of 28.170 ms (49.5%), then 13.221 ms of 29.430 ms (44.9%). Every other named
-node — `predict` (~2%), `update_velocity` (~2%), `motion_measure` (~0%) — is noise beside it, and
-the rigid-body node kinds (`contact_*`, `distance_project`, `joint_*`) report exactly zero device
-time, which is correct and not a bug: this scene has no contacts and no joints, so those nodes
-dispatch against zero live elements and do nothing. **So at most half the tick is the 1.3 million
-projections §16.21 named as one of the two suspects.**
+**`element_project`, the constraint kernel doing the actual FEM math, is under half the tick.** Two
+runs: 13.952 ms of 28.170 ms (49.5%), then 13.221 ms of 29.430 ms (44.9%). Every other named node —
+`predict` (~2%), `update_velocity` (~2%), `motion_measure` (~0%) — is noise beside it, and the
+rigid-body node kinds (`contact_*`, `distance_project`, `joint_*`) report exactly zero device time,
+which is correct and not a bug: this scene has no contacts and no joints, so those nodes dispatch
+against zero live elements and do nothing. **So at most half the tick is the 1.3 million projections
+§16.21 named as one of the two suspects.**
 
 **The other signal says where the rest went, and it is not subtle.** Summed across the twelve
 workers for that one tick: 8.187 ms busy against 513.895 ms stealing + polling + idle (1.6%
@@ -4776,16 +4828,16 @@ trajectory routed through the seam once a tick staying close to the same traject
 with no seam at all — not performance.
 
 **`examples/soft_body_half_storage_budget.cpp` is the measurement §6.5 asks for, and it does not
-render a verdict.** It steps the identical lattice scene twice, once with plain `float` storage
-and once through the narrow/widen seam, and prints the mean/best wall-clock cost of each and
-their difference. Its own comment states the asymmetry a reader must not miss: `
-FiniteElementModel` is the host-only reference solver and is not yet a constraint kind in the
-device graph (that is §16.42's SoA/device-collision gap, not this one's), so this measures a
-single-threaded host loop's conversion cost, not the device-buffer bandwidth saving §6.5 is
-actually written about. A positive result here is strong evidence for the device case; a
-negative result here is much weaker evidence against it. Reading the printed numbers and
-deciding keep-or-drop needs a build, which this environment does not have — recorded as open
-in §17.4 item 3, exactly where it already was, now with a harness that can actually answer it.
+render a verdict.** It steps the identical lattice scene twice, once with plain `float` storage and
+once through the narrow/widen seam, and prints the mean/best wall-clock cost of each and their
+difference. Its own comment states the asymmetry a reader must not miss: `
+FiniteElementModel` is the host-only reference solver and is not yet a constraint kind in the device
+graph (that is §16.42's SoA/device-collision gap, not this one's), so this measures a
+single-threaded host loop's conversion cost, not the device-buffer bandwidth saving §6.5 is actually
+written about. A positive result here is strong evidence for the device case; a negative result here
+is much weaker evidence against it. Reading the printed numbers and deciding keep-or-drop needs a
+build, which this environment does not have — recorded as open in §17.4 item 3, exactly where it
+already was, now with a harness that can actually answer it.
 
 **Addendum, same session, after build access arrived:** the harness ran. 1331 particles, 6000
 elements, 32 substeps, 30 timed ticks — float storage: 12.8738 ms/tick mean, 12.7455 ms best;
@@ -4799,15 +4851,15 @@ today: it is not, by three quarters of a percent, which is not nothing but is no
 number that should block a decision that is really about the device path. **Still open**, now
 with both halves of the honest picture on record instead of neither.
 
-**Decision (§16.45's follow-up pass): dropped, not built.** Put to the project owner directly
-rather than guessed at, given this document's own standing rule for genuine keep/drop forks — the
-answer was drop. `SoftBodyHalfStorage` stays exactly where the addendum above leaves it: additive,
-tested on its own terms, not wired into `SoftBodyInstance`/`SoftBodyPrecision`, and not further
-developed. The reasoning: the one measurement available shows a small loss, not a win, and this
-environment has no GPU to take the device-side measurement that would actually settle §6.5's real
-question — building the wiring on spec, against evidence pointing the other way, would be the kind
-of work this document's honesty rule exists to avoid committing to blind. If a device becomes
-available and the device-buffer bandwidth case is worth measuring properly, this section and
+**Decision (§16.45's follow-up pass): dropped, not built.** Put to the project owner directly rather
+than guessed at, given this document's own standing rule for genuine keep/drop forks — the answer
+was drop. `SoftBodyHalfStorage` stays exactly where the addendum above leaves it: additive, tested
+on its own terms, not wired into `SoftBodyInstance`/`SoftBodyPrecision`, and not further developed.
+The reasoning: the one measurement available shows a small loss, not a win, and this environment has
+no GPU to take the device-side measurement that would actually settle §6.5's real question —
+building the wiring on spec, against evidence pointing the other way, would be the kind of work this
+document's honesty rule exists to avoid committing to blind. If a device becomes available and the
+device-buffer bandwidth case is worth measuring properly, this section and
 `soft_body_half_storage_budget.cpp` are exactly where that work resumes.
 
 ### 16.42 What is still open, and why it is not this session's
@@ -4825,35 +4877,35 @@ omission.
    ordering guarantee inside a single node, which is precisely the "a layer that did would be
    a second scheduler hiding inside an adapter" trap `runtime_backend.hpp`'s own file comment
    warns against.
-2. **Per-island substepping's *physics* half.** §16.39 closed the seam; nothing under
-   `physics/` uses it, and a second pass through the actual code (this session, checking §17.5's
-   "already produces" claim against the files instead of trusting it) found the gap is larger
-   than that row said: `ConstraintStore`/`ContactStore` colour bands are global today, spanning
-   every body in the scene regardless of island, with no island concept anywhere in either file
+2. **Per-island substepping's *physics* half.** §16.39 closed the seam; nothing under `physics/`
+   uses it, and a second pass through the actual code (this session, checking §17.5's "already
+   produces" claim against the files instead of trusting it) found the gap is larger than that row
+   said: `ConstraintStore`/`ContactStore` colour bands are global today, spanning every body in the
+   scene regardless of island, with no island concept anywhere in either file
    (`solver/constraint_store.hpp`, `solver/contact_store.hpp`) or in `IncrementalColoring`
    (`solver/incremental_coloring.hpp`) — recolouring assigns a colour, not an island. And
-   `IslandBuilder`/`IslandSet` (`scene/islands.hpp`) is not a dormant layout waiting to be read;
-   it is a separate host-only partition over body-slot indices, built *after* the solve runs
-   (`physics_simulation.hpp`'s `update_islands()` follows `solver_->step()`, not the reverse),
-   fed from *this tick's own* resolved contacts, and consumed today only to decide next tick's
-   sleep state. Nothing in `physics/solver/` reads it, and `test_islands.cpp` tests it in total
-   isolation from the solver.
+   `IslandBuilder`/`IslandSet` (`scene/islands.hpp`) is not a dormant layout waiting to be read; it
+   is a separate host-only partition over body-slot indices, built *after* the solve runs
+   (`physics_simulation.hpp`'s `update_islands()` follows `solver_->step()`, not the reverse), fed
+   from *this tick's own* resolved contacts, and consumed today only to decide next tick's sleep
+   state. Nothing in `physics/solver/` reads it, and `test_islands.cpp` tests it in total isolation
+   from the solver.
 
-   That ordering is the actual blocker, not a formality: shaping *this* tick's solve by island
-   needs the partition before the solve produces the contacts the partition would be built from.
-   Two honest ways out, neither decidable by guessing — **(a)** solve from the *previous* tick's
-   island partition, accepting the same one-tick staleness sleeping already tolerates (a body
-   newly touching another mid-tick joins its region one tick late), or **(b)** restructure the
-   tick so islands are rebuilt from the previous tick's resolved contacts *before* this tick's
-   solve, which changes what "this tick's contacts" means for every other reader of
-   `PhysicsStatistics.islands`. Either choice also still needs the whole-capacity `motion_maximum`
-   fixed-order reduce (§16's `build_graph`, the final `add_reduce`) answered, since it has no
-   `DynamicGraph`-wide equivalent: N per-island partial folds behind a small aggregator, or moving
-   it outside the `DynamicGraph` entirely. A wrong call on (a) vs (b), made blind against a
-   codebase this session cannot compile, would not fail to build — it would silently change which
-   tick's geometry a body's constraints solve against, which is exactly the failure class item 3
-   below is also declined for. Recorded here, with the ground truth behind it, for the pass that
-   takes it on with the project owner's answer on (a) vs (b) in hand.
+   That ordering is the actual blocker, not a formality: shaping *this* tick's solve by island needs
+   the partition before the solve produces the contacts the partition would be built from. Two
+   honest ways out, neither decidable by guessing — **(a)** solve from the *previous* tick's island
+   partition, accepting the same one-tick staleness sleeping already tolerates (a body newly
+   touching another mid-tick joins its region one tick late), or **(b)** restructure the tick so
+   islands are rebuilt from the previous tick's resolved contacts *before* this tick's solve, which
+   changes what "this tick's contacts" means for every other reader of `PhysicsStatistics.islands`.
+   Either choice also still needs the whole-capacity `motion_maximum` fixed-order reduce (§16's
+   `build_graph`, the final `add_reduce`) answered, since it has no `DynamicGraph`-wide equivalent:
+   N per-island partial folds behind a small aggregator, or moving it outside the `DynamicGraph`
+   entirely. A wrong call on (a) vs (b), made blind against a codebase this session cannot compile,
+   would not fail to build — it would silently change which tick's geometry a body's constraints
+   solve against, which is exactly the failure class item 3 below is also declined for. Recorded
+   here, with the ground truth behind it, for the pass that takes it on with the project owner's
+   answer on (a) vs (b) in hand.
 3. **Structure-of-arrays state columns.** `RigidBodyT<T>` and every constraint/contact
    descriptor remain one struct per element in one `Buffer<T>`, exactly as §13.2 item 4 still
    describes it as future work. Splitting the hot fields a projection actually touches from the
@@ -4878,37 +4930,37 @@ omission.
 4. **Device-resident broadphase, narrowphase, and contact detection.** §16.37's own conclusion
    stands: the measured scene has no contacts, so this would not have moved that number, and
    building an LBVH construction and parallel pair-generation kernel, plus a device narrowphase
-   dispatch table, is the largest single item in this phase's original scope. Build and test
-   access does not close as much of the gap here as it does for item 3: a device kernel's
-   syntax compiles clean or it does not, and `se test` runs the conformance suite on the *host*
-   reference solver this backend has, but neither replaces designing a parallel tree-construction
-   algorithm correctly the first time against a device this machine cannot run one on to see
-   fail. Sequenced last deliberately, per §16.37's own recorded reasoning, not dropped.
+   dispatch table, is the largest single item in this phase's original scope. Build and test access
+   does not close as much of the gap here as it does for item 3: a device kernel's syntax compiles
+   clean or it does not, and `se test` runs the conformance suite on the *host* reference solver
+   this backend has, but neither replaces designing a parallel tree-construction algorithm correctly
+   the first time against a device this machine cannot run one on to see fail. Sequenced last
+   deliberately, per §16.37's own recorded reasoning, not dropped.
 
-**Every §13.1 acceptance target still needs a GPU.** §16.35's finding is unchanged: this
-machine's `SushiRuntime` finds one device, the `AMD Ryzen 5 7600X` CPU backend, and every target
-in §13.1 is written against a desktop GPU. Nothing in this update closes that gap — it could
-not be closed here — and nothing above claims a number this machine cannot produce.
+**Every §13.1 acceptance target still needs a GPU.** §16.35's finding is unchanged: this machine's
+`SushiRuntime` finds one device, the `AMD Ryzen 5 7600X` CPU backend, and every target in §13.1 is
+written against a desktop GPU. Nothing in this update closes that gap — it could not be closed here
+— and nothing above claims a number this machine cannot produce.
 
 ### 16.43 A second pass on §18, and one aspirational claim §17.5 was carrying
 
 Asked to finish P8 outright rather than leave the four items above open, the honest next step was
 checking whether they actually were open, the same discipline §18's own correction block already
-demanded once (*"an engine-side claim about a runtime API is only tested by a translation unit
-that instantiates it"*). Two findings came out of that check, both by reading the runtime's
-headers directly rather than trusting either document's prose.
+demanded once (*"an engine-side claim about a runtime API is only tested by a translation unit that
+instantiates it"*). Two findings came out of that check, both by reading the runtime's headers
+directly rather than trusting either document's prose.
 
-**§17.5 was wrong, not just optimistic.** Its island-per-region risk row closed on the sentence
-"an island must be a set of index ranges the solver can name with `Buffer::region({offset,
+**§17.5 was wrong, not just optimistic.** Its island-per-region risk row closed on the sentence "an
+island must be a set of index ranges the solver can name with `Buffer::region({offset,
 count})`, which the incremental recolouring in §6.4 already produces." Checked against
 `solver/constraint_store.hpp`, `solver/contact_store.hpp`, `solver/incremental_coloring.hpp`, and
 `scene/islands.hpp` directly: recolouring produces colour bands, not island ranges, and
 `IslandBuilder`/`IslandSet` is a separate host-only partition, built *after* the solve from *this
 tick's* resolved contacts, read by nothing under `physics/solver/`. The row is corrected in place
 above rather than left standing on a claim nobody had checked. This is why item 2 above reads
-differently than the version of this section written before the check: the blocker is now the
-actual one (islands are known after the solve that would need to shape itself by them), not the
-assumed one (a data-layout change with no other obstacle).
+differently than the version of this section written before the check: the blocker is now the actual
+one (islands are known after the solve that would need to shape itself by them), not the assumed one
+(a data-layout change with no other obstacle).
 
 **R4 and R6 were already built and this document had not caught up.** `sushiruntime`'s own
 `PHYSICS_SUBSTRATE_REQUIREMENTS.md` says so, but §18's own correction block is explicit that a
@@ -4926,17 +4978,17 @@ also rediscovering that the seam is ready.
 §18's own first line: *"the runtime-side engineering request... lives in
 `sushiruntime/docs/design/PHYSICS_SUBSTRATE_REQUIREMENTS.md`."* R9 was added to this document's §18
 table without a matching entry there. Fixed — R9 is now in that document's delivery table too,
-alongside R8 (raised and closed after that document's own "all seven" framing was written, and
-also missing until this pass).
+alongside R8 (raised and closed after that document's own "all seven" framing was written, and also
+missing until this pass).
 
 This pass alone closes none of items 2, 3, or 4. It narrows item 2 to an actual, statable design
-question instead of a shrug, and leaves the runtime side of the ledger accurate for the next
-reader. What follows in §16.44 is a later pass in the same session, made possible by something
-that changed mid-phase: build and test access (`se build -t relwithdebinfo`, `se test`), which
-turned "no compiler here" from this document's standing reason to decline items 2 through 4 into
-a reason that applies unevenly — some of the remaining work is now genuinely safe to attempt, and
-some still is not, for reasons restated below with that distinction in mind rather than the
-blanket one this section was written under.
+question instead of a shrug, and leaves the runtime side of the ledger accurate for the next reader.
+What follows in §16.44 is a later pass in the same session, made possible by something that changed
+mid-phase: build and test access (`se build -t relwithdebinfo`, `se test`), which turned "no
+compiler here" from this document's standing reason to decline items 2 through 4 into a reason that
+applies unevenly — some of the remaining work is now genuinely safe to attempt, and some still is
+not, for reasons restated below with that distinction in mind rather than the blanket one this
+section was written under.
 
 ### 16.44 Item 2, the slice that was actually safe: sleeping joints park
 
@@ -4944,11 +4996,11 @@ blanket one this section was written under.
 the tick so islands are known before the solve they would shape — is not a question this pass
 answers, because it still is not this pass's to answer blind. But tracing *why* the physics-side
 wiring was believed to need that answer first turned up something the roadmap row's "per-island
-substepping" framing did not separate out: §13.2 item 1's actual claim, *"a settled island costs
-its broadphase bound update and nothing else,"* was already true for contacts
+substepping" framing did not separate out: §13.2 item 1's actual claim, *"a settled island costs its
+broadphase bound update and nothing else,"* was already true for contacts
 (`physics_simulation.hpp`'s `submit_contacts` already skips placing a contact between two bodies
-that are not simulated — checked directly, not assumed) and **was not true for joints**, which
-stay resident in their colour band forever, dispatched every substep, with the projection's own
+that are not simulated — checked directly, not assumed) and **was not true for joints**, which stay
+resident in their colour band forever, dispatched every substep, with the projection's own
 `has_any_flag(a.flags | b.flags, BodyFlags::sleeping)` check the only thing standing between a
 parked vehicle and a crashing one paying the same rate — the exact case §17.5's risk table already
 named and left unfixed.
@@ -4959,47 +5011,46 @@ needed exactly two existing primitives already proven correct for a different li
 uses to take a destroyed body's joints with it — called from a new tick-boundary pass,
 `PhysicsSimulation::update_joint_parking()`, run after `update_islands()` has written this tick's
 sleep decision. A live joint whose two ends satisfy the *exact* condition the projection already
-early-outs on is removed from `joints_store_` and its full solved state (motor, limits, peak
-load — everything `read_joint` returns, not just the authored parameters) cached on `JointEntry`;
-a parked joint whose condition no longer holds is re-added from that cache. Mirroring the
-kernel's own condition rather than inventing a stricter or looser one is what makes this provably
-inert on correctness: a joint is parked only on a tick where the kernel was already contributing
-nothing to the solve, so nothing about *what* the solve computes changes, only whether a no-op
-still pays for a dispatch.
+early-outs on is removed from `joints_store_` and its full solved state (motor, limits, peak load —
+everything `read_joint` returns, not just the authored parameters) cached on `JointEntry`; a parked
+joint whose condition no longer holds is re-added from that cache. Mirroring the kernel's own
+condition rather than inventing a stricter or looser one is what makes this provably inert on
+correctness: a joint is parked only on a tick where the kernel was already contributing nothing to
+the solve, so nothing about *what* the solve computes changes, only whether a no-op still pays for a
+dispatch.
 
 Two edge cases the mirror alone does not cover, both handled: `joint_state`/`set_joint_motor`/
 `set_joint_limits` read through a live `JointHandle` and would otherwise fail on a parked joint
-(handle intentionally invalid) — `joint_state` now falls back to the cached state, and an edit to
-a parked joint's motor or limits unparks it first, on the same "a disturbance wakes it" precedent
+(handle intentionally invalid) — `joint_state` now falls back to the cached state, and an edit to a
+parked joint's motor or limits unparks it first, on the same "a disturbance wakes it" precedent
 `create_joint` already sets. A capacity overflow on the way back in is left parked rather than
 losing the joint's state, matching `add_joint`'s own reporting convention.
 
 **Opt-in, off by default, and live rather than construction-time** — `IPhysicsStepper::
-set_park_sleeping_joints_requested`, mirroring `set_profiling_requested`'s shape but not its
-"before the scene first steps" restriction, since parking is tick-state, not solve-graph
-construction. `test_joint_parking.cpp` (four tests, `se test` green, no regressions across the
-1364-test functional suite beyond two pre-existing failures in unrelated systems — atmosphere and
+set_park_sleeping_joints_requested`, mirroring `set_profiling_requested`'s shape but not its "before
+the scene first steps" restriction, since parking is tick-state, not solve-graph construction.
+`test_joint_parking.cpp` (four tests, `se test` green, no regressions across the 1364-test
+functional suite beyond two pre-existing failures in unrelated systems — atmosphere and
 vehicle-component code this pass never touched) proves: off by default nothing changes; a settled
 island's joint drops `PhysicsStatistics::joints` to zero; a teleport-driven wake restores it with
 its state intact and the body still ends up held where the joint says it should; editing a parked
 joint's motor wakes it immediately rather than failing as if it had no live state.
 
-**What this is not.** Beams, elements, and authored distance constraints stay resident whether
-their island sleeps or not — the same fix, generalized, needs a body-driven removal already
-proven for joints (`remove_joints_touching` has beam and element siblings,
+**What this is not.** Beams, elements, and authored distance constraints stay resident whether their
+island sleeps or not — the same fix, generalized, needs a body-driven removal already proven for
+joints (`remove_joints_touching` has beam and element siblings,
 `remove_beams_touching`/`remove_elements_touching`, called today only from `remove_body`) but
-checked this pass and found to need a prerequisite of its own first: **beams do not participate
-in island connectivity.** `update_islands()` feeds `island_builder_.connect()` from contacts,
-joints, and cloth — never from `vehicle`/node-beam structure — so two beam-linked nodes with no
-other connection between them are, today, reported as separate islands despite being rigidly
-tied. Parking beams by island membership on top of that gap would risk parking one node's beams
-while a beam-only-connected neighbour is still being solved — the exact silent-corruption failure
-mode this whole session has been declining to risk. **Recorded as a real, separate, newly-found
-bug** rather than folded into this fix: closing it is adding a fourth `connect()` call site for
-whatever tracks beam structure at the `PhysicsSimulation` level, which this pass did not locate
-and verify carefully enough to change blind. The vehicle case — "a parked car costs what a
-crashing one costs" — is exactly what would benefit most, and is exactly why it should not be
-the thing this pass guesses at.
+checked this pass and found to need a prerequisite of its own first: **beams do not participate in
+island connectivity.** `update_islands()` feeds `island_builder_.connect()` from contacts, joints,
+and cloth — never from `vehicle`/node-beam structure — so two beam-linked nodes with no other
+connection between them are, today, reported as separate islands despite being rigidly tied. Parking
+beams by island membership on top of that gap would risk parking one node's beams while a
+beam-only-connected neighbour is still being solved — the exact silent-corruption failure mode this
+whole session has been declining to risk. **Recorded as a real, separate, newly-found bug** rather
+than folded into this fix: closing it is adding a fourth `connect()` call site for whatever tracks
+beam structure at the `PhysicsSimulation` level, which this pass did not locate and verify carefully
+enough to change blind. The vehicle case — "a parked car costs what a crashing one costs" — is
+exactly what would benefit most, and is exactly why it should not be the thing this pass guesses at.
 
 ### 16.45 The editor-connectivity audit: everything built that a user cannot actually reach
 
@@ -5012,27 +5063,26 @@ is every physics feature, P0 through PX, held up against what an editor user can
 
 **16.45.1 — Built with zero authoring path: reachable only from raw `IPhysicsScene`/test code.**
 Three features are fully implemented and tested against the low-level solver interface, but no
-component, no binding code, and no editor UI ever calls them in a running editor — the *only*
-call sites in the entire repository are test files constructing a bare `IPhysicsScene` directly:
+component, no binding code, and no editor UI ever calls them in a running editor — the *only* call
+sites in the entire repository are test files constructing a bare `IPhysicsScene` directly:
 
-- `park_sleeping_joints` (§16.44). `ISimulation::set_park_sleeping_joints` (`sim/simulation.hpp:2132`)
-  has exactly one override (`RuntimeSimulation`, `sim/runtime_simulation.cpp:185-190`) and *zero*
-  call sites anywhere against that override — no `Record` field, no editor UI, nothing in
-  `editor/` mentions "sleep" or "park" beyond the read-only sleeping-body count and the sleeping
-  debug-draw checkbox (`physics_statistics_panel.cpp:92,107`), which visualize sleep state but do
-  not toggle parking. Confirmed dead end-to-end, not merely "no UI yet" — there is no wiring at any
-  layer between the ECS and this toggle.
-- `IJointService::set_joint_motor`/`set_joint_limits` — the *live, in-place* joint-edit entry
-  points (`physics_services.hpp:644,659`). The editor's joint UI (`joint_widgets.cpp`) does let a
-  user edit motor/limits, and it is fully wired — but only through `JointParams`, which
-  `sync_joints` (`runtime_simulation.cpp:2297-2312`) applies by **destroy+recreate** on any
-  revision bump, never through these two methods. `set_joint_limits` has no call site in the
-  entire repository, not even in tests. `set_joint_motor`'s only callers are
-  `test_joint_assembly.cpp` and `test_joint_parking.cpp`, both against a bare `IPhysicsScene`. The
-  live-update path this session built `unpark_joint()` on top of (§16.44) is itself unreachable
-  from the editor.
-- Body trigger/CCD flags. `Collider::flags` (`sim/collider.hpp:123`) is read by the solver for
-  both trigger detection (`physics_simulation.hpp:2431`, feeds `ContactEvent::trigger`,
+- `park_sleeping_joints` (§16.44). `ISimulation::set_park_sleeping_joints`
+  (`sim/simulation.hpp:2132`) has exactly one override (`RuntimeSimulation`,
+  `sim/runtime_simulation.cpp:185-190`) and *zero* call sites anywhere against that override — no
+  `Record` field, no editor UI, nothing in `editor/` mentions "sleep" or "park" beyond the read-only
+  sleeping-body count and the sleeping debug-draw checkbox (`physics_statistics_panel.cpp:92,107`),
+  which visualize sleep state but do not toggle parking. Confirmed dead end-to-end, not merely "no
+  UI yet" — there is no wiring at any layer between the ECS and this toggle.
+- `IJointService::set_joint_motor`/`set_joint_limits` — the *live, in-place* joint-edit entry points
+  (`physics_services.hpp:644,659`). The editor's joint UI (`joint_widgets.cpp`) does let a user edit
+  motor/limits, and it is fully wired — but only through `JointParams`, which `sync_joints`
+  (`runtime_simulation.cpp:2297-2312`) applies by **destroy+recreate** on any revision bump, never
+  through these two methods. `set_joint_limits` has no call site in the entire repository, not even
+  in tests. `set_joint_motor`'s only callers are `test_joint_assembly.cpp` and
+  `test_joint_parking.cpp`, both against a bare `IPhysicsScene`. The live-update path this session
+  built `unpark_joint()` on top of (§16.44) is itself unreachable from the editor.
+- Body trigger/CCD flags. `Collider::flags` (`sim/collider.hpp:123`) is read by the solver for both
+  trigger detection (`physics_simulation.hpp:2431`, feeds `ContactEvent::trigger`,
   `simulation.hpp:661`) and continuous-collision routing (`physics_simulation.hpp:1790`) — but
   `collider_from_params` (`sim/collider.hpp`), the only function that turns an authored
   `ColliderParams` into a `Collider`, never assigns `flags`; it stays `0` always. The single place
@@ -5048,93 +5098,93 @@ joints` and the trigger/CCD flags were genuine gaps and are now closed: `Collide
 round-tripping (`scene_serializer.cpp`), and a new integration test proving both directions — the
 body passes straight through and the overlap is still reported
 (`test_physics_authoring.cpp:ATriggerVolumeReportsOverlapButNeverStopsTheBody`). `park_sleeping_
-joints` is now a "Settings" checkbox on the Physics panel, staged on `EditorContext` and pushed
-into `ISimulation::set_park_sleeping_joints` once a frame from `main.cpp`, the same pattern
+joints` is now a "Settings" checkbox on the Physics panel, staged on `EditorContext` and pushed into
+`ISimulation::set_park_sleeping_joints` once a frame from `main.cpp`, the same pattern
 `physics_statistics`'s read direction already uses in reverse.
 
 The `set_joint_motor`/`set_joint_limits` bullet does **not** get the same treatment, and reading
-`sync_joints`'s own comment (`runtime_simulation.cpp:1380-1384`) closely enough to implement
-against it turned up why: *"Any edit is a new joint: the solver's is rebuilt on the next reconcile
-rather than patched, because its multipliers were accumulated under the limits it is being taken
-out of."* That is not an oversight, it is a stated, reasoned correctness choice — an XPBD joint's
-accumulated Lagrange multipliers were warm-started under the *old* limit or motor target, and
-patching just the target in place would let the next substep's solve start from an impulse basis
-that no longer matches what it is being asked to satisfy. `touch_joint` is deliberately blind to
-*which* field changed for exactly this reason: a motor-only edit is not obviously safer to
-live-patch than an anchor edit, and the record does not currently carry enough information to tell
-the two apart even if it wanted to.
+`sync_joints`'s own comment (`runtime_simulation.cpp:1380-1384`) closely enough to implement against
+it turned up why: *"Any edit is a new joint: the solver's is rebuilt on the next reconcile rather
+than patched, because its multipliers were accumulated under the limits it is being taken out of."*
+That is not an oversight, it is a stated, reasoned correctness choice — an XPBD joint's accumulated
+Lagrange multipliers were warm-started under the *old* limit or motor target, and patching just the
+target in place would let the next substep's solve start from an impulse basis that no longer
+matches what it is being asked to satisfy. `touch_joint` is deliberately blind to *which* field
+changed for exactly this reason: a motor-only edit is not obviously safer to live-patch than an
+anchor edit, and the record does not currently carry enough information to tell the two apart even
+if it wanted to.
 
 So the honest correction is: **this was mis-filed as a wiring gap; it is a primitive built for a
 caller that does not exist yet, not a live-update path the ECS forgot to use.** `set_joint_motor`/
 `set_joint_limits` read as built for continuous, high-frequency joint control — a gameplay/
 scripting API driving a motor target every tick, the way `SuspensionUnitT::set_steer_angle`/
-`set_brake_torque` (`physics/vehicle/suspension.hpp`) already do for vehicles, but through their
-own dedicated mechanism rather than `IJointService`, and without `sync_joints`'s destroy+recreate
-in the way. No such caller exists today — nothing outside `Vehicle` drives a joint continuously —
-so building one now would be speculative rather than closing a real gap. Left as `#25`-style: not
+`set_brake_torque` (`physics/vehicle/suspension.hpp`) already do for vehicles, but through their own
+dedicated mechanism rather than `IJointService`, and without `sync_joints`'s destroy+recreate in the
+way. No such caller exists today — nothing outside `Vehicle` drives a joint continuously — so
+building one now would be speculative rather than closing a real gap. Left as `#25`-style: not
 implemented, and not implemented on purpose, until something needs it.
 
-**16.45.2 — Components that exist but no panel ever writes them.**
-`SoftBodyParams` (`sim/simulation.hpp:398-413`) is wired end-to-end into the solver exactly as
-thoroughly as `ClothParams` is — `gather_soft_body_descs` (`runtime_simulation.cpp:3263-3269`)
-reads every field, including `cosmetic` (the storage-precision request, see 16.45.4). But the
-Inspector's "Add Component" popup offers Rigid Body, Cloth, Collider, Physics Joint, Vehicle —
-**no "Soft Body"** (`inspector_panel.cpp:1297-1342`). `has_soft_body`/`soft_body_params` are read
-in exactly one place in `editor/`, `main.cpp:919-927`, to feed the debug-view overlay — never
-written by any panel. A general tetrahedral soft body cannot be placed on an entity from the
-editor at all today; the only user-facing soft-body surface is the Bake window's "Cook soft body"
-checkbox, which configures the *cooker* (an asset-pipeline step), not a live entity's simulation
-parameters. `SoftBodyDesc::participates_in_rollback` compounds this — even the test/hand-authoring
-path can't reach it, since `SoftBodyParams` (the authoring struct) has no corresponding field, so
-it is always `false` regardless of what a `Desc` built by hand might set.
+**16.45.2 — Components that exist but no panel ever writes them.** `SoftBodyParams`
+(`sim/simulation.hpp:398-413`) is wired end-to-end into the solver exactly as thoroughly as
+`ClothParams` is — `gather_soft_body_descs` (`runtime_simulation.cpp:3263-3269`) reads every field,
+including `cosmetic` (the storage-precision request, see 16.45.4). But the Inspector's "Add
+Component" popup offers Rigid Body, Cloth, Collider, Physics Joint, Vehicle — **no "Soft Body"**
+(`inspector_panel.cpp:1297-1342`). `has_soft_body`/`soft_body_params` are read in exactly one place
+in `editor/`, `main.cpp:919-927`, to feed the debug-view overlay — never written by any panel. A
+general tetrahedral soft body cannot be placed on an entity from the editor at all today; the only
+user-facing soft-body surface is the Bake window's "Cook soft body" checkbox, which configures the
+*cooker* (an asset-pipeline step), not a live entity's simulation parameters.
+`SoftBodyDesc::participates_in_rollback` compounds this — even the test/hand-authoring path can't
+reach it, since `SoftBodyParams` (the authoring struct) has no corresponding field, so it is always
+`false` regardless of what a `Desc` built by hand might set.
 
 **16.45.3 — The cooking dial exposes four booleans and one slider; the pipeline reads seventeen.**
 `cook_bake_panel.cpp` lets a user set `fidelity`, `cook_collision`, `cook_soft_body`,
 `cook_node_beam`, `static_geometry`, and (when node-beam cooking is on) the node-beam material and
-shell-attachment settings. Every other field `CookingParameters` declares —
-`voxel_resolution`, `target_tetrahedron_count`, `simulation_level_count`, `convex_piece_count`,
+shell-attachment settings. Every other field `CookingParameters` declares — `voxel_resolution`,
+`target_tetrahedron_count`, `simulation_level_count`, `convex_piece_count`,
 `distance_field_resolution`, `surface_conforming_passes`, `suggested_substep_count` (all as *pin*
 overrides against the fidelity dial — `cooking_parameters.hpp:241-258`), `hull_vertex_budget`,
 `weld_tolerance`, `density`, `accuracy_lattice_order` — is read by a cooker
 (`collision_cooker.cpp`/`soft_body_cooker.cpp`/`node_beam_cooker.cpp`/`tetrahedral_mesh.cpp`, file
 :line list in the audit transcript) but has no widget anywhere in `cook_bake_panel.cpp`; the panel
 shows their *derived* values read-only (:407-412) and nothing more. `ImportProfile::thresholds`
-(`CookingThresholds`, applied by every cooker via `apply_cooking_thresholds`) has zero references
-in `cook_bake_panel.cpp`. And `ImportProfileOverride` — the entire per-asset-override mechanism
-§8.1 describes, `resolve_import_profile`-tested and working — has no call site outside tests
-anywhere in the repository; `project_panel.cpp:73-78` always bakes at the single project default,
-so "per-asset cooking overrides" does not exist as a feature a user can reach, only as one that
-compiles and passes its own unit test.
+(`CookingThresholds`, applied by every cooker via `apply_cooking_thresholds`) has zero references in
+`cook_bake_panel.cpp`. And `ImportProfileOverride` — the entire per-asset-override mechanism §8.1
+describes, `resolve_import_profile`-tested and working — has no call site outside tests anywhere in
+the repository; `project_panel.cpp:73-78` always bakes at the single project default, so "per-asset
+cooking overrides" does not exist as a feature a user can reach, only as one that compiles and
+passes its own unit test.
 
-**16.45.4 — The half-precision path from §16.41 is one layer short of where the benchmark measured.**
-`SoftBodyParams::cosmetic` *is* fully wired through to `SoftBodyPrecisionRequest::cosmetic`
-(`physics_simulation.hpp:429`) → `resolve_soft_body_precision` → `SoftBodyPrecision::Cosmetic`
-(`soft/soft_body_instance.hpp:92-131`) — so the *selection* is authorable, in principle, the moment
-16.45.2's gap is closed. But `SoftBodyPrecision::Cosmetic` being selected does not itself construct
-a `SoftBodyHalfStorage` — that class's own header states nothing in `SoftBodyInstance`/
-`SoftBodyPrecision` constructs one yet (`soft/soft_body_half_storage.hpp:57-59`). §16.41's
-benchmark numbers (float 12.8738ms vs half 12.9666ms) measured `SoftBodyHalfStorage` directly, not
-through this selection path — meaning the precision toggle §16.41 discusses and the storage class
-§16.41 benchmarked are not yet the same wire. Marking the half-precision *feature* (as opposed to
-the standalone benchmark harness) built would currently be wrong on two independent counts: no
-editor path to set `cosmetic` (16.45.2), and no code that turns `Cosmetic` selection into an
-actual `SoftBodyHalfStorage` construction even if one existed.
+**16.45.4 — The half-precision path from §16.41 is one layer short of where the benchmark
+measured.** `SoftBodyParams::cosmetic` *is* fully wired through to
+`SoftBodyPrecisionRequest::cosmetic` (`physics_simulation.hpp:429`) → `resolve_soft_body_precision`
+→ `SoftBodyPrecision::Cosmetic` (`soft/soft_body_instance.hpp:92-131`) — so the *selection* is
+authorable, in principle, the moment 16.45.2's gap is closed. But `SoftBodyPrecision::Cosmetic`
+being selected does not itself construct a `SoftBodyHalfStorage` — that class's own header states
+nothing in `SoftBodyInstance`/ `SoftBodyPrecision` constructs one yet
+(`soft/soft_body_half_storage.hpp:57-59`). §16.41's benchmark numbers (float 12.8738ms vs half
+12.9666ms) measured `SoftBodyHalfStorage` directly, not through this selection path — meaning the
+precision toggle §16.41 discusses and the storage class §16.41 benchmarked are not yet the same
+wire. Marking the half-precision *feature* (as opposed to the standalone benchmark harness) built
+would currently be wrong on two independent counts: no editor path to set `cosmetic` (16.45.2), and
+no code that turns `Cosmetic` selection into an actual `SoftBodyHalfStorage` construction even if
+one existed.
 
 **16.45.5 — Profiling surface gaps.** `physics_statistics_panel.cpp` draws most of
-`PhysicsStatistics` but not all of it: the aggregate `constraints` count is shown, but its
-per-kind breakdown — `PhysicsStatistics::joints`/`::elements`/`::beams`
-(`core/statistics.hpp:264-293`) — never is, and `PhysicsStageTimings::soft_body_ms`
-(`statistics.hpp:223`, the separate host XPBD schedule's own timing line) is never drawn anywhere
-in `editor/`. Both are populated correctly by `refresh_statistics()` — this is a display gap, not
-a measurement gap.
+`PhysicsStatistics` but not all of it: the aggregate `constraints` count is shown, but its per-kind
+breakdown — `PhysicsStatistics::joints`/`::elements`/`::beams` (`core/statistics.hpp:264-293`) —
+never is, and `PhysicsStageTimings::soft_body_ms` (`statistics.hpp:223`, the separate host XPBD
+schedule's own timing line) is never drawn anywhere in `editor/`. Both are populated correctly by
+`refresh_statistics()` — this is a display gap, not a measurement gap.
 
 **16.45.6 — Confirmed dead fields, no behavior attached at all.** `Collider::asset`
 (`sim/collider.hpp:112`) — never assigned by `collider_from_params`, never read anywhere;
 `Collider::applied_scale` (:118) — assigned but never read by anything (comment says "carried for
 the cooker," a P4 consumer that does not exist yet); `DerivedCookingParameters::fidelity`
-(`cooking_parameters.hpp:169`) — computed by `resolve_cooking_parameters` and then never read by
-any cooker or report (the UI reads `parameters.fidelity` directly instead, bypassing the derived
-copy entirely).
+(`cooking_parameters.hpp:169`) — computed by `resolve_cooking_parameters` and then never read by any
+cooker or report (the UI reads `parameters.fidelity` directly instead, bypassing the derived copy
+entirely).
 
 **16.45.7 — What does not have this problem.** Named for contrast, since a list this long risks
 implying the whole pipeline is disconnected, which it is not: joint type/anchor/axis/compliance,
@@ -5142,20 +5192,20 @@ joint motors and limits and break thresholds (fully wired, editable, live-load r
 the Inspector and the Assembly panel), rigid body mass/inertia/density/drag, collider
 shape/friction/restitution/collision-filter, cloth, and the entire vehicle authoring surface
 (suspension corners, tyres, drivetrain/gearing, aerodynamics, live driving input, telemetry
-readback, a dedicated preview viewport per §14's own convention) are all genuinely built, wired
-end to end, and usable by a person sitting at the editor today. §14's other named surfaces —
-debug-draw overlays for contacts/bounds/islands/joints, the Bake window's core cook/re-cook loop —
-work as documented. The gaps above are real, but they are gaps *in* an otherwise-connected
-pipeline, not evidence the pipeline itself is aspirational.
+readback, a dedicated preview viewport per §14's own convention) are all genuinely built, wired end
+to end, and usable by a person sitting at the editor today. §14's other named surfaces — debug-draw
+overlays for contacts/bounds/islands/joints, the Bake window's core cook/re-cook loop — work as
+documented. The gaps above are real, but they are gaps *in* an otherwise-connected pipeline, not
+evidence the pipeline itself is aspirational.
 
 **16.45.8 — Closed in the follow-up pass, once asked to act on this rather than just report it.**
-Given engineering authority over how to sequence and close the findings above, six landed —
-verified by `se editor --no-run` and, where behavior changed, `se test` (full suite: 1366/1368,
-the same two pre-existing unrelated failures throughout this pass):
+Given engineering authority over how to sequence and close the findings above, six landed — verified
+by `se editor --no-run` and, where behavior changed, `se test` (full suite: 1366/1368, the same two
+pre-existing unrelated failures throughout this pass):
 
 - Trigger volumes and continuous collision (16.45.1's third bullet) — `ColliderParams::trigger`/
-  `::continuous_collision`, wired through `collider_from_params`, an Inspector "Behaviour"
-  section, and scene-file round-tripping. `test_physics_authoring.cpp`'s
+  `::continuous_collision`, wired through `collider_from_params`, an Inspector "Behaviour" section,
+  and scene-file round-tripping. `test_physics_authoring.cpp`'s
   `ATriggerVolumeReportsOverlapButNeverStopsTheBody` proves both halves at once.
 - `park_sleeping_joints` (16.45.1's first bullet) — a "Settings" checkbox on the Physics panel,
   staged on `EditorContext` and pushed into `ISimulation::set_park_sleeping_joints` once a frame.
@@ -5171,13 +5221,12 @@ the same two pre-existing unrelated failures throughout this pass):
 - The dead `DerivedCookingParameters::fidelity` field (16.45.6) — removed, confirmed unused by
   grep first, unlike `Collider::asset`/`applied_scale`, which are real P4 scaffolding and were
   left alone.
-- General (non-cloth) Soft Body authoring (16.45.2) — an Inspector section (source-mesh load
-  from a `CookBakeState` entry, level, the same five material presets and eight sliders the Bake
-  panel's node-beam settings use, thickness, self-collision, the `cosmetic` precision request)
-  and an "Add Component" entry, both wired to `IWorldEditor::create_soft_body`/
-  `set_soft_body_params`, which already existed and were called from nowhere in the editor. The
-  ECS-to-solver path itself already had coverage (`test_soft_body_service.cpp`); this closed only
-  the reachability half.
+- General (non-cloth) Soft Body authoring (16.45.2) — an Inspector section (source-mesh load from a
+  `CookBakeState` entry, level, the same five material presets and eight sliders the Bake panel's
+  node-beam settings use, thickness, self-collision, the `cosmetic` precision request) and an "Add
+  Component" entry, both wired to `IWorldEditor::create_soft_body`/ `set_soft_body_params`, which
+  already existed and were called from nowhere in the editor. The ECS-to-solver path itself already
+  had coverage (`test_soft_body_service.cpp`); this closed only the reachability half.
 
 The second `set_joint_motor`/`set_joint_limits` bullet (16.45.1) was investigated and
 **deliberately not implemented** — see the correction inline above; it is not a wiring gap.
@@ -5193,34 +5242,37 @@ this audit's original six findings.
 ### 17.1 Explicitly out of scope
 
 Fluids of any kind. Runtime Voronoi fracture of arbitrary rigid geometry (soft-body fracture in §9.5
-covers the deformable case; rigid shattering is a separate cooked-fragment system, and if it is wanted
-it is its own phase). Cross-machine bit-exact determinism (SushiLoop already ruled it out). Cloth-scale
-self-collision in P6 — it is scheduled but explicitly allowed to be off by default. A reduced-coordinate
-articulation solver as the primary path (§10.5).
+covers the deformable case; rigid shattering is a separate cooked-fragment system, and if it is
+wanted it is its own phase). Cross-machine bit-exact determinism (SushiLoop already ruled it out).
+Cloth-scale self-collision in P6 — it is scheduled but explicitly allowed to be off by default. A
+reduced-coordinate articulation solver as the primary path (§10.5).
 
 ### 17.2 Dependencies — the one thing worth buying
 
 Everything in this plan is implementable in-house, and greenfield is the engine's established
-preference. The single honest exception is **tetrahedralization quality**: robust tetrahedral meshing
-of arbitrary dirty input is a research-grade problem, and §8.3's voxel-plus-body-centred-cubic approach
-deliberately trades some element quality for never failing. If the quality proves insufficient in P6's
-cantilever test, the options are (a) invest in a conforming Delaunay stage, or (b) take a dependency
-through `ss install` (per `dependency-provisioning-via-ss`). **This is a P4 decision point, and it
-should be made with the P6 test results in hand, not before.**
+preference. The single honest exception is **tetrahedralization quality**: robust tetrahedral
+meshing of arbitrary dirty input is a research-grade problem, and §8.3's
+voxel-plus-body-centred-cubic approach deliberately trades some element quality for never failing.
+If the quality proves insufficient in P6's cantilever test, the options are (a) invest in a
+conforming Delaunay stage, or (b) take a dependency through `ss install` (per
+`dependency-provisioning-via-ss`). **This is a P4 decision point, and it should be made with the P6
+test results in hand, not before.**
 
 ### 17.3 Decisions taken
 
-Settled with the project owner on 2026-07-28. Recorded here so a later reader knows these were chosen,
+Settled with the project owner on 2026-07-28. Recorded here so a later reader knows these were
+chosen,
 not assumed.
 
 1. **Vehicle structure: the hybrid** — a rigid chassis core with a deformable node-beam or FEM shell
    (§11.2). The pure node-beam path stays reachable per asset. The explicit brief is *"do not repeat
-   BeamNG's mistakes"*, which is why §11.2 now carries the limitation-by-limitation table rather than
-   just a preference.
+   BeamNG's mistakes"*, which is why §11.2 now carries the limitation-by-limitation table rather
+   than just a preference.
 2. **Cosmetic precision: `float`, and `sycl::half` for storage where it pays** (§6.5). Non-gameplay
    soft bodies and cloth are outside the deterministic island and may use a narrower column. The one
-   engineering line drawn on top of the owner's answer: **half precision stores, it does not compute** —
-   a neo-Hookean projection evaluated in 11 significant bits is not a trade-off, it is a wrong answer.
+   engineering line drawn on top of the owner's answer: **half precision stores, it does not
+   compute** — a neo-Hookean projection evaluated in 11 significant bits is not a trade-off, it is a
+   wrong answer.
 3. **Phase order unchanged: P3 (joints and assemblies) before P4 (cooking).** The car-door scenario
    lands first.
 4. **The simulation runs on SushiRuntime**, and considerably more of it than today — see §6.6 for
@@ -5230,11 +5282,11 @@ not assumed.
 
 ### 17.4 Remaining open questions
 
-1. **The core-to-shell seam (§11.2).** A hybrid vehicle's rigid core and deformable shell meet at the
-   §10.3 attachment constraint, and that seam is where visual artifacts will appear first — a panel
-   that dents perfectly but whose mount looks rigid. Whether the fix is a graded stiffness zone around
-   the attachment or a wider attachment neighbourhood is a P7 question that needs to be *seen* before
-   it is answered.
+1. **The core-to-shell seam (§11.2).** A hybrid vehicle's rigid core and deformable shell meet at
+   the §10.3 attachment constraint, and that seam is where visual artifacts will appear first — a
+   panel that dents perfectly but whose mount looks rigid. Whether the fix is a graded stiffness
+   zone around the attachment or a wider attachment neighbourhood is a P7 question that needs to be
+   *seen* before it is answered.
 2. **Tetrahedralization quality (§17.2).** A P4 decision point to be made with P6's cantilever test
    results in hand.
 3. **Half-precision payoff (§6.5).** Whether half-precision *storage* actually pays after the widen
@@ -5242,8 +5294,8 @@ not assumed.
    The storage path and its measurement harness exist (§16.41, `examples/soft_body_half_storage_
    budget.cpp`), and the harness has now run (§16.41's addendum): +0.7% mean on the host reference
    solver's conversion cost, a small loss. What remains open is the actual question — the
-   device-buffer bandwidth case, which needs FEM as a device graph kind before it can be measured
-   at all, not another build.
+   device-buffer bandwidth case, which needs FEM as a device graph kind before it can be measured at
+   all, not another build.
 
 ### 17.5 The largest technical risks
 
@@ -5263,10 +5315,10 @@ not assumed.
 
 ## §18 What SushiRuntime must gain
 
-Per `docs/CONTRIBUTING.md`, *"a change that needs new runtime behavior belongs in the runtime, behind
-its public API, not bolted onto the engine."* This section is the engine-side record of what this plan
-needs from below; the runtime-side engineering request, with `file:line` evidence, lives in
-`sushiruntime/docs/design/PHYSICS_SUBSTRATE_REQUIREMENTS.md`.
+Per `docs/CONTRIBUTING.md`, *"a change that needs new runtime behavior belongs in the runtime,
+behind its public API, not bolted onto the engine."* This section is the engine-side record of what
+this plan needs from below; the runtime-side engineering request, with `file:line` evidence, lives
+in `sushiruntime/docs/design/PHYSICS_SUBSTRATE_REQUIREMENTS.md`.
 
 **Four of the eight were recorded here as built** on the runtime's `feature/physics-substrate-seams`
 branch. Each row states what was asked, what landed, and — for those still open — what the physics
@@ -5323,18 +5375,18 @@ does **without** it, because no phase may be blocked on another repo.
 
 #### R1: the answer was better than any of the three options
 
-This plan reasoned that `Dynamic::sized()` is a host-side provider polled on the driver thread at the
-step boundary, so within one `run()` it cannot carry a count a kernel produced in that same run — and
-concluded that only three shapes existed: two runs with a readback between them, dispatch at capacity
-with a per-lane early-out, or indirect dispatch. The plan committed to the second and kept the
-`RuntimeGraphBuilder` seam thin so it could move to the third.
+This plan reasoned that `Dynamic::sized()` is a host-side provider polled on the driver thread at
+the step boundary, so within one `run()` it cannot carry a count a kernel produced in that same run
+— and concluded that only three shapes existed: two runs with a readback between them, dispatch at
+capacity with a per-lane early-out, or indirect dispatch. The plan committed to the second and kept
+the `RuntimeGraphBuilder` seam thin so it could move to the third.
 
 **That reasoning was wrong about *when* the count is read**, and the correction is worth recording
 because it removes a compromise the whole §6.6 design was shaped around. A node's `sycl::handler`
-closure is not evaluated when the graph is built or when the step boundary polls the host providers —
-it runs **on a worker thread at dispatch**, and a node is only dispatched once `EventPolling` has seen
-every predecessor's event complete and called `wait()` on it. At that point the predecessor kernel's
-USM writes are visible, so a count it wrote can simply be read there.
+closure is not evaluated when the graph is built or when the step boundary polls the host providers
+— it runs **on a worker thread at dispatch**, and a node is only dispatched once `EventPolling` has
+seen every predecessor's event complete and called `wait()` on it. At that point the predecessor
+kernel's USM writes are visible, so a count it wrote can simply be read there.
 
 So the runtime resolves the live size at dispatch. The result is what option (3) promised — one run,
 no sync, no wasted width — without needing indirect dispatch at all:
@@ -5352,31 +5404,33 @@ dispatching 800 lanes on the ordinary tick that has 800 contacts.
 Two properties of the API matter for how §6.6 is written:
 
 - **The producer edge is structural.** The counter is registered as a read of the consuming task by
-  the runtime itself, so `RuntimeGraphBuilder` does not have to remember to name it in `Reads(...)` and
-  cannot get it wrong.
-- **Overflow fails the run; it does not clamp.** A live count above the compiled capacity throws with
-  both numbers in the message. That is the correct behaviour for this system — a clamped contact count
-  is a silently dropped contact — but it means **capacity planning is now a hard failure mode, not a
-  quality-of-simulation one**, and §6.4's fixed-capacity buffers must be sized against the escalation
-  path in §7, not against a typical tick. The engine's own budget clamp has to run *before* the count
-  reaches the runtime.
+  the runtime itself, so `RuntimeGraphBuilder` does not have to remember to name it in `Reads(...)`
+  and cannot get it wrong.
+- **Overflow fails the run; it does not clamp.** A live count above the compiled capacity throws
+  with both numbers in the message. That is the correct behaviour for this system — a clamped
+  contact count is a silently dropped contact — but it means **capacity planning is now a hard
+  failure mode, not a quality-of-simulation one**, and §6.4's fixed-capacity buffers must be sized
+  against the escalation path in §7, not against a typical tick. The engine's own budget clamp has
+  to run *before* the count reaches the runtime.
 
 One constraint the design must honour: the counter buffer must be host-addressable
-(`Residency::Shared`). Everything else in the scene stays device-resident; the counters are four bytes
-each and are the only exception.
+(`Residency::Shared`). Everything else in the scene stays device-resident; the counters are four
+bytes each and are the only exception.
 
 #### What this changes elsewhere in this plan
 
 - **§6.6** — the "dispatch at capacity, early-out per lane" shape is no longer the plan. The
   `RuntimeGraphBuilder` seam still exists for API churn, but not as a switch waiting for indirect
   dispatch.
-- **§12.2** — the fixed-order reduction moves from "the physics layer builds it" to "the physics layer
-  calls it". It leaves P0 as a deliverable and stays as a *conformance requirement*: the byte-equality
-  test with the worker count varied (§15.5) still has to pass, and now it tests the runtime's primitive
-  rather than ours.
-- **§17.5** — the island-per-region serialization risk is closed. Option (c), `when()`-gated islands,
+- **§12.2** — the fixed-order reduction moves from "the physics layer builds it" to "the physics
+  layer calls it". It leaves P0 as a deliverable and stays as a *conformance requirement*: the
+  byte-equality test with the worker count varied (§15.5) still has to pass, and now it tests the
+  runtime's primitive rather than ours.
+- **§17.5** — the island-per-region serialization risk is closed. Option (c), `when()`-gated
+  islands,
   is no longer the P2 fallback.
-- **§15.6** — "no physics node is added through a raw-kernel overload" stops being a review checklist
+- **§15.6** — "no physics node is added through a raw-kernel overload" stops being a review
+  checklist
   and becomes a mechanical check.
 
 None of this changes a phase boundary or a deliverable's scope. It removes work from P0 and removes

@@ -29,7 +29,7 @@
  *
  * The composition root of the terrain path: it owns the pack, the height source over it,
  * the layer stack, and the slot cache, and each frame it turns a camera position into the
- * node array `terrain.vert` indexes (`docs/slop/solar_system_overhaul.md` §7, §8).
+ * node array `terrain.vert` indexes (`docs/design/solar_system_overhaul.md` §7, §8).
  *
  * It owns no Vulkan of its own beyond the cache — the buffers it fills are graph
  * transients the pass declares, so nothing here outlives a frame or needs a barrier.

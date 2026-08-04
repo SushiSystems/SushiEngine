@@ -127,7 +127,7 @@ namespace SushiEngine
                       {"evolution_rate", e.clouds.evolution_rate},
                       {"decks", decks}}},
                 // The regional nest's physics. Every field of AtmosphereNestParameters is here
-                // rather than a chosen few, because docs/slop/atmosphere_system.md §13's
+                // rather than a chosen few, because docs/design/atmosphere_system.md §13's
                 // claim -- "every physical constant is serialized with the scene, and
                 // editable" -- is only true if a scene can actually carry all of them.
                 {"atmosphere_nest",

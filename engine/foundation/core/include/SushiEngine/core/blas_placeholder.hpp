@@ -541,7 +541,7 @@ namespace SushiEngine
          * floating-point addition is not associative, so a reduction's answer is a
          * function of its combination order, and an order that is a function of the
          * *data layout* is reproducible where one that follows the schedule is not
-         * (`docs/slop/physics_system.md` §12.1). Anything parallel that claims to
+         * (`docs/design/physics_system.md` §12.1). Anything parallel that claims to
          * agree with a reduction must agree with this.
          *
          * @param values   The array to fold.

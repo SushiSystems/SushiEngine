@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Unit_TerrainQuadtree: CDLOD node selection
-// (docs/slop/solar_system_overhaul.md §7.1).
+// (docs/design/solar_system_overhaul.md §7.1).
 //
 // The load-bearing property is not "roughly the right number of nodes" -- it is that the
 // emitted set is a *proper cut* of the tree: every point of the body is covered by exactly

@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Integration_XPBDSolver: SushiLoop M2's unified XPBD solver against the real
-// runtime (docs/slop/SUSHILOOP.md). Mirrors Integration_PGSSolver's structure and
+// runtime (docs/design/SUSHILOOP.md). Mirrors Integration_PGSSolver's structure and
 // scenario (a hanging chain) but over RigidBody state instead of bare positions, to
 // prove the rigid-body generalization: with anchors at each body's own centre
 // (zero offset) and zero inverse inertia, XPBDDistanceProjection's linear term is

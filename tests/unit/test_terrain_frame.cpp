@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Unit_TerrainFrame: the camera's crossing into the body's own frame
-// (docs/slop/solar_system_overhaul.md §7, §9).
+// (docs/design/solar_system_overhaul.md §7, §9).
 //
 // Three conventions meet in this one function and each of them is silently wrong in a way
 // that still renders something: whether the matrix is stored by columns or by rows (a

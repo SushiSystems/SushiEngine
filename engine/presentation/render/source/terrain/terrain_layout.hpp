@@ -32,7 +32,7 @@
  * that overflows it. It takes set 2 instead — the arrangement the GPU-driven and meshlet
  * paths already use — and leaves sets 0 and 1 byte-for-byte what every other scene
  * pipeline binds. That is what lets terrain be shaded by the existing `pbr.frag` with no
- * parallel lighting code (`docs/slop/solar_system_overhaul.md` §8.3).
+ * parallel lighting code (`docs/design/solar_system_overhaul.md` §8.3).
  *
  * The push constant is vertex-only, because `pbr.frag` declares none: it takes the
  * material index and the picking id as flat vertex outputs, which is exactly what let

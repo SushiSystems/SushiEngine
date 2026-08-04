@@ -7,7 +7,7 @@ request merged.
 By contributing you agree that your contributions are licensed under the
 project's **Apache License, Version 2.0** (see [`LICENSE`](../LICENSE)).
 
-> New to the codebase? Read [`ARCHITECTURE.md`](ARCHITECTURE.md)
+> New to the codebase? Read the [architecture chapters](architecture/README.md)
 > first — it explains the head/battery split, the layers, and how the engine hands
 > simulation work to SushiRuntime as a task graph.
 
@@ -58,8 +58,8 @@ Override the runtime location with `-DSUSHIRUNTIME_DIR=...` (or the
 `SUSHIRUNTIME_DIR`/`SUSHISTACK_HOME` environment variables) when it is not at
 `../sushiruntime`. On **Windows**, `se` snapshots a Developer environment
 (`vcvars64.bat`) for you so the resource compiler and MSVC libraries are on
-the path. See [README.md](README.md) for the full requirements list and the
-raw `cmake` invocation if you need to skip the CLI.
+the path. See [the manual index](README.md) for the full requirements list and the
+raw `cmake` invocation if you need to skip the command line tool.
 
 ---
 
@@ -90,7 +90,7 @@ Expectations for a mergeable change:
    all (`-Wall -Wextra -Werror -pedantic` are inherited from the runtime's flags).
 2. **New behavior ships with a test.** Add a GoogleTest case under
    `tests/functional/unit/`, `integration/`, or `regression/` (see
-   [README.md](README.md) for the exact layout and CTest label scheme) —
+   [the manual index](README.md) for the exact layout and CTest label scheme) —
    a device kernel checked against an independent scalar/host reference, the
    way the existing ECS, physics, and loop tests are structured. A new example
    or demo under `examples/`/`sandbox/` is a useful illustration but does not
@@ -189,36 +189,44 @@ sentence is part of the change.
 
 Treat the following as hard requirements, not suggestions:
 
-- **Every user-visible change updates [`CHANGELOG.md`](CHANGELOG.md)**, under
+- **Every user-visible change updates [the changelog](reference/changelog.md)**, under
   `## [Unreleased]` in the right group (`Added` / `Changed` / `Fixed` /
   `Removed` / `Deprecated`). The project has not yet been assigned a semantic
   version — we are in prototype stage — so entries accumulate under
   `[Unreleased]` until the project cuts its first tagged release; a
   `## [1.0.0]` (or later) heading is only opened once that release actually
   happens.
-- **A changelog entry is a short bullet, not an essay.** Same shape as a
-  commit/PR body (§6): one line, a past-tense verb, then the object — "Added
-  X", "Fixed Y", "Changed Z to do W." One or two supporting sub-bullets are
-  fine for a change with real user-facing parts; a multi-paragraph writeup
-  belongs in the PR description or `ARCHITECTURE.md`, not the changelog.
+- **A changelog entry is a short bullet, not an essay.** Same shape as a commit or
+  pull request body (§6): one line, a past-tense verb, then the object — "Added X",
+  "Fixed Y", "Changed Z to do W." One or two supporting sub-bullets are fine for a
+  change with real user-facing parts. The ceiling is 240 characters per bullet and is
+  checked in continuous integration; a bullet that needs more than that is carrying a
+  reason, and a reason belongs in the design document the bullet cites.
 - **A new or changed feature updates the guides.** When you add, rename, or change
-  behavior, update [`ARCHITECTURE.md`](ARCHITECTURE.md) —
-  every class, system, and concept it names must still exist — and
-  [`INTRODUCTION.md`](INTRODUCTION.md) (the getting-started tour and its code
-  samples must compile against the current API), and the top-level
-  [`README.md`](README.md) when the change touches what the project *is* or how a
-  first-time reader gets started.
-- **Any CLI change updates the CLI docs.** If you add, rename, or change an
-  `se` / `sushiengine` command, flag, or its output, update
-  [`CLI_GUIDE.md`](CLI_GUIDE.md) — the full command reference — *and* the
-  build/test snippets in this file and the README that invoke it. Command help
-  text (Typer `--help`) and the guide must agree.
+  behavior, update the [architecture chapters](architecture/README.md) — every class,
+  system and concept they name must still exist — and the
+  [getting-started tour](getting-started/introduction.md), whose code samples must
+  compile against the current API, and the [root `README.md`](../README.md) when the
+  change touches what the project *is* or how a first-time reader gets started.
+- **Any command line change updates the command reference.** If you add, rename, or
+  change an `se` / `sushiengine` command, flag, or its output, update the
+  [command line guide](guides/command-line-interface.md) *and* the build and test
+  snippets in this file and in the README files that invoke it. The command's own help
+  text and the guide must agree.
+- **A new module carries a `README.md`.** `engine/<tier>/<module>/README.md` states what
+  the module owns, its tier, its dependencies and its test coverage; it is the single
+  source of those facts. `tools/documentation/check_module_documentation.py` fails a
+  build that adds a module without one.
 - **Public API carries Doxygen.** New or changed public functions follow §4. The
   header *is* documentation.
 
-The PR description must say which docs you touched, or state explicitly that the
-change is doc-invisible (an internal refactor with no API or behavior change).
-"Docs later" is not accepted.
+Prose in this repository follows [the documentation style
+guide](documentation-style-guide.md), which sets the voice, the naming rules and the
+length ceilings, and names the script that enforces them.
+
+The pull request description must say which documents you touched, or state explicitly
+that the change is documentation-invisible — an internal refactor with no API and no
+behavior change. "Documentation later" is not accepted.
 
 ---
 

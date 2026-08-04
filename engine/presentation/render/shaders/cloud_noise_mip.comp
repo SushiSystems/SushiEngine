@@ -1,6 +1,6 @@
 #version 450
 
-// One level of the march carve volume's mip chain (docs/slop/atmosphere_system.md §11, CV3).
+// One level of the march carve volume's mip chain (docs/design/atmosphere_system.md §11, CV3).
 //
 // **Why the chain exists.** The view march carves cloud shape per sample out of this volume,
 // at a world scale that is fixed in metres — so a sample a hundred kilometres away, whose own

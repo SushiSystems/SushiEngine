@@ -38,7 +38,7 @@
  * @ref IWeatherProvider::tick lets the host advance time without knowing what it installed,
  * and @ref IWeatherAuthoring lets the editor reach authoring through a capability rather than
  * a concrete type. A host that stored `ProceduralWeather` directly would leave every other
- * implementation of this seam unreachable — see `docs/slop/atmosphere_system.md` §1.6.
+ * implementation of this seam unreachable — see `docs/design/atmosphere_system.md` §1.6.
  */
 
 #include <algorithm>
@@ -82,7 +82,7 @@ namespace SushiEngine
                  * @brief Publishes this provider's horizontal structure into @p out.
                  *
                  * The field half of the same contract, and the reason a front can be seen as
-                 * a front (`docs/slop/atmosphere_system.md` §1.1): a renderer handed only
+                 * a front (`docs/design/atmosphere_system.md` §1.1): a renderer handed only
                  * `sample_column` can do nothing but apply one column to the whole sky, which
                  * is precisely the defect that made every earlier phase's meteorology
                  * invisible. Every provider can answer this honestly — one with no horizontal
@@ -116,7 +116,7 @@ namespace SushiEngine
                 /**
                  * @brief Publishes the parent solution the GPU regional nest is driven by.
                  *
-                 * `docs/slop/atmosphere_system.md` §6's Davies nesting, from this side. A
+                 * `docs/design/atmosphere_system.md` §6's Davies nesting, from this side. A
                  * provider that does not drive a nest leaves this a no-op, and the forcing then
                  * never becomes valid — which is exactly what tells the renderer not to build a
                  * nest at all, so a scene with a static or ingested sky pays nothing for one.
@@ -380,7 +380,7 @@ namespace SushiEngine
          * Owns the global dynamical core (`Atmosphere::QuasiGeostrophicCore`, §5) and publishes
          * the forcing that drives T2. It no longer owns T2 itself: the nest is a device-level
          * GPU service (`render/atmosphere/atmosphere_nest.hpp`), because the model
-         * `docs/slop/atmosphere_system.md` §6 asks for — anelastic dynamics with a pressure
+         * `docs/design/atmosphere_system.md` §6 asks for — anelastic dynamics with a pressure
          * solve, monotone transport at Courant ≈ 1, Kessler microphysics — is not worth writing
          * for a CPU, and the design doc says so outright. T1 is, for the mirror-image reason
          * (§3.3): every consumer of it is on this side of the seam.

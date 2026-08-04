@@ -32,7 +32,7 @@
  * `CommandBuffer`, an `InputHistory`, a `RollbackBuffer`, and a seeded `RNGState` —
  * into a single fixed-step deterministic loop with a tidy way to register gameplay.
  * It is deliberately **not** a per-instance object model (no virtual `Update()` per
- * entity): gameplay is written as pure-ECS systems, exactly as `docs/slop/SUSHILOOP.md`
+ * entity): gameplay is written as pure-ECS systems, exactly as `docs/design/SUSHILOOP.md`
  * commits to, and the App only gives that a settled, ergonomic shape and a
  * well-defined per-tick lifecycle.
  *

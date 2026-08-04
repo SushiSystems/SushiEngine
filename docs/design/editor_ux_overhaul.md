@@ -1,7 +1,9 @@
 # Editor UX Overhaul — from a pile of panels to a Unity-class editor
 
-Status: **Implemented — UX0 through UX6, as of 2026-07-30.** One item is still owed, an
-`se editor` first-run check on a clean profile; see §6.1 and UX6's last bullet. The audit
+**Status:** shipped, UX0 through UX6 as of 2026-07-30; a clean-profile first-run check is owed.
+
+One item is still owed, an `se editor` first-run check on a clean profile; see §6.1 and
+UX6's last bullet. The audit
 and plan below are kept as written so the reasoning behind each phase stays readable
 alongside the tree it produced; each phase records what shipped, what was deliberately not
 done, and why.
@@ -1106,7 +1108,7 @@ kept). Expect its in-flight work in any commit touching those files.
   and in [[standalone-test-harness]]); the `se test` lane is unaffected.
 - The Audio Authoring project is session-scoped (no project-file persistence yet);
   the panel is wired and docked.
-- `docs/ARCHITECTURE.md` §10's editor bullet still describes the pre-live-World
+- `docs/architecture/roadmap.md` §1's editor bullet still describes the pre-live-World
   shell in places beyond the lines corrected here.
 - The environment's undo bracket shares one `environment_change_active` flag
   across panels; a drag spanning a release-then-immediate-grab across *different*

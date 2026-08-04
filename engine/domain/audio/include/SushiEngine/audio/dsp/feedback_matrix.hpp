@@ -32,7 +32,7 @@
  * single **energy-preserving (orthogonal) matrix**: every echo is scattered into every
  * line, so the echo density grows geometrically toward a natural-sounding diffuse tail,
  * and — because the matrix is lossless — the *only* thing that sets the decay is the
- * per-line damping (§3.7 of `docs/slop/audio_system.md`). Decouple mixing from decay
+ * per-line damping (§3.7 of `docs/design/audio_system.md`). Decouple mixing from decay
  * and the reverb time becomes a clean, per-band knob.
  *
  * Two matrices, both applied **in place** to the N-vector of (already damped) delay

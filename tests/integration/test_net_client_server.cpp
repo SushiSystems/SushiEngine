@@ -154,7 +154,7 @@ TEST(Integration_NetClientServer, DeterministicSpawnIdMatchesAcrossClientAndServ
 
     // Kept outside any rollback-captured tick range, on purpose: this proves
     // make_network_id's agreement, not rollback surviving a structural change
-    // (see ARCHITECTURE.md SS8.1 — that remains later work).
+    // (see `docs/architecture/world.md` §1.1 — that remains later work).
     constexpr Loop::TickId SPAWN_TICK = TOTAL_TICKS;
     constexpr Loop::Net::SpawnSequence SPAWN_SEQUENCE = 0;
 

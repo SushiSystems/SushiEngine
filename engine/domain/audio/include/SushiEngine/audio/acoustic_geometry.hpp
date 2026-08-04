@@ -30,7 +30,7 @@
  *
  * Sound is occluded by a **simplified** acoustic mesh, not the render geometry: coarse
  * triangles, each tagged with an @ref AcousticMaterial, so a wall is a handful of
- * quads rather than a million-triangle bake (see `docs/slop/audio_system.md` §6). The
+ * quads rather than a million-triangle bake (see `docs/design/audio_system.md` §6). The
  * structure is two-level, exactly like a ray-tracer's:
  *
  *   - @ref AcousticBlas — a **bottom-level** BVH built once over one @ref AcousticMesh

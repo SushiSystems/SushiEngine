@@ -1,74 +1,71 @@
 # Render Pipeline Refactor — Toward an AAA, Performance-First Renderer
 
-Status: **Living design document.** Phases 0, 1, 2 and 5 are **shipped and verified
-against source** (see §3 — Completed). **Phase 3 is shipped:** items 3.1 (the tier
-contract / `QualityParams`), 3.2 (`VulkanSceneView` → `ViewResources` extraction), 3.3
-(background PSO optimizer), 3.4 (Vulkan 1.4 floor), 3.5 (descriptor-writer seam), and
-3.7 (IBL diffuse → SH-9) are **shipped**; 3.6 (the Slang decision) is now **decided —
-deferred with recorded rationale** (GLSL stays; revisit at Phase 6). **Phase 4 is
-essentially complete:** the clustered Forward+ core (4.1–4.3), **per-light shadows**
-(4.4 — spot *and* point-light cube maps, soft Vogel PCF), **clustered decals** (4.5 —
-tint *and* bindless albedo/ORM textures), the **Lighting window** (4.6), and the
-**emissive→bloom seam** (4.7, verified HDR) are all **shipped**, each tier-wired and
-authored as a per-entity component. Remaining in Phase 4 are opt-in refinements, not
-gaps: area/IES lights (deferred by design to a later increment), projected normal-map
-decals, and shadow caching / screen-coverage quadtree tiles / adaptive per-light PCSS.
-Alongside, a **rendering-quality pass** landed: Vogel-disc shadow PCF, a temporally
-stable analytic-ground shadow, softened punctual shadows, and a TPDF output dither —
+**Status:** in progress, phases 0 to 11 shipped in core form; tier-scalable refinements remain.
+
+A living design document. Phases 0, 1, 2 and 5 are **shipped and verified against source** (see §3 —
+Completed). **Phase 3 is shipped:** items 3.1 (the tier contract / `QualityParams`), 3.2
+(`VulkanSceneView` → `ViewResources` extraction), 3.3 (background PSO optimizer), 3.4 (Vulkan 1.4
+floor), 3.5 (descriptor-writer seam), and 3.7 (IBL diffuse → SH-9) are **shipped**; 3.6 (the Slang
+decision) is now **decided — deferred with recorded rationale** (GLSL stays; revisit at Phase 6).
+**Phase 4 is essentially complete:** the clustered Forward+ core (4.1–4.3), **per-light shadows**
+(4.4 — spot *and* point-light cube maps, soft Vogel PCF), **clustered decals** (4.5 — tint *and*
+bindless albedo/ORM textures), the **Lighting window** (4.6), and the **emissive→bloom seam** (4.7,
+verified HDR) are all **shipped**, each tier-wired and authored as a per-entity component. Remaining
+in Phase 4 are opt-in refinements, not gaps: area/IES lights (deferred by design to a later
+increment), projected normal-map decals, and shadow caching / screen-coverage quadtree tiles /
+adaptive per-light PCSS. Alongside, a **rendering-quality pass** landed: Vogel-disc shadow PCF, a
+temporally stable analytic-ground shadow, softened punctual shadows, and a TPDF output dither —
 replacing the visible dithering/banding with smooth, temporally-stable results (an early
-down-payment on §5.1 blue-noise and §9.6 dither). **Phase 5 is complete for its shippable
-scope:** the shared noise source is consolidated into one `blue_noise.glsl` (§5.1), **GTAO**
-(§5.2) ships — half-resolution horizon occlusion with a bent normal, joint-bilateral-upsampled
-and frame-stable so it reads smooth, feeding the indirect diffuse and a bent-normal specular
-occlusion (§5.5) — and **hi-Z + screen-space reflections** (§5.3) ship: a pass-owned
-nearest-depth pyramid, a thin roughness/F0 G-buffer, and a smooth mirror trace folded into
-the scene. Local reflection probes (§5.4) are deferred with recorded rationale (they need the
-editor's visual loop to land a scene-capture path safely); the reflection chain functions
-without them via SSR plus the IBL fallback. **Phase 7 is shipped:** the Hillaire 2020 LUT
-stack (transmittance, multi-scatter, per-frame sky-view, and the aerial-perspective froxel
-volume), **volumetric fog** with authored local box/ellipsoid volumes, and the cloud
-coupling seam — the atmosphere is LUT-driven end to end, retiring the full-resolution
-per-pixel single-scatter march for the common cases (background sky and near meshes) and
-LUT-accelerating the rest. Only opt-in refinements remain (CSM god-ray shafts and
-punctual-light fog, per-tier LUT resolutions, temporal amortization). **Phase 6 GI is
-shipped (core):** a probe-volume cascade of SH-9 irradiance probes fed by a pluggable
-tracer — the default SDF cone tracer (all hardware) rebuilds a scene distance clipmap
-from the analytic primitives and per-mesh bricks baked at import and sphere-traces it per
-probe for occlusion and one coloured bounce, amortized by sparse round-robin relight, with
-rough reflections falling back to the same probe cache. Multiple cascades, emissive
-injection, toroidal amortization, and the Tier B ray-query tracer remain as tier-scalable
-refinements. **Phase 9 post-processing is shipped (core):** a tier-wired post chain after the
-temporal resolve — histogram auto-exposure, energy-conserving bloom, an AgX/ACES/Neutral tone
-curve, a white-balance/lift-gamma-gain colour grade, gather-based depth of field and motion
-blur, and the vignette/chromatic-aberration/film-grain lens effects — all reading one post
-parameter block authored by a dedicated **Post Process** editor window; only HDR10/scRGB
-swapchain output is deferred (unverifiable without an HDR display). **Phase 10 GPU-driven
-geometry is shipped (core):** the CPU stops issuing one draw per object — `InstanceSystem`
-packs instances into a `GpuInstance` buffer grouped by mesh into per-mesh buckets, a compute
-`CullPass` frustum-, screen-coverage-, and occlusion-culls each instance (testing against a new
-persistent max-Z occlusion pyramid, the conservative twin of the Phase 5 hi-Z, reprojected from
-last frame) and writes one indirect draw per bucket, and `mesh_gpu.vert` draws them from a set-2
-instance descriptor set — a two-path design (GPU-driven when the tier permits, the heap is
-present, and nothing is selected; classic CPU per-instance draw otherwise), authored by a **GPU
-Culling** editor panel; cloth triangulation moved to a compute pass (`cloth.comp`/`ClothPass`, the
-host uploading only particle positions), and a `VK_EXT_mesh_shader` meshlet path (task + mesh
-shaders, per-meshlet frustum cull, device+Ultra gated with classic fallback) added on top, leaving
-only sparse virtual texturing deferred with recorded rationale. **Phase 11 delivery is shipped
-(core):** the render graph learned queues — a pass may ask for the async compute queue, and the
-compiler splits the schedule into per-queue submissions, deriving their cross-queue waits and
-their concurrent-sharing needs from the same declarations the barriers come from (the clustered
-light cull and the GTAO march ride it today) — binary fences gave way to per-queue timeline
-semaphores with 2-or-3 frames in flight and selectable present pacing, reconstruction moved
-behind one `IUpscaler` interface that the shipped temporal resolve now implements (vendor
-backends deferred; an absent SDK resolves back to it with the reason surfaced), and the engine
-half of the SushiRuntime interop seam — an exportable, UUID-stamped device allocation — landed
-with the runtime-side import recorded as blocked on an API the runtime does not yet have. This
-revision re-audits the codebase, folds in
-a 2024–2026 state-of-the-art survey (SIGGRAPH Advances 2021/2023/2025, GDC 2024/2025,
-GPUOpen, vendor SDK documentation), and replaces the remaining roadmap with detailed,
-AAA-complete phases. The guiding constraint is unchanged: the *red line between
-maximum realism and performance* — where the two conflict, **performance wins**.
-Every technique carries a quality tier so the expensive half is opt-in per platform.
+down-payment on §5.1 blue-noise and §9.6 dither). **Phase 5 is complete for its shippable scope:**
+the shared noise source is consolidated into one `blue_noise.glsl` (§5.1), **GTAO** (§5.2) ships —
+half-resolution horizon occlusion with a bent normal, joint-bilateral-upsampled and frame-stable so
+it reads smooth, feeding the indirect diffuse and a bent-normal specular occlusion (§5.5) — and
+**hi-Z + screen-space reflections** (§5.3) ship: a pass-owned nearest-depth pyramid, a thin
+roughness/F0 G-buffer, and a smooth mirror trace folded into the scene. Local reflection probes
+(§5.4) are deferred with recorded rationale (they need the editor's visual loop to land a
+scene-capture path safely); the reflection chain functions without them via SSR plus the IBL
+fallback. **Phase 7 is shipped:** the Hillaire 2020 LUT stack (transmittance, multi-scatter,
+per-frame sky-view, and the aerial-perspective froxel volume), **volumetric fog** with authored
+local box/ellipsoid volumes, and the cloud coupling seam — the atmosphere is LUT-driven end to end,
+retiring the full-resolution per-pixel single-scatter march for the common cases (background sky and
+near meshes) and LUT-accelerating the rest. Only opt-in refinements remain (CSM god-ray shafts and
+punctual-light fog, per-tier LUT resolutions, temporal amortization). **Phase 6 GI is shipped
+(core):** a probe-volume cascade of SH-9 irradiance probes fed by a pluggable tracer — the default
+SDF cone tracer (all hardware) rebuilds a scene distance clipmap from the analytic primitives and
+per-mesh bricks baked at import and sphere-traces it per probe for occlusion and one coloured
+bounce, amortized by sparse round-robin relight, with rough reflections falling back to the same
+probe cache. Multiple cascades, emissive injection, toroidal amortization, and the Tier B ray-query
+tracer remain as tier-scalable refinements. **Phase 9 post-processing is shipped (core):** a
+tier-wired post chain after the temporal resolve — histogram auto-exposure, energy-conserving bloom,
+an AgX/ACES/Neutral tone curve, a white-balance/lift-gamma-gain colour grade, gather-based depth of
+field and motion blur, and the vignette/chromatic-aberration/film-grain lens effects — all reading
+one post parameter block authored by a dedicated **Post Process** editor window; only HDR10/scRGB
+swapchain output is deferred (unverifiable without an HDR display). **Phase 10 GPU-driven geometry
+is shipped (core):** the CPU stops issuing one draw per object — `InstanceSystem` packs instances
+into a `GpuInstance` buffer grouped by mesh into per-mesh buckets, a compute `CullPass` frustum-,
+screen-coverage-, and occlusion-culls each instance (testing against a new persistent max-Z
+occlusion pyramid, the conservative twin of the Phase 5 hi-Z, reprojected from last frame) and
+writes one indirect draw per bucket, and `mesh_gpu.vert` draws them from a set-2 instance descriptor
+set — a two-path design (GPU-driven when the tier permits, the heap is present, and nothing is
+selected; classic CPU per-instance draw otherwise), authored by a **GPU Culling** editor panel;
+cloth triangulation moved to a compute pass (`cloth.comp`/`ClothPass`, the host uploading only
+particle positions), and a `VK_EXT_mesh_shader` meshlet path (task + mesh shaders, per-meshlet
+frustum cull, device+Ultra gated with classic fallback) added on top, leaving only sparse virtual
+texturing deferred with recorded rationale. **Phase 11 delivery is shipped (core):** the render
+graph learned queues — a pass may ask for the async compute queue, and the compiler splits the
+schedule into per-queue submissions, deriving their cross-queue waits and their concurrent-sharing
+needs from the same declarations the barriers come from (the clustered light cull and the GTAO march
+ride it today) — binary fences gave way to per-queue timeline semaphores with 2-or-3 frames in
+flight and selectable present pacing, reconstruction moved behind one `IUpscaler` interface that the
+shipped temporal resolve now implements (vendor backends deferred; an absent SDK resolves back to it
+with the reason surfaced), and the engine half of the SushiRuntime interop seam — an exportable,
+UUID-stamped device allocation — landed with the runtime-side import recorded as blocked on an API
+the runtime does not yet have. This revision re-audits the codebase, folds in a 2024–2026
+state-of-the-art survey (SIGGRAPH Advances 2021/2023/2025, GDC 2024/2025, GPUOpen, vendor SDK
+documentation), and replaces the remaining roadmap with detailed, AAA-complete phases. The guiding
+constraint is unchanged: the *red line between maximum realism and performance* — where the two
+conflict, **performance wins**. Every technique carries a quality tier so the expensive half is
+opt-in per platform.
 
 Companion document: **[atmosphere_system.md](atmosphere_system.md)** — the volumetric
 cloud + GPU meteorology plan (Phase 8 here defers to it). It supersedes the retired
@@ -794,21 +791,20 @@ passes read is pure data the editor resolves into (no pass reads the editor).
 
 ### Phase 10 — GPU-driven geometry — **shipped (core)**
 
-Removes the per-object CPU wall before scene density grows into it. The core landed — the
-CPU no longer issues one draw per object. `InstanceSystem` packs every opaque mesh instance
-into a `GpuInstance` storage buffer grouped by mesh into per-mesh buckets; `CullPass` runs
-before the depth prepass and frustum-, screen-coverage-, and occlusion-culls each instance,
-compacting survivors per bucket and writing one `VkDrawIndexedIndirectCommand` each;
-`mesh_gpu.vert` reads the instance record (set 2) in place of the classic push constant and
-draws indirectly. **Shipped:** instancing + MDI (10.1), single-phase GPU occlusion culling
-(10.2), screen-coverage LOD (10.3), a `VK_EXT_mesh_shader` meshlet path (10.4, device+Ultra gated
-with classic fallback), and GPU cloth triangulation (10.6) — the "remove the per-object CPU wall"
-core plus compute-driven soft-body triangulation and a mesh-shader draw path.
-**Deferred with rationale:** sparse virtual texturing (10.5).
-The whole path is two-path: GPU-driven when the tier permits
-(`gpu_driven` — off on Low, on for Medium/High/Ultra), the author's `GpuCullingSettings.enabled`
-is set, the bindless heap is present, and nothing is selected; classic CPU per-instance draw
-otherwise. The editor's **GPU Culling** panel authors `RenderSettings::gpu_culling`.
+Removes the per-object CPU wall before scene density grows into it. The core landed — the CPU no
+longer issues one draw per object. `InstanceSystem` packs every opaque mesh instance into a
+`GpuInstance` storage buffer grouped by mesh into per-mesh buckets; `CullPass` runs before the depth
+prepass and frustum-, screen-coverage-, and occlusion-culls each instance, compacting survivors per
+bucket and writing one `VkDrawIndexedIndirectCommand` each; `mesh_gpu.vert` reads the instance
+record (set 2) in place of the classic push constant and draws indirectly. **Shipped:** instancing +
+MDI (10.1), single-phase GPU occlusion culling (10.2), screen-coverage LOD (10.3), a
+`VK_EXT_mesh_shader` meshlet path (10.4, device+Ultra gated with classic fallback), and GPU cloth
+triangulation (10.6) — the "remove the per-object CPU wall" core plus compute-driven soft-body
+triangulation and a mesh-shader draw path. **Deferred with rationale:** sparse virtual texturing
+(10.5). The whole path is two-path: GPU-driven when the tier permits (`gpu_driven` — off on Low, on
+for Medium/High/Ultra), the author's `GpuCullingSettings.enabled` is set, the bindless heap is
+present, and nothing is selected; classic CPU per-instance draw otherwise. The editor's **GPU
+Culling** panel authors `RenderSettings::gpu_culling`.
 
 1. **Instancing + multi-draw-indirect**: ✓ **Shipped** as per-mesh-bucket MDI. `InstanceSystem`
    packs per-instance records into one storage buffer (transform, bounding sphere, and the
@@ -820,15 +816,14 @@ otherwise. The editor's **GPU Culling** panel authors `RenderSettings::gpu_culli
    shipped design and the win (flat CPU cost) is already realized.
 2. **GPU occlusion culling**: ✓ **Shipped** as single-phase. `cull.comp` tests each instance's
    bounding sphere against the **previous frame's** max-Z depth pyramid — reprojected with the
-   previous view-projection and the eye delta — and drops what is hidden. `OcclusionPass` owns
-   that pyramid: a persistent farthest-depth mip chain built after the depth prepass, the
-   conservative twin of the Phase 5 hi-Z (nearest-depth is right for reflection marching and
-   wrong for culling, so this is a *new* pyramid, not the reused one the original plan named).
-   No readback, no popping. The two-phase re-test (phase 1 draws last-frame-visible + tests the
-   rest against the prev-frame HZB, phase 2 retests false negatives against the current HZB)
-   that removes the one-frame disocclusion latency is ○ **deferred** as a documented refinement.
-   Per-view culling of shadow cascades, atlas tiles, and probes (§2.3) rides the same mechanism
-   when those views adopt it.
+   previous view-projection and the eye delta — and drops what is hidden. `OcclusionPass` owns that
+   pyramid: a persistent farthest-depth mip chain built after the depth prepass, the conservative
+   twin of the Phase 5 hi-Z (nearest-depth is right for reflection marching and wrong for culling,
+   so this is a *new* pyramid, not the reused one the original plan named). No readback, no popping.
+   The two-phase re-test (phase 1 draws last-frame-visible + tests the rest against the prev-frame
+   HZB, phase 2 retests false negatives against the current HZB) that removes the one-frame
+   disocclusion latency is ○ **deferred** as a documented refinement. Per-view culling of shadow
+   cascades, atlas tiles, and probes (§2.3) rides the same mechanism when those views adopt it.
 3. **GPU LOD selection**: ✓ **Shipped** as screen-coverage culling, folded into the cull — an
    instance whose projected on-screen diameter is below an authored pixel threshold
    (`min_screen_diameter`) is dropped (LOD = "not drawn"). Discrete mesh-LOD swapping (multiple
@@ -840,28 +835,29 @@ otherwise. The editor's **GPU Culling** panel authors `RenderSettings::gpu_culli
    each with a bounding sphere and a normal cone (`geometry/meshlet.{hpp,cpp}`). When the tier is
    **Ultra** and the device offers mesh shaders (`VulkanDevice::supports_mesh_shader()`, detected at
    runtime), a task shader (`meshlet.task`) frustum-culls each mesh's clusters and a mesh shader
-   (`meshlet.mesh`) emits the survivors camera-relative into the shared `pbr.frag` — used in **both**
-   the depth prepass and the opaque pass so culling stays consistent. The pipeline factory gained a
-   `create_mesh` path (task+mesh+fragment, no vertex input) and `QualityParams` gained an Ultra-only
-   `meshlets` flag. It is purely additive and device-gated: where mesh shaders are absent, the tier is
-   below Ultra, or an object is selected, the same geometry falls back through the GPU-driven MDI or
-   classic path (the layering is meshlets → GPU-driven MDI → classic), so no hardware is left unable
-   to render. The task shader currently does per-meshlet **frustum** culling only; per-meshlet
-   hierarchical-Z (HZB) occlusion culling plus normal-cone back-face culling (the latter needs
-   single-sided geometry), and fully GPU-driven indirect mesh tasks (`vkCmdDrawMeshTasksIndirectEXT`
-   in place of the current one-`drawMeshTasks`-per-instance CPU loop), are ○ **deferred** refinements.
-   `VK_EXT_device_generated_commands` is adopted only if pass-bucket switching shows up in profiles.
+   (`meshlet.mesh`) emits the survivors camera-relative into the shared `pbr.frag` — used in
+   **both** the depth prepass and the opaque pass so culling stays consistent. The pipeline factory
+   gained a `create_mesh` path (task+mesh+fragment, no vertex input) and `QualityParams` gained an
+   Ultra-only `meshlets` flag. It is purely additive and device-gated: where mesh shaders are
+   absent, the tier is below Ultra, or an object is selected, the same geometry falls back through
+   the GPU-driven MDI or classic path (the layering is meshlets → GPU-driven MDI → classic), so no
+   hardware is left unable to render. The task shader currently does per-meshlet **frustum** culling
+   only; per-meshlet hierarchical-Z (HZB) occlusion culling plus normal-cone back-face culling (the
+   latter needs single-sided geometry), and fully GPU-driven indirect mesh tasks
+   (`vkCmdDrawMeshTasksIndirectEXT` in place of the current one-`drawMeshTasks`-per-instance CPU
+   loop), are ○ **deferred** refinements. `VK_EXT_device_generated_commands` is adopted only if
+   pass-bucket switching shows up in profiles.
 5. **Sparse virtual texturing** for terrain/large sets: ○ **Deferred** — a whole subsystem
    (software SVT with a shader-written feedback buffer since Vulkan has no sampler feedback,
    a page cache, and async transfer-queue uploads), out of this increment's scope.
-6. **Cloth on GPU**: ✓ **Shipped** as compute-driven soft-body triangulation. The host uploads
-   only particle positions (in a strand-local frame with a per-strand camera-relative origin so
+6. **Cloth on GPU**: ✓ **Shipped** as compute-driven soft-body triangulation. The host uploads only
+   particle positions (in a strand-local frame with a per-strand camera-relative origin so
    planet-scale precision survives); `cloth.comp`, driven by a new `ClothPass`, computes the
    area-weighted vertex normals — reproducing the exact CPU triangle winding — and writes the
-   drawable `MeshVertex` and index buffers the opaque pass then draws. `ClothBuffers` was
-   reworked into a host-visible positions buffer plus device-local compute-written vertex/index
-   buffers, with a `prepare()` that packs positions and lays out per-strand ranges; no per-vertex
-   float work happens on the CPU anymore.
+   drawable `MeshVertex` and index buffers the opaque pass then draws. `ClothBuffers` was reworked
+   into a host-visible positions buffer plus device-local compute-written vertex/index buffers, with
+   a `prepare()` that packs positions and lays out per-strand ranges; no per-vertex float work
+   happens on the CPU anymore.
 
 *Tier:* meshlets, SVT residency budget, HLOD distance. *SOLID:* culling writes
 draw args; passes consume them — the draw loop stops being renderer code and
@@ -984,29 +980,28 @@ opposite of the posture this document takes everywhere else.
    trigger:** an RT-capable development device.
 2. **RT reflections**: ○ **Deferred — same rationale.** Replace SSR *misses* only (the hybrid
    pattern), denoised by an NRD-class library rather than a hand-written SVGF. Two blockers, not
-   one: the hardware above, and NRD itself, which is an external SDK this build does not vendor
-   — the same "a redistributable under its own licence is a project decision" line the vendor
+   one: the hardware above, and NRD itself, which is an external SDK this build does not vendor —
+   the same "a redistributable under its own licence is a project decision" line the vendor
    upscalers sit behind (§11.1).
-3. **Stochastic direct lighting** (MegaLights-shaped): ◐ **Tier A shipped; Tier B deferred.**
-   The shipped half is the one the plan already scoped for non-RT hardware — "visibility by ray
-   query (Tier B) or **SDF trace (Tier A high)**". A pixel's cluster lights split in two: those
-   holding a punctual shadow-atlas tile are filtered against it exactly as before, and those
-   beyond the atlas budget — previously shaded fully unshadowed — are importance-sampled. Each
-   pixel draws a tier-scaled number of them proportionally to `luminance × falloff × cosine`
-   (stratified, frame-advanced so consecutive frames pick differently), marches the GI distance
-   clipmap toward each pick with `sdf_visibility()`, and weights by `1/(K·p)`. The estimator is
-   unbiased, so the existing temporal resolve — no new denoiser — averages it toward shadowing
-   every light. **This is the phase's actual win:** the shadowed-light ceiling stops being the
-   atlas tile count (4–16 by tier) and becomes a per-pixel sample budget that does not grow with
-   the light count. Plumbing worth recording: the per-frame push set was already full at its
-   guaranteed 32 bindings, so the field reaches every shading pipeline through a new *volume*
-   array on the bindless heap (one registration for an image created with the device), and the
-   field's placement rides spare lanes of the cluster block rather than a binding of its own.
-   Tier: one sample on High, two on Ultra, zero below — where there is no GI field to march
-   anyway. **Remaining:** Tier B visibility (a ray query in place of the march, on the same
-   estimator — a one-function change once hardware exists), a reservoir carried across frames
-   (ReSTIR-lite) instead of independent per-frame draws, and specular light sampling (the
-   estimator is diffuse-weighted today).
+3. **Stochastic direct lighting** (MegaLights-shaped): ◐ **Tier A shipped; Tier B deferred.** The
+   shipped half is the one the plan already scoped for non-RT hardware — "visibility by ray query
+   (Tier B) or **SDF trace (Tier A high)**". A pixel's cluster lights split in two: those holding a
+   punctual shadow-atlas tile are filtered against it exactly as before, and those beyond the atlas
+   budget — previously shaded fully unshadowed — are importance-sampled. Each pixel draws a
+   tier-scaled number of them proportionally to `luminance × falloff × cosine` (stratified,
+   frame-advanced so consecutive frames pick differently), marches the GI distance clipmap toward
+   each pick with `sdf_visibility()`, and weights by `1/(K·p)`. The estimator is unbiased, so the
+   existing temporal resolve — no new denoiser — averages it toward shadowing every light. **This is
+   the phase's actual win:** the shadowed-light ceiling stops being the atlas tile count (4–16 by
+   tier) and becomes a per-pixel sample budget that does not grow with the light count. Plumbing
+   worth recording: the per-frame push set was already full at its guaranteed 32 bindings, so the
+   field reaches every shading pipeline through a new *volume* array on the bindless heap (one
+   registration for an image created with the device), and the field's placement rides spare lanes
+   of the cluster block rather than a binding of its own. Tier: one sample on High, two on Ultra,
+   zero below — where there is no GI field to march anyway. **Remaining:** Tier B visibility (a ray
+   query in place of the march, on the same estimator — a one-function change once hardware exists),
+   a reservoir carried across frames (ReSTIR-lite) instead of independent per-frame draws, and
+   specular light sampling (the estimator is diffuse-weighted today).
 4. **RT sun shadows**: ✓ already shipped (Phase 2); folding its denoise into an NRD integration
    waits on the same library decision as 12.2.
 

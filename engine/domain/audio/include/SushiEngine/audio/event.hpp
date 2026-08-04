@@ -30,7 +30,7 @@
  *        posts an intent" and "these samples play".
  *
  * The game never says "play file X"; it posts an **event ID**, and the event resolves to
- * a sound through authored **containers** (§8, §10 of `docs/slop/audio_system.md`). This
+ * a sound through authored **containers** (§8, §10 of `docs/design/audio_system.md`). This
  * indirection is the seam a sound designer owns: swap the footstep set, add variation,
  * blend by surface — no code change. The containers are the classic set:
  *

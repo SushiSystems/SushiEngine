@@ -1,5 +1,7 @@
 # Editor/feature sync gaps — backlog (2026-07-26)
 
+**Status:** superseded, in part by `editor_ux_overhaul.md` §2.4; its "Fixed this pass" log stands.
+
 > **Superseded in part:** the two "Deferred" sections below were absorbed into
 > [editor_ux_overhaul.md](editor_ux_overhaul.md) (§2.4, verdict table), which carries them
 > forward with wire-or-remove decisions. The "Fixed this pass" log remains historical record.
@@ -18,13 +20,13 @@ deferred items don't get rediscovered from scratch.
 - **Ray-traced sun shadows** (`ShadowSettings::ray_traced`) and **secondary directional shadow
   casters** (`max_directional_shadow_casters`) were consumed by `ray_traced_shadow_pass.cpp` /
   `quality.cpp` but had no toggle in the Shadows section. Added both.
-- **VFX particle bursts** (`Vfx::ParticleBurst`) were drawn on the effect timeline but had no
+- **VFX particle bursts** (`VFX::ParticleBurst`) were drawn on the effect timeline but had no
   authoring UI — an author could see bursts that already existed but not add/remove/edit one. Added
   a burst list (time/count + Add/Remove) under Emission in `draw_particle_system_component`.
 - **Blend shapes / morph targets**: `AnimatedMeshPreview::set_morph_weights` was a dead seam — glTF
   morph-target import already existed in `gltf_importer.cpp` (`primitive.targets[]` →
-  `MeshRegistry::set_morph_targets`), but nothing queried the target count or exposed sliders.
-  Added `IAssetLibrary::morph_target_count(MeshId)`, had `AnimatedMeshPreview::load_gltf` size
+  `MeshRegistry::set_morph_targets`), but nothing queried the target count or exposed sliders. Added
+  `IAssetLibrary::morph_target_count(MeshId)`, had `AnimatedMeshPreview::load_gltf` size
   `morph_weights_` from it, and added a "Blend Shapes" slider section to the Animator panel
   (`editor/animation/animator_preview_panel.cpp`). Still manual per-target weights, not clip-driven
   (design `animation_system.md` §12.1/§12.2 — glTF `WEIGHTS` animation-channel import doesn't exist
@@ -40,28 +42,28 @@ deferred items don't get rediscovered from scratch.
   - wiring `receive_shadows` into whichever shadow-sampling shader/pass sees this material
     (`pbr.frag` and friends), and `gpu_instancing` into an actual instancing batcher, or
   - removing the checkboxes until those exist, so the UI stops promising something it can't do.
-  Deferred because both are shader/pass-level engine changes, not editor-only, and need a GPU to
-  verify visually.
+    Deferred because both are shader/pass-level engine changes, not editor-only, and need a GPU to
+    verify visually.
 - **GPU Culling panel**: "Freeze frustum (debug)" and "Show statistics"
-  (`editor/ui/editor_panels.cpp`, `draw_gpu_culling_panel`) toggle
-  `GpuCullingSettings::freeze` / `show_statistics`, which `cull_pass.cpp` never reads. The struct's
-  own doc comment already says these are "reserved for the editor's cull debug view" — i.e. this
-  was always meant to be finished later, not a regression. Needs: a frozen-frustum debug mode in
-  `cull_pass.cpp`, and a readback path for per-frame cull counts (the "Show statistics" branch
-  currently just points at the Profiler HUD instead of producing anything itself).
+  (`editor/ui/editor_panels.cpp`, `draw_gpu_culling_panel`) toggle `GpuCullingSettings::freeze` /
+  `show_statistics`, which `cull_pass.cpp` never reads. The struct's own doc comment already says
+  these are "reserved for the editor's cull debug view" — i.e. this was always meant to be finished
+  later, not a regression. Needs: a frozen-frustum debug mode in `cull_pass.cpp`, and a readback
+  path for per-frame cull counts (the "Show statistics" branch currently just points at the Profiler
+  HUD instead of producing anything itself).
 
 ## Deferred — engine feature has no editor UI at all
 
 - **Audio acoustic geometry**: `include/SushiEngine/audio/acoustic_geometry.hpp`,
   `acoustic_raytracer.hpp`, `occlusion.hpp`, `portals.hpp`, `propagation.hpp`,
-  `early_reflections.hpp`, `convolution_reverb.hpp` are all real, but `editor/audio/audio_panels.cpp`
-  / `audio_authoring_panel.cpp` only expose the mixer, per-entity emitter/listener/reverb-zone
-  params (hand-set "Room/Hall/Cave/Generic" presets), and a simple container-graph tool. There's no
-  way to mark level geometry as occluding, place a portal, or preview a ray-traced early-reflection
-  response from the editor — reverb is entirely manual rather than derived from the scene. This may
-  be intentional (baked/automatic at runtime) rather than a bug; needs a scoping decision before any
-  UI work starts, and it's the largest single gap found (a new authoring surface, not a
-  slider-in-an-existing-panel fix).
+  `early_reflections.hpp`, `convolution_reverb.hpp` are all real, but
+  `editor/audio/audio_panels.cpp` / `audio_authoring_panel.cpp` only expose the mixer, per-entity
+  emitter/listener/reverb-zone params (hand-set "Room/Hall/Cave/Generic" presets), and a simple
+  container-graph tool. There's no way to mark level geometry as occluding, place a portal, or
+  preview a ray-traced early-reflection response from the editor — reverb is entirely manual rather
+  than derived from the scene. This may be intentional (baked/automatic at runtime) rather than a
+  bug; needs a scoping decision before any UI work starts, and it's the largest single gap found (a
+  new authoring surface, not a slider-in-an-existing-panel fix).
 - **VFX `SortMode`, `SimulationDomain`, `BeamModule`** (`include/SushiEngine/vfx/modules.hpp`) have
   no widgets in `draw_particle_system_component` — only Spawn/Shape/Init/Gravity/Drag/
   Turbulence/Collision/ForceFields/SizeOverLife/ColorOverLife/Render are exposed via the "Graph"

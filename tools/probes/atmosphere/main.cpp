@@ -25,7 +25,7 @@
 // nest through hours of simulated weather in seconds of wall clock, and writes what the column
 // under the observer actually contains.
 //
-// **Why this exists.** `docs/slop/atmosphere_system.md` §11's Phase B2c records that every
+// **Why this exists.** `docs/design/atmosphere_system.md` §11's Phase B2c records that every
 // hypothesis in that phase reasoned from a screenshot turned out wrong, and every one settled by
 // porting the code and sampling it turned out right. The remaining questions it names — whether
 // the vertical velocity survives the buoyancy correction, and where the boundary layer's water

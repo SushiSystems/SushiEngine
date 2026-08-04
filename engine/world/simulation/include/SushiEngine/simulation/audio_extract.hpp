@@ -29,7 +29,7 @@
  *
  * This is the sim-layer glue that turns the ECS world into the plain-float
  * @ref Audio::SceneSnapshot the @ref Audio::AudioScene reconciles (§9 of
- * `docs/slop/audio_system.md`). It is the audio sibling of the render `extract()`:
+ * `docs/design/audio_system.md`). It is the audio sibling of the render `extract()`:
  * a **read-only** host walk of the component columns, run once per **wall-clock**
  * frame (outside the fixed-step schedule, like the VFX preview), so it can never
  * perturb a deterministic run — audio on or off is byte-identical.

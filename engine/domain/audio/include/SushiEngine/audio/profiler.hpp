@@ -28,7 +28,7 @@
  * @file profiler.hpp
  * @brief The audio→GUI telemetry channel: the live-profiler snapshot the editor reads.
  *
- * The editor's live profiler (§11 of `docs/slop/audio_system.md`) shows what the audio
+ * The editor's live profiler (§11 of `docs/design/audio_system.md`) shows what the audio
  * thread is doing — how many voices are real vs virtual, the meter on each bus, the master
  * level, a scope of the output — but it must never *touch* the audio thread's state under a
  * lock. So the audio thread **publishes** a plain-POD @ref AudioProfileSnapshot once per

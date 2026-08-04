@@ -29,7 +29,7 @@
  *
  * A cloth (or a rope, degenerately at one row) is not a new physics primitive —
  * it is a mass-spring topology expressed entirely in terms of the constraint type
- * `xpbd_demo.cpp`'s hanging chain already uses, per `docs/slop/SUSHILOOP.md`.
+ * `xpbd_demo.cpp`'s hanging chain already uses, per `docs/design/SUSHILOOP.md`.
  * `build_cloth_grid` registers one `RigidBody` per grid point (zero inverse
  * inertia, anchors implicitly at each body's own origin, so no angular coupling —
  * the same linear-only degeneration `XPBDDistanceConstraint` already supports) and

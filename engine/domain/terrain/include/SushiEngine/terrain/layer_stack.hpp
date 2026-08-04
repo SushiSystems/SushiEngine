@@ -27,7 +27,7 @@
  * @file layer_stack.hpp
  * @brief What reshapes measured ground: an ordered stack of small authored records.
  *
- * A layer is a *record*, not a raster (`docs/slop/solar_system_overhaul.md` §6.1). A
+ * A layer is a *record*, not a raster (`docs/design/solar_system_overhaul.md` §6.1). A
  * crater is a direction, a radius, and a profile; a building pad is a flatten. The
  * record is bytes rather than megabytes, which is what lets an edit replicate over a
  * network, serialise into a scene, and be undone — none of which storing edited height

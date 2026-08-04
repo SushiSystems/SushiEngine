@@ -27,7 +27,7 @@
  * @file weather_wind.hpp
  * @brief `weather_wind()`: one sampling function, analytic wind + a local perturbation.
  *
- * `docs/slop/weather_and_clouds.md` §5.3: "one sampling API `weather_wind(position, altitude)`
+ * `docs/design/weather_and_clouds.md` §5.3: "one sampling API `weather_wind(position, altitude)`
  * (GoT pattern -- analytic + perturbation, no dense volume)". T1's `wind_at` is already exactly
  * the base half (a geostrophic field, altitude-parameterized by `level_fraction`, evaluable
  * anywhere) -- this file adds only the perturbation term and the position/altitude ->

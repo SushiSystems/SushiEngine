@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Unit_SynopticField: the planetary weather placement behind Manual mode
-// (docs/slop/atmosphere_system.md, WM-SEED). The defect it exists to rule out shows in one
+// (docs/design/atmosphere_system.md, WM-SEED). The defect it exists to rule out shows in one
 // side-by-side — a uniformly milky sphere from orbit, where the real Earth is mostly clear
 // ocean with weather laid over it in discrete pieces — so the load-bearing claims here are
 // about *variety*: that the field genuinely reaches both extremes, that a seed decides which

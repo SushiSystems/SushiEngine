@@ -27,7 +27,7 @@
  * @file ingested_weather.hpp
  * @brief `IngestedWeather`: real-data `IWeatherProvider`, per the design doc's §5.4 seam.
  *
- * `docs/slop/weather_and_clouds.md` §5.4: "`IngestedWeather` implements `IWeatherProvider` from
+ * `docs/design/weather_and_clouds.md` §5.4: "`IngestedWeather` implements `IWeatherProvider` from
  * GRIB (GFS/WAFS winds, temperature, humidity) blended toward METARs near airfields -- the
  * X-Plane 12 three-stage blend. The column representation is already identical; nothing
  * downstream changes."

@@ -27,7 +27,7 @@
  * @file synoptic_field.hpp
  * @brief Where the weather *is*, at the scale of a planet, as a closed-form function.
  *
- * `docs/slop/atmosphere_system.md`'s WM-SEED. The defect this closes is visible in one
+ * `docs/design/atmosphere_system.md`'s WM-SEED. The defect this closes is visible in one
  * side-by-side: our Earth from orbit is a uniformly milky sphere, and the real one is mostly
  * *clear* ocean with discrete bands and swirls laid over it. The cause was structural rather
  * than cosmetic — a manually authored sky had no horizontal extent at all, so one deck stack

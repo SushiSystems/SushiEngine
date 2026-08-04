@@ -77,8 +77,8 @@ namespace
 
 int main()
 {
-    auto runtime = SushiRuntime::API::Runtime::create();
-    Execution::Context execution(runtime);
+    auto runtime = Execution::Runtime::create();
+    Execution::Context execution = runtime.context();
     World world(execution, CHUNK_CAPACITY);
     Schedule schedule(execution);
 

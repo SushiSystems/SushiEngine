@@ -2,7 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 // Bakes the cloudscape *envelope* field (T3, reshaped by CloudsV2 —
-// docs/slop/atmosphere_system.md §7.6): where cloud may exist and how much water fills it,
+// docs/design/atmosphere_system.md §7.6): where cloud may exist and how much water fills it,
 // once per rebake instead of once per march sample. Every consumer of the cloudscape — the
 // view march, the light volume, the cloud shadow map, the far-field panorama — reads the same
 // baked answer, so none of them can disagree about where the weather is.
@@ -23,7 +23,7 @@
 // cloudscape_far_light.comp), a = in-cloud water amplitude, encoded at half scale
 // (cloud_field_window.glsl's cloud_field_water).
 //
-// Two properties of this field (docs/slop/atmosphere_system.md §7.2/§7.4), and they are the
+// Two properties of this field (docs/design/atmosphere_system.md §7.2/§7.4), and they are the
 // same one seen from two ends:
 //
 // 1. The field is not a periodic, camera-locked 32 km tile. It is a **camera-centred,
@@ -364,7 +364,7 @@ void bake_at(vec2 pattern_xz, vec2 world_rel_xz, float world_altitude,
 
     if (scene.atmosphere_nest_params.z > 0.5)
     {
-        // ---- The nest drives the shape (docs/slop/atmosphere_system.md §7.1/§7.3) ---------
+        // ---- The nest drives the shape (docs/design/atmosphere_system.md §7.1/§7.3) ---------
         //
         // No genus, no deck, no height gradient: the density here *is* how much water is
         // suspended here, which the nest computed by transporting moisture through a flow and

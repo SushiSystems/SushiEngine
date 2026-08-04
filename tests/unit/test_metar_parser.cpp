@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Unit_MetarParser: W6's real METAR text parser (docs/slop/weather_and_clouds.md §5.4/§7)
+// Unit_MetarParser: W6's real METAR text parser (docs/design/weather_and_clouds.md §5.4/§7)
 // against hand-picked, realistic report strings -- wind (including calm and variable), cloud
 // layers, temperature/dewpoint (including negative), present-weather/precipitation intensity,
 // and the WeatherColumn translation. Pure host string parsing; no SushiRuntime needed.

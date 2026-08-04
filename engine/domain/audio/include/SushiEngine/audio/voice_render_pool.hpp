@@ -29,7 +29,7 @@
  * @brief A small worker pool that spreads per-voice DSP across CPU cores.
  *
  * A single core caps how many voices can be filtered/resampled/propagated per block; AAA
- * engines spread that work over a job pool (§8 of `docs/slop/audio_system.md`). This is a
+ * engines spread that work over a job pool (§8 of `docs/design/audio_system.md`). This is a
  * minimal, persistent pool the @ref VoiceManager uses to parallelise the **embarrassingly
  * parallel** phase of a block — each real voice renders its own source and per-voice
  * filters into its *own* scratch buffer, touching no shared state — while the mixdown

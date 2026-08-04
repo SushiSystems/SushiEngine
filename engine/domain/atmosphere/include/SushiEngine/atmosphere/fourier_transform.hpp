@@ -28,7 +28,7 @@
  * @brief A power-of-two discrete Fourier transform, and the pairing that halves it.
  *
  * The global core inverts its elliptic operator by transforming in longitude and solving a
- * tridiagonal system in latitude (`docs/slop/atmosphere_system.md` §5), so it needs a
+ * tridiagonal system in latitude (`docs/design/atmosphere_system.md` §5), so it needs a
  * transform on every row of the grid, several times a step. This is that transform:
  * iterative radix-2 Cooley-Tukey with a precomputed bit-reversal permutation and a
  * precomputed twiddle table, so a step allocates nothing and computes no trigonometry.

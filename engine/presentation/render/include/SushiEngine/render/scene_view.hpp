@@ -258,7 +258,7 @@ namespace SushiEngine
         /**
          * @brief One finished frame copied back to host memory, tightly packed RGBA8.
          *
-         * Exists for the golden-image harness (`docs/slop/cross_platform_engineering_plan.md`
+         * Exists for the golden-image harness (`docs/design/cross_platform_engineering_plan.md`
          * RHI0), which is the only thing in the engine that needs to *look* at what the
          * renderer drew rather than display it. Deliberately the view's output image and
          * not an HDR intermediate: the hash has to be over the pixels a person would have

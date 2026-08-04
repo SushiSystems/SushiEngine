@@ -30,7 +30,7 @@
  *
  * The first tens of milliseconds after the direct sound are sparse, discrete reflections
  * off nearby surfaces — and they, not the late tail, are what tell the ear the size and
- * shape of a room (§7 of `docs/slop/audio_system.md`). They are computed by the
+ * shape of a room (§7 of `docs/design/audio_system.md`). They are computed by the
  * **image-source method**: a reflection off a wall sounds exactly as if it came from a
  * mirror-image of the source on the far side of that wall, so each wall yields one
  * *image source*, and its contribution is a single delayed, attenuated tap — delay from

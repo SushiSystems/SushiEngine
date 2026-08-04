@@ -29,7 +29,7 @@
  *
  * The seam that lets a baked pak, a procedurally generated body, and a
  * higher-resolution regional inset be one code path
- * (`docs/slop/solar_system_overhaul.md` §5.1). No consumer of terrain learns which
+ * (`docs/design/solar_system_overhaul.md` §5.1). No consumer of terrain learns which
  * implementation answered, which is what makes a fictional moon in the same scene as a
  * real one cost nothing structurally.
  *

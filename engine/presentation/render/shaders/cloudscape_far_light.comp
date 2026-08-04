@@ -9,7 +9,7 @@
 // stretching it across the far window's eight-times-wider span would cost the near field the
 // resolution the whole volume exists for. Reading the near window's clamped edge out there
 // would be reading the truth only if the sky were globally uniform. It is not: with the
-// simulation deciding coverage per column (docs/slop/atmosphere_system.md §7.4), a distant
+// simulation deciding coverage per column (docs/design/atmosphere_system.md §7.4), a distant
 // storm and a distant fair-weather field are different amounts of cloud, and lighting both
 // from one edge value would show the front's shape while lighting it flat.
 //

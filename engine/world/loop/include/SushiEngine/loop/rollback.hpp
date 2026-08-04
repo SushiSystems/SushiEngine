@@ -25,7 +25,7 @@
 
 /**
  * @file rollback.hpp
- * @brief SushiLoop's Snapshot layer (M3, docs/slop/SUSHILOOP.md): per-chunk
+ * @brief SushiLoop's Snapshot layer (M3, docs/design/SUSHILOOP.md): per-chunk
  *        rollback snapshots and restore.
  *
  * `RollbackBuffer` records, per tick, a byte copy of every live chunk's component

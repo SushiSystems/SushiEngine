@@ -20,7 +20,7 @@ layout(push_constant) uniform Params
 } params;
 
 // CloudsV2: the view march carves cloud shape analytically per sample
-// (docs/slop/atmosphere_system.md §7.6), and it has exactly one noise binding to do it
+// (docs/design/atmosphere_system.md §7.6), and it has exactly one noise binding to do it
 // with — so everything it needs is precombined here into one volume:
 //   r = the Nubis base shape (Perlin remapped by low Worley), pushed through its own CDF
 //       so it is uniform on [0, 1] and a threshold at `1 - coverage` keeps exactly the

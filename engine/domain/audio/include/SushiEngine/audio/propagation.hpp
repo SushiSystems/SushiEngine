@@ -29,7 +29,7 @@
  * @brief Per-source propagation: Doppler + delay, air absorption, distance gain.
  *
  * The whole of a source's travel through the air is modelled as one variable
- * fractional delay line of length distance/c (see `docs/slop/audio_system.md` §5).
+ * fractional delay line of length distance/c (see `docs/design/audio_system.md` §5).
  * The read pointer sits that far behind the write pointer; when the distance changes
  * between blocks the read rate stops being one, and *that* is the Doppler shift —
  * physically exact, free propagation delay, no radial-velocity ratio and no separate

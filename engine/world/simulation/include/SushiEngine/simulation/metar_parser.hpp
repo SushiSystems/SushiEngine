@@ -27,7 +27,7 @@
  * @file metar_parser.hpp
  * @brief A real, working METAR text parser, and its translation into a `WeatherColumn`.
  *
- * `docs/slop/weather_and_clouds.md` §5.4/§7 W6: `IngestedWeather` blends GRIB toward METARs
+ * `docs/design/weather_and_clouds.md` §5.4/§7 W6: `IngestedWeather` blends GRIB toward METARs
  * near airfields. Full GRIB2 binary decoding is a large, specialized, external-data-format task
  * genuinely out of scope for this phase (see `ingested_weather.hpp`'s file docs for where that
  * seam is left as a named stub); METAR, by contrast, is a compact, well-documented, purely

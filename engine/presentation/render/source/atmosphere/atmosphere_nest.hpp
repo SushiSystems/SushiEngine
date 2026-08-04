@@ -27,7 +27,7 @@
  * @file atmosphere_nest.hpp
  * @brief T2: the regional nest — anelastic non-hydrostatic convection, on the GPU.
  *
- * `docs/slop/atmosphere_system.md` §6. The replacement for `RegionalWeatherGrid`, whose audit
+ * `docs/design/atmosphere_system.md` §6. The replacement for `RegionalWeatherGrid`, whose audit
  * (§1.3–§1.5) found three independent 2-D layers with no vertical advection at all, saturation
  * expressed as `if (humidity > 0.85)`, no latent heating, and a semi-Lagrangian scheme running
  * at Courant ≈ 0.02 — its maximally diffusive regime — in a single-threaded scalar CPU loop.

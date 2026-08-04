@@ -28,7 +28,7 @@
  * @brief The baked terrain asset: its byte layout, its reader, and its refusals.
  *
  * `se planet bake` writes one of these per body per quality tier
- * (`docs/slop/solar_system_overhaul.md` §5.2). This header is the authority on the
+ * (`docs/design/solar_system_overhaul.md` §5.2). This header is the authority on the
  * layout and `cli/sushiengine/services/planet/pack.py` is a transcription of it, for the
  * reason the climatology asset gives for the same arrangement: a schema shared between a
  * Python tool and an engine header would be a third thing to keep in step with both.

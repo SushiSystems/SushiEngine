@@ -27,7 +27,7 @@
  * @file quadtree.hpp
  * @brief Which patches of a body are drawn this frame, and at what resolution.
  *
- * The selection half of CDLOD (`docs/slop/solar_system_overhaul.md` §7.1, §8.2): descend
+ * The selection half of CDLOD (`docs/design/solar_system_overhaul.md` §7.1, §8.2): descend
  * the six face quadtrees, split a node while the camera is close enough that its cells
  * would project larger than the screen-space error target, and emit the cut of the tree
  * that results. What comes out is a flat list of nodes, each carrying the camera-relative

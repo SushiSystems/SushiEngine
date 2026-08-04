@@ -29,7 +29,7 @@
  * @brief The per-voice occlusion DSP: two blockage scalars + three-band transmission
  *        into a muffled, attenuated dry signal and a reduced reverb send.
  *
- * This is the render half of §6 of `docs/slop/audio_system.md`. The geometry layer
+ * This is the render half of §6 of `docs/design/audio_system.md`. The geometry layer
  * (`acoustic_geometry.hpp`) computes *what* is blocked; this turns that into *sound*.
  * The design carries two author-or-geometry scalars per emitter, routed to separate DSP:
  *

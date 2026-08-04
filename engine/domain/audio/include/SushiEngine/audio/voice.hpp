@@ -29,7 +29,7 @@
  * @brief A voice: a playing sound's source, gain, routing, and spatial state.
  *
  * A voice is one instance of a sound moving through the mix (see
- * `docs/slop/audio_system.md` §8). @ref VoiceSource is the seam the sound comes
+ * `docs/design/audio_system.md` §8). @ref VoiceSource is the seam the sound comes
  * from — an oscillator here, a decoded stream later — and always renders mono; the
  * pan/spatialize step places it. Crucially the source also offers @ref VoiceSource::advance,
  * a cheap "skip forward without producing output" used when a voice is **virtualized**:
@@ -76,7 +76,7 @@ namespace SushiEngine
          * clean culling signal (and the default, so audibility ranking behaves
          * predictably); `Inverse` is the physical 1/r law; `Exponent` is a tunable
          * power law. All three are clamped to zero beyond the max distance so a distant
-         * source always culls (see `docs/slop/audio_system.md` §5).
+         * source always culls (see `docs/design/audio_system.md` §5).
          */
         enum class DistanceModel
         {

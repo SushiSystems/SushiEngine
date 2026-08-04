@@ -29,7 +29,7 @@
  * @brief The sound bank: authored media + the event/container tree baked into one
  *        compact binary, and the factory that turns a posted event into a live voice.
  *
- * A bank is the unit of authored audio a game loads (§10 of `docs/slop/audio_system.md`):
+ * A bank is the unit of authored audio a game loads (§10 of `docs/design/audio_system.md`):
  * a flat, self-describing binary — a small header, a media table (each sound's codec,
  * format, and where its bytes live), the flattened event/container definitions
  * (`event.hpp`), and one blob of concatenated encoded media. @ref BankBuilder writes one;

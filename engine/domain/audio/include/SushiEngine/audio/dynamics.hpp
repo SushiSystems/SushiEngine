@@ -32,7 +32,7 @@
  * **compressor** to glue and control level, **sidechain ducking** so SFX and music bow
  * under dialogue, and a **gate** to silence bleed. These are @ref IBusEffect inserts, so
  * they drop onto any mixer bus exactly like the EQ and reverb do (§8 of
- * `docs/slop/audio_system.md`). All stereo-linked (one gain from the louder channel, so
+ * `docs/design/audio_system.md`). All stereo-linked (one gain from the louder channel, so
  * the stereo image never shifts), all real-time-safe (no allocation/lock in `process`),
  * portable `float` DSP.
  *

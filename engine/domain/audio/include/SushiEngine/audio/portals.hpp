@@ -29,7 +29,7 @@
  * @brief Rooms and portals: indoor propagation as doorway secondary sources.
  *
  * Instead of a wave solve, indoor sound coupling is modelled the way every shipping
- * engine does it (§6 of `docs/slop/audio_system.md`): the world is partitioned into
+ * engine does it (§6 of `docs/design/audio_system.md`): the world is partitioned into
  * **rooms** joined by **portals** (doorways / openings). A source in another room is not
  * heard through the wall — it is heard *through the doorway*, so each portal on a path
  * from the listener's room to the source's room becomes a **secondary virtual source

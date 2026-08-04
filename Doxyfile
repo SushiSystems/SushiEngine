@@ -1,7 +1,7 @@
 # Doxygen configuration for the SushiEngine public API reference.
 #
 # Scope is the public engine surface (every module's include/), the product's
-# documented face. The layered design is described in docs/guides/ARCHITECTURE.md.
+# documented face. The layered design is described in docs/architecture/.
 # Build it with `se doxygen` (or `doxygen Doxyfile`); output lands in
 # docs/api-site/html.
 
@@ -17,10 +17,13 @@ GENERATE_TREEVIEW      = YES
 DISABLE_INDEX          = NO
 FULL_SIDEBAR           = NO
 
-# Public engine surface plus the hand-written manual landing and architecture
-# guide. The reference and the manual build together, Unity-manual style.
+# Public engine surface plus the hand-written manual landing page, the architecture
+# chapters and every module's own README. The reference and the manual build together,
+# Unity-manual style. Each of those markdown files carries an explicit `{#label}` on its
+# title, because Doxygen derives a page identifier from the file name and twenty-odd files
+# named README.md would otherwise all claim the same one.
 INPUT                  = docs/api/mainpage.md \
-                         docs/ARCHITECTURE.md \
+                         docs/architecture \
                          engine
 FILE_PATTERNS          = *.hpp *.h *.md
 RECURSIVE              = YES

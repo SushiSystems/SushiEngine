@@ -2,7 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 // Compiles the nest into the coarse column summary the CPU reads back — the query mirror
-// docs/slop/atmosphere_system.md §9.2 describes, in the minimal form this phase needs.
+// docs/design/atmosphere_system.md §9.2 describes, in the minimal form this phase needs.
 //
 // **Why this exists here and not in phase E.** §11 schedules the query mirror for phase E,
 // but the moment the regional grid moves onto the GPU there is nothing left on the CPU for

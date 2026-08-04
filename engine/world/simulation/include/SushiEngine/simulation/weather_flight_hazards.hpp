@@ -28,7 +28,7 @@
  * @brief `icing_risk()` / `turbulence_intensity()`: narrow queries over weather state, not a
  * flight model.
  *
- * `docs/slop/weather_and_clouds.md` §7's W6 phase asks for "icing/turbulence exposure to
+ * `docs/design/weather_and_clouds.md` §7's W6 phase asks for "icing/turbulence exposure to
  * gameplay" and §5.3 names "the flight-sim payoff" as `weather_wind()`'s intended destination.
  * No flight/aircraft/vehicle system exists anywhere in this engine today (confirmed by
  * inspection of `engine/` and `samples/`, the same audit W4 and W5 already ran

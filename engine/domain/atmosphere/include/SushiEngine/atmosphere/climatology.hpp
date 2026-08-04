@@ -25,7 +25,7 @@
 
 /**
  * @file climatology.hpp
- * @brief T0 — the mean state T1 is a departure from (`docs/slop/atmosphere_system.md` §4).
+ * @brief T0 — the mean state T1 is a departure from (`docs/design/atmosphere_system.md` §4).
  *
  * **T0 is data, not a model.** Nothing here is simulated: it answers "what is normally true
  * here, at this time of year", and the global core (§5) relaxes toward it while the eddies it

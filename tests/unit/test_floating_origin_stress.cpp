@@ -23,7 +23,7 @@
 
 // Unit_FloatingOriginStress: extends Unit_FloatingOrigin (test_floating_origin.cpp)
 // to planet-scale and beyond-planet-scale magnitudes — up to ~1e12, several orders
-// past Earth's ~6.378e6 m radius — proving ARCHITECTURE.md §6's claim that the
+// past Earth's ~6.378e6 m radius — proving `docs/architecture/foundation.md` §2's claim that the
 // local offset stays representable (and round-trips accurately) in single
 // precision no matter how far `world` is from the origin, as long as the
 // decomposition into sector + local offset is applied. This is still plain

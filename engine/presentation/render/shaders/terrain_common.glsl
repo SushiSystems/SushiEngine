@@ -6,7 +6,7 @@
 // the order written, so rearranging it here to save an operation would silently give back
 // the metre of error it exists to remove.
 //
-// See docs/slop/solar_system_overhaul.md §4 (the cube-sphere map) and §9 (why the
+// See docs/design/solar_system_overhaul.md §4 (the cube-sphere map) and §9 (why the
 // difference is evaluated rather than the two positions).
 
 const float TERRAIN_QUARTER_PI = 0.78539816339744831;

@@ -27,7 +27,7 @@
  * @file weather_field_pass.hpp
  * @brief Uploads the simulation's spatial weather field for the cloud passes to read.
  *
- * The render-side half of `docs/slop/atmosphere_system.md` §7: the simulation publishes a
+ * The render-side half of `docs/design/atmosphere_system.md` §7: the simulation publishes a
  * horizontal grid of coverage/density/type/precipitation (`Render::WeatherField`), and the
  * cloud march reads it per sample to decide where cloud actually is. This pass is only the
  * transport — it owns the image, uploads when the field's revision changes, and hands the

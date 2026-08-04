@@ -3468,7 +3468,7 @@ namespace SushiEngine
                                 weather_compiler_.compile(column, scene_.environment.clouds);
                             scene_.environment.weather = weather_world_compiler_.compile(column);
 
-                            // The spatial half (docs/slop/atmosphere_system.md §7): the same
+                            // The spatial half (docs/design/atmosphere_system.md §7): the same
                             // provider's horizontal structure, published as the field the
                             // cloudscape bake resolves a genus and a coverage from, per baked
                             // column. The compiled `Cloudscape` above no longer decides what is

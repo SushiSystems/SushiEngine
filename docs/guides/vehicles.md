@@ -17,11 +17,11 @@ The design record is `docs/design/physics_system.md` §11. This page is the path
 
 | Piece | What it is | Where it comes from |
 |---|---|---|
-| **Structure** | Nodes, beams, the collision surface, the rigid core, the attachments | Cooked from a mesh into a `.sushinodebeam` |
-| **Corners** | Suspension travel, spring rate, damping, steering, drive | Authored, Vehicle window |
-| **Tyres** | Friction, stiffnesses, load sensitivity | Authored, Vehicle window |
-| **Drivetrain** | Engine curve, clutch, gearbox, differential | Authored, Vehicle window |
-| **Aerodynamics** | Frontal area, drag, downforce, centre of pressure | Authored, Vehicle window |
+| **Structure** | Nodes, beams, collision surface, rigid core, attachments | `.sushinodebeam` cook |
+| **Corners** | Suspension travel, spring rate, damping, steering, drive | Vehicle window |
+| **Tyres** | Friction, stiffnesses, load sensitivity | Vehicle window |
+| **Drivetrain** | Engine curve, clutch, gearbox, differential | Vehicle window |
+| **Aerodynamics** | Frontal area, drag, downforce, centre of pressure | Vehicle window |
 
 Only the first is cooked. The other four are numbers you type, and they are numbers rather
 than a file because they are the ones you change forty times in an afternoon.
@@ -30,8 +30,10 @@ than a file because they are the ones you change forty times in an afternoon.
 
 ## 1. Cook the structure
 
-The cooker takes **a mesh, a fidelity dial, a `SoftBodyMaterial`, and a core mass
-fraction**, and produces the node cloud, the beam network, the surface and the skinning.
+Open **Window ▸ Analysis ▸ Bake**, tick **Cook node beam**, and set the node-beam settings
+beside it. `NodeBeamCooker` takes **a mesh, a fidelity dial, a `SoftBodyMaterial`, and a core
+mass fraction**, and produces the node cloud, the beam network, the surface and the skinning.
+The Vehicle window names an already-cooked structure; it does not cook one.
 
 What it does with them:
 
@@ -81,6 +83,10 @@ car from outside, so they are distinguished rather than collapsed.
 
 Once it is live, the entity's Transform follows the vehicle's **rigid core** — not a node.
 A node's position is a panel's position; only the core's is the car's.
+
+The other four tabs edit the window's own copy of the setup. **Apply Setup**, on the Scene
+tab, is what puts those numbers on the car — and it rebuilds it, because a vehicle is four
+hundred bodies placed relative to a cooked structure and there is no patching one.
 
 ---
 
@@ -170,15 +176,16 @@ beams have broken and parts come off.
 
 Stated rather than discovered:
 
-- The authored **setup is not serialized** yet. The scene file stores the structure path; a
-  reloaded vehicle comes back at the default corners and drivetrain until `VehicleAssetT`
-  has a serializer of its own.
+- The authored **setup is not serialized**. The scene file stores the structure path and
+  nothing else; a reloaded vehicle comes back at the default corners, tyres, drivetrain and
+  aerodynamics until `VehicleAsset` has a serializer of its own. The Vehicle window says so
+  rather than the file losing it silently.
 - The cooked **render skinning is not drawn**. What you see is the collision surface, which
   is the shape the physics owns end to end; drawing the pretty mesh needs that mesh's own
   index buffer, which lives in the visual asset rather than in the `.sushinodebeam`.
-- **`NodeBeamCooker` has no editor entry point.** Cook & Bake produces `.sushicollision` and
-  `.sushisoft`; a `.sushinodebeam` can currently only be produced from C++. This is the one
-  gap that stops you doing step 1 above without writing code, and it is next.
+- The Structure tab names the node-beam and core-collision assets **by numeric identifier**,
+  not by browsing. The panel is the asset layer's front end rather than a second resolver,
+  so it hands the identifier on without dereferencing it.
 
 ---
 

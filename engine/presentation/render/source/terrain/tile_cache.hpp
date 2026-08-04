@@ -27,7 +27,7 @@
  * @file tile_cache.hpp
  * @brief The height slot pool on the device, and getting tiles into it.
  *
- * The device half of the tile cache (`docs/slop/solar_system_overhaul.md` §7.2). The
+ * The device half of the tile cache (`docs/design/solar_system_overhaul.md` §7.2). The
  * bookkeeping — which slot holds what, eviction, and the rectangle an inheriting node
  * reads through — is `Terrain::TileResidency` and is deliberately not here; this owns the
  * image, the staging, and nothing else.

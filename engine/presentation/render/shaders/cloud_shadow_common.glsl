@@ -14,7 +14,7 @@
 // **The map is a place, not a pattern.** Addressed by `fract(position.xz / tile)` one 32 km
 // bake would repeat across the whole world, which is defensible only while the sky above it is
 // uniform. With the cloudscape bake resolving coverage per column
-// (docs/slop/atmosphere_system.md §7.4), repeating it would stamp one region's shadows onto
+// (docs/design/atmosphere_system.md §7.4), repeating it would stamp one region's shadows onto
 // every other region's ground. It instead covers exactly the camera-centred near window, and
 // past that window's rim the shadow fades to none.
 //

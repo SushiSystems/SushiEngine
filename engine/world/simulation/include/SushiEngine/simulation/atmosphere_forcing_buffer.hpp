@@ -27,7 +27,7 @@
  * @file atmosphere_forcing_buffer.hpp
  * @brief Sim-side storage behind `Render::AtmosphereForcing`, and how it is filled.
  *
- * The parent half of Davies nesting (`docs/slop/atmosphere_system.md` §6): the regional nest is
+ * The parent half of Davies nesting (`docs/design/atmosphere_system.md` §6): the regional nest is
  * a window onto a larger atmosphere it does not simulate, and its lateral boundary relaxes
  * toward whatever this publishes. Owned here for the same reason `WeatherFieldBuffer` is —
  * `Environment` is copied per frame and the payload changes on the nest's own multi-second

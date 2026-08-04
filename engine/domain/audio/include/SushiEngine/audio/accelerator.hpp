@@ -46,7 +46,7 @@
  * and offloads batch FIR convolution with k-block lookahead. The CPU path remains the
  * default everywhere no accelerator is wired.
  *
- * See `docs/slop/audio_system.md` §2, §12.2, §13.
+ * See `docs/design/audio_system.md` §2, §12.2, §13.
  */
 
 namespace SushiEngine

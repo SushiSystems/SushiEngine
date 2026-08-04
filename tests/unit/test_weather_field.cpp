@@ -21,7 +21,7 @@
 /* permissions and limitations under the License.                         */
 /**************************************************************************/
 
-// Unit_WeatherField: the spatial weather field (docs/slop/atmosphere_system.md §7), which
+// Unit_WeatherField: the spatial weather field (docs/design/atmosphere_system.md §7), which
 // exists to close §1.1 — a simulation that reaches the renderer as one column sampled under
 // the observer has nothing it computes visible as spatial structure. The load-bearing claim
 // these cases defend is therefore *that the field is not uniform when the simulation is not

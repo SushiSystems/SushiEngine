@@ -30,7 +30,7 @@
  *        thread drains — the audio thread never touches disk or a decoder.
  *
  * Music and dialogue are too big to hold decoded in memory, so they are **streamed** (§10
- * of `docs/slop/audio_system.md`): a normal-priority worker reads the encoded asset from a
+ * of `docs/design/audio_system.md`): a normal-priority worker reads the encoded asset from a
  * data source in chunks, decodes on the fly through an @ref IAudioCodec, and pushes the
  * samples into a lock-free ring (the S1 @ref SpscRing). The audio thread's
  * @ref StreamingSource only ever *pops* that ring — no I/O, no decode, no allocation on the

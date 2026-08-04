@@ -25,7 +25,7 @@
 // Fourier transform, the potential-vorticity relation written out a second time in the test,
 // the wind profile the mean state was *asked* for, and the westward drift beta implies.
 //
-// **Every check here that can assert a magnitude does.** `docs/slop/atmosphere_system.md` §11
+// **Every check here that can assert a magnitude does.** `docs/design/atmosphere_system.md` §11
 // records the synoptic wind running 735 times too fast for the whole life of the shipped
 // system, surviving because the one test covering the field asserted that it was non-uniform —
 // which a 15 km/s field satisfies perfectly. Structure was checked and magnitude never was.

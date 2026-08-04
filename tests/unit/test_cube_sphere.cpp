@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Unit_CubeSphere: the planetary tile addressing and its projection
-// (docs/slop/solar_system_overhaul.md §4, §9). Four claims are checked, and the last of
+// (docs/design/solar_system_overhaul.md §4, §9). Four claims are checked, and the last of
 // them is the one the whole terrain design rests on:
 //
 //   1. The tangent warp is an involution's two halves and fixes the face edges exactly.

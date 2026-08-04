@@ -25,7 +25,7 @@
 
 /**
  * @file fixed_timestep.hpp
- * @brief SushiLoop's Time layer: the fixed-step accumulator (see docs/slop/SUSHILOOP.md).
+ * @brief SushiLoop's Time layer: the fixed-step accumulator (see docs/design/SUSHILOOP.md).
  *
  * The host owns wall-clock time; this class never reads it. It only turns a
  * caller-supplied elapsed duration into a whole number of fixed simulation steps

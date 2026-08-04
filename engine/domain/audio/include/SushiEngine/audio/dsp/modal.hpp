@@ -30,7 +30,7 @@
  *
  * A struck or scraped object rings at a set of natural frequencies (its **modes**), each
  * a decaying sinusoid whose pitch, decay, and gain are fixed by the object's shape and
- * material (§S10 / §3 of `docs/slop/audio_system.md`). Modal synthesis realises exactly
+ * material (§S10 / §3 of `docs/design/audio_system.md`). Modal synthesis realises exactly
  * that: each mode is a two-pole resonator `H(z) = 1 / (1 − 2r·cosω·z⁻¹ + r²·z⁻²)`, whose
  * impulse response is `rⁿ·sin(ω(n+1))/sinω` — a sinusoid at ω that decays at a rate set
  * by the pole radius `r = exp(−1/(τ·fs))`. Strike it with an impulse and it *rings*;

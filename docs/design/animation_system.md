@@ -1,12 +1,14 @@
 # Skeletal Animation System — Animation, Animator, Blend Trees, and IK
 
+**Status:** shipped, A0 to A9 complete; §12's last in-scope item closed 2026-07-30.
+
 An engineering plan for a Unity-parity, data-oriented character animation stack: clip
 assets and compression, an Animator controller with layered state machines and blend
 trees, an IK / pose-modifier stack, and GPU skinning — built on the archetype-chunk ECS,
 the SushiRuntime task graph, and the render graph, without breaking determinism,
 rollback, replay-only graph compilation, or the temporal core.
 
-Status: **A0–A9 shipped and merged to main** (`09dd9be`, 2026-07-24) — skeleton/clip/
+**A0–A9 shipped and merged to main** (`09dd9be`, 2026-07-24) — skeleton/clip/
 controller assets, the deterministic `animator_step`, blend trees, layered masks +
 additive, the IK / pose-modifier stack, morph + generic tracks, humanoid retargeting,
 controller JSON authoring, GPU skinning (compute pre-skin, previous-pose motion
@@ -127,10 +129,10 @@ The system is done when every one of these holds. They are contractual, not aspi
    fixed-capacity, allocated at load. **Compression met** (6.6×–17.6× measured by
    `animation_benchmark`). **Byte-accountable in the editor's statistics panel: not
    met** — no such panel rows exist yet (§12.1).
-8. **Docs land with code.** Every phase ships its CHANGELOG entry, ARCHITECTURE
-   section, and editor surface in the same PR. **Met** — CHANGELOG and
-   `ARCHITECTURE.md` §12 are current, and the editor surfaces that were missing (mask
-   editor, IK gizmos) shipped 2026-07-25 (§12.1). The sibling standard is **not** met:
+8. **Docs land with code.** Every phase ships its changelog entry, its architecture
+   chapter, and its editor surface in the same PR. **Met** — the changelog and
+   `docs/architecture/domain-animation.md` are current, and the editor surfaces that were
+   missing (mask editor, IK gizmos) shipped 2026-07-25 (§12.1). The sibling standard is **not** met:
    `CONTRIBUTING.md` §3.2 requires a test with new behavior, and the animation stack has
    one test file (§12.5 item 7).
 
@@ -634,28 +636,27 @@ missing.
 
 ### 12.2 Root-motion / IK correctness refinements
 
-- **Rotation root motion — was NOT present; implemented 2026-07-30.** This entry previously
-  read "rotation root motion is present (§5.1) — no work needed here, corrects an error in the
-  prior revision of this document." That correction was itself wrong, and §0.1 listed the
+- **Rotation root motion — was NOT present; implemented 2026-07-30.** This entry previously read
+  "rotation root motion is present (§5.1) — no work needed here, corrects an error in the prior
+  revision of this document." That correction was itself wrong, and §0.1 listed the
   translation-and-rotation contract as **Met** on the strength of it. What existed was the
   `RootMotionDelta::rotation` field and its consumer (`apply_root_motion` composes it into the
   entity's orientation); what did not exist was anything writing it. `animator_step` set only
-  `root_motion.position` — a grep for `root_motion.rotation` found no assignment anywhere — so
-  every clip whose root turned moved the character without turning it. Both earlier audits read
-  the struct field and the consumer and concluded the sampler was there. Found by writing
-  `Unit_AnimatorStep`, which is the whole argument for the suite: a claim that survived two
-  document audits did not survive one test.
-  Closed by `detail::root_rotation_delta` — the rotational counterpart of `root_at`, continuous
-  across a loop for the same reason: the per-cycle turn `rotation(0)⁻¹ · rotation(duration)` is
-  compounded once per whole loop crossed, bounded by `MAX_ROOT_ROTATION_CYCLES` so a
-  pathological step saturates rather than looping unboundedly — and
+  `root_motion.position` — a grep for `root_motion.rotation` found no assignment anywhere — so every
+  clip whose root turned moved the character without turning it. Both earlier audits read the struct
+  field and the consumer and concluded the sampler was there. Found by writing `Unit_AnimatorStep`,
+  which is the whole argument for the suite: a claim that survived two document audits did not
+  survive one test. Closed by `detail::root_rotation_delta` — the rotational counterpart of
+  `root_at`, continuous across a loop for the same reason: the per-cycle turn
+  `rotation(0)⁻¹ · rotation(duration)` is compounded once per whole loop crossed, bounded by
+  `MAX_ROOT_ROTATION_CYCLES` so a pathological step saturates rather than looping unboundedly — and
   `detail::blend_root_rotation`, which blends a blend tree's per-clip deltas with the same
   hemisphere-corrected weighted component sum the evaluator already uses on a pose.
-  `joint_translation`'s frame bracketing was factored into `bracket_frames` and shared with a
-  new `joint_rotation` rather than duplicated. Verified by test: a clip turning a quarter circle
-  per loop turns the entity a quarter circle per loop across two wraps, about the clip's axis
-  only, and a clip whose root does not turn leaves the orientation exactly alone over 300 ticks
-  instead of drifting by an accumulated near-identity delta.
+  `joint_translation`'s frame bracketing was factored into `bracket_frames` and shared with a new
+  `joint_rotation` rather than duplicated. Verified by test: a clip turning a quarter circle per
+  loop turns the entity a quarter circle per loop across two wraps, about the clip's axis only, and
+  a clip whose root does not turn leaves the orientation exactly alone over 300 ticks instead of
+  drifting by an accumulated near-identity delta.
 - **glTF `WEIGHTS` animation-channel import — CLOSED 2026-07-30, actually verified.**
   Found 2026-07-25 while wiring GPU morph blending (§12.1):
   `import/gltf_animation_importer.cpp` read translation/rotation/scale channels only —

@@ -34,7 +34,7 @@
  * with its built-in nodes, the propagation primitives (fractional delay, air
  * absorption), the spatial primitives (spherical harmonics), and the late-reverb
  * primitive (the lossless feedback matrices and the Jot FDN). All header-only, portable
- * C++17, no SDL and no SushiRuntime. See `docs/slop/audio_system.md` §3.
+ * C++17, no SDL and no SushiRuntime. See `docs/design/audio_system.md` §3.
  */
 
 #include <SushiEngine/audio/dsp/air_absorption.hpp>

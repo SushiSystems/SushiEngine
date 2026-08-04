@@ -30,7 +30,7 @@
  *        and whatever OS backend actually moves samples to the speakers.
  *
  * This is the first of the audio subsystem's SOLID seams (see
- * `docs/slop/audio_system.md` §12–§13). It carries **no** backend type: the SDL2
+ * `docs/design/audio_system.md` §12–§13). It carries **no** backend type: the SDL2
  * implementation (`sushiengine_audio_backend`) hides `SDL_AudioDeviceID` entirely, so a consumer
  * includes this header and links the backend without pulling SDL into its own
  * translation unit — exactly as the input module keeps SDL behind

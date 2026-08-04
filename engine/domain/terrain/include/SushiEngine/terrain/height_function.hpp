@@ -29,7 +29,7 @@
  *
  * Measured elevation from an @ref IHeightSource, composed with a @ref LayerStack's
  * ordered edits. This is the *definition* the rest of the system answers to
- * (`docs/slop/solar_system_overhaul.md` §2 T2): the physics collision patches are
+ * (`docs/design/solar_system_overhaul.md` §2 T2): the physics collision patches are
  * evaluated from it, the headless server evaluates it with no renderer present, the
  * atmosphere's grid sampling reads it, and the tile compile shader is a port of it held
  * to a stated tolerance by a conformance test rather than assumed to agree.

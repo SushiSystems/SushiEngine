@@ -137,7 +137,7 @@ namespace SushiEngine
         /**
          * @brief Weather-driven modulation layered onto the authored atmosphere/fog/material state.
          *
-         * `docs/slop/weather_and_clouds.md` §5.3 (W5, "coupling weather -> world"): the same
+         * `docs/design/weather_and_clouds.md` §5.3 (W5, "coupling weather -> world"): the same
          * `Simulation::WeatherColumn` sample that drives the compiled `Cloudscape` also derives
          * this struct (`Simulation::WeatherWorldCoupling`), so every consumer below reacts to
          * the identical cause — the design doc's "one cause, every symptom" acceptance bar,
@@ -383,7 +383,7 @@ namespace SushiEngine
          * @brief The thresholds @ref classify_cloud_genus decides a genus with.
          *
          * Data rather than literals inside the classifier, for the reason
-         * `docs/slop/atmosphere_system.md` §13 gives (OCP: "genus and every physical constant
+         * `docs/design/atmosphere_system.md` §13 gives (OCP: "genus and every physical constant
          * are data"): the cloudscape bake resolves a genus per baked column *on the GPU* and
          * therefore needs these same numbers uploaded, and a threshold that exists twice —
          * once in a C++ `if` and once in a GLSL `if` — is a threshold that will eventually
@@ -417,7 +417,7 @@ namespace SushiEngine
         /**
          * @brief Names the genus a band's simulated state reads as.
          *
-         * `docs/slop/atmosphere_system.md` §7.4: genus stops being an *input* to the density
+         * `docs/design/atmosphere_system.md` §7.4: genus stops being an *input* to the density
          * field and becomes a *label derived from* it. This is that derivation, and it is the
          * only one — the cloudscape bake resolves one genus per baked column through the GPU
          * copy of these thresholds, and the editor readout, the METAR-style report, and
@@ -541,7 +541,7 @@ namespace SushiEngine
             /**
              * @brief A stratus sheet with cumulus breaking through — a front mid-passage.
              *
-             * Weather panel v2 (`docs/slop/weather_and_clouds.md` §6/§7 W4) expands this into
+             * Weather panel v2 (`docs/design/weather_and_clouds.md` §6/§7 W4) expands this into
              * a synoptic system placed upstream of the observer and heading toward it
              * (`Simulation::ProceduralWeather::apply_preset`), rather than a static deck mix —
              * the whole point of the panel's procedural presets is that the sky then evolves
@@ -897,7 +897,7 @@ namespace SushiEngine
              * Where @ref weather is the one column under the observer — the right shape for
              * a scalar the whole frame shares, like exposure — this is the same simulation's
              * horizontal grid, and it is what makes a front visible as a front rather than
-             * as a global number ramping (`docs/slop/atmosphere_system.md` §1.1/§7.3).
+             * as a global number ramping (`docs/design/atmosphere_system.md` §1.1/§7.3).
              * Invalid by default: a scene with no dynamic weather renders exactly as it did
              * before, from the authored deck stack alone.
              */
@@ -905,7 +905,7 @@ namespace SushiEngine
             /**
              * @brief The regional nest's physics, authored and serialized with the scene.
              *
-             * `docs/slop/atmosphere_system.md` §13's "every physical constant lives in
+             * `docs/design/atmosphere_system.md` §13's "every physical constant lives in
              * `AtmosphereNestParameters`, is serialized with the scene, and is editable". Off-by-
              * default is not the choice here — the nest is what makes weather weather — but a
              * scene may switch it off and fall back to the authored or classified sky, which is

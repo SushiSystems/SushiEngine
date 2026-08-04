@@ -4,7 +4,7 @@
 // The surface energy balance: the ground's own temperature, and the sensible and latent heat it
 // hands to the air.
 //
-// docs/slop/atmosphere_system.md §6's `ISurfaceModel`. Three authored numbers — a peak sensible
+// docs/design/atmosphere_system.md §6's `ISurfaceModel`. Three authored numbers — a peak sensible
 // flux, a peak latent flux and a night-time cooling rate, each scaled by the sine of the sun's
 // elevation — would be far cheaper, and the objection to them is not that they are crude. It is
 // that a prescribed flux is not a *balance*, so nothing in it can close:

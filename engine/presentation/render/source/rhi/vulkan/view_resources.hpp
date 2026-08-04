@@ -69,7 +69,7 @@ namespace SushiEngine
             /**
              * @brief A slot's resolve image, ready for a caller to blit or copy from.
              *
-             * The seam `present_scene_view()` reads through (`docs/slop/cross_platform_engineering_plan.md`
+             * The seam `present_scene_view()` reads through (`docs/design/cross_platform_engineering_plan.md`
              * PLATFORM0 S4): unlike @ref ISceneView::texture(), which hands out a sampler/view pair for
              * an in-place ImGui sample, this exposes the raw image and its graph-tracked resting state
              * so a caller can barrier it into a transfer layout, blit it elsewhere, and barrier it back

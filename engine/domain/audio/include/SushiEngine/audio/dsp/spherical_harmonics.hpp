@@ -30,7 +30,7 @@
  *
  * A source is placed into the ambisonic field by scaling it with the spherical
  * harmonic values evaluated at its direction: `(order + 1)²` gains, one per channel
- * (see `docs/slop/audio_system.md` §3.8, §4). This is the single most important
+ * (see `docs/design/audio_system.md` §3.8, §4). This is the single most important
  * scaling decision in the spatializer — the per-source cost is only these gains, so N
  * sources collapse into one fixed bus and the expensive binaural decode runs once.
  *

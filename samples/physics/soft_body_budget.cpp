@@ -166,7 +166,7 @@ int main()
     configuration.substeps.minimum = 32;
     configuration.substeps.maximum = 32;
 
-    // P8-A (docs/slop/physics_system.md §16.21/§16.36-37): without profiling, a
+    // P8-A (docs/design/physics_system.md §16.21/§16.36-37): without profiling, a
     // measurement cannot tell whether the tick's cost is arithmetic or the 1 024
     // graph-node barriers 32 colours x 32 substeps impose. Profiling on is what makes
     // that answerable -- it costs the run nothing this probe cares about, since the

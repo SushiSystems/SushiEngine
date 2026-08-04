@@ -29,7 +29,7 @@
  * @brief Uniformly-partitioned overlap-save (UPOLS) fast convolution.
  *
  * The engine behind the convolution reverb (§3.5, §7, §S10 of
- * `docs/slop/audio_system.md`): convolve a running input against an arbitrarily long
+ * `docs/design/audio_system.md`): convolve a running input against an arbitrarily long
  * impulse response in `O(log B)` per sample instead of `O(M)`, at a fixed latency of one
  * block `B`. The IR is cut into `⌈M/B⌉` partitions; each is transformed once to the
  * frequency domain (size `2B`). Every block, the input's `2B` spectrum is pushed into a

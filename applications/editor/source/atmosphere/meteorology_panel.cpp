@@ -113,7 +113,7 @@ namespace SushiEngine
                                    "restarts from the base state.");
             }
 
-            // The GPU regional nest's authored physics (docs/slop/atmosphere_system.md §6).
+            // The GPU regional nest's authored physics (docs/design/atmosphere_system.md §6).
             // Everything here is authored data serialized with the scene -- the design doc
             // states twice that no physical constant may live inside a loop body, and this
             // section is what makes that claim mean something to an author rather than only

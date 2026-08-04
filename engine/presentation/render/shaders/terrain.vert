@@ -2,7 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 // Planetary terrain, drawn as one instanced grid per selected node
-// (docs/slop/solar_system_overhaul.md §8).
+// (docs/design/solar_system_overhaul.md §8).
 //
 // The output signature is mesh.vert's exactly, so the existing pbr.frag shades this
 // geometry with no changes: terrain is lit, shadowed, fogged and tone-mapped by the path

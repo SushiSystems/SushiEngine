@@ -1,7 +1,8 @@
 # Atmosphere — Real Meteorology on the GPU and a Planet-Scale Cloudscape
 
-Status: **Design / engineering plan.** Companion to
-[render_pipeline_refactor.md](render_pipeline_refactor.md) (its Phase 8 defers here).
+**Status:** in progress, phases A to C shipped; D, E and F open — see §11's 2026-08-02 handover.
+
+Companion to [render_pipeline_refactor.md](render_pipeline_refactor.md) (its Phase 8 defers here).
 
 **Supersedes `weather_and_clouds.md`** (removed; in git history), whose W0–W3 render
 tier shipped and carries forward largely intact (§8), and whose W4–W6 simulation tier
@@ -210,13 +211,12 @@ model with real emergent behaviour, not an approximation of appearance:
 | **Surface energy balance + bulk boundary layer** | Diurnal thermals, sea breeze, valley fog, orographic enhancement | 2-D, negligible |
 | **LES patch** (100 m) | Individual thermals, rotor/turbulence structure, hero storms | 200³, expensive, optional |
 
-The counter-intuitive affordability argument, stated once because it drives every budget
-in §12: **these models are stepped in game time, and their stability-limited time steps
-are far longer than a frame.** The regional nest's Δt is ~6 s of simulated time (the
-measured CFL bound — §11's B2c); at 1× time scale that is one step every six seconds of
-wall clock. A 1.8-million-cell non-hydrostatic step costing ~8 ms as measured, taken
-every 6 s, amortizes to **~0.02 ms per frame** at 60 Hz. Real cloud physics is cheap in a game not because it is simplified, but because
-weather is slow.
+The counter-intuitive affordability argument, stated once because it drives every budget in §12:
+**these models are stepped in game time, and their stability-limited time steps are far longer than
+a frame.** The regional nest's Δt is ~6 s of simulated time (the measured CFL bound — §11's B2c); at
+1× time scale that is one step every six seconds of wall clock. A 1.8-million-cell non-hydrostatic
+step costing ~8 ms as measured, taken every 6 s, amortizes to **~0.02 ms per frame** at 60 Hz. Real
+cloud physics is cheap in a game not because it is simplified, but because weather is slow.
 
 ### 2.3 What we take, and what we skip
 
@@ -345,14 +345,14 @@ IAtmosphereQuery           CPU point/profile queries → gameplay only
 IAtmosphereAuthoring       optional capability: place/edit systems, force scenarios (editor only)
 ```
 
-**The four composed interfaces above are how this was drawn before any of it ran on a GPU, and
-two of them never became types.** `ISurfaceModel` and `IRadiationModel` shipped in Phase B3 as
-*stages* — `atmosphere_surface.comp` is the surface model and the radiation is its shortwave and
-longwave terms — because on the GPU a "model" is a compute shader plus a parameter group, and
-there is exactly one of each. An interface with one implementation forever is a stub wearing a
-vtable. The substitutability the sketch was reaching for lives in `AtmosphereParameters` instead:
-a different planet, a different land cover or a different microphysics tuning is a data edit. See
-§11's B3c for the seam that *would* earn a type, and why it is blocked.
+**The four composed interfaces above are how this was drawn before any of it ran on a GPU, and two
+of them never became types.** `ISurfaceModel` and `IRadiationModel` shipped in Phase B3 as *stages*
+— `atmosphere_surface.comp` is the surface model and the radiation is its shortwave and longwave
+terms — because on the GPU a "model" is a compute shader plus a parameter group, and there is
+exactly one of each. An interface with one implementation forever is a stub wearing a vtable. The
+substitutability the sketch was reaching for lives in `AtmosphereParameters` instead: a different
+planet, a different land cover or a different microphysics tuning is a data edit. See §11's B3c for
+the seam that *would* earn a type, and why it is blocked.
 
 Rules that follow, and that the shipped system violated:
 
@@ -441,53 +441,52 @@ against the same probe on the analytic bands:
 | Eddy KE at saturation | ~1.1 × 10⁵ J/m² | ~2.9 × 10⁵ J/m² |
 | Global mean rain | 0.235 mm/day | **1.5 – 2.4 mm/day** |
 
-**No retuning was needed, which was not the expectation.** The prediction going in was that a
-mean state with nearly twice the shear would grow much faster and would push
-`grid_scale_damping_seconds` off its calibration. It grows *slower* — 0.21 against 0.26 — and the
-life cycle is intact: exponential growth through day 38, saturation at day 48, decay, and a second
-cycle beginning at day 58. The reason the extra shear does not buy extra growth is that the real
-jet is narrow and sits at 29°N rather than broad at 45°, and β is larger there, so the Phillips
-threshold it has to clear is higher. The damping parameter is untouched.
+**No retuning was needed, which was not the expectation.** The prediction going in was that a mean
+state with nearly twice the shear would grow much faster and would push `grid_scale_damping_seconds`
+off its calibration. It grows *slower* — 0.21 against 0.26 — and the life cycle is intact:
+exponential growth through day 38, saturation at day 48, decay, and a second cycle beginning at
+day 58. The reason the extra shear does not buy extra growth is that the real jet is narrow and sits
+at 29°N rather than broad at 45°, and β is larger there, so the Phillips threshold it has to clear
+is higher. The damping parameter is untouched.
 
 The jet latitude is the result worth pointing at: nothing tells the core where to put a jet. It
 reports 29–31°N because that is where January's subtropical jet is in the reanalysis it is
 relaxing toward.
 
 **Named limit: the moisture cycles too slowly, and the ceiling is not what is wrong.** Global mean
-column water settles at 31.3 kg/m² against an observed ~25, while global mean rain reaches
-1.5–2.4 mm/day against an observed ~2.7. Those two miss in *opposite* directions, so no value of
-`evaporation_relative_humidity` fixes both — a lower ceiling would bring the water down and push
-the rain further away. What that pattern indicates is the condensation and evaporation
-*timescales*, not the saturation profile. `evaporation_relative_humidity` is therefore left at
-0.75 deliberately, rather than moved to the observed 0.55 because a single number happened to
-match. (It is worth noting how much closer the rain already is: the analytic mean state produced
-0.235 mm/day, an order of magnitude low.)
+column water settles at 31.3 kg/m² against an observed ~25, while global mean rain reaches 1.5–2.4
+mm/day against an observed ~2.7. Those two miss in *opposite* directions, so no value of
+`evaporation_relative_humidity` fixes both — a lower ceiling would bring the water down and push the
+rain further away. What that pattern indicates is the condensation and evaporation *timescales*, not
+the saturation profile. `evaporation_relative_humidity` is therefore left at 0.75 deliberately,
+rather than moved to the observed 0.55 because a single number happened to match. (It is worth
+noting how much closer the rain already is: the analytic mean state produced 0.235 mm/day, an order
+of magnitude low.)
 
 ### 4.2 The season
 
-`ProceduralWeather::tick` used to drop its `julian_date`. It now converts it to a position in
-the year and hands it to `QuasiGeostrophicCore::set_year_fraction` before advancing the flow, so
-a step always runs against the climatology of the moment it belongs to.
+`ProceduralWeather::tick` used to drop its `julian_date`. It now converts it to a position in the
+year and hands it to `QuasiGeostrophicCore::set_year_fraction` before advancing the flow, so a step
+always runs against the climatology of the moment it belongs to.
 
 **A season is not a force on the flow.** `set_year_fraction` re-reads exactly two things — the
 saturation ceiling and the climatological state — and touches nothing prognostic. Potential
-vorticity and column water carry straight through. A cyclone alive in April does not vanish
-because the target jet moved; it finds itself in a slightly different mean flow, which is what a
-season is.
+vorticity and column water carry straight through. A cyclone alive in April does not vanish because
+the target jet moved; it finds itself in a slightly different mean flow, which is what a season is.
 
 **Determinism (§3.4) is preserved by quantizing, not by thresholding.** The obvious way to avoid
-rebuilding two tables every frame is "rebuild when the date has moved enough", and that is wrong:
-it makes the mean state depend on the *call history*, so two hosts ticking at different rates
-diverge. Instead the year fraction is quantized to whole days — a pure function of the date. T0
-holds twelve monthly fields, so a day already oversamples the data thirty to one and nothing is
-lost, while the rebuild happens ~365 times a simulated year rather than 60 times a second.
-Measured: a host ticking 1000 times and a host ticking 10 times across the same interval land on
-mean states identical to nine decimal places.
+rebuilding two tables every frame is "rebuild when the date has moved enough", and that is wrong: it
+makes the mean state depend on the *call history*, so two hosts ticking at different rates diverge.
+Instead the year fraction is quantized to whole days — a pure function of the date. T0 holds twelve
+monthly fields, so a day already oversamples the data thirty to one and nothing is lost, while the
+rebuild happens ~365 times a simulated year rather than 60 times a second. Measured: a host ticking
+1000 times and a host ticking 10 times across the same interval land on mean states identical to
+nine decimal places.
 
 **The date is applied before the seed, not after.** A scene opening in July would otherwise be
-seeded with January's jet and spend its first simulated weeks migrating — a transient nobody
-asked for that would read as the weather being wrong. `ProceduralWeather`'s constructor takes the
-epoch for that reason.
+seeded with January's jet and spend its first simulated weeks migrating — a transient nobody asked
+for that would read as the weather being wrong. `ProceduralWeather`'s constructor takes the epoch
+for that reason.
 
 Measured through the provider, seeded at each solstice:
 
@@ -500,9 +499,9 @@ Measured through the provider, seeded at each solstice:
 The last row is the one worth pointing at. Nothing in the engine knows the hemispheres behave
 differently, yet the southern jet **moves equatorward into winter** while the northern one simply
 weakens. That is the Southern Hemisphere's double-jet structure: one merged eddy-driven jet near
-50°S in summer, splitting in winter so the strongest flow is the subtropical jet at 30°S. It
-falls out of the data. (It also cost a wrong assertion to find — a check written at 45°S failed,
-because 45°S is exactly the crossover between the two jets and says nothing either way.)
+50°S in summer, splitting in winter so the strongest flow is the subtropical jet at 30°S. It falls
+out of the data. (It also cost a wrong assertion to find — a check written at 45°S failed, because
+45°S is exactly the crossover between the two jets and says nothing either way.)
 
 Licensing note: NCEP-NCAR R1, NOAA OISST, and Natural Earth (all shipped in the bake) and
 ETOPO / MODIS land cover (blocked with §15's terrain system) are all public,
@@ -582,12 +581,12 @@ on a GTX 1060 6 GB, not scaled from a model; VRAM is scaled from the measured Hi
 | Step cost | 1.65 ms | 3.63 ms | **8.37 ms** | 19.5 ms |
 | VRAM | ~22 MB | ~50 MB | **~135 MB** | ~320 MB |
 
-**The horizontal domain is 384 km at every tier and only the resolution changes**, so raising
-the tier resolves the same weather more finely rather than simulating a different amount of
-world — which is what keeps a scene's sky recognisably itself across machines, and what stops
-two players in one scene from getting different weather. Verified: across all four tiers a
-quiescent airmass ends six hours at 48.6–49.8 % surface humidity and 12.73–12.75 kg/m² of column
-water, and a convecting one at 100 % cloudy columns with 0.49–0.62 coverage.
+**The horizontal domain is 384 km at every tier and only the resolution changes**, so raising the
+tier resolves the same weather more finely rather than simulating a different amount of world —
+which is what keeps a scene's sky recognisably itself across machines, and what stops two players in
+one scene from getting different weather. Verified: across all four tiers a quiescent airmass ends
+six hours at 48.6–49.8 % surface humidity and 12.73–12.75 kg/m² of column water, and a convecting
+one at 100 % cloudy columns with 0.49–0.62 coverage.
 
 High is the baseline the resolver's contract requires and is unchanged from what shipped; 2 km
 is not an arbitrary rung on that ladder but the spacing at which convection stops being
@@ -597,9 +596,9 @@ correspondingly smoother and more parameterized.
 
 **Named limit: the subgrid cloud closure is not rescaled with the tier — and the scaling that was
 supposed to fix that was built, measured, and rejected.** `cloud_critical_humidity` sets where a
-cell's humidity distribution begins to hold cloud, and its 0.80 is the standard value *at 2 km*:
-the subgrid variance a cell hides is a function of how big the cell is, so in isolation the
-correct value falls at coarser spacing and approaches 1 as the grid resolves the cloud itself.
+cell's humidity distribution begins to hold cloud, and its 0.80 is the standard value *at 2 km*: the
+subgrid variance a cell hides is a function of how big the cell is, so in isolation the correct
+value falls at coarser spacing and approaches 1 as the grid resolves the cloud itself.
 
 That argument is sound and the scaling it implies is not a guess — the spread is the standard
 deviation of a field filtered at the cell scale, and an inertial-range spectrum fixes its exponent
@@ -618,10 +617,10 @@ resolved convection rather than the closure — the coarse grid's deck is thinne
 humidity addresses that.
 
 The symptom this limit was originally written from — High 5.8 % cloudy against every other tier
-under 0.1 % — is **no longer reproducible**, because it was a property of the too-dry base state
-the vapour profile fix removed, not of the closure. Medium, High and Ultra now agree to
-0.010–0.014; Low is the outlier, at the spacing where this section already says convection is
-smoother and more parameterized.
+under 0.1 % — is **no longer reproducible**, because it was a property of the too-dry base state the
+vapour profile fix removed, not of the closure. Medium, High and Ultra now agree to 0.010–0.014; Low
+is the outlier, at the spacing where this section already says convection is smoother and more
+parameterized.
 
 Every prognostic field is fp32, including the `q_*` fields. Half floats were the
 original choice for them on a range argument — mixing ratios are a few grams per
@@ -806,12 +805,11 @@ What stays: the pass topology (half-res march → cloud TAA → composite, both 
 the budgets and step rule, the dual-lobe multi-octave sun energy, the two-window
 addressing, and the meteorology as the sole author of *where* clouds are.
 
-*(Superseded 2026-08-01 by the fifth entry: the whiteout and the profile-gradient ambient
-were both listed here as staying, and both are defects — see §11. The step rule and the
-budgets are also on that entry's list.)* Known deliberate gaps, stated rather than hidden: cirriform
-decks currently carve with the cumuliform recipe (streak styling is a follow-up), and
-beyond the far window's rim there is still no cloud — §7.5's planet-scale far field
-remains future work.
+*(Superseded 2026-08-01 by the fifth entry: the whiteout and the profile-gradient ambient were both
+listed here as staying, and both are defects — see §11. The step rule and the budgets are also on
+that entry's list.)* Known deliberate gaps, stated rather than hidden: cirriform decks currently
+carve with the cumuliform recipe (streak styling is a follow-up), and beyond the far window's rim
+there is still no cloud — §7.5's planet-scale far field remains future work.
 
 ---
 
@@ -890,12 +888,12 @@ across clients even though each client's rendered atmosphere is its own simulati
 
 ## 10. Editor integration
 
-**Shipped: the Meteorology panel** (`Window ▸ Meteorology`), the first slice of the list below.
-It is deliberately a *tuning and logging* surface rather than a visualiser, because the questions
-this tier raises are numerical: is the sky animating faster than the nest can step, what is the
-solar forcing right now, what does the observer's column actually contain, and — when it contains
-nothing — which link in the chain from "procedural weather" to "readback complete" is broken. It
-names that link and offers the fix beside it, rather than reporting a symptom.
+**Shipped: the Meteorology panel** (`Window ▸ Meteorology`), the first slice of the list below. It
+is deliberately a *tuning and logging* surface rather than a visualiser, because the questions this
+tier raises are numerical: is the sky animating faster than the nest can step, what is the solar
+forcing right now, what does the observer's column actually contain, and — when it contains nothing
+— which link in the chain from "procedural weather" to "readback complete" is broken. It names that
+link and offers the fix beside it, rather than reporting a symptom.
 
 Its CSV log is sampled on the **nest's own clock**, not the wall clock, so a line is a fixed
 interval of simulated weather however fast the sky is being animated, and two runs at different
@@ -983,15 +981,15 @@ Working constraints:
   sunlight and full moonlight at ~2.4e-6; both are within ~20 % of measured lux ratios. A
   moonless night really is black. Making night *visible* is an exposure-adaptation decision,
   not a cloud-shader one.
-* **`cloud_panorama.comp` has the same missing-transmittance bug and it is deliberately not
-  fixed.** The pass has no consumer today: `view()`/`sampler()` are never called and the
-  `IblPass` reflection-probe wiring is explicitly scoped out. Fix it *when that consumer lands*,
-  or the seam against the corrected primary march will show.
-* **Direct sunlight is un-attenuated for *every* surface, not only clouds** (`sky.frag`'s ground
-  and `pbr.frag` both read the raw uniform). Clouds were merely the most visible consumer. If
-  the ground and meshes are later given the same treatment, do it by attenuating at each
-  consumer — **not** by tinting `environment.sun.color` on the CPU, which would double-count
-  against the sky, whose LUTs already integrate the transmittance themselves.
+* **`cloud_panorama.comp` has the same missing-transmittance bug and it is deliberately not fixed.**
+  The pass has no consumer today: `view()`/`sampler()` are never called and the `IblPass`
+  reflection-probe wiring is explicitly scoped out. Fix it *when that consumer lands*, or the seam
+  against the corrected primary march will show.
+* **Direct sunlight is un-attenuated for *every* surface, not only clouds** (`sky.frag`'s ground and
+  `pbr.frag` both read the raw uniform). Clouds were merely the most visible consumer. If the ground
+  and meshes are later given the same treatment, do it by attenuating at each consumer — **not** by
+  tinting `environment.sun.color` on the CPU, which would double-count against the sky, whose LUTs
+  already integrate the transmittance themselves.
 
 #### Open, in the order they should be done
 
@@ -1019,41 +1017,41 @@ Working constraints:
    orbit it shows the zonal climatology alone until T1's own pressure extrema are extracted.
    The original statement of the item follows.
 
-   Promoted here by the user on
-   2026-08-02 against a side-by-side of our globe and Google Earth (`image5`/`image6`): ours is a
-   uniformly milky sphere, theirs is mostly *clear* ocean with discrete bands and swirls over it.
-   *"manual mod artık fair weather overcast ile değil seed ile belirlenecek. bu şekilde dünyanın
-   bir yeri bulutlu fırtınalı iken bir yeri tam olarak açık hava olacak."*
+   Promoted here by the user on 2026-08-02 against a side-by-side of our globe and Google Earth
+   (`image5`/`image6`): ours is a uniformly milky sphere, theirs is mostly *clear* ocean with
+   discrete bands and swirls over it. *"manual mod artık fair weather overcast ile değil seed ile
+   belirlenecek. bu şekilde dünyanın bir yeri bulutlu fırtınalı iken bir yeri tam olarak açık hava
+   olacak."*
 
    Today Manual mode is not a mode at all: `RuntimeSimulation::procedural_weather_enabled()` is
    literally `static_cast<bool>(weather_provider_)`, so Manual means **no provider**, and the bake
    applies one authored deck stack to the entire planet. `StaticWeather` exists in
-   `weather_provider.hpp` for exactly this job and is never installed, so it is dead code.
-   Two consequences that shape the work:
+   `weather_provider.hpp` for exactly this job and is never installed, so it is dead code. Two
+   consequences that shape the work:
    * The mode must become an explicit enum before a Manual provider can exist, because installing
      one would otherwise flip the predicate every consumer keys off.
-   * A varying field fixes the *near* view but not the orbital one. `cloud_globe_envelope` reads
-     the deck stack and a hard-coded `GLOBE_PATTERN_*` modulation — no seed, one scale (~300 km),
-     and it modulates a coverage that is already high everywhere, so it can never produce the
-     clear ocean that is most of `image6`. The globe field needs the seeded synoptic field too,
-     and it must be able to reach **zero**.
+   * A varying field fixes the *near* view but not the orbital one. `cloud_globe_envelope` reads the
+     deck stack and a hard-coded `GLOBE_PATTERN_*` modulation — no seed, one scale (~300 km), and it
+     modulates a coverage that is already high everywhere, so it can never produce the clear ocean
+     that is most of `image6`. The globe field needs the seeded synoptic field too, and it must be
+     able to reach **zero**.
 
    This overlaps CV5+CV9 above and they should agree about what a cloud system is: that item is
    organisation *within* a scene, this one is organisation *across the globe*.
 5. **CV14 — the limb speckle.** *"LOD sistemi resmen göz kanatıyor."* Bright unstable fireflies
    along the terminator limb in `image5`. Partly predicted to fall out of CV15 (tenth entry); if
-   not, the suspects in order are the step schedule on rays that graze a 2 km shell for hundreds
-   of kilometres, the equal-volume footprint being the wrong band limit for a tangential path,
-   and `GLOBE_PATTERN_LOD` being a hard-coded 2.0 with nothing tying it to the pixel.
+   not, the suspects in order are the step schedule on rays that graze a 2 km shell for hundreds of
+   kilometres, the equal-volume footprint being the wrong band limit for a tangential path, and
+   `GLOBE_PATTERN_LOD` being a hard-coded 2.0 with nothing tying it to the pixel.
 6. **CV6, CV7, CV8** — physical extinction end to end; advection on the game clock at the
    simulated wind; lighting coupled to the carved density.
 7. **The rest of the UX and mode work (MU1, MU2, WM1–WM3) and fog (FG1–FG3)**, then aerodynamics
    (AE1–AE5). On fog, as of 2026-08-02 it is **not** bound to meteorology: `FogParams` is authored
    end to end and meteorology contributes exactly one scalar, `WeatherCoupling::fog_density_bias`,
-   added to the author's density in `VolumetricFogPass` and zero whenever no provider is
-   installed. It also has no horizontal field at all — the froxel volume is camera-frustum
-   aligned, so "foggy in the valley, clear on the ridge" is reachable today only through
-   hand-placed `FogVolume` primitives. FG1–FG3 is where that changes.
+   added to the author's density in `VolumetricFogPass` and zero whenever no provider is installed.
+   It also has no horizontal field at all — the froxel volume is camera-frustum aligned, so "foggy
+   in the valley, clear on the ridge" is reachable today only through hand-placed `FogVolume`
+   primitives. FG1–FG3 is where that changes.
 
 #### Decisions the user has already made — treat as settled
 
@@ -1088,39 +1086,38 @@ viewpoint. **The rings are cloud-path, the terrain is innocent**, and the user h
 what terrain issues there were.
 
 That narrows it enough to reason instead of guess, and the decisive observation is that the rings
-are concentric about the **sub-camera point**, not the pole. So they are contours of something
-that varies with angle from the nadir — equivalently, with the chord length a ray takes through
-the shell. Now go through everything in the march that is a function of distance from the eye,
-with the camera in orbit: `detail_fade` (14–42 km), `near_field` (16 km), `CARVE_END_METERS`
-(80 km), both step clamps (1 km and 60 km). **Every one of them is saturated** — the shell entry
-is a thousand kilometres away, so all of them return the same answer for every pixel on the disc.
-None of the pre-existing distance-driven machinery can draw a contour from orbit at all.
+are concentric about the **sub-camera point**, not the pole. So they are contours of something that
+varies with angle from the nadir — equivalently, with the chord length a ray takes through the
+shell. Now go through everything in the march that is a function of distance from the eye, with the
+camera in orbit: `detail_fade` (14–42 km), `near_field` (16 km), `CARVE_END_METERS` (80 km), both
+step clamps (1 km and 60 km). **Every one of them is saturated** — the shell entry is a thousand
+kilometres away, so all of them return the same answer for every pixel on the disc. None of the
+pre-existing distance-driven machinery can draw a contour from orbit at all.
 
 One thing could, and it was added by the twelfth entry the same day: the budget coarsening,
 `exp2(0.5 * (real_samples - STEPS))`.
 
 `real_samples` is an **integer**. The step size therefore took discrete values, and two adjacent
-pixels whose rays landed on different overdraft counts marched at step sizes a factor of √2
-apart, which the accumulated density shows. The set of pixels sharing an overdraft count is a
-curve of constant chord length through the shell — a circle centred on the sub-camera point.
-Rings. And they concentrate toward the limb, because that is where the chord is long enough
-(~780 km grazing a 12 km shell) to overrun any tier's budget in the first place, which matches
-where they actually appear.
+pixels whose rays landed on different overdraft counts marched at step sizes a factor of √2 apart,
+which the accumulated density shows. The set of pixels sharing an overdraft count is a curve of
+constant chord length through the shell — a circle centred on the sub-camera point. Rings. And they
+concentrate toward the limb, because that is where the chord is long enough (~780 km grazing a 12 km
+shell) to overrun any tier's budget in the first place, which matches where they actually appear.
 
-**The general lesson is worth more than the fix: anything derived from a loop counter is
-quantised by construction, and a quantised quantity that varies smoothly across the frame is a
-visible contour unless something downstream smooths it.** A ray march has nothing downstream. The
-same statement covers mip level indices, iteration counts, and early-out depths — a whole family
-of "why is there a ring" bugs reduces to it.
+**The general lesson is worth more than the fix: anything derived from a loop counter is quantised
+by construction, and a quantised quantity that varies smoothly across the frame is a visible contour
+unless something downstream smooths it.** A ray march has nothing downstream. The same statement
+covers mip level indices, iteration counts, and early-out depths — a whole family of "why is there a
+ring" bugs reduces to it.
 
 So the budget is a *distance* now, not a count. The natural step is geometric —
-`t_{n+1} = t_n * (1 + march_angular)` — so the distance at which `STEPS` of them would be spent
-is the closed form `t_0 * (1 + march_angular)^STEPS`, computed once before the loop and
-continuous in `t_0`. Past it the step scales by how far past it the sample is. Nothing integer
-appears anywhere in the step size, so no contour of any shape can form. Growth is quadratic
-overall (the natural step is already ∝ t and this multiplies by t again), so the remaining reach
-still falls in a few dozen samples. `real_samples` itself is deleted rather than left in place
-implying a limit nothing enforces.
+`t_{n+1} = t_n * (1 + march_angular)` — so the distance at which `STEPS` of them would be spent is
+the closed form `t_0 * (1 + march_angular)^STEPS`, computed once before the loop and continuous in
+`t_0`. Past it the step scales by how far past it the sample is. Nothing integer appears anywhere in
+the step size, so no contour of any shape can form. Growth is quadratic overall (the natural step is
+already ∝ t and this multiplies by t again), so the remaining reach still falls in a few dozen
+samples. `real_samples` itself is deleted rather than left in place implying a limit nothing
+enforces.
 
 Not verified. The reasoning that no *other* distance-driven term can produce a camera-centred
 contour from orbit is solid, but "nothing else I found can do this" is weaker than a measurement.
@@ -1133,28 +1130,28 @@ because **the line that caused it is well-written, well-commented, and was right
 written.**
 
 `Environment::planet_surface_reference_metres` is `length(observer_center)` — the observer's own
-geocentric radius — and its comment explains the choice: put altitude zero at the ground *under
-the camera*, because the naive alternative (the equatorial radius) is worth kilometres of air
-density at mid latitudes. For a scene that is a few hundred kilometres across, that is not just
-defensible, it is the better of the two available answers.
+geocentric radius — and its comment explains the choice: put altitude zero at the ground *under the
+camera*, because the naive alternative (the equatorial radius) is worth kilometres of air density at
+mid latitudes. For a scene that is a few hundred kilometres across, that is not just defensible, it
+is the better of the two available answers.
 
 Then PL1 made the cloud field planetary, and nobody went back to the assumption it invalidated.
 
 WGS84's geocentric radius runs 6 356 752 m at the pole to 6 378 137 m at the equator. A sphere
 fitted at one latitude is wrong by up to 21 km at another, and every cloud reader subtracted that
 sphere from a position to get the altitude a 1 300 m deck is placed against. With the observer at
-41° N the shell sits at ~6 368 900 m, so the ground is 9.2 km **above** it at the equator and
-12.1 km **below** it at the pole. The deck was buried underground across the tropics, stratospheric
-over the caps, and swept smoothly between the two — crossing every boundary in the deck stack on
-the way. Each crossing is a circle of constant latitude. Rings.
+41° N the shell sits at ~6 368 900 m, so the ground is 9.2 km **above** it at the equator and 12.1
+km **below** it at the pole. The deck was buried underground across the tropics, stratospheric over
+the caps, and swept smoothly between the two — crossing every boundary in the deck stack on the way.
+Each crossing is a circle of constant latitude. Rings.
 
-This is the third time in this document that the same *shape* of failure has appeared: a bound
-that was true under the conditions it was derived for, silently carried into conditions that
-broke it. The eighth entry's approximation (an error bound on an input said nothing about a step
-function's output). The tenth entry's camera-frame lighting ("the angle differs by under a
-degree" — true until the march reached the whole globe). Now this one. **The recurring hazard is
-not bad reasoning, it is correct reasoning whose preconditions expired**, and the thing that
-expired them every time was the same event: the field's reach growing.
+This is the third time in this document that the same *shape* of failure has appeared: a bound that
+was true under the conditions it was derived for, silently carried into conditions that broke it.
+The eighth entry's approximation (an error bound on an input said nothing about a step function's
+output). The tenth entry's camera-frame lighting ("the angle differs by under a degree" — true until
+the march reached the whole globe). Now this one. **The recurring hazard is not bad reasoning, it is
+correct reasoning whose preconditions expired**, and the thing that expired them every time was the
+same event: the field's reach growing.
 
 #### Why the fix stayed small
 
@@ -1167,9 +1164,9 @@ Fixing the *altitude* fixes everything downstream on its own:
   atmosphere medium therefore **stays spherical deliberately** — that is the parameterisation,
   not an oversight — and only the geometry became oblate.
 * The bake, light volume, shadow map and far-light passes are all parameterised in `height01` and
-  never convert a position at all, so they needed no change. The entire defect was reader-side.
-  That is the layering earning its keep: the bake says "at height fraction h the envelope is E"
-  and stays out of the argument about where h is.
+  never convert a position at all, so they needed no change. The entire defect was reader-side. That
+  is the layering earning its keep: the bake says "at height fraction h the envelope is E" and stays
+  out of the argument about where h is.
 
 `cloud_planet_radius_at` and `cloud_ray_shell` live in `cloud_field_window.glsl` for the reason
 everything else in that file does — the view march and the panorama impostor must bound the *same*
@@ -1177,25 +1174,25 @@ shell, or the impostor continues the sky at a different altitude than the march 
 
 #### Verified partially: "bir nebze düzeldi"
 
-The re-shoot after this landed improved the globe but did **not** clear the ring banding, which
-is the most informative result available: one ring family went and another stayed. The altitude
-fix is therefore real and not the whole story, and the remaining family has to be found rather
-than guessed at — four hypotheses had already been spent on this artifact by that point, which is
-three more than the evidence supported.
+The re-shoot after this landed improved the globe but did **not** clear the ring banding, which is
+the most informative result available: one ring family went and another stayed. The altitude fix is
+therefore real and not the whole story, and the remaining family has to be found rather than guessed
+at — four hypotheses had already been spent on this artifact by that point, which is three more than
+the evidence supported.
 
 What turned up while looking is that **the cloud path is not the only thing in this frame that
 generates concentric rings**, and the other candidate had not been considered at all:
-`terrain.vert:106` computes its CDLOD morph weight as `length(unmorphed)` against a per-node
-band, and positions are camera-relative, so that length is the distance from the eye. Morph
-bands are therefore **spherical shells about the camera**, which project onto the globe as
-circles centred on the sub-camera point — the same shape, from geometry that has nothing to do
-with clouds. The user's reading attributed the rings to the cloud shaders and that was reasonable
-given what changed recently, but it is not established.
+`terrain.vert:106` computes its CDLOD morph weight as `length(unmorphed)` against a per-node band,
+and positions are camera-relative, so that length is the distance from the eye. Morph bands are
+therefore **spherical shells about the camera**, which project onto the globe as circles centred on
+the sub-camera point — the same shape, from geometry that has nothing to do with clouds. The user's
+reading attributed the rings to the cloud shaders and that was reasonable given what changed
+recently, but it is not established.
 
-One toggle separates them completely: **Clouds Enabled off, same viewpoint.** Rings that survive
-are terrain and the cloud path is innocent. Rings that vanish are in the cloud path, and
-*Atmosphere Enabled* off with clouds on then separates a LUT-driven band from a field-driven one.
-Until that is run, anything written here about the remaining family would be a fifth guess.
+One toggle separates them completely: **Clouds Enabled off, same viewpoint.** Rings that survive are
+terrain and the cloud path is innocent. Rings that vanish are in the cloud path, and *Atmosphere
+Enabled* off with clouds on then separates a LUT-driven band from a field-driven one. Until that is
+run, anything written here about the remaining family would be a fifth guess.
 
 ...and asking for that test is how the next bug surfaced: **the checkbox did not work.**
 `WeatherCloudscapeCompiler::compile` forced `clouds.enabled = true` and `RuntimeSimulation`
@@ -1206,27 +1203,27 @@ everywhere. A regression caused by this document's own eleventh entry, found onl
 unrelated experiment needed the control.
 
 Two things worth keeping from it. First, **the override was level-triggered to answer a
-edge-triggered question** — its reasoning ("a scene authored with clouds off would leave
-procedural weather invisible") is about the moment a scene loads, but it was enforced every tick,
-and per-tick it cannot distinguish an authored state from a decision made a second ago. Second,
-it is the second time in two days that a change to *who installs a provider* silently activated
-behaviour written for a narrower case; the first was Manual mode having no `WeatherField` at all.
-`IWeatherProvider`'s installation is load-bearing in ways its call sites do not advertise.
+edge-triggered question** — its reasoning ("a scene authored with clouds off would leave procedural
+weather invisible") is about the moment a scene loads, but it was enforced every tick, and per-tick
+it cannot distinguish an authored state from a decision made a second ago. Second, it is the second
+time in two days that a change to *who installs a provider* silently activated behaviour written for
+a narrower case; the first was Manual mode having no `WeatherField` at all. `IWeatherProvider`'s
+installation is load-bearing in ways its call sites do not advertise.
 
 #### The horizon is a separate problem, and it is not fixed
 
 The same round included `image12`: from low altitude the cloud near the horizon resolves into long
-thin radial streaks converging on the vanishing point. That is **not** this bug — at the
-observer's own latitude the old sphere was exact, and 138 km of horizon is 1.2° of arc, worth at
-most ~440 m of the 21 km error.
+thin radial streaks converging on the vanishing point. That is **not** this bug — at the observer's
+own latitude the old sphere was exact, and 138 km of horizon is 1.2° of arc, worth at most ~440 m of
+the 21 km error.
 
-The leading hypothesis is the windows' own geometry. They are flat axis-aligned XZ lattices with
-128 m horizontal texels and 32 vertical texels over the whole shell (~350 m each). A ray one
-degree below horizontal climbs 350 m in about 20 km, so it stays inside a single vertical texel
-row for tens of kilometres and returns a value that barely changes along that stretch — a streak.
-Adjacent rays fall into adjacent rows, and every such streak converges where the window's plane
-vanishes, which is the horizon. The carve, which is what would normally put structure back, is
-*correctly* band-limited to nothing out there (the equal-volume footprint at 100 km is ~700 m).
+The leading hypothesis is the windows' own geometry. They are flat axis-aligned XZ lattices with 128
+m horizontal texels and 32 vertical texels over the whole shell (~350 m each). A ray one degree
+below horizontal climbs 350 m in about 20 km, so it stays inside a single vertical texel row for
+tens of kilometres and returns a value that barely changes along that stretch — a streak. Adjacent
+rays fall into adjacent rows, and every such streak converges where the window's plane vanishes,
+which is the horizon. The carve, which is what would normally put structure back, is *correctly*
+band-limited to nothing out there (the equal-volume footprint at 100 km is ~700 m).
 
 If that is right then nothing is malfunctioning: the field's own resolution is simply showing
 through at the one incidence angle that maximises the path length per texel. It belongs with CV14
@@ -1237,29 +1234,29 @@ been verified.
 
 Two reports, one screenshot each, and they turned out to be the same *kind* of defect in two
 different passes: a resource limit implemented as a **domain** limit instead of a **resolution**
-limit. Both produced a boundary anchored to the observer rather than to anything in the world,
-which is the signature to recognise — an artifact that slides across the frame when the camera
-moves is almost never about what is in the world at that place.
+limit. Both produced a boundary anchored to the observer rather than to anything in the world, which
+is the signature to recognise — an artifact that slides across the frame when the camera moves is
+almost never about what is in the world at that place.
 
 #### The march stopped instead of coarsening (CV16)
 
 `cloud.frag`'s loop ran `while (iter < max_iterations && real_samples < STEPS)`. When the sample
-budget ran out the ray simply ended, contributing nothing for whatever remained of its length.
-The user's words: *"kameraya yakın yerde bulut renderlanmaması hem büyük ölçekte hem küçük
-ölçekte hala var"* — and a second shot at 1 500 m showing a cloud mass sliced off along a hard
-line, with *"eğer sola doğru gidersem renderlanmayan kısım renderlanmaya başlıyor"*.
+budget ran out the ray simply ended, contributing nothing for whatever remained of its length. The
+user's words: *"kameraya yakın yerde bulut renderlanmaması hem büyük ölçekte hem küçük ölçekte hala
+var"* — and a second shot at 1 500 m showing a cloud mass sliced off along a hard line, with *"eğer
+sola doğru gidersem renderlanmayan kısım renderlanmaya başlıyor"*.
 
 That last clause is the diagnosis. A boundary that retreats as you approach it is a boundary
 that depends on the eye, and the only eye-dependent quantity in the march is how much budget a
 ray has spent by the time it gets somewhere.
 
 Why it hit the near field hardest is the part worth remembering: **the budget is charged per
-envelope sample, and the envelope is non-zero across far more sky than the carve ever fills.**
-The coarse probe answers "cloud may exist here", so ordinary clear-but-not-provably-empty air is
-charged the full price of a carve evaluation and returns nothing. Combined with the 20 m near
-step — which exists for good reasons and costs 25 samples over the first 500 m — the cheap
-tier's 48 samples were gone by about 1.2 km. Someone standing under a deck could see the horizon
-and not the air in front of their face.
+envelope sample, and the envelope is non-zero across far more sky than the carve ever fills.** The
+coarse probe answers "cloud may exist here", so ordinary clear-but-not-provably-empty air is charged
+the full price of a carve evaluation and returns nothing. Combined with the 20 m near step — which
+exists for good reasons and costs 25 samples over the first 500 m — the cheap tier's 48 samples were
+gone by about 1.2 km. Someone standing under a deck could see the horizon and not the air in front
+of their face.
 
 The fix is one line of principle: a cost bound degrades resolution, not reach. Past the budget
 the step coarsens rather than the march stopping. It is safe because the quadrature was already
@@ -1268,39 +1265,38 @@ converges to the carve's exact mean yield as that footprint grows, which is the 
 mechanism the `CARVE_END_METERS` hand-off rests on. So a coarsened sample is a low-resolution
 rendering of the cloud that is there, not its absence.
 
-**The first version of the coarsening was itself wrong, and the fourteenth entry is about how.**
-It scaled the step by `exp2(0.5 * (real_samples - STEPS))` — geometric in the number of samples
-already spent. Correct in magnitude, quantised in the worst possible variable. See below.
+**The first version of the coarsening was itself wrong, and the fourteenth entry is about how.** It
+scaled the step by `exp2(0.5 * (real_samples - STEPS))` — geometric in the number of samples already
+spent. Correct in magnitude, quantised in the worst possible variable. See below.
 
 #### The cloud resolve had nothing to evict history with (CV17)
 
-*"kamera hareket ederken shader bu şekilde trail bırakıyor. aşırı rahatsız edici."* The Low tier
-set `cloud_variance_clip = false`, and reading `cloud_taa.comp` it becomes clear that flag did
-not select a cheaper clip — it removed the clip entirely, leaving a plain EMA at up to 0.97
-feedback. The neighbourhood clip is the **only** mechanism in that resolve that ever rejects a
-stale sample, so without it reprojection error does not decay, it compounds over ~33 frames.
+*"kamera hareket ederken shader bu şekilde trail bırakıyor. aşırı rahatsız edici."* The Low tier set
+`cloud_variance_clip = false`, and reading `cloud_taa.comp` it becomes clear that flag did not
+select a cheaper clip — it removed the clip entirely, leaving a plain EMA at up to 0.97 feedback.
+The neighbourhood clip is the **only** mechanism in that resolve that ever rejects a stale sample,
+so without it reprojection error does not decay, it compounds over ~33 frames.
 
 This is a general trap in tiering temporal passes: a temporal filter is a feedback loop, and the
-rejection test is not a quality feature layered on top of it, it is the loop's stability
-condition. Cutting it does not make the tier cheaper and softer; it makes the tier divergent. The
-knob now chooses *which* rejection — 9-tap YCoCg variance clip, or a 5-tap cross min/max clamp on
-the cheap floor — and there is no setting that blends history unrejected.
+rejection test is not a quality feature layered on top of it, it is the loop's stability condition.
+Cutting it does not make the tier cheaper and softer; it makes the tier divergent. The knob now
+chooses *which* rejection — 9-tap YCoCg variance clip, or a 5-tap cross min/max clamp on the cheap
+floor — and there is no setting that blends history unrejected.
 
 The second half was there under both settings: **alpha was never clipped at all.** This buffer's
 alpha is the march's transmittance and `CloudCompositePass` folds the sky through it, so an
-unbounded alpha history leaves a stale *silhouette* — a cloud-shaped hole in the sky with
-correctly resolved colour inside it. Clipping colour alone would have fixed the trail's hue and
-left its shape, which is the sort of half-fix that reads as "better" in a screenshot and is still
-wrong.
+unbounded alpha history leaves a stale *silhouette* — a cloud-shaped hole in the sky with correctly
+resolved colour inside it. Clipping colour alone would have fixed the trail's hue and left its
+shape, which is the sort of half-fix that reads as "better" in a screenshot and is still wrong.
 
 #### Not yet verified
 
-None of this has been seen on screen. The march change is confident — the mechanism is plainly
-in the code and its signature matches the report exactly — but whether it is the *whole* of what
+None of this has been seen on screen. The march change is confident — the mechanism is plainly in
+the code and its signature matches the report exactly — but whether it is the *whole* of what
 image10 shows needs the re-shoot. If a hard azimuthal cut survives, the next suspects are the far
 window's square rim (a square centred on the camera reaches 131 km along an axis and 185 km along
-its diagonal, and the horizon at 1 500 m is ~138 km, so the corners cross it and the edges do
-not) and `max_iterations` running out on near-horizontal rays.
+its diagonal, and the horizon at 1 500 m is ~138 km, so the corners cross it and the edges do not)
+and `max_iterations` running out on near-horizontal rays.
 
 ### Where this stands — 2026-08-02, eleventh entry: WM-SEED, weather that is somewhere
 
@@ -1323,8 +1319,8 @@ The mode is named now, and both states install a provider. The distinction that 
 worth more than the one it removed — **placed** versus **grown**:
 
 * `SeededWeather` places it. Deterministic, defined at every point on the body, costs nothing to
-  run, and evolves in nothing but the season. That is not a weaker `ProceduralWeather`; it is
-  what an author who typed a seed asked for.
+  run, and evolves in nothing but the season. That is not a weaker `ProceduralWeather`; it is what
+  an author who typed a seed asked for.
 * `ProceduralWeather` grows it. Evolves on its own, and resolves only the nest's 384 km.
 
 #### The zonal term is the half that costs nothing and does most of the work
@@ -1335,17 +1331,16 @@ cloudy midlatitude storm track, a moderate polar cap. Three Gaussians on a base 
 0.64 / **0.06** / 0.66 / 0.31 with ordinary midlatitudes at 0.30, and it needs no seed, no
 simulation and no data because it is the same every year.
 
-Those numbers were 0.72 / 0.32 / 0.76 / 0.51 when this shipped, taken from annual-mean **total
-cloud fraction** climatologies, and the user's first look at the result was "her yer bulutlu
-seedde, bulutlu olmayan yer yok mu?" — everywhere is cloudy, is there nowhere clear? They were
-right, and the mistake is worth keeping written down because nothing about it looks like a
-mistake: the numbers are accurate, sourced, and cited to the right measurement. They are simply
-*a different quantity from the one every consumer downstream reads them as*. Total cloud fraction
-counts sub-visual cirrus and broken fields that read as clear sky from orbit; the carve treats
-this value as the fraction of sky it fills with opaque, lit cloud. So the clearest place on the
-planet was drawn a third solid. **An error bound on a number says nothing if the units are
-wrong** — the same shape of failure as the eighth entry's approximation, arriving through
-dimensional analysis instead of through calculus.
+Those numbers were 0.72 / 0.32 / 0.76 / 0.51 when this shipped, taken from annual-mean **total cloud
+fraction** climatologies, and the user's first look at the result was "her yer bulutlu seedde,
+bulutlu olmayan yer yok mu?" — everywhere is cloudy, is there nowhere clear? They were right, and
+the mistake is worth keeping written down because nothing about it looks like a mistake: the numbers
+are accurate, sourced, and cited to the right measurement. They are simply *a different quantity
+from the one every consumer downstream reads them as*. Total cloud fraction counts sub-visual cirrus
+and broken fields that read as clear sky from orbit; the carve treats this value as the fraction of
+sky it fills with opaque, lit cloud. So the clearest place on the planet was drawn a third solid.
+**An error bound on a number says nothing if the units are wrong** — the same shape of failure as
+the eighth entry's approximation, arriving through dimensional analysis instead of through calculus.
 
 The subtropical minimum is the term that earns its place. It is why an orbital photograph has
 large, genuinely clear ocean in it — and a field without it reads as overcast everywhere no
@@ -1367,23 +1362,22 @@ numbers. That is not merely cheap, it is the correctness property — a bake and
 fades into holding different opinions about where the weather is would show up as a seam at the
 far window's rim, which is the exact artefact PL1 was written to remove.
 
-The frame conversion lives on the host, in `publish_synoptic_field`, because the host is the
-only object holding both halves of it: the provider answers in latitude and longitude, the march
-has nothing but a radial in scene space, and `Environment::planet_body_axes` is the rotation
-between them. Twelve vectors once on the CPU, versus two inverse trigonometric functions per
-centre per march sample.
+The frame conversion lives on the host, in `publish_synoptic_field`, because the host is the only
+object holding both halves of it: the provider answers in latitude and longitude, the march has
+nothing but a radial in scene space, and `Environment::planet_body_axes` is the rotation between
+them. Twelve vectors once on the CPU, versus two inverse trigonometric functions per centre per
+march sample.
 
 #### What changed in the globe field, and why the noise had to become multiplicative
 
-`cloud_globe_envelope` was reading `cloud_deck_a[i].z` for its coverage. That value is compiled
-from the **camera's own column**, so using it out there restated the weather over the observer's
-head as the weather everywhere on the body — the uniformity bug, in the one place written to
-cure it.
+`cloud_globe_envelope` was reading `cloud_deck_a[i].z` for its coverage. That value is compiled from
+the **camera's own column**, so using it out there restated the weather over the observer's head as
+the weather everywhere on the body — the uniformity bug, in the one place written to cure it.
 
 The mesoscale noise pattern stays, because the placement carries synoptic scale and a satellite
-image plainly has structure below it. But it is now a **multiplier** rather than an additive
-swing. An additive one cannot leave a sky clear: whatever the weather says, the noise veils half
-of it back over, and a subtropical high never reads as empty. A multiplier preserves zero.
+image plainly has structure below it. But it is now a **multiplier** rather than an additive swing.
+An additive one cannot leave a sky clear: whatever the weather says, the noise veils half of it back
+over, and a subtropical high never reads as empty. A multiplier preserves zero.
 
 #### Named limits, honestly
 
@@ -1393,18 +1387,19 @@ of it back over, and a subtropical high never reads as empty. A multiplier prese
   `cloud_globe_envelope` can be called up to three times per sample (probe, envelope, light).
   Hoisting it to one evaluation per sample is the first lever if the far field turns out
   expensive; it was not done pre-emptively because it costs the call sites their independence.
-* **Procedural mode publishes no centres**, so from orbit it shows the zonal climatology and
-  nothing placed. That is truthful — a core resolving a 384 km nest genuinely does not know
-  whether it is raining on the far side of the planet — but the obvious next step is to *extract*
-  centres from T1's own pressure field, whose extrema are real highs and lows. A coarse lat/lon
-  scan at publish cadence would do it, and then the globe would show the simulated systems.
+* **Procedural mode publishes no centres**, so from orbit it shows the zonal climatology and nothing
+  placed. That is truthful — a core resolving a 384 km nest genuinely does not know whether it is
+  raining on the far side of the planet — but the obvious next step is to *extract* centres from
+  T1's own pressure field, whose extrema are real highs and lows. A coarse lat/lon scan at publish
+  cadence would do it, and then the globe would show the simulated systems.
 * **Unverified by eye.** As with the last three entries.
 
 ### Where this stands — 2026-08-02, tenth entry: the sun was where the camera was
 
 Two reports, one line of code:
 
-> *"kamera karanlığa girerse aydınlık taraftaki bulutlar kararıyor — oysaki o bulutlar ışık görüyor"*
+> *"kamera karanlığa girerse aydınlık taraftaki bulutlar kararıyor — oysaki o bulutlar ışık
+> görüyor"*
 > *"bulutlar, LOD dahil, akşam güneş görmeyen yerlerde kayboluyor. bir nebze gözükmeli"*
 
 `cloud.frag` computed the solar zenith cosine once per pixel, in the **camera's** radial frame,
@@ -1417,15 +1412,15 @@ if (atmo_ray_sphere(deck_mid_radius, mu_sun, surface_radius) > 0.0)
     sun_radiance = vec3(0.0);
 ```
 
-So the question "is the sun up?" was asked once, about the observer, and its answer was applied
-to every cloud in the frame. Stand in your own shadow at sunset and the sunlit tops to the west
-go black with you. Look at the Earth from orbit and the whole globe is lit or unlit as one unit,
-with no terminator anywhere on the deck.
+So the question "is the sun up?" was asked once, about the observer, and its answer was applied to
+every cloud in the frame. Stand in your own shadow at sunset and the sunlit tops to the west go
+black with you. Look at the Earth from orbit and the whole globe is lit or unlit as one unit, with
+no terminator anywhere on the deck.
 
-**The interesting part is that the code argued for itself, and the argument was checkable.** It
-said the angle at the deck and the angle at the observer "differ by the deck's angular extent
-about the planet centre — under a degree for anything this march can reach — which is finer than
-the LUT resolves." Both clauses fail:
+**The interesting part is that the code argued for itself, and the argument was checkable.** It said
+the angle at the deck and the angle at the observer "differ by the deck's angular extent about the
+planet centre — under a degree for anything this march can reach — which is finer than the LUT
+resolves." Both clauses fail:
 
 * *"for anything this march can reach"* stopped being true earlier the same day. PL1 gave the
   march the whole visible globe — tens of degrees of arc, with a real terminator inside the
@@ -1433,36 +1428,36 @@ the LUT resolves." Both clauses fail:
   of that reach, and this one was two entries above it in the same file.
 * *"finer than the LUT resolves"* was **never** true, and this is the part worth keeping. The LUT's
   resolution is irrelevant when what consumes the angle is a **step function**. Near sunset the
-  gate's output changes by 1.0 across the degree the argument dismissed. An error bound on an
-  input says nothing about the output unless you also bound the derivative, and a discontinuity
-  has none. The approximation was exactly wrong at the only moment anyone looks at a sunset.
+  gate's output changes by 1.0 across the degree the argument dismissed. An error bound on an input
+  says nothing about the output unless you also bound the derivative, and a discontinuity has none.
+  The approximation was exactly wrong at the only moment anyone looks at a sunset.
 
-The fix is per-sample solar geometry (`cloud_sun_at`), inside the `density > 0.001` branch so
-only samples that get shaded pay the fetch. The gate is softened across the Sun's angular radius
-— it is a disc, not a point, so a deck darkens over the half-degree its limb takes to set, and a
-hard test would draw the terminator across the cloud tops as a razor line, which is the one place
-on Earth nobody has ever seen one.
+The fix is per-sample solar geometry (`cloud_sun_at`), inside the `density > 0.001` branch so only
+samples that get shaded pay the fetch. The gate is softened across the Sun's angular radius — it is
+a disc, not a point, so a deck darkens over the half-degree its limb takes to set, and a hard test
+would draw the terminator across the cloud tops as a razor line, which is the one place on Earth
+nobody has ever seen one.
 
-**The Moon had the identical bug, and it is what emptied the night side.** The reflected-body
-loop gated each body on the *camera's* horizon, so from a daylit camera the Moon is below it,
-`continue` fires, and the one light the dark limb had was skipped for the entire frame. The sum
-is now accumulated ungated and cut off at each sample's own horizon, using the dominant body's
-direction — after sunset the ephemeris sorts the Moon first and it outweighs everything behind it
-by orders of magnitude, so one direction for the sum is accurate to well past what is visible.
+**The Moon had the identical bug, and it is what emptied the night side.** The reflected-body loop
+gated each body on the *camera's* horizon, so from a daylit camera the Moon is below it, `continue`
+fires, and the one light the dark limb had was skipped for the entire frame. The sum is now
+accumulated ungated and cut off at each sample's own horizon, using the dominant body's direction —
+after sunset the ephemeris sorts the Moon first and it outweighs everything behind it by orders of
+magnitude, so one direction for the sum is accurate to well past what is visible.
 
 Skylight is the one term that stayed where it was, and deliberately: the sky-view LUT is a
 directional map of the *camera's own* sky and there is no honest way to ask it about a point a
 thousand kilometres away. The march adds back only the **difference** — `max(daylight(sample) −
 daylight(camera), 0)` against the same 2 % of the top-of-atmosphere beam `CLOUD_SKY_AMBIENT` was
 originally calibrated to. A sample no sunnier than the camera contributes exactly zero, so every
-view that was already right is bit-identical and the only thing this can change is the case that
-was wrong.
+view that was already right is bit-identical and the only thing this can change is the case that was
+wrong.
 
-**Unverified by eye.** One prediction worth checking against the next screenshot: the limb
-speckle (CV14 below) should get *better*, because a large part of it is the old code handing the
-full noon beam to samples past the terminator, where a saturated cloud sits against a dark limb
-and any density flicker reads as a firefly. If it does not improve, the cause is the step
-schedule on grazing rays and not the lighting.
+**Unverified by eye.** One prediction worth checking against the next screenshot: the limb speckle
+(CV14 below) should get *better*, because a large part of it is the old code handing the full noon
+beam to samples past the terminator, where a saturated cloud sits against a dark limb and any
+density flicker reads as a firefly. If it does not improve, the cause is the step schedule on
+grazing rays and not the lighting.
 
 ### Where this stands — 2026-08-02, ninth entry: the planet, and the yellow
 
@@ -1470,11 +1465,11 @@ Four screenshots, and each answered a different question. Two from ~100 km looki
 low altitude looking up; Manual weather mode, fair-weather preset, Ultra.
 
 **PL1 — from orbit the sky was a box, and it was exactly the box the design predicted.** Both
-windows are camera-centred flat squares in world XZ (32 km and 262 km) that fade to nothing
-across their rim *by design*; `cloud_field_window.glsl` has carried the paragraph explaining why
-a flat prism is meaningless at planetary distance since it was written. What was missing was the
-thing that paragraph defers to — §7.5's coarse planet-scale far field — and nothing had ever
-been put there, so past 131 km the planet simply had no weather.
+windows are camera-centred flat squares in world XZ (32 km and 262 km) that fade to nothing across
+their rim *by design*; `cloud_field_window.glsl` has carried the paragraph explaining why a flat
+prism is meaningless at planetary distance since it was written. What was missing was the thing that
+paragraph defers to — §7.5's coarse planet-scale far field — and nothing had ever been put there, so
+past 131 km the planet simply had no weather.
 
 What went in is deliberately the *cheap* form, and the reason is not effort: **there is no data
 to be finer with.** The nest is 384 km across and T1 runs on the host (§3.3), so anything
@@ -1491,8 +1486,8 @@ Three consequences worth recording:
 * **The windows now fade *into* it rather than into nothing**, so the far rim is a hand-off. The
   layers agree in the mean because they are built from the same decks; they differ only in the
   structure the coarse one cannot know about, which is what a LOD hand-off should look like.
-* `cloud_height_gradient` moved into `cloud_field_window.glsl`. Two answers about where a deck's
-  top is would have shown as a step at the rim, and the bake and the march are now one answer.
+* `cloud_height_gradient` moved into `cloud_field_window.glsl`. Two answers about where a deck's top
+  is would have shown as a step at the rim, and the bake and the march are now one answer.
 * **The skip guarantee weakens, and it is stated rather than quietly assumed.** Inside the
   windows a zero probe *proves* a region empty (it is a max-pool, and the carve only removes).
   The planet-scale field is a point evaluation, so out there the hop is a bound tied to the
@@ -1507,29 +1502,28 @@ T(far→top)` — which holds only while the near point's path to the top runs *
 point, i.e. while the ray climbs. Look down from orbit and the far point is the deeper one; the
 containment reverses and so must the quotient.
 
-Taking the wrong branch is not an inaccuracy. `transmittance_to_top` integrates the straight
-line from `r` along `mu` to the top *sphere*, with no planet in the way, so at a downward `mu`
-it marches through the body: the closest approach is `r·sqrt(1 − mu²)`, essentially the centre
-for a near-vertical look-down, and an exponential density profile evaluated below the surface is
-astronomically large. Both fetches underflow toward zero, they underflow by different amounts
-per wavelength — blue first, because Rayleigh — and their ratio is then an arbitrary saturated
-colour. Hence yellow, and hence *only* on the clouds: the ground reaches the frame through
-`sky.frag`, which never asks this question.
+Taking the wrong branch is not an inaccuracy. `transmittance_to_top` integrates the straight line
+from `r` along `mu` to the top *sphere*, with no planet in the way, so at a downward `mu` it marches
+through the body: the closest approach is `r·sqrt(1 − mu²)`, essentially the centre for a
+near-vertical look-down, and an exponential density profile evaluated below the surface is
+astronomically large. Both fetches underflow toward zero, they underflow by different amounts per
+wavelength — blue first, because Rayleigh — and their ratio is then an arbitrary saturated colour.
+Hence yellow, and hence *only* on the clouds: the ground reaches the frame through `sky.frag`, which
+never asks this question.
 
-It also explains something in the ground-level shots. For a slightly downward ray the wrong
-quotient exceeds one and clamps, which means near-horizon pixels were getting **no distance
-extinction at all** — part of the bright horizon slab that this document has blamed on the carve
-twice.
+It also explains something in the ground-level shots. For a slightly downward ray the wrong quotient
+exceeds one and clamps, which means near-horizon pixels were getting **no distance extinction at
+all** — part of the bright horizon slab that this document has blamed on the carve twice.
 
 **And the eighth entry's named lever got pulled the same day.** That entry chose the integration
 step as the carve's LOD footprint and wrote down the case that would overturn it. The orbital
-screenshots are that case: looking straight down, the ray crosses a 2 km deck almost
-perpendicular — so along-ray error is bounded by the deck's own thickness — while the lateral
-footprint on the deck is under a hundred metres. Band-limiting that to the step's kilometre
-erases the cloud field outright. The LOD now selects against `pow(lateral² · axial, 1/3)`, the
-equal-volume isotropic stand-in for the real anisotropic footprint, which lands near the step at
-the horizon and near the pixel from orbit. The ladder's Nyquist fade still uses the step alone,
-because that test genuinely is about the quadrature and not about the texture filter.
+screenshots are that case: looking straight down, the ray crosses a 2 km deck almost perpendicular —
+so along-ray error is bounded by the deck's own thickness — while the lateral footprint on the deck
+is under a hundred metres. Band-limiting that to the step's kilometre erases the cloud field
+outright. The LOD now selects against `pow(lateral² · axial, 1/3)`, the equal-volume isotropic
+stand-in for the real anisotropic footprint, which lands near the step at the horizon and near the
+pixel from orbit. The ladder's Nyquist fade still uses the step alone, because that test genuinely
+is about the quadrature and not about the texture filter.
 
 **Still open after this, and both were confirmed by eye rather than argued:** the clouds do not
 read as cumulus at any distance (CV5+CV9 — flat lozenges, no vertical development, no mesoscale
@@ -1558,36 +1552,35 @@ step is 1 200 m, so the floor is 4 800 m, and a five-kilometre blob at full soli
 optical depths across. That is not a badly-filtered cloud, it is a wall — which is exactly what
 "renders them white" describes.
 
-Underneath it, nothing was filtered at all. The march volume was created with `mipLevels = 1`
-and read through the shared `max_lod = 0` sampler, so a sample whose step spans a kilometre
-point-sampled an 18 m texel: sixty times faster than the sampler, with whichever peak the
-lattice landed on surviving the threshold at full amplitude. The taps were also implicit-LOD
-`texture()` calls, which a fragment shader resolves from screen-space derivatives — undefined
-inside the non-uniform control flow a ray march is made of. Every tap is now `textureLod` with a
-stated level.
+Underneath it, nothing was filtered at all. The march volume was created with `mipLevels = 1` and
+read through the shared `max_lod = 0` sampler, so a sample whose step spans a kilometre
+point-sampled an 18 m texel: sixty times faster than the sampler, with whichever peak the lattice
+landed on surviving the threshold at full amplitude. The taps were also implicit-LOD `texture()`
+calls, which a fragment shader resolves from screen-space derivatives — undefined inside the
+non-uniform control flow a ray march is made of. Every tap is now `textureLod` with a stated level.
 
-**Why a compute box filter and not `vkCmdBlitImage`.** The volume tiles under REPEAT addressing,
-so its filter has to wrap; a blit's clamps instead, and at the coarse levels *every* texel is a
-border texel, which would bake the tile seam into the chain. Because every extent is a power of
-two the wrap costs nothing to honour — the eight sources of a destination texel are exactly
-`2x + (0,1)³`, all in range — so `cloud_noise_mip.comp` is fifteen lines and states its filter
-rather than inheriting one.
+**Why a compute box filter and not `vkCmdBlitImage`.** The volume tiles under REPEAT addressing, so
+its filter has to wrap; a blit's clamps instead, and at the coarse levels *every* texel is a border
+texel, which would bake the tile seam into the chain. Because every extent is a power of two the
+wrap costs nothing to honour — the eight sources of a destination texel are exactly `2x + (0,1)³`,
+all in range — so `cloud_noise_mip.comp` is fifteen lines and states its filter rather than
+inheriting one.
 
-**The half that matters: a percentile threshold cannot be applied to a filtered field.**
-`coverage` selects the top `coverage` of a field that is uniform on [0, 1] — that uniformity is
-the CDF transform's whole purpose, and it is a property of the *unfiltered* field. Filtering
-narrows a distribution; by the coarse levels it is nearly a constant at 0.5, so a hard threshold
-against a filtered fetch answers "all cloud" or "no cloud" for a whole region, and the delivered
-coverage stops resembling the requested one. Band-limiting alone would have traded a white far
-field for a binary one.
+**The half that matters: a percentile threshold cannot be applied to a filtered field.** `coverage`
+selects the top `coverage` of a field that is uniform on [0, 1] — that uniformity is the CDF
+transform's whole purpose, and it is a property of the *unfiltered* field. Filtering narrows a
+distribution; by the coarse levels it is nearly a constant at 0.5, so a hard threshold against a
+filtered fetch answers "all cloud" or "no cloud" for a whole region, and the delivered coverage
+stops resembling the requested one. Band-limiting alone would have traded a white far field for a
+binary one.
 
 So the march evaluates the *expectation* of its ramp over the detail the filter removed, and the
-amount removed is not estimated. A mip level of a box chain is the conditional expectation of
-the field given its block — an orthogonal projection — so the variance decomposes with no cross
-term and the residual is exactly `Var(level 0) − Var(level l)`. `CloudNoise` measures it on the
-host from a one-time readback of the finest level (the bring-up submit already blocks on a
-fence) and pushes eight floats. The residual is modelled as uniform rather than Gaussian,
-because the field itself is, which also makes the convolution a closed form instead of an `erf`.
+amount removed is not estimated. A mip level of a box chain is the conditional expectation of the
+field given its block — an orthogonal projection — so the variance decomposes with no cross term and
+the residual is exactly `Var(level 0) − Var(level l)`. `CloudNoise` measures it on the host from a
+one-time readback of the finest level (the bring-up submit already blocks on a fence) and pushes
+eight floats. The residual is modelled as uniform rather than Gaussian, because the field itself is,
+which also makes the convolution a closed form instead of an `erf`.
 
 Two properties are what make it worth the plumbing:
 
@@ -1610,15 +1603,15 @@ removes mass, so dropping it would make cloud undersides grow *denser* with dist
 bite on its own, which is the right limit and needs no fade.
 
 **The judgement call, stated so a screenshot can overturn it.** The LOD is selected against the
-*integration step*, not the pixel footprint, and the two differ by more than an order of
-magnitude (0.02 of the distance against ~0.001). The step is the defensible choice — the march
-is a quadrature and detail it cannot sample along the ray is not detail it can integrate — and
-it matters that past `JITTER_FREEZE_METERS` the dither is frozen on purpose, so quadrature error
-there is *not* averaged away and would read as stable structure that is not cloud. The cost is
-that individual cumuli dissolve into coverage past roughly 25–30 km, and the structure beyond
-that comes from the envelope — the nest's own cloud fraction, real weather at 2 km. If that
-reads too smooth, the levers are `steps_far` (more samples, so a finer footprint follows) and
-the equal-volume compromise `pow(lateral² · axial, 1/3)`; **not** the floor that was removed.
+*integration step*, not the pixel footprint, and the two differ by more than an order of magnitude
+(0.02 of the distance against ~0.001). The step is the defensible choice — the march is a quadrature
+and detail it cannot sample along the ray is not detail it can integrate — and it matters that past
+`JITTER_FREEZE_METERS` the dither is frozen on purpose, so quadrature error there is *not* averaged
+away and would read as stable structure that is not cloud. The cost is that individual cumuli
+dissolve into coverage past roughly 25–30 km, and the structure beyond that comes from the envelope
+— the nest's own cloud fraction, real weather at 2 km. If that reads too smooth, the levers are
+`steps_far` (more samples, so a finer footprint follows) and the equal-volume compromise
+`pow(lateral² · axial, 1/3)`; **not** the floor that was removed.
 
 One cost note, unmeasured: at distance a larger fraction of in-envelope samples now return a
 small non-zero density instead of exactly zero, so more of them take the shading path. The
@@ -1835,73 +1828,71 @@ expected first knobs if the look is close but not right.
 
 ### Where this stands — 2026-08-01, third entry: the specks were a stale normalisation
 
-**Twenty real minutes over vegetated summer land rendered nothing but specks, and the cause was
-one constant that changed meaning without changing value.** §7.3's carve made the bake state its
-density as *in-cloud* water — `σ / fraction`, divided by `coverage_reference_lwc` — but that
-reference was still 1.5 g/m³, a number tuned for the old cell-mean semantics ("1 g/m³ averaged
-over four square kilometres is a deep solid deck"). Against in-cloud water, 1.5 g/m³ is a value
-no real cloud reaches: observed solid stratocumulus tops out at 0.3–0.5 g/m³, and the diurnal
-steady state the entrainment closure now holds (72 h probe, 2026-08-01) runs an in-cloud water
-path of ~66 g/m² over a ~700 m deck — roughly 0.1 g/m³. Divided by 1.5 g/m³ that baked at
-density ≈ 0.06, and the march (`extinction_scale = light_absorption × 0.006`) turned 700 m of
-that into optical depth ≈ 0.2: a sky that is 25 % covered by clouds too transparent to see.
-Every carve fix in §7.3 was working; its output was being multiplied into invisibility one line
-later.
+**Twenty real minutes over vegetated summer land rendered nothing but specks, and the cause was one
+constant that changed meaning without changing value.** §7.3's carve made the bake state its density
+as *in-cloud* water — `σ / fraction`, divided by `coverage_reference_lwc` — but that reference was
+still 1.5 g/m³, a number tuned for the old cell-mean semantics ("1 g/m³ averaged over four square
+kilometres is a deep solid deck"). Against in-cloud water, 1.5 g/m³ is a value no real cloud
+reaches: observed solid stratocumulus tops out at 0.3–0.5 g/m³, and the diurnal steady state the
+entrainment closure now holds (72 h probe, 2026-08-01) runs an in-cloud water path of ~66 g/m² over
+a ~700 m deck — roughly 0.1 g/m³. Divided by 1.5 g/m³ that baked at density ≈ 0.06, and the march
+(`extinction_scale = light_absorption × 0.006`) turned 700 m of that into optical depth ≈ 0.2: a sky
+that is 25 % covered by clouds too transparent to see. Every carve fix in §7.3 was working; its
+output was being multiplied into invisibility one line later.
 
-The default is now **0.4 g/m³** — a solid stratocumulus bakes at ≈ 1, the fair-weather cumulus
-the sim actually makes at ≈ 0.25 and rising toward its own top, translucent but plainly a cloud.
-The Doxygen on `coverage_reference_lwc` now states the in-cloud semantics so the constant cannot
+The default is now **0.4 g/m³** — a solid stratocumulus bakes at ≈ 1, the fair-weather cumulus the
+sim actually makes at ≈ 0.25 and rising toward its own top, translucent but plainly a cloud. The
+Doxygen on `coverage_reference_lwc` now states the in-cloud semantics so the constant cannot
 silently change meaning again, and the meteorology panel's "Overcast At" slider range moved down
 with it (1e-4 – 2e-3). **Serialized scenes pin the old value:** an environment saved before this
 change carries `coverage_reference_lwc = 0.0015` in its JSON and will keep rendering specks until
 the slider is set to ≈ 0.0004 and the scene resaved.
 
 **Two temporal defects came out of the same session's editor run, both in the W3 resolve chain
-rather than in anything §7 touched.** First, the cloud TAA's sky-pixel reprojection fallback
-treated the view ray as a direction at infinity — exact under rotation, blind under translation.
-A deck 1–3 km away has real parallax, so flying past it kept the history at the same screen
-position and the accumulation smeared it across the sky; worse, the sub-pixel acceptance boost
-keys off apparent motion, which the blind reprojection reported as zero, so feedback rose to
-0.97 precisely when the history was most wrong. The fallback now anchors the reprojected point
-at the march's own transmittance-weighted mean depth (the `cloud_depth` MRT, newly bound to the
-TAA) and offsets it by a new `eye_delta` row in the temporal block before applying the
-translation-free matrix — restating the point relative to last frame's eye, which is the only
-way a ray-marched point (no per-object previous transform) can see the camera move. Second,
-CloudCompositePass sampled the TAA's pass-owned history unconditionally: switching clouds off
-stopped the march and the resolve but not the composite, so the last resolved frame stayed
-glued to the screen until clouds came back. The composite now reads `misc.w` (the cloudscape
-master switch, via a truncated scene-block prefix) and passes the sky through untouched when it
-is off.
+rather than in anything §7 touched.** First, the cloud TAA's sky-pixel reprojection fallback treated
+the view ray as a direction at infinity — exact under rotation, blind under translation. A deck 1–3
+km away has real parallax, so flying past it kept the history at the same screen position and the
+accumulation smeared it across the sky; worse, the sub-pixel acceptance boost keys off apparent
+motion, which the blind reprojection reported as zero, so feedback rose to 0.97 precisely when the
+history was most wrong. The fallback now anchors the reprojected point at the march's own
+transmittance-weighted mean depth (the `cloud_depth` MRT, newly bound to the TAA) and offsets it by
+a new `eye_delta` row in the temporal block before applying the translation-free matrix — restating
+the point relative to last frame's eye, which is the only way a ray-marched point (no per-object
+previous transform) can see the camera move. Second, CloudCompositePass sampled the TAA's pass-owned
+history unconditionally: switching clouds off stopped the march and the resolve but not the
+composite, so the last resolved frame stayed glued to the screen until clouds came back. The
+composite now reads `misc.w` (the cloudscape master switch, via a truncated scene-block prefix) and
+passes the sky through untouched when it is off.
 
 ### Where this stands — 2026-08-01, second entry: the deck gets a physical bound
 
 **Cloud-top entrainment is in, and the 15 K floor stops being the operative bound.** Open item 4
-below named the deck's steady state honestly: −13.9 K against `cloud_top_equilibrium_depression`,
-a parameter and not a balance, with the condensate growing monotonically and the cloud-fraction
-clamps pinned domain-wide (open item 1's freeze). What was missing is the term every stratocumulus
-review names as the deck's actual regulator: the overturning the radiative cooling drives entrains
-warm, dry air down across the inversion, warming the top back toward its environment and — the
-half that ends a deck — drying the layer it condenses from.
+below named the deck's steady state honestly: −13.9 K against `cloud_top_equilibrium_depression`, a
+parameter and not a balance, with the condensate growing monotonically and the cloud-fraction clamps
+pinned domain-wide (open item 1's freeze). What was missing is the term every stratocumulus review
+names as the deck's actual regulator: the overturning the radiative cooling drives entrains warm,
+dry air down across the inversion, warming the top back toward its environment and — the half that
+ends a deck — drying the layer it condenses from.
 
 Shipped as the flux-partitioning closure (Lilly 1968; Nicholls & Turton 1986),
 `w_e = A · ΔF / (ρ c_p Δθ)`, in `atmosphere_forces.comp` directly under the cooling term whose
-absorbed flux drives it — so the entrainment inherits the same top-concentration
-(`exp(−κ·path)`) and the same closing condition, and the two shut down together. The entrained
-fraction mixes θ, vapour and cloud water toward the level above; evaporation of the entrained-in
-deficit is left to the microphysics dispatch one barrier later, where its latent cooling lands
-without double-counting. Gated on a stable interface (Δθ > 0.05 K), because an unstable top is
-resolved convection and entraining through it would count the same mixing twice. The efficiency
-is data — `cloud_top_entrainment_efficiency` on `AtmosphereParameters`, default 0.8 (the enhanced
-field estimate; written at the mid-range 0.4 and raised after the verifying runs below), folding
-the evaporative enhancement into one coefficient between the dry 0.2 and enhanced ~0.8 literature
-values; 0 removes the closure and reproduces the deck-on-its-floor state for A/B. The probe
-carries `--entrainment` for exactly that experiment. The depression floor stays, demoted to the
-runaway guard it should have been: a deck should now break by entrainment drying before its top
-reaches −15 K.
+absorbed flux drives it — so the entrainment inherits the same top-concentration (`exp(−κ·path)`)
+and the same closing condition, and the two shut down together. The entrained fraction mixes θ,
+vapour and cloud water toward the level above; evaporation of the entrained-in deficit is left to
+the microphysics dispatch one barrier later, where its latent cooling lands without double-counting.
+Gated on a stable interface (Δθ > 0.05 K), because an unstable top is resolved convection and
+entraining through it would count the same mixing twice. The efficiency is data —
+`cloud_top_entrainment_efficiency` on `AtmosphereParameters`, default 0.8 (the enhanced field
+estimate; written at the mid-range 0.4 and raised after the verifying runs below), folding the
+evaporative enhancement into one coefficient between the dry 0.2 and enhanced ~0.8 literature
+values; 0 removes the closure and reproduces the deck-on-its-floor state for A/B. The probe carries
+`--entrainment` for exactly that experiment. The depression floor stays, demoted to the runaway
+guard it should have been: a deck should now break by entrainment drying before its top reaches −15
+K.
 
-Magnitude, by arithmetic rather than by run: 0.8 × 70 W/m² over a 5 K inversion at ρ ≈ 1 is
-11.1 mm/s — the upper end of the measured nocturnal-stratocumulus range — and at a 400 m top level that is
-a drying e-folding of a few hours, which is the timescale a nocturnal deck actually breaks on.
+Magnitude, by arithmetic rather than by run: 0.8 × 70 W/m² over a 5 K inversion at ρ ≈ 1 is 11.1
+mm/s — the upper end of the measured nocturnal-stratocumulus range — and at a 400 m top level that
+is a drying e-folding of a few hours, which is the timescale a nocturnal deck actually breaks on.
 `test_atmosphere_nest.cpp` pins the closure's arithmetic through the mirrored
 `atmosphere_cloud_top_entrainment` helper.
 
@@ -1955,16 +1946,16 @@ losing exactly what one at ambient does, and nothing in this model ever warms a 
 way the term is a sink and not a flux. **Fixed** by scaling it with how far the top still is above
 the temperature at which the sky above balances it (`cloud_top_equilibrium_depression`, defaulting
 to the 15 K at which a 278 K black body has given up exactly the shipped 70 W/m², so the two move
-together rather than drifting apart). Exactly 1 at ambient — a transient deck, the case the term
-was calibrated on last week, is bit-identical.
+together rather than drifting apart). Exactly 1 at ambient — a transient deck, the case the term was
+calibrated on last week, is bit-identical.
 
 **A second, independent half of the same one-way budget, found while isolating the first.** The
-surface's downwelling longwave is Brutsaert's clear-sky emissivity *always*, including under a
-fully overcast column. So the deck shades the ground's sunlight away above while the ground goes on
-radiating to a sky that is not there: even with the cloud-top term removed, net radiation is
-−42 W/m² at permanent noon under an 0.84-covered sky. That one is bounded — the slab equilibrates —
-so it is a bias rather than a runaway, but it is also the term that would have *closed the loop* on
-the first: a ground kept warm under a cooling deck drives a sensible flux back into it. **Fixed** by
+surface's downwelling longwave is Brutsaert's clear-sky emissivity *always*, including under a fully
+overcast column. So the deck shades the ground's sunlight away above while the ground goes on
+radiating to a sky that is not there: even with the cloud-top term removed, net radiation is −42
+W/m² at permanent noon under an 0.84-covered sky. That one is bounded — the slab equilibrates — so
+it is a bias rather than a runaway, but it is also the term that would have *closed the loop* on the
+first: a ground kept warm under a cooling deck drives a sensible flux back into it. **Fixed** by
 blending the downwelling longwave toward the cloud base's own emission by cover and cloud
 emissivity. The data it needs — cloud-base temperature and column liquid water path — comes out of
 the walk `atmosphere_extinction.comp` already runs for the shading, so `cloud_shade` widens from two
@@ -1994,9 +1985,9 @@ that limit a real deck are the terms §6 already names as under-resolved. **Name
 persistent deck sits against its radiative floor rather than at an equilibrium, and the floor is a
 parameter. What has changed is that it is a floor at all.
 
-**Two things this run did not settle.** The sky field still freezes to four decimal places from
-43 h — 0.879 cover sample after sample — which is a separate question from the temperature and is
-still open. And the step cost cannot be compared across these runs: it reads 12.35 ms against the
+**Two things this run did not settle.** The sky field still freezes to four decimal places from 43 h
+— 0.879 cover sample after sample — which is a separate question from the temperature and is still
+open. And the step cost cannot be compared across these runs: it reads 12.35 ms against the
 baseline's 7.87, but `advect wind`, `advect scalars` and `pressure` — none of which this change
 touches — all moved by the same ~1.6×, so the machine and not the code is what differs. A cost
 measurement for this change has to be taken as a pair of runs back to back.
@@ -2006,9 +1997,9 @@ cycle* and found no runaway (−0.86 K above 10 km), so the fixed-sun case above
 construction; what the fixes do to a realistic diurnal forcing has not been run.
 
 **Still open from below, unchanged:** T1's 36 ms step on the main thread; the nest on the graphics
-queue; Phase C's nest-side genus acceptance; nothing confirmed by eye. (§12's budget has since
-been rewritten in B2c's per-simulated-second terms; its step figures carry the machine caveat of
-open item 3 below.)
+queue; Phase C's nest-side genus acceptance; nothing confirmed by eye. (§12's budget has since been
+rewritten in B2c's per-simulated-second terms; its step figures carry the machine caveat of open
+item 3 below.)
 
 ### The sponge experiment — 2026-08-01
 
@@ -2025,31 +2016,31 @@ number: `sponge_depth` 5000 → 9000 m.**
 | 12 930 m | −11.75 K | −12.07 | **+0.02** | +0.01 | −0.01 |
 | 13 951 m | +3.01 K | +1.66 | **+0.01** | +0.01 | −0.01 |
 
-**Doubling the rate does essentially nothing and that is the whole finding.** The mode sat at
-12.4 km, in the levels immediately *below* the old lower edge, where `nest_sponge_weight` returns
-exactly zero — so the damping rate multiplied a zero however large it was. Covering those levels
-removes the mode by three orders of magnitude. A Rayleigh sponge is a placement question before it
-is a strength one, and this run is what says so rather than an argument.
+**Doubling the rate does essentially nothing and that is the whole finding.** The mode sat at 12.4
+km, in the levels immediately *below* the old lower edge, where `nest_sponge_weight` returns exactly
+zero — so the damping rate multiplied a zero however large it was. Covering those levels removes the
+mode by three orders of magnitude. A Rayleigh sponge is a placement question before it is a strength
+one, and this run is what says so rather than an argument.
 
 **The old sponge was not working inside itself either.** At 14 km, within its own layer, `base`
-carries 1.4 m/s of wind and +3 K of θ′; the 9 km edge leaves 0.11 m/s there. A damping layer
-holding values like that is being fed faster than it absorbs — which is consistent with the mode
-below it being the source, and is the second independent sign that the old configuration was not
-merely imperfect but inert.
+carries 1.4 m/s of wind and +3 K of θ′; the 9 km edge leaves 0.11 m/s there. A damping layer holding
+values like that is being fed faster than it absorbs — which is consistent with the mode below it
+being the source, and is the second independent sign that the old configuration was not merely
+imperfect but inert.
 
 **Does it damp the weather it is meant to leave alone? No, and the 6 km run is what makes that
 statable rather than asserted.** At the 9 km edge the boundary layer, the cloud deck and the free
 troposphere are unchanged: 1585 m reads −13.98 K against −13.93, cloud water agrees to three
 significant figures (6.80e-4 against 6.82e-4), the surface level −1.38 K against −1.37, and the
-largest θ′ departure anywhere below 4 km is 0.08 K. At the 6 km edge — deliberately too deep —
-wind between 4.6 and 9 km collapses to 0.02 m/s from 0.34 and θ′ at 6.2 km reverses sign, +0.31 to
-−0.42. That is a sponge replacing the weather instead of bounding it, and it is what the 9 km
-configuration is *not* doing.
+largest θ′ departure anywhere below 4 km is 0.08 K. At the 6 km edge — deliberately too deep — wind
+between 4.6 and 9 km collapses to 0.02 m/s from 0.34 and θ′ at 6.2 km reverses sign, +0.31 to −0.42.
+That is a sponge replacing the weather instead of bounding it, and it is what the 9 km configuration
+is *not* doing.
 
-**Named limit: the mode was not eliminated, it was relocated and reduced by an order of
-magnitude.** The residual at 8.6–9.1 km grows from −0.88/−1.07 K in `base` to −1.59/−1.76 K at the
-9 km edge — one level below the new edge, which is where a two-cell mode parks. ±1.8 K is the same
-size as the ordinary variability this model already carries between 2 and 6 km, so it is no longer
+**Named limit: the mode was not eliminated, it was relocated and reduced by an order of magnitude.**
+The residual at 8.6–9.1 km grows from −0.88/−1.07 K in `base` to −1.59/−1.76 K at the 9 km edge —
+one level below the new edge, which is where a two-cell mode parks. ±1.8 K is the same size as the
+ordinary variability this model already carries between 2 and 6 km, so it is no longer
 distinguishable as a defect; it is not gone. Moving the edge again would move it again.
 
 **One thing this run cannot settle.** Between 4.6 and 9 km the 9 km configuration also reduces wind
@@ -2065,28 +2056,28 @@ one starts from a list rather than from a re-reading. Ordered by value per unit 
 says what it would cost to answer, because on this machine a 72-hour probe run is six minutes of a
 saturated GPU and that is a real constraint on what gets asked.
 
-1. **The sky field freezes — diagnosed by arithmetic 2026-08-01, and the mirror is innocent.**
-   The three frozen numbers identify themselves: 0.879 cover is exactly 900/1024 mirror columns,
-   0.3262 deviation is exactly `sqrt(900·124)/1024 = 0.32623` — the standard deviation of a
-   *binary* field with that mean — and 0.0605 roughness is exactly 120/1984 differing neighbour
-   pairs. From 43 h the published coverage field is binary: every one of the 1024 columns reads
-   exactly 0 or exactly 1. That is not a stuck publish path, it is `nest_cloud_partition`'s
-   clamps (`atmosphere_nest_common.glsl`, the `across <= -1` / `across >= 1` branches): once the
-   persistent deck settles onto its radiative floor the cell mean sits outside the top-hat
-   width in every deck column, the diagnosed fraction pins at exactly 1 (elsewhere exactly 0),
-   and the coverage, deviation and roughness become exact rationals of the column membership —
-   which cannot move by less than 1/1024 and therefore holds to four decimal places while θ′
-   beneath goes on settling (−0.9, −0.7, −1.0 K per six hours through the same samples). The
-   readback, slot collection and publish were read end to end for this and are correct.
-   **Not yet confirmed by a run:** `atmosphere_probe` now reports `sky_coverage_pinned`, the
-   fraction of columns whose low-band coverage is exactly 0 or 1; the prediction is that it
-   reaches 1.0 at the same sample the field freezes, and stays there. One 72 h run settles it.
-   If it does, this item closes into item 4 below — a sky that cannot unfreeze is a deck nothing
-   erodes, and the defect is the missing entrainment/subsidence, not the mirror.
+1. **The sky field freezes — diagnosed by arithmetic 2026-08-01, and the mirror is innocent.** The
+   three frozen numbers identify themselves: 0.879 cover is exactly 900/1024 mirror columns, 0.3262
+   deviation is exactly `sqrt(900·124)/1024 = 0.32623` — the standard deviation of a *binary* field
+   with that mean — and 0.0605 roughness is exactly 120/1984 differing neighbour pairs. From 43 h
+   the published coverage field is binary: every one of the 1024 columns reads exactly 0 or
+   exactly 1. That is not a stuck publish path, it is `nest_cloud_partition`'s clamps
+   (`atmosphere_nest_common.glsl`, the `across <= -1` / `across >= 1` branches): once the persistent
+   deck settles onto its radiative floor the cell mean sits outside the top-hat width in every deck
+   column, the diagnosed fraction pins at exactly 1 (elsewhere exactly 0), and the coverage,
+   deviation and roughness become exact rationals of the column membership — which cannot move by
+   less than 1/1024 and therefore holds to four decimal places while θ′ beneath goes on settling
+   (−0.9, −0.7, −1.0 K per six hours through the same samples). The readback, slot collection and
+   publish were read end to end for this and are correct. **Not yet confirmed by a run:**
+   `atmosphere_probe` now reports `sky_coverage_pinned`, the fraction of columns whose low-band
+   coverage is exactly 0 or 1; the prediction is that it reaches 1.0 at the same sample the field
+   freezes, and stays there. One 72 h run settles it. If it does, this item closes into item 4 below
+   — a sky that cannot unfreeze is a deck nothing erodes, and the defect is the missing
+   entrainment/subsidence, not the mirror.
 2. **The diurnal comparison has never been run.** Every measurement in the 2026-08-01 entries is
    under a fixed noon sun and a quiescent parent, which is the harsh case by construction — B3b
-   measured the same 72 h *with* a day/night cycle and found no runaway at all (−0.86 K above
-   10 km). What the closed longwave budget and the deeper sponge do under a realistic forcing is
+   measured the same 72 h *with* a day/night cycle and found no runaway at all (−0.86 K above 10
+   km). What the closed longwave budget and the deeper sponge do under a realistic forcing is
    therefore unknown in the direction that matters for shipping. One run, six minutes.
 3. **The step cost of both changes is unmeasured.** The verification run reads 12.35 ms against the
    baseline's 7.87, but `advect wind`, `advect scalars` and `pressure` — untouched by either change
@@ -2094,45 +2085,44 @@ saturated GPU and that is a real constraint on what gets asked.
    2026-08-01) inherits the same caveat on its measured step figures. Two runs back to back on one
    machine settles it; nothing else will. **Run 2026-08-01, and it settled it:** three back-to-back
    6 h runs of the same binary and config measured **30.3 / 12.3 / 31.0 ms** per submission, with
-   every stage's *share* constant across all three (pressure 32.8 / 30.1 / 32.8 %) — the GPU's
-   clock state scales the whole step uniformly by ~2.5×, and within one state agreement is ±2 %
-   (the 12.3 ms state also matches the 72 h run's 12.29 to three figures). The 7.87 → 12.35
-   discrepancy is therefore a clock state, not the code. Isolating the two changes' own cost would
-   need interleaved pre-/post-change builds (B3d's method); given that the post-change `forces` and
-   `extinction` shares match their as-measured values, a regression is implausible and the
-   measurement is not worth a second build unless §12 is ever missed in practice.
+   every stage's *share* constant across all three (pressure 32.8 / 30.1 / 32.8 %) — the GPU's clock
+   state scales the whole step uniformly by ~2.5×, and within one state agreement is ±2 % (the 12.3
+   ms state also matches the 72 h run's 12.29 to three figures). The 7.87 → 12.35 discrepancy is
+   therefore a clock state, not the code. Isolating the two changes' own cost would need interleaved
+   pre-/post-change builds (B3d's method); given that the post-change `forces` and `extinction`
+   shares match their as-measured values, a regression is implausible and the measurement is not
+   worth a second build unless §12 is ever missed in practice.
 4. **The cloud deck settles against a parameter, not a balance.** With the closing condition in, a
    persistent deck stops at −13.9 K, which is its `cloud_top_equilibrium_depression` floor. What
    should bound a real deck is entrainment at its top and subsidence above it, both of which §6 and
    §14 already record as under-resolved at this vertical spacing. This is the largest piece of
    physics still missing and the only one on this list that is a modelling problem rather than a
-   measurement — which is why it is last despite being the most important.
-   **Addressed 2026-08-01 — the entrainment closure is in; see the second 2026-08-01 entry
-   above. Not yet measured; the verifying runs are listed there, and this item stays open until
-   they are run.**
+   measurement — which is why it is last despite being the most important. **Addressed 2026-08-01 —
+   the entrainment closure is in; see the second 2026-08-01 entry above. Not yet measured; the
+   verifying runs are listed there, and this item stays open until they are run.**
 
 Carried unchanged from below and not re-listed above: T1's 36 ms step on the main thread, the nest
-on the graphics queue, and Phase C's nest-side genus acceptance. The standing "none of this has
-been confirmed by eye" item is **partly retired**: the rendered clouds *were* looked at in the
-editor on 2026-08-01, and they fail — see item 5 below. What remains unconfirmed by eye is the
-meteorology behind them, not the pixels.
+on the graphics queue, and Phase C's nest-side genus acceptance. The standing "none of this has been
+confirmed by eye" item is **partly retired**: the rendered clouds *were* looked at in the editor on
+2026-08-01, and they fail — see item 5 below. What remains unconfirmed by eye is the meteorology
+behind them, not the pixels.
 
 5. **The rendered clouds were confirmed by eye, and the confirmation is a failure on four
    symptoms.** Tuning was tried first and did not close any of them, which is consistent with
    what a read of the bake/march chain finds: each symptom is structural, and each carries a
    decision, so nothing was changed yet. Diagnosis by reading, 2026-08-01:
-   - **(a) Clouds start as tiny flickering specks.** The low-coverage regime of the carve. After
-     the CDF fix the threshold `remap(base_shape, 1 - c, 1, 0, 1)` really does keep only the top
-     `c` of the field (`cloudscape_field.comp:529`), so at a young deck's 5–15 % coverage the
-     survivors are the noise's isolated peaks — islands far smaller than one 600 m shape cell —
-     and their remapped values sit barely above zero, where the erosion's fixed
-     `detail_fbm * 0.45` threshold (`cloudscape_field.comp:535`) erases most of them; which
-     peaks survive changes each rebake. This is the "coverage/density retune after the CDF fix"
-     this document already records as never done, plus the same marginal-regime erosion shape
-     that produced the confetti before it was moved off the density. The structural question a
-     retune has to answer: the carve makes cloud *size* grow with coverage, where a real
-     fair-weather sky holds full-sized cumuli in smaller *number* — the erosion amplitude and
-     the carve law at low coverage are one authoring decision, not two.
+   - **(a) Clouds start as tiny flickering specks.** The low-coverage regime of the carve. After the
+     CDF fix the threshold `remap(base_shape, 1 - c, 1, 0, 1)` really does keep only the top `c` of
+     the field (`cloudscape_field.comp:529`), so at a young deck's 5–15 % coverage the survivors are
+     the noise's isolated peaks — islands far smaller than one 600 m shape cell — and their remapped
+     values sit barely above zero, where the erosion's fixed `detail_fbm * 0.45` threshold
+     (`cloudscape_field.comp:535`) erases most of them; which peaks survive changes each rebake.
+     This is the "coverage/density retune after the CDF fix" this document already records as never
+     done, plus the same marginal-regime erosion shape that produced the confetti before it was
+     moved off the density. The structural question a retune has to answer: the carve makes cloud
+     *size* grow with coverage, where a real fair-weather sky holds full-sized cumuli in smaller
+     *number* — the erosion amplitude and the carve law at low coverage are one authoring decision,
+     not two.
    - **(b) Faint cloud visible from one viewpoint and not another.** The two windows do not
      carve the same clouds. `min_shape_scale()` is derived from each window's *own* texel
      (`cloudscape_field.comp:177-181`): the near window's floor is 2048 m, which leaves the
@@ -2208,49 +2198,48 @@ one named there as the highest-value thing left in the model), and cloud-top rad
 in. Two other carried items were *closed by measurement without shipping a change*, which is a
 different outcome from being deferred again and is written up as such:
 
-- **`humidity_scale_height` now folds the mixing ratio, not the relative humidity.** The airmass
-  was drier than it should be at every altitude — RH 0.41 at 1.3 km and 0.095 at 5 km against a
-  documented ~0.62 — because the exponential was applied to RH and then multiplied by `q_s`, so
-  the profile decayed twice. Measured after: 0.70 at the ground, 0.62 at 1.3 km, 0.50 at 5 km.
-  *Fixing it exposed a second defect the old form had been hiding:* with a single scale height the
-  mixing ratio climbs back through saturation aloft, because above ~7 km `q_s` folds faster than
-  the vapour does. Measured, RH reached **0.81 at 9.5 km** and every run began under a global
-  cirrus deck. The base state therefore now carries the Weisman–Klemp (1982) relative-humidity
-  ceiling as two parameters (`free_troposphere_drying`, `free_troposphere_exponent`); it binds
-  only above ~4 km and holds the tropopause at 0.175. The land-cover presets were re-measured and
-  now set the airmass humidity along with the surface, because a semi-desert is not merely a dry
-  *surface* — under a 70 % airmass a dry surface still built a 2 km afternoon deck. The four
-  presets deliver the sky each tooltip promises, measured over 11 h from sunrise.
-- **Cloud-top radiative cooling is in, and it is not the sink this document said it was.** Added
-  to `atmosphere_forces.comp` as the flux difference across a level,
+- **`humidity_scale_height` now folds the mixing ratio, not the relative humidity.** The airmass was
+  drier than it should be at every altitude — RH 0.41 at 1.3 km and 0.095 at 5 km against a
+  documented ~0.62 — because the exponential was applied to RH and then multiplied by `q_s`, so the
+  profile decayed twice. Measured after: 0.70 at the ground, 0.62 at 1.3 km, 0.50 at 5 km. *Fixing
+  it exposed a second defect the old form had been hiding:* with a single scale height the mixing
+  ratio climbs back through saturation aloft, because above ~7 km `q_s` folds faster than the vapour
+  does. Measured, RH reached **0.81 at 9.5 km** and every run began under a global cirrus deck. The
+  base state therefore now carries the Weisman–Klemp (1982) relative-humidity ceiling as two
+  parameters (`free_troposphere_drying`, `free_troposphere_exponent`); it binds only above ~4 km and
+  holds the tropopause at 0.175. The land-cover presets were re-measured and now set the airmass
+  humidity along with the surface, because a semi-desert is not merely a dry *surface* — under a 70
+  % airmass a dry surface still built a 2 km afternoon deck. The four presets deliver the sky each
+  tooltip promises, measured over 11 h from sunrise.
+- **Cloud-top radiative cooling is in, and it is not the sink this document said it was.** Added to
+  `atmosphere_forces.comp` as the flux difference across a level,
   `F0 (e^{−κW_top} − e^{−κW_bottom})`, which telescopes down a column to `F0 (1 − e^{−κW})` and is
   therefore conservative at any vertical resolution — the differential form `dF/dz` over-cools an
-  optically thick level by its own opacity, 16× for a 250 m level holding half a gram per
-  kilogram, and was the first version. Measured, the term *maintains* nocturnal cloud rather than
-  removing it, which is the textbook result and is why nocturnal stratocumulus exists at all: with
-  a subsiding parent the deck still peaks and falls, so C1's evening-decay clause stays closed, but
-  the overnight fall is 15 % where it was 40 %. Cost: `forces` 0.789 → 0.885 ms, the whole step
-  7.79 → 7.92 ms.
-- **The subgrid closure is *not* rescaled with the tier, and that is now a measurement rather than
-  a deferral.** See §6, whose named limit has been rewritten: the scaling was built in its
-  physically correct form and makes tier agreement worse.
+  optically thick level by its own opacity, 16× for a 250 m level holding half a gram per kilogram,
+  and was the first version. Measured, the term *maintains* nocturnal cloud rather than removing it,
+  which is the textbook result and is why nocturnal stratocumulus exists at all: with a subsiding
+  parent the deck still peaks and falls, so C1's evening-decay clause stays closed, but the
+  overnight fall is 15 % where it was 40 %. Cost: `forces` 0.789 → 0.885 ms, the whole step 7.79 →
+  7.92 ms.
+- **The subgrid closure is *not* rescaled with the tier, and that is now a measurement rather than a
+  deferral.** See §6, whose named limit has been rewritten: the scaling was built in its physically
+  correct form and makes tier agreement worse.
 - **The slow cooling near the tropopause is not numerical diffusion in the transport.** See the
   open item below; the attribution in the entry below is withdrawn.
 
 **Still open, and the reason each stopped where it did:**
 
-- **The tropopause drift is diagnosed but not fixed.** Run with the transport stepping 43 202
-  times and *no flow at all* (no thermal seed, no surface exchange), the drift near the tropopause
-  over 72 h is **0.02 K** — so it is not the semi-Lagrangian scheme diffusing across the base
-  state's sharpest θ gradient, which is what this document claimed. Under surface forcing the same
-  72 h reaches **−1.07 K at 12.9 km**, and the signal is a *growing oscillation* rather than a
-  drift (0.005 → 0.13 → −0.58 → −1.07), concentrated at 12.4–12.9 km — immediately below the
-  Rayleigh sponge's lower edge at 13 km. That is the signature of gravity waves radiated by the
-  forced motion amplifying as density falls and accumulating under the sponge. The sponge's own
-  profile is already a `sin²` ramp with zero slope where it begins, so the next thing to try is
-  starting it lower; `atmosphere_probe` now carries `--sponge-depth` and `--sponge-rate` for
-  exactly that experiment, and the experiment has not been run. **Run on 2026-08-01 and closed;
-  see the entry above.**
+- **The tropopause drift is diagnosed but not fixed.** Run with the transport stepping 43 202 times
+  and *no flow at all* (no thermal seed, no surface exchange), the drift near the tropopause over 72
+  h is **0.02 K** — so it is not the semi-Lagrangian scheme diffusing across the base state's
+  sharpest θ gradient, which is what this document claimed. Under surface forcing the same 72 h
+  reaches **−1.07 K at 12.9 km**, and the signal is a *growing oscillation* rather than a drift
+  (0.005 → 0.13 → −0.58 → −1.07), concentrated at 12.4–12.9 km — immediately below the Rayleigh
+  sponge's lower edge at 13 km. That is the signature of gravity waves radiated by the forced motion
+  amplifying as density falls and accumulating under the sponge. The sponge's own profile is already
+  a `sin²` ramp with zero slope where it begins, so the next thing to try is starting it lower;
+  `atmosphere_probe` now carries `--sponge-depth` and `--sponge-rate` for exactly that experiment,
+  and the experiment has not been run. **Run on 2026-08-01 and closed; see the entry above.**
 - **The global core's 36 ms step is still on the main thread.** Not started.
 - **The nest step is still on the graphics queue.** Not started.
 - **Phase C's nest-side genus acceptance has not been run.** Not started.
@@ -2280,27 +2269,27 @@ before/after table is.
 **Carried, deliberately, with the reason each time:**
 
 - ~~**`humidity_scale_height` does not do what it is documented to do**~~ — fixed 2026-07-31, see
-  the entry above. It was indeed the highest-value item left in the model, and fixing it changed
-  the regime enough to retire one named limit and rewrite another.
+  the entry above. It was indeed the highest-value item left in the model, and fixing it changed the
+  regime enough to retire one named limit and rewrite another.
 - ~~**`cloud_critical_humidity` is calibrated at 2 km and does not scale with the spacing**~~ —
   settled 2026-07-31 by measuring the proposed fix and rejecting it. §6 carries the numbers.
-- **`AtmosphereSurface` — the land/sea seam** — blocked on the same terrain height field Phase D
-  is blocked on (§15). See B3c for why building it early would be worse than not having it.
+- **`AtmosphereSurface` — the land/sea seam** — blocked on the same terrain height field Phase D is
+  blocked on (§15). See B3c for why building it early would be worse than not having it.
 - ~~**The nocturnal cloud's only sink is now subsidence.**~~ Cloud-top radiative cooling shipped
-  2026-07-31 — and the premise here was wrong: it is a *source* of nocturnal cloud, not a sink.
-  What limits a real deck is the entrainment of dry air the cooling drives across the inversion,
-  and that is **resolved rather than parameterized**. At 250–560 m spacing aloft the inversion is
+  2026-07-31 — and the premise here was wrong: it is a *source* of nocturnal cloud, not a sink. What
+  limits a real deck is the entrainment of dry air the cooling drives across the inversion, and that
+  is **resolved rather than parameterized**. At 250–560 m spacing aloft the inversion is
   under-resolved, so the nest now carries the maintaining half of the stratocumulus energy balance
   more faithfully than the limiting half and over-produces nocturnal cloud. That is the new named
   limit, in place of the old one.
-- **A slow cooling near the tropopause**, ~−0.35 K/day over 72 h under surface forcing. ~~Attributable
-  to numerical diffusion in the semi-Lagrangian transport~~ — **that attribution is withdrawn**: with
-  the transport stepping 43 202 times and no flow, the drift is 0.02 K over the same 72 h. It is
-  flow-driven, it is a growing oscillation rather than a drift, and it sits immediately below the
-  sponge's lower edge. Diagnosed, not fixed; see the 2026-07-31 entry.
-- **§12's performance budget table is stale.** It budgets the T2 step at 2 ms; the measured step
-  is ~10 ms at High. The honest metric established in B2c is *cost per second of weather bought*
-  (1.27 ms), not cost per step, and the table has not been rewritten in those terms.
+- **A slow cooling near the tropopause**, ~−0.35 K/day over 72 h under surface forcing.
+  ~~Attributable to numerical diffusion in the semi-Lagrangian transport~~ — **that attribution is
+  withdrawn**: with the transport stepping 43 202 times and no flow, the drift is 0.02 K over the
+  same 72 h. It is flow-driven, it is a growing oscillation rather than a drift, and it sits
+  immediately below the sponge's lower edge. Diagnosed, not fixed; see the 2026-07-31 entry.
+- **§12's performance budget table is stale.** It budgets the T2 step at 2 ms; the measured step is
+  ~10 ms at High. The honest metric established in B2c is *cost per second of weather bought* (1.27
+  ms), not cost per step, and the table has not been rewritten in those terms.
 - **An async compute queue** is now a straightforward win rather than a blocked one, since the
   step already submits at frame end and waits on the frame's readers.
 - **The global core's rain is still low, but far less so since T0 landed.** A two-layer
@@ -2315,9 +2304,9 @@ before/after table is.
 **Never visually confirmed in the editor.** Everything in B2c, B3 and C1 was settled with
 `atmosphere_probe` headlessly, plus builds and tests. The frame-end submission move, the surface
 panel rework and the ice optics have not been looked at on screen. C2 is a different case rather
-than a worse one: nothing renders the global core, because nothing yet consumes it — the swap
-below is what puts it on screen, and until then `atmosphere_global_probe` is not a substitute for
-looking, it is the only way to look.
+than a worse one: nothing renders the global core, because nothing yet consumes it — the swap below
+is what puts it on screen, and until then `atmosphere_global_probe` is not a substitute for looking,
+it is the only way to look.
 
 ### Phase A — Spatial coupling *(existing physics, maximum visual delta)* — **shipped**
 
@@ -2386,11 +2375,11 @@ far window is the natural follow-up.
 ### Phase B2 — Real thermodynamics and vertical structure — **shipped**
 
 `RegionalWeatherGrid` is deleted. In its place a GPU regional nest: prognostic θ, `q_v`, `q_c`,
-`q_r` and a staggered Arakawa C-grid velocity field over 192×192×48 cells at 2 km horizontally
-and ~54–560 m vertically, stepped in game time on a CFL-chosen Δt. Ten compute stages —
-MacCormack-corrected semi-Lagrangian transport with a monotone limiter at Courant ≈ 1, buoyancy
-with condensate loading through the virtual potential temperature, Coriolis, subgrid diffusion,
-a Rayleigh sponge, Davies lateral relaxation, an anelastic pressure projection, Kessler warm-rain
+`q_r` and a staggered Arakawa C-grid velocity field over 192×192×48 cells at 2 km horizontally and
+~54–560 m vertically, stepped in game time on a CFL-chosen Δt. Ten compute stages —
+MacCormack-corrected semi-Lagrangian transport with a monotone limiter at Courant ≈ 1, buoyancy with
+condensate loading through the virtual potential temperature, Coriolis, subgrid diffusion, a
+Rayleigh sponge, Davies lateral relaxation, an anelastic pressure projection, Kessler warm-rain
 microphysics with saturation adjustment and latent heating, optical extinction, and the readback.
 
 **The pressure solve is a vertical line solver, not §6's FFT.** The grid is deliberately
@@ -2399,17 +2388,17 @@ vertical is solved exactly per column by a Thomas sweep and the horizontal itera
 Named limit: no coarse-grid correction, so a fixed sweep count leaves a small residual
 divergence. Semi-coarsened multigrid with that shader as its smoother is the refinement.
 
-**Two things forced by the editor rather than chosen.** It runs three `ISceneView`s, so the nest
-is a *device-level* service rather than a render pass — one atmosphere, not three divergent ones
-— and it is centred on the simulation's observer rather than any camera. Its writes are ordered
-against those three readers by a timeline semaphore each view's first submission waits on.
+**Two things forced by the editor rather than chosen.** It runs three `ISceneView`s, so the nest is
+a *device-level* service rather than a render pass — one atmosphere, not three divergent ones — and
+it is centred on the simulation's observer rather than any camera. Its writes are ordered against
+those three readers by a timeline semaphore each view's first submission waits on.
 
-**§9.2's query mirror is pulled forward from Phase E**, deliberately and only as far as it had
-to be: the moment the grid moved onto the GPU there was nothing left on the CPU for
-`sample_column` to read. A 32×32 lattice of `WeatherColumn`-shaped records, read back
-asynchronously, is what every existing gameplay consumer is now served from. §9.1's full
-`AtmosphereProfile` stays in Phase E. Before the first readback the answer is the base state — a
-clear sky with the synoptic wind — rather than an invented coverage.
+**§9.2's query mirror is pulled forward from Phase E**, deliberately and only as far as it had to
+be: the moment the grid moved onto the GPU there was nothing left on the CPU for `sample_column` to
+read. A 32×32 lattice of `WeatherColumn`-shaped records, read back asynchronously, is what every
+existing gameplay consumer is now served from. §9.1's full `AtmosphereProfile` stays in Phase E.
+Before the first readback the answer is the base state — a clear sky with the synoptic wind — rather
+than an invented coverage.
 
 **`SynopticLayer` survives as the parent solution**, feeding the Davies zone. Named as an
 interim; §5's quasi-geostrophic core replaces it in Phase C.
@@ -2429,15 +2418,14 @@ eye** — nothing has been run.
 The last piece of §7.1. `cloudscape_field.comp` gains a third path, taken whenever the nest is
 running: `σ_ext` read straight from the nest, with no genus, no deck and no height gradient. A
 cumulus has a flat base because the condensation level is flat, not because a gradient function
-draws one. Tiled noise survives only as a sub-2 km modulation at 35 % amplitude — §7.3's
-demotion in its final form, since the nest resolves 2 km and that is all it is still needed for.
+draws one. Tiled noise survives only as a sub-2 km modulation at 35 % amplitude — §7.3's demotion in
+its final form, since the nest resolves 2 km and that is all it is still needed for.
 
 Baked density is stated against the extinction of 1 g/m³ of liquid water rather than in absolute
-1/m, so the medium's authored absorption keeps the meaning it has always had: *where* the cloud
-is and how it falls off across its own edge is physics, while how opaque a given amount of water
-reads stays authored. The march shell follows the readback's own lowest cloud base and highest
-cloud top, so the baked field's vertical resolution sits on the cloud rather than on empty
-stratosphere.
+1/m, so the medium's authored absorption keeps the meaning it has always had: *where* the cloud is
+and how it falls off across its own edge is physics, while how opaque a given amount of water reads
+stays authored. The march shell follows the readback's own lowest cloud base and highest cloud top,
+so the baked field's vertical resolution sits on the cloud rather than on empty stratosphere.
 
 Three paths now, ordered, each truthful when the one above it has nothing to say: the nest, then
 per-column genus from the published field, then the authored deck stack.
@@ -2445,14 +2433,14 @@ per-column genus from the published field, then the authored deck stack.
 ### Phase B2c — The correctness pass B2 exposed — **shipped**
 
 **The instrument came first.** `render/probe/atmosphere_main.cpp` (`atmosphere_probe`) brings the
-nest up on a headless Vulkan device, steps it through hours of simulated weather in seconds of
-wall clock, and prints the observer column's *unreduced* vertical profile. Everything below the
-"Fixed in the cloudscape bake" heading was settled with it, and none of it was settleable without
-it: three hours of weather is thirty seconds of wall clock rather than half an hour of an editor
-session, and the mirror's `WeatherColumn`-shaped record — a vertical reduction by construction —
-had already destroyed the evidence every remaining question needed. The profile it reads is
-`AtmosphereProfileLevel`, published on `AtmosphereMirror` beside the columns and written by the
-same readback dispatch: §9.1's diagnostic slice, deliberately not §9.1's contract.
+nest up on a headless Vulkan device, steps it through hours of simulated weather in seconds of wall
+clock, and prints the observer column's *unreduced* vertical profile. Everything below the "Fixed in
+the cloudscape bake" heading was settled with it, and none of it was settleable without it: three
+hours of weather is thirty seconds of wall clock rather than half an hour of an editor session, and
+the mirror's `WeatherColumn`-shaped record — a vertical reduction by construction — had already
+destroyed the evidence every remaining question needed. The profile it reads is
+`AtmosphereProfileLevel`, published on `AtmosphereMirror` beside the columns and written by the same
+readback dispatch: §9.1's diagnostic slice, deliberately not §9.1's contract.
 
 It takes parameter overrides (`--sensible`, `--latent`, `--seed`, `--seed-length`, `--seed-period`,
 `--eddy`, `--sweeps`, `--tier`, `--dt`) so that a claim about one term is separated from the rest by
@@ -2461,19 +2449,19 @@ exactly that: setting a correlation scale far below the cell or the step reprodu
 this phase replaced, which is how the table below was taken without keeping two builds around.
 
 B2 and B2b are shipped and do what they were designed to do. Running them made visible that the
-render path they feed, and the nest itself, both carried defects no amount of correct new code
-could compensate for. This section is the record of what was **measured**, because on this phase
-the measurements are the deliverable — every hypothesis reasoned from a screenshot in this work
-turned out wrong, and every one settled by porting the code and sampling it turned out right.
+render path they feed, and the nest itself, both carried defects no amount of correct new code could
+compensate for. This section is the record of what was **measured**, because on this phase the
+measurements are the deliverable — every hypothesis reasoned from a screenshot in this work turned
+out wrong, and every one settled by porting the code and sampling it turned out right.
 
 #### Fixed in the cloudscape bake — all three pre-date the nest
 
 **`coverage` did not mean coverage.** The Nubis threshold `remap(base_shape, 1 - coverage, 1, 0,
 1) * coverage` is a percentile cut, and a percentile cut is only meaningful on a field that is
-uniform on [0, 1]. `cloud_noise_common.glsl` was ported exactly to numpy and sampled on lattices
-from 56³ to 100³ (converged to five decimals): the deck path's `base_shape` is a narrow bell,
-mean 0.779, standard deviation 0.038, **entire support [0.574, 0.906]**. The threshold therefore
-never reached the field above ~0.43 coverage:
+   uniform on [0, 1]. `cloud_noise_common.glsl` was ported exactly to numpy and sampled on lattices
+   from 56³ to 100³ (converged to five decimals): the deck path's `base_shape` is a narrow bell,
+   mean 0.779, standard deviation 0.038, **entire support [0.574, 0.906]**. The threshold therefore
+   never reached the field above ~0.43 coverage:
 
 | requested coverage | clear sky asked for | clear sky delivered |
 |---|---|---|
@@ -2496,14 +2484,14 @@ volume). **The authored coverage and density defaults were tuned against the bro
 need retuning.**
 
 **A window may not carve what its own grid can sample.** The far window spans 262 km across 256
-texels — 1024 m each — and was asked to carve 4200 m-shape-scale cumulus. The shape volume lays
-four Worley cells per `shape_scale`, so a cloud is 1050 m: **1.03 samples per cloud**. Because
-the bake thresholds before storing, the alias returned with its gaps filled rather than blurred,
-and 130 km of march through it integrated to an opaque white square with the near window showing
-as a hole in the middle. `min_shape_scale()` now floors every path's shape scale at sixteen
-texels. The near window's floor lands at 2048 m and every genus sits above it, so this is a
-far-window correction that costs the near window nothing; the far window draws ~4 km cloud
-*clusters*, which is what a hundred kilometres of sky resolves to anyway.
+texels — 1024 m each — and was asked to carve 4200 m-shape-scale cumulus. The shape volume lays four
+Worley cells per `shape_scale`, so a cloud is 1050 m: **1.03 samples per cloud**. Because the bake
+thresholds before storing, the alias returned with its gaps filled rather than blurred, and 130 km
+of march through it integrated to an opaque white square with the near window showing as a hole in
+the middle. `min_shape_scale()` now floors every path's shape scale at sixteen texels. The near
+window's floor lands at 2048 m and every genus sits above it, so this is a far-window correction
+that costs the near window nothing; the far window draws ~4 km cloud *clusters*, which is what a
+hundred kilometres of sky resolves to anyway.
 
 **The nest was never built, and nothing said so.** `procedural_weather_enabled()` is off by
 default and persisted per scene; with it off nothing publishes `AtmosphereForcing`, so
@@ -2526,11 +2514,10 @@ already allocated and `moisture` was already bound and never sampled) say why:
 | low-band `dT` | +0.069 K/hour |
 | lifting condensation level | **762 m → 1466 m** — receding |
 
-At that updraft a parcel needs 25 days to reach its condensation level, and the level is moving
-away faster than anything approaches it. **Running the nest longer does not bring it closer to a
-cloud.** Two independent faults: the dynamics produce essentially no vertical velocity, and the
-boundary layer loses about a quarter of its surface water in two hours despite a positive latent
-flux.
+At that updraft a parcel needs 25 days to reach its condensation level, and the level is moving away
+faster than anything approaches it. **Running the nest longer does not bring it closer to a cloud.**
+Two independent faults: the dynamics produce essentially no vertical velocity, and the boundary
+layer loses about a quarter of its surface water in two hours despite a positive latent flux.
 
 #### Causes: one eliminated, one found
 
@@ -2541,13 +2528,13 @@ dynamics and the moisture. It is **horizontal only** and divides by the 2 km spa
 
 *Found.* The buoyancy did not compute the equation stated at the top of its own file. `B = g ·
 (θ_v′/θ̄_v − q_c − q_r)` requires the prime to cover the vapour term, but `moisture` stores
-**totals** while `theta` stores a perturbation, and the vapour was taken at face value. For a 7
-g/kg surface layer the spurious part is 0.043 m/s² against 0.0068 m/s² for a 0.2 K thermal —
-**six times the signal**. Being horizontally near-uniform it drives no updraft of its own; the
-pressure projection cancels it, which is what a projection does to a term already in hydrostatic
-balance. But the solve is a fixed number of relaxation sweeps, so the residual it leaves scales
-with what it was asked to remove, and the convection was running under a six-fold larger one.
-Corrected by subtracting `nest_base_vapour`.
+**totals** while `theta` stores a perturbation, and the vapour was taken at face value. For a 7 g/kg
+surface layer the spurious part is 0.043 m/s² against 0.0068 m/s² for a 0.2 K thermal — **six times
+the signal**. Being horizontally near-uniform it drives no updraft of its own; the pressure
+projection cancels it, which is what a projection does to a term already in hydrostatic balance. But
+the solve is a fixed number of relaxation sweeps, so the residual it leaves scales with what it was
+asked to remove, and the convection was running under a six-fold larger one. Corrected by
+subtracting `nest_base_vapour`.
 
 `MOISTURE_UNIT` was defined separately in four shaders and in none of the shared headers, which
 is how the diagnostic above first reported 69500 % relative humidity. It now lives in
@@ -2556,9 +2543,9 @@ conventions in the same nest.
 
 #### The drying was not drying: the vapour field was frozen by its own storage format
 
-The moisture volume was `rgba16f`, chosen for range — mixing ratios are a few grams per kilogram
-and never approach fp16's ceiling. What decides a format is not the range but the **ratio of a
-step's tendency to the value it lands on**. The surface latent flux adds
+The moisture volume was `rgba16f`, chosen for range — mixing ratios are a few grams per kilogram and
+never approach fp16's ceiling. What decides a format is not the range but the **ratio of a step's
+tendency to the value it lands on**. The surface latent flux adds
 
 ```
 Δq_v = F_latent · Δt / (L · ρ̄ Δz) = 90 · 2.44 / (2.501e6 · 66.3) = 1.33 × 10⁻³ g/kg
@@ -2577,15 +2564,15 @@ because warming alone pushes it up, and no column could condense however long it
 reported a *relative* humidity, which cannot distinguish air that is drying from air that is
 warming, and the hypothesis was formed from the one number that could not answer the question.
 
-Fixed by making the moisture volume `rgba32f`, which leaves the increment at some 2 700 units in
-the last place. VRAM for the moisture pair goes 27 → 54 MB, the nest's total from ~108 to ~135 MB at
-this tier. The memory-cheaper alternative — store vapour as a departure from the base state, as `theta`
-does, so the stored magnitude sits near zero where fp16's spacing is tiny — needs the base-state
-transport term in the advection and gives the four channels of one texture two conventions, so it
-is recorded as the refinement rather than taken.
+Fixed by making the moisture volume `rgba32f`, which leaves the increment at some 2 700 units in the
+last place. VRAM for the moisture pair goes 27 → 54 MB, the nest's total from ~108 to ~135 MB at
+this tier. The memory-cheaper alternative — store vapour as a departure from the base state, as
+`theta` does, so the stored magnitude sits near zero where fp16's spacing is tiny — needs the
+base-state transport term in the advection and gives the four channels of one texture two
+conventions, so it is recorded as the refinement rather than taken.
 
-Confirmed working: column water now integrates to 11.32 kg/m² after three hours against 10.96 at
-the start, where `F_latent · t / L` predicts 0.389 kg/m² of gain.
+Confirmed working: column water now integrates to 11.32 kg/m² after three hours against 10.96 at the
+start, where `F_latent · t / L` predicts 0.389 kg/m² of gain.
 
 #### The updraft is not weak; the forcing has nowhere to go
 
@@ -2609,38 +2596,38 @@ heating, so what the solver sees is a uniform layer and it annihilates it.
 
 **The nest has no vertical mixing of any kind.** `eddy_viscosity` is applied horizontally only, by
 explicit design (`atmosphere_forces.comp`), and there is no boundary-layer parameterization. Real
-surface fluxes are carried upward by turbulence far below a 2 km grid — which is precisely what
-§2.1 lists among the parameterizations that "actually determine the weather" (YSU, MYNN). Without
-one, heat and moisture accumulate in a 54 m slab without bound, the layer above never destabilizes,
-and no parcel is ever lifted. Running longer does not help; nor would more pressure sweeps, a
-larger seed, or a stronger flux.
+surface fluxes are carried upward by turbulence far below a 2 km grid — which is precisely what §2.1
+lists among the parameterizations that "actually determine the weather" (YSU, MYNN). Without one,
+heat and moisture accumulate in a 54 m slab without bound, the layer above never destabilizes, and
+no parcel is ever lifted. Running longer does not help; nor would more pressure sweeps, a larger
+seed, or a stronger flux.
 
 The chain above that link is intact, and this was checked rather than assumed. Forced with
 `--sensible 0 --latent 220`, the surface layer saturates on its own, and at three hours the probe
 reports relative humidity 100 %, the LCL descended to 19 m, and **cloud base at 19 m**: saturation
-adjustment, latent heating, the optical extinction and the readback's cloud detection all work.
-The nest makes cloud the moment a parcel reaches saturation. It made fog, because fog is what an
+adjustment, latent heating, the optical extinction and the readback's cloud detection all work. The
+nest makes cloud the moment a parcel reaches saturation. It made fog, because fog is what an
 atmosphere with no vertical transport can make.
 
 #### Also found, and fixed
 
-- **Potential temperature was advected without its stratification.** `theta` is a perturbation
-  about a height-varying base state, so its equation is `∂θ′/∂t + u·∇θ′ + w ∂θ̄/∂z = 0`;
+- **Potential temperature was advected without its stratification.** `theta` is a perturbation about
+  a height-varying base state, so its equation is `∂θ′/∂t + u·∇θ′ + w ∂θ̄/∂z = 0`;
   `atmosphere_advect_scalars.comp` carried only the material derivative. Without the second term a
   parcel keeps its warmth as it rises into an environment whose own warming with height it never
-  feels, so it never loses buoyancy and never finds an equilibrium level: the domain's
-  Brunt–Väisälä frequency is zero, convection has no top, and gravity waves have no restoring
-  force. Added after the monotone limiter deliberately — it is a source, not a transported
-  quantity, and clamping it to the upstream stencil would cap exactly the stable stratification it
-  supplies. Latent while the updraft was zero; it would have been the next fault exposed.
+  feels, so it never loses buoyancy and never finds an equilibrium level: the domain's Brunt–Väisälä
+  frequency is zero, convection has no top, and gravity waves have no restoring force. Added after
+  the monotone limiter deliberately — it is a source, not a transported quantity, and clamping it to
+  the upstream stencil would cap exactly the stable stratification it supplies. Latent while the
+  updraft was zero; it would have been the next fault exposed.
 - **Coriolis was never uploaded.** `NestParams::coriolis` is declared, is documented as riding the
   forcing, and was never assigned — so `f` was identically zero and `AtmosphereForcing::coriolis`,
   which the simulation computes from the observer's latitude, was dropped on the floor.
 - **Three volumes were read before anything wrote them.** `atmosphere_shift.comp` seeds the
   prognostic state, because that is what a fresh atmosphere *is*; pressure, divergence and surface
-  rain are step outputs and no step has run on the seed frame. Pressure is the one that matters:
-  the relaxation warm-starts from the field it left behind, so undefined contents propagate rather
-  than being overwritten and a single NaN would be permanent. Cleared on seed.
+  rain are step outputs and no step has run on the seed frame. Pressure is the one that matters: the
+  relaxation warm-starts from the field it left behind, so undefined contents propagate rather than
+  being overwritten and a single NaN would be permanent. Cleared on seed.
 - **`thermal_seed_amplitude` is a rate, not a magnitude.** The header said K, the shader scales it
   by `dt` and its own comment says K/s. Corrected in the header, with what it implies stated: the
   seed is re-drawn and added each step, so what it produces is a random walk rather than a bounded
@@ -2650,13 +2637,13 @@ atmosphere with no vertical transport can make.
 #### The boundary layer, added — and what it did and did not fix
 
 The missing transport is now in: vertical eddy diffusion of *total* potential temperature and the
-moisture species, on a `K(z)` profile over a mixed-layer depth **diagnosed per column by
-the parcel method** — walk up from the surface, stop at the first level whose potential temperature
-exceeds the surface parcel's by 0.5 K. `boundary_layer_depth_m` survives as the cap the free
-troposphere's inversion puts on it. It lives in the advection stage rather than beside the
-horizontal diffusion in `atmosphere_forces.comp`, because that shader reads its stencil from the
-image it writes: horizontally that is a smoothing operator either way, but across a
-surface-to-air gradient of tens of kelvin it would not be.
+moisture species, on a `K(z)` profile over a mixed-layer depth **diagnosed per column by the parcel
+method** — walk up from the surface, stop at the first level whose potential temperature exceeds the
+surface parcel's by 0.5 K. `boundary_layer_depth_m` survives as the cap the free troposphere's
+inversion puts on it. It lives in the advection stage rather than beside the horizontal diffusion in
+`atmosphere_forces.comp`, because that shader reads its stencil from the image it writes:
+horizontally that is a smoothing operator either way, but across a surface-to-air gradient of tens
+of kelvin it would not be.
 
 Diagnosed rather than prescribed because the *growth* is the diurnal cycle's mechanism. A fixed
 depth mixes the whole layer from the first step and dilutes the surface moisture into ten times
@@ -2665,56 +2652,55 @@ surface parcel outgrows more of the stratification above it.
 
 Three things it fixed, measured:
 
-- The mixed layer is real. After eight hours, `q_v` is uniform at ~4.7 g/kg from the ground to
-  1 600 m and untouched above — a textbook well-mixed profile where there had been a 54 m slab at
-  +17 K against a level that still held its initial value to the last bit.
+- The mixed layer is real. After eight hours, `q_v` is uniform at ~4.7 g/kg from the ground to 1 600
+  m and untouched above — a textbook well-mixed profile where there had been a 54 m slab at +17 K
+  against a level that still held its initial value to the last bit.
 - Relative humidity now peaks at the **top** of the mixed layer, which is where cumulus belongs.
 - Domain peak |w| went from 5 × 10⁻³ to 5 × 10⁻² m/s, and the column began to vary in time
   instead of marching monotonically.
 
 And the thing it did not fix: **the nest still condenses only at the surface.** Across a sweep of
-Bowen ratio (1.4 down to 0.26), mixed-layer cap (700–2 500 m) and airmass moisture (base surface
-RH 0.70–0.80, parent anomaly 0–0.15), every run that made cloud made it at 19 m — fog — and no run
-made cloud at the mixed-layer top. Mixed-layer-top RH reaches 78–95 % and stops there.
+Bowen ratio (1.4 down to 0.26), mixed-layer cap (700–2 500 m) and airmass moisture (base surface RH
+0.70–0.80, parent anomaly 0–0.15), every run that made cloud made it at 19 m — fog — and no run made
+cloud at the mixed-layer top. Mixed-layer-top RH reaches 78–95 % and stops there.
 
 That is not a defect to be tuned out; it is the model class. A grid-mean model condenses when the
 *cell mean* saturates, and a fair-weather cumulus is a 200 m–1 km thermal overshooting the
-mixed-layer top in the **tail** of the subgrid distribution while the mean stays subsaturated.
-2 km cannot represent that, which is exactly why every operational model at this resolution carries
-a subgrid **cloud-fraction** closure (Sundqvist, Smith) on top of its boundary-layer scheme. What
-the nest *can* resolve is the organized end — a storm updraft, a frontal band — because those are
+mixed-layer top in the **tail** of the subgrid distribution while the mean stays subsaturated. 2 km
+cannot represent that, which is exactly why every operational model at this resolution carries a
+subgrid **cloud-fraction** closure (Sundqvist, Smith) on top of its boundary-layer scheme. What the
+nest *can* resolve is the organized end — a storm updraft, a frontal band — because those are
 kilometres across.
 
 #### The cloud-fraction closure, and the six defects it uncovered
 
-The closure is in. A cell's humidity is now a **top-hat distribution** about its mean rather than
-a single value — half-width `(1 − critical)·q_s`, after Sommeria–Deardorff and Mellor, the uniform
-member of the family Smith (1990) generalises — and condensation takes its saturated tail.
-Fraction and condensate come out of the same partition, evaluated on total water and the
-liquid-water temperature so it is a *diagnosis of the end state* rather than a rate applied to
-whatever the last step left behind; evaporation then falls out with no branch. At
-`cloud_critical_humidity = 1` the width is zero and it collapses **exactly** onto the
-all-or-nothing adjustment it replaces, which is what makes it one condensation path and not two.
-`Render::atmosphere_cloud_partition` mirrors it on the CPU so the identities are tested rather
-than asserted.
+The closure is in. A cell's humidity is now a **top-hat distribution** about its mean rather than a
+single value — half-width `(1 − critical)·q_s`, after Sommeria–Deardorff and Mellor, the uniform
+member of the family Smith (1990) generalises — and condensation takes its saturated tail. Fraction
+and condensate come out of the same partition, evaluated on total water and the liquid-water
+temperature so it is a *diagnosis of the end state* rather than a rate applied to whatever the last
+step left behind; evaporation then falls out with no branch. At `cloud_critical_humidity = 1` the
+width is zero and it collapses **exactly** onto the all-or-nothing adjustment it replaces, which is
+what makes it one condensation path and not two. `Render::atmosphere_cloud_partition` mirrors it on
+the CPU so the identities are tested rather than asserted.
 
 The fraction is carried, not just computed: the moisture volume's fourth channel, the extinction
 volume's alpha (displacing a saturation margin nothing read), and from there the bake — which now
-thresholds against the fraction and draws at `σ / fraction`, the in-cloud water, instead of
-treating the cell mean as both. Band coverage in the mirror is the maximum-random overlap of the
-levels' fractions rather than `1 − exp(−τ)`, which measured opacity and called it coverage.
+thresholds against the fraction and draws at `σ / fraction`, the in-cloud water, instead of treating
+the cell mean as both. Band coverage in the mirror is the maximum-random overlap of the levels'
+fractions rather than `1 − exp(−τ)`, which measured opacity and called it coverage.
 
 **It did not, on its own, make a cumulus.** What it did was make the nest's actual state legible,
 and three defects in the physics came out of the first eight-hour run — each one found by
 measurement, none of them visible from a screenshot:
 
-1. **A cold level decouples from the boundary layer permanently.** The parcel test correctly finds
-   a column stable when its lowest level is colder than the one above, diagnoses zero mixing depth,
-   and leaves the level exchanging with *nothing* — so the thermal seed's random walk accumulated
-   in it without limit. Measured at −8.76 K after four hours, 99 % relative humidity, against a
-   level 80 m above it at 50 %. Every cloud the closure made in that run was that fog. Fixed with a
-   floor of the two lowest levels on the diagnosed depth: mechanical turbulence at the ground does
-   not switch off with the stratification, which is why every operational scheme keeps a non-zero
+1. **A cold level decouples from the boundary layer permanently.** The parcel test correctly finds a
+   column stable when its lowest level is colder than the one above, diagnoses zero mixing depth,
+   and leaves the level exchanging with *nothing* — so the thermal seed's random walk accumulated in
+   it without limit. Measured at −8.76 K after four hours, 99 % relative humidity, against a level
+   80 m above it at 50 %. Every cloud the closure made in that run was that fog. Fixed with a floor
+   of the two lowest levels on the diagnosed depth: mechanical turbulence at the ground does not
+   switch off with the stratification, which is why every operational scheme keeps a non-zero
    stable-case exchange.
 2. **The diffusivity profile weakened where it needed to be strongest.** The parabola
    `4·K_peak·f(1 − f)` goes as `K_peak·(z/h)` near the ground, so its surface mixing *falls as the
@@ -2725,12 +2711,12 @@ measurement, none of them visible from a screenshot:
    not know `h` at all. A profile normalised to its own peak cannot express that, so the parameter
    became the **velocity scale** `w_s` (1.5 m/s, peaking near 220 m²/s a third of the way up).
 3. **The thermal seed was an unbounded random walk.** An additive kick on θ redrawn every step is
-   exactly that, and with 37 000 columns its cold tail kept a few percent of the domain in
-   permanent ground fog that the sky reported as cloud. It now modulates the **surface flux**,
-   which is where the heterogeneity physically lives: bounded by construction — a heated surface is
-   heated more here and less there, never refrigerated — and it stops at dusk with the flux it
-   scales, which is when a stable nocturnal layer should not be stirred. The amplitude became a
-   dimensionless patchiness (0.4).
+   exactly that, and with 37 000 columns its cold tail kept a few percent of the domain in permanent
+   ground fog that the sky reported as cloud. It now modulates the **surface flux**, which is where
+   the heterogeneity physically lives: bounded by construction — a heated surface is heated more
+   here and less there, never refrigerated — and it stops at dusk with the flux it scales, which is
+   when a stable nocturnal layer should not be stirred. The amplitude became a dimensionless
+   patchiness (0.4).
 
 #### The defects that were not in the physics — and cost more than the ones that were
 
@@ -2740,70 +2726,67 @@ meteorology bug and all three present as **a blue sky** — which is also exactl
 model with a dry airmass presents as. That ambiguity is the actual defect; the individual bugs
 are just what was hiding behind it.
 
-4. **The sky ran ahead of the nest and the surplus was silently discarded.** The nest steps in
-   game time and takes at most `max_steps_per_frame` steps a frame, dropping the rest — which is
-   the right call (§3.4: weather briefly behind beats a frame that stalls to simulate an hour of
-   it) and was nowhere reported. Measured in a real session: **4 sky-days asked for, 6.2 hours
-   simulated.** The panel's own warning could not catch it because it estimated the sustainable
-   rate as `step × steps_per_frame × 60`, and the editor was drawing at about twelve frames a
-   second — so it printed *"the atmosphere is keeping up with the sky"* while four of every five
-   seconds of weather were being thrown away. The lesson generalises past this tier: **a rate
-   derived from an assumed frame rate is not a measurement.** Both the verdict and the
-   *Match sky to atmosphere* button now use the observed ratio of weather asked for to weather
-   simulated, over a recent window rather than the session total so that acting on it converges.
-   The counter-intuitive consequence is worth stating plainly, because it is what wasted the
-   days: **animating the sky faster does not make the weather evolve faster, it makes less of it
-   happen.**
+4. **The sky ran ahead of the nest and the surplus was silently discarded.** The nest steps in game
+   time and takes at most `max_steps_per_frame` steps a frame, dropping the rest — which is the
+   right call (§3.4: weather briefly behind beats a frame that stalls to simulate an hour of it) and
+   was nowhere reported. Measured in a real session: **4 sky-days asked for, 6.2 hours simulated.**
+   The panel's own warning could not catch it because it estimated the sustainable rate as
+   `step × steps_per_frame × 60`, and the editor was drawing at about twelve frames a second — so it
+   printed *"the atmosphere is keeping up with the sky"* while four of every five seconds of weather
+   were being thrown away. The lesson generalises past this tier: **a rate derived from an assumed
+   frame rate is not a measurement.** Both the verdict and the *Match sky to atmosphere* button now
+   use the observed ratio of weather asked for to weather simulated, over a recent window rather
+   than the session total so that acting on it converges. The counter-intuitive consequence is worth
+   stating plainly, because it is what wasted the days: **animating the sky faster does not make the
+   weather evolve faster, it makes less of it happen.**
 5. **The bake eroded density where it should have eroded shape.** The fringe erosion subtracts an
    absolute threshold, averaging 0.225, which removes a fringe from the deck path's *authored*
-   density of order one. The nest path's density is *measured*: a marginal fair-weather deck —
-   14 % cloud fraction, 0.01 g/kg, sitting right at the critical humidity — reaches the erosion
-   at 0.058, so it drove 87 % of the texels to zero and crushed the survivors toward it. What
-   rendered was not cloud but the noise's own peaks, and since the field rebakes every nest step,
-   *which* peaks survived changed each time: flickering specks. The carve and the erosion now run
-   on the dimensionless **shape** and the measured water multiplies once at the end — which is
-   what §7.3's own split says ("the simulation supplies the coverage, the noise carves the
-   shape"); the code had merged them one multiply too early.
+   density of order one. The nest path's density is *measured*: a marginal fair-weather deck — 14 %
+   cloud fraction, 0.01 g/kg, sitting right at the critical humidity — reaches the erosion at 0.058,
+   so it drove 87 % of the texels to zero and crushed the survivors toward it. What rendered was not
+   cloud but the noise's own peaks, and since the field rebakes every nest step, *which* peaks
+   survived changed each time: flickering specks. The carve and the erosion now run on the
+   dimensionless **shape** and the measured water multiplies once at the end — which is what §7.3's
+   own split says ("the simulation supplies the coverage, the noise carves the shape"); the code had
+   merged them one multiply too early.
 6. **Nothing named which rung was empty.** Between condensate and pixels sit a switch, a published
-   field, a genus flag, a march shell and a bake, and every one of them fails to the same blue
-   sky. The Meteorology panel now carries a **Render path** section that names the rung — clouds
-   off, no field, field not marked as meteorology, shell with no height, or a healthy shell with
-   its span — beside the observer column's own cloud extent. This is the same "name the rung
-   rather than the symptom" pattern the panel already used for the nest's build chain, and it
-   should have been extended here the moment the bake started reading condensate.
-7. **`max_steps_per_frame` did not do what its own documentation said, so defect 4 had no
-   remedy.** The field is documented as "steps a single frame may take before the rest is
-   dropped", and the resume note below used to name raising it as "the cheapest lever there is".
-   It clamped the *accumulator* and nothing else: `record_step` was called once per frame
-   whatever it was set to, so the nest's throughput was pinned at exactly one step per frame and
-   raising the number bought more tolerated lag rather than more weather. That is the mechanism
-   behind "4 sky-days asked for, 6.2 hours simulated" — and it is why the lever the panel offered
-   could not have worked. A frame now records as many steps as are due, bounded by the cap and
-   again by what the recording slot's descriptor pool can serve, which is derived from the pool's
-   size rather than assumed to fit. The thermal seed's clock moved to a push constant, since
-   several steps share one upload of the parameter block and would otherwise draw the identical
-   pattern. Verified: handed four steps' worth of elapsed time per call, the nest simulates the
-   full hour in a quarter of the submissions, and the column agrees with the one-step-per-call run
-   at every sample.
+   field, a genus flag, a march shell and a bake, and every one of them fails to the same blue sky.
+   The Meteorology panel now carries a **Render path** section that names the rung — clouds off, no
+   field, field not marked as meteorology, shell with no height, or a healthy shell with its span —
+   beside the observer column's own cloud extent. This is the same "name the rung rather than the
+   symptom" pattern the panel already used for the nest's build chain, and it should have been
+   extended here the moment the bake started reading condensate.
+7. **`max_steps_per_frame` did not do what its own documentation said, so defect 4 had no remedy.**
+   The field is documented as "steps a single frame may take before the rest is dropped", and the
+   resume note below used to name raising it as "the cheapest lever there is". It clamped the
+   *accumulator* and nothing else: `record_step` was called once per frame whatever it was set to,
+   so the nest's throughput was pinned at exactly one step per frame and raising the number bought
+   more tolerated lag rather than more weather. That is the mechanism behind "4 sky-days asked for,
+   6.2 hours simulated" — and it is why the lever the panel offered could not have worked. A frame
+   now records as many steps as are due, bounded by the cap and again by what the recording slot's
+   descriptor pool can serve, which is derived from the pool's size rather than assumed to fit. The
+   thermal seed's clock moved to a push constant, since several steps share one upload of the
+   parameter block and would otherwise draw the identical pattern. Verified: handed four steps'
+   worth of elapsed time per call, the nest simulates the full hour in a quarter of the submissions,
+   and the column agrees with the one-step-per-call run at every sample.
 8. **The query mirror froze whenever the nest stepped continuously — including in every editor
-   session.** `collect_readback` looked for a slot whose `timeline_value` had passed the
-   semaphore counter, but a slot carries only its *most recent* submission's value, and with
-   three slots in flight the CPU sits exactly three submissions ahead. The value that has
-   actually completed is therefore always one no slot still carries. Measured over a hundred
-   consecutive steps: the counter read 95 while the three slots held 96, 97 and 98, and the sweep
-   matched nothing every single time. The mirror advanced only when something else idled the
-   device — which is why every measurement in this phase came from the probe's own sample points
-   and looked fine. Gameplay reads that mirror (§3.2), so the "two to three frames stale" the
-   design rests on was in fact "stale until the GPU happens to catch up". A slot is now collected
-   at the one point its completion is already established: immediately after the wait that
-   precedes overwriting it. Steps measured per hour of simulated weather went from 2 to 1 471 of
-   1 478.
+   session.** `collect_readback` looked for a slot whose `timeline_value` had passed the semaphore
+   counter, but a slot carries only its *most recent* submission's value, and with three slots in
+   flight the CPU sits exactly three submissions ahead. The value that has actually completed is
+   therefore always one no slot still carries. Measured over a hundred consecutive steps: the
+   counter read 95 while the three slots held 96, 97 and 98, and the sweep matched nothing every
+   single time. The mirror advanced only when something else idled the device — which is why every
+   measurement in this phase came from the probe's own sample points and looked fine. Gameplay reads
+   that mirror (§3.2), so the "two to three frames stale" the design rests on was in fact "stale
+   until the GPU happens to catch up". A slot is now collected at the one point its completion is
+   already established: immediately after the wait that precedes overwriting it. Steps measured per
+   hour of simulated weather went from 2 to 1 471 of 1 478.
 
 #### The symmetry break was doing a fifth of its job
 
 Defect 3 above made the thermal seed *bounded*. It left it **white**: a hash of the cell index and
-the step index, so the field had no length scale but one cell and no time scale but one step —
-and, both of those being grid quantities, it made the render quality tier and the frame rate into
+the step index, so the field had no length scale but one cell and no time scale but one step — and,
+both of those being grid quantities, it made the render quality tier and the frame rate into
 physical parameters of the weather.
 
 Measuring it needed an instrument that did not exist. Mean coverage cannot tell a broken cumulus
@@ -2847,11 +2830,11 @@ across a single convective afternoon the pattern barely renews.
 The field is value noise on an (x, z, t) lattice with smoothstep interpolation, addressed in
 **world** metres and game seconds. Two consequences follow from the units alone. It is anchored to
 the ground, so the patches stay put when the nest re-centres on a moving observer, where a
-cell-indexed field slid with the camera. And the tier stops being a physical parameter: Medium,
-High and Ultra now agree on domain structure to 1.10× and on coverage to 1.06×, against 2.01× and
-1.23× for a cell-scale field. **Low still does not** — a 4 km cell samples a 6 km patch with a cell
-and a half — and that is a resolution limit rather than an inconsistency, stated here rather than
-hidden because it is the honest form of one.
+cell-indexed field slid with the camera. And the tier stops being a physical parameter: Medium, High
+and Ultra now agree on domain structure to 1.10× and on coverage to 1.06×, against 2.01× and 1.23×
+for a cell-scale field. **Low still does not** — a 4 km cell samples a 6 km patch with a cell and a
+half — and that is a resolution limit rather than an inconsistency, stated here rather than hidden
+because it is the honest form of one.
 
 *Named limit.* One octave, so the ground this models is patchy at exactly one scale and real land
 cover is not. Phase B3 is where the pattern should stop being a hash at all: once a surface energy
@@ -2863,9 +2846,9 @@ neighbouring cells near the closure's critical humidity would scintillate, ampli
 closure's slope of 2.5. Measured at one sample per step over six hours, the step-to-step change in
 the observer column's cloud fraction is 0.12 % of its value with the white seed and 0.19 % with the
 correlated one. There was no scintillation to remove: the cloud fraction is a function of the
-*state*, and the state integrates the flux over thousands of steps, which is precisely the
-averaging that also made the white seed useless. The prediction was wrong and the change is worth
-making anyway, for the reason the table gives instead.
+*state*, and the state integrates the flux over thousands of steps, which is precisely the averaging
+that also made the white seed useless. The prediction was wrong and the change is worth making
+anyway, for the reason the table gives instead.
 
 #### What it does now, measured
 
@@ -2883,38 +2866,38 @@ The third row is the phase's acceptance bar: a scattered fair-weather cumulus de
 mixed-layer top, 16 % of the sky, forming out of nothing but surface heating. The last is
 stratocumulus — moist, barely buoyant, low base that stays low — which is what an almost entirely
 latent surface should give and is a different genus rather than more of the same. The first row is
-the same model told the ground is a semi-desert, and it is *correct*: a Bowen ratio of 1.4 heats
-the air far faster than it moistens it, so relative humidity falls all day and the condensation
-level runs away upward. Every row is now free of the ground fog that used to be the only thing any
-of them produced.
+the same model told the ground is a semi-desert, and it is *correct*: a Bowen ratio of 1.4 heats the
+air far faster than it moistens it, so relative humidity falls all day and the condensation level
+runs away upward. Every row is now free of the ground fog that used to be the only thing any of them
+produced.
 
 **The ratio is authored, not defaulted.** Which of these a scene stands on is a scene-authoring
-decision and the engine has no way to guess it, so the default is left where it is and the choice
-is made where it belongs: the Meteorology panel carries the four covers as one-click presets with
-the sky each produces in its tooltip, and displays the resulting Bowen ratio, flagged above 1.
+decision and the engine has no way to guess it, so the default is left where it is and the choice is
+made where it belongs: the Meteorology panel carries the four covers as one-click presets with the
+sky each produces in its tooltip, and displays the resulting Bowen ratio, flagged above 1.
 
 #### Where to resume
 
-- **`humidity_scale_height` does not do what it is documented to do, and the airmass is drier
-  than it should be because of it.** The field is described as "the e-folding height of the
-  base-state *vapour* profile"; `atmosphere_base_vapour` applies the exponential to *relative
-  humidity* instead, so `q_v = RH₀·e^(−z/H)·q_s(z)` decays twice — once through the exponential
-  and again through `q_s`. A real sounding has the mixing ratio decaying with a ~2.5 km scale
-  height while `q_s` falls faster, so relative humidity *rises* through a moist layer; here it
-  can only fall, which is why the free troposphere sits at 40 % and why every configuration that
-  makes cloud has to be pushed there with surface humidity and a low Bowen ratio. Measured: at
-  1 341 m the base state gives RH 0.41, against ~0.62 for the profile the doc describes.
-  Deliberately **not** fixed — it changes the look of every existing scene, and that is an
-  authoring decision. It is the first thing to reach for if the tier still reads as too dry.
+- **`humidity_scale_height` does not do what it is documented to do, and the airmass is drier than
+  it should be because of it.** The field is described as "the e-folding height of the base-state
+  *vapour* profile"; `atmosphere_base_vapour` applies the exponential to *relative humidity*
+  instead, so `q_v = RH₀·e^(−z/H)·q_s(z)` decays twice — once through the exponential and again
+  through `q_s`. A real sounding has the mixing ratio decaying with a ~2.5 km scale height while
+  `q_s` falls faster, so relative humidity *rises* through a moist layer; here it can only fall,
+  which is why the free troposphere sits at 40 % and why every configuration that makes cloud has to
+  be pushed there with surface humidity and a low Bowen ratio. Measured: at 1 341 m the base state
+  gives RH 0.41, against ~0.62 for the profile the doc describes. Deliberately **not** fixed — it
+  changes the look of every existing scene, and that is an authoring decision. It is the first thing
+  to reach for if the tier still reads as too dry.
 - **A lifted cloud base cannot be an initial condition**, and follows from the above: base-state
-  relative humidity is monotone decreasing by construction, so the saturated part of a fresh
-  column is always the part touching the ground. An instantly-cloudy scene is a ground-based
-  layer whose base then rises as the surface warms. That is not a limitation to remove — a cloud
-  base is what the model *produces* by lifting moisture to it — but it is worth stating, because
-  "give me a config with clouds already in it" is a reasonable request with a specific answer:
-  raise `surface_humidity` to ~0.95 and pick a low-Bowen land cover, which reaches 100 % of
-  columns cloudy within ten simulated minutes. The authored deck stack (nest off) remains the
-  zero-wait path and is what it is for.
+  relative humidity is monotone decreasing by construction, so the saturated part of a fresh column
+  is always the part touching the ground. An instantly-cloudy scene is a ground-based layer whose
+  base then rises as the surface warms. That is not a limitation to remove — a cloud base is what
+  the model *produces* by lifting moisture to it — but it is worth stating, because "give me a
+  config with clouds already in it" is a reasonable request with a specific answer: raise
+  `surface_humidity` to ~0.95 and pick a low-Bowen land cover, which reaches 100 % of columns cloudy
+  within ten simulated minutes. The authored deck stack (nest off) remains the zero-wait path and is
+  what it is for.
 - **The deck forms late** — mid-to-late afternoon rather than late morning. The mixed layer has to
   deepen to ~1 300 m before its top saturates, and the diagnosed depth grows with the surface
   parcel's excess, so the timing is a consequence of the parcel criterion and the heating rate. Not
@@ -2922,11 +2905,11 @@ the sky each produces in its tooltip, and displays the resulting Bowen ratio, fl
 - ~~**The seed is still white in space.**~~ Closed 2026-07-28 — see *The symmetry break was doing a
   fifth of its job* above. The predicted scintillation turned out not to exist; what the seed was
   actually failing to do was break the symmetry at all, and that is measured rather than argued.
-- **The step is now profiled, and the measurement reordered the levers it was supposed to
-  choose between.** Timestamps bracket each stage of the step, resolved where the nest already
-  waits on the submission's timeline value, so measuring stalls nothing; `atmosphere_probe`
-  reports the mean over a run and the Meteorology panel carries the same breakdown. Measured on a
-  GTX 1060 6 GB at the shipped tier (192×192×48, 2 km, twelve sweeps), mean over 1 471 steps:
+- **The step is now profiled, and the measurement reordered the levers it was supposed to choose
+  between.** Timestamps bracket each stage of the step, resolved where the nest already waits on the
+  submission's timeline value, so measuring stalls nothing; `atmosphere_probe` reports the mean over
+  a run and the Meteorology panel carries the same breakdown. Measured on a GTX 1060 6 GB at the
+  shipped tier (192×192×48, 2 km, twelve sweeps), mean over 1 471 steps:
 
   | stage | ms, as found | ms, after this section's two corrections |
   |---|---|---|
@@ -2941,8 +2924,8 @@ the sky each produces in its tooltip, and displays the resulting Bowen ratio, fl
   | readback | 0.06 | 0.07 |
   | **whole submission** | **12.60** | **7.95** |
 
-  (The right column's non-pressure stages read slightly higher because they are a larger share of
-  a shorter submission and the device clocks accordingly; they are the same work.)
+  (The right column's non-pressure stages read slightly higher because they are a larger share of a
+  shorter submission and the device clocks accordingly; they are the same work.)
 
   Three things follow, and the third is the one that matters.
 
@@ -2955,19 +2938,19 @@ the sky each produces in its tooltip, and displays the resulting Bowen ratio, fl
   memory instead of once per column into a dynamically indexed 64-float private array that
   spilled to local memory. Same arithmetic, hoisted: 8.90 → 7.71 ms, physics bit-identical.
 
-  Then the sweep count itself, which had never been measured. **Twelve was five sweeps of pure
-  waste and the reasoning behind it was misapplied.** The justification was that a solver with no
-  coarse-grid correction leaves smooth horizontal error behind — a real property of an
-  *isotropic* Poisson problem, and very nearly irrelevant here. The anisotropy that motivates the
-  line solver in the first place also makes what remains for the sweeps a small, strongly
-  diagonally dominant correction: horizontal coupling is 1/12 of the vertical at the domain top
-  and 1/1370 of it at the ground. Measured end-to-end over six simulated hours at 2, 4, 8, 12 and
-  20 sweeps, the surface humidity, lifting condensation level, cloud base, column water and sky
-  coverage are **identical to every printed figure**, and the peak divergence — the quantity the
-  solve exists to control — agrees to **seven significant figures**. At *one* sweep it does not,
-  which is what tells convergence apart from a solve that was never doing anything. Repeated
-  under a 25 m/s front with a +4 K parent anomaly, the case the argument is weakest for:
-  divergence still agrees to six figures at four sweeps.
+  Then the sweep count itself, which had never been measured. **Twelve was five sweeps of pure waste
+  and the reasoning behind it was misapplied.** The justification was that a solver with no
+  coarse-grid correction leaves smooth horizontal error behind — a real property of an *isotropic*
+  Poisson problem, and very nearly irrelevant here. The anisotropy that motivates the line solver in
+  the first place also makes what remains for the sweeps a small, strongly diagonally dominant
+  correction: horizontal coupling is 1/12 of the vertical at the domain top and 1/1370 of it at the
+  ground. Measured end-to-end over six simulated hours at 2, 4, 8, 12 and 20 sweeps, the surface
+  humidity, lifting condensation level, cloud base, column water and sky coverage are **identical to
+  every printed figure**, and the peak divergence — the quantity the solve exists to control —
+  agrees to **seven significant figures**. At *one* sweep it does not, which is what tells
+  convergence apart from a solve that was never doing anything. Repeated under a 25 m/s front with a
+  +4 K parent anomaly, the case the argument is weakest for: divergence still agrees to six figures
+  at four sweeps.
 
   `pressure_iterations` therefore defaults to **4** — twice the measured convergence point. The
   stage runs 1.3 / 2.7 / 8.0 / 15.3 ms at 2 / 4 / 12 / 20 sweeps, so twelve was spending 5.3 ms a
@@ -2976,27 +2959,26 @@ the sky each produces in its tooltip, and displays the resulting Bowen ratio, fl
   refinement worth reaching for at this aspect ratio, because there is no residual left for it to
   remove. It becomes interesting only if the domain is ever made closer to isotropic.
 
-  *And the step itself was three times shorter than anything the model needed.* `choose_step`
-  took the vertical CFL against a flat `10 × convective_velocity_scale` — a thunderstorm core,
-  20 m/s — which pinned Δt at 2.43 s in every airmass and on every grid, three times tighter than
-  the horizontal term ever came to. Measured, a fair-weather domain peaks at **0.02 m/s** and a
+  *And the step itself was three times shorter than anything the model needed.* `choose_step` took
+  the vertical CFL against a flat `10 × convective_velocity_scale` — a thunderstorm core, 20 m/s —
+  which pinned Δt at 2.43 s in every airmass and on every grid, three times tighter than the
+  horizontal term ever came to. Measured, a fair-weather domain peaks at **0.02 m/s** and a
   convecting one at 0.03: the assumption was three orders out. And because the transport is
   semi-Lagrangian and therefore *unconditionally stable*, what that bought was not stability but a
   vertical Courant number of 9 × 10⁻⁴ — §1.4's maximally diffusive regime, the exact defect this
   nest exists to have left behind. The short step was making the vertical advection worse, not
   safer.
 
-  Two things were wrong at once. `convective_velocity_scale` is documented as "purely a
-  *reporting* scale", and was in fact also setting the time step — one number doing two unrelated
-  jobs, with the second invisible from where it is declared. The CFL now binds against the
-  **updraft the readback measures**, with a fourfold headroom for what convection can do between
-  readbacks and the old constant standing until the first readback lands; it is tracked with a
-  decay so it tightens the instant convection strengthens and only relaxes slowly. Measured at
-  2.44 / 5 / 6 / 10 / 20 s in both a quiescent and a convecting airmass: unchanged through 6 s
-  (sky coverage within 3 %, cloud base within 2 %), and at 10 s and beyond the domain peak
-  vertical velocity inflates by an order of magnitude and the sky changes with it — so
-  `max_step_seconds`, already 6, is the cap that keeps it the safe side. In practice Δt now sits
-  at 6 s until a real updraft exceeds ~2 m/s.
+  Two things were wrong at once. `convective_velocity_scale` is documented as "purely a *reporting*
+  scale", and was in fact also setting the time step — one number doing two unrelated jobs, with the
+  second invisible from where it is declared. The CFL now binds against the **updraft the readback
+  measures**, with a fourfold headroom for what convection can do between readbacks and the old
+  constant standing until the first readback lands; it is tracked with a decay so it tightens the
+  instant convection strengthens and only relaxes slowly. Measured at 2.44 / 5 / 6 / 10 / 20 s in
+  both a quiescent and a convecting airmass: unchanged through 6 s (sky coverage within 3 %, cloud
+  base within 2 %), and at 10 s and beyond the domain peak vertical velocity inflates by an order of
+  magnitude and the sky changes with it — so `max_step_seconds`, already 6, is the cap that keeps it
+  the safe side. In practice Δt now sits at 6 s until a real updraft exceeds ~2 m/s.
 
   **Which is the change that matters, because the tier's cost is not the step — it is the step
   over the weather the step buys.**
@@ -3012,67 +2994,66 @@ the sky each produces in its tooltip, and displays the resulting Bowen ratio, fl
   percent of §12's whole 2.6 ms frame budget. §12's per-step figure was optimistic on a 2016 card
   and its per-frame figure was right.
 
-  The corollary is worth stating because it is what an editor session actually feels: the
-  per-frame cost is *linear in the sky's animation rate*. At 60× real time the tier costs
-  1.27 ms a frame; it crosses 2 ms at about **94×**; the 188× session that prompted this section
-  pays 4.0 ms, against the 16 ms it paid before. That is not the tier being heavy — it is the
-  amount of weather being ordered, and the price per unit of it is now 4.5× lower.
+  The corollary is worth stating because it is what an editor session actually feels: the per-frame
+  cost is *linear in the sky's animation rate*. At 60× real time the tier costs 1.27 ms a frame; it
+  crosses 2 ms at about **94×**; the 188× session that prompted this section pays 4.0 ms, against
+  the 16 ms it paid before. That is not the tier being heavy — it is the amount of weather being
+  ordered, and the price per unit of it is now 4.5× lower.
 
   **What a 2 ms *per step* would take, stated so it is a decision rather than a discovery.** Not
   tuning: the remaining step is 2.6 ms of pressure, 2.9 ms of MacCormack transport and 1.6 ms of
   everything else, and none of it is waste. It would take roughly four times fewer cells than
-  192×192×48 — around 128×128×28 — which means either a coarser vertical or a spacing above 2 km.
-  2 km is the spacing at which convection stops being parameterized and starts being *resolved*
+  192×192×48 — around 128×128×28 — which means either a coarser vertical or a spacing above 2 km. 2
+  km is the spacing at which convection stops being parameterized and starts being *resolved*
   (§2.2), and it is what this phase's acceptance bar rests on, so that is a tier decision (§6's
   Medium/High/Ultra ladder) and not a default to move quietly.
 
-  *So the defect was never the cost; it was where the cost landed.* The 12.6 ms fell inside a
-  single frame — one dropped frame every 2.4 s at 1× time scale, and far worse once defect 7
-  above was fixed and a frame could legitimately record four steps. Async compute alone would not
-  have helped: `vulkan_scene_view.cpp` had each view wait on the step submitted *this* frame, so
-  the frame was serialised behind it whatever queue it ran on. The step is now **staged during
-  the frame and submitted at its end**, after every scene view — so a frame reads the step before
-  it and waits on a value that has almost always already passed. The step waits on the frame's
-  readers in turn, because submission order on a queue orders the *start* of submissions and
-  promises nothing about one completing before the next begins. One nest step of staleness, a
-  couple of seconds of game time, against a medium whose own time scale is minutes.
+  *So the defect was never the cost; it was where the cost landed.* The 12.6 ms fell inside a single
+  frame — one dropped frame every 2.4 s at 1× time scale, and far worse once defect 7 above was
+  fixed and a frame could legitimately record four steps. Async compute alone would not have helped:
+  `vulkan_scene_view.cpp` had each view wait on the step submitted *this* frame, so the frame was
+  serialised behind it whatever queue it ran on. The step is now **staged during the frame and
+  submitted at its end**, after every scene view — so a frame reads the step before it and waits on
+  a value that has almost always already passed. The step waits on the frame's readers in turn,
+  because submission order on a queue orders the *start* of submissions and promises nothing about
+  one completing before the next begins. One nest step of staleness, a couple of seconds of game
+  time, against a medium whose own time scale is minutes.
 
   Still open, in order: fewer sweeps or a tiled pressure smoother; the **async compute queue**,
-  which the engine already has a seam for (`VulkanDevice::share_across_queues`) and which is now
-  a straightforward win rather than a blocked one; and the semi-coarsened multigrid
-  `atmosphere_pressure.comp`'s header names. **The editor path of the frame-end move has been
-  built and its tests pass, but has not been confirmed by eye.**
+  which the engine already has a seam for (`VulkanDevice::share_across_queues`) and which is now a
+  straightforward win rather than a blocked one; and the semi-coarsened multigrid
+  `atmosphere_pressure.comp`'s header names. **The editor path of the frame-end move has been built
+  and its tests pass, but has not been confirmed by eye.**
 - **SushiRuntime is the wrong tool for this tier, and the reason is worth recording** so it is not
   re-proposed. The nest's output is a Vulkan 3D image the cloud bake samples with hardware
   filtering; it is a *render resource* that happens to be computed. Moving the arithmetic to
-  SYCL/USM would not make it faster — it is the same device — but it would add an interop
-  boundary or a copy of the 14 MB extinction volume every step, and SushiRuntime is
-  throughput-oriented and blocking, with no real-time thread class and no async step, which is
-  precisely the property §3.2's whole concurrency story rests on. Its value is in the
-  deterministic simulation domain, where the data does not have to become something the
-  rasteriser samples.
+  SYCL/USM would not make it faster — it is the same device — but it would add an interop boundary
+  or a copy of the 14 MB extinction volume every step, and SushiRuntime is throughput-oriented and
+  blocking, with no real-time thread class and no async step, which is precisely the property §3.2's
+  whole concurrency story rests on. Its value is in the deterministic simulation domain, where the
+  data does not have to become something the rasteriser samples.
 
 ### Phase B3 — Surface energy balance and ice — **shipped**; its open clause closed in C1
 
 The other half of Phase B's original acceptance bar. Surface fluxes were prescribed constants; a
-real energy balance — insolation through the ephemeris, a slab heat capacity, land/sea
-partitioning — is what turns them into the diurnal cycle. Ice microphysics (deposition, freezing,
-snow with its own fall speed) joins Kessler here.
+real energy balance — insolation through the ephemeris, a slab heat capacity, land/sea partitioning
+— is what turns them into the diurnal cycle. Ice microphysics (deposition, freezing, snow with its
+own fall speed) joins Kessler here.
 
 *Acceptance: morning clear → midday cumulus → evening decay happens without anything scripting
 it.*
 
 #### B3a — the ground became a state variable — **shipped**
 
-Three authored numbers went away: a peak sensible flux, a peak latent flux, and a night-time
-cooling rate, each scaled by the sine of the sun's elevation. That is a *prescribed diurnal shape*
-wearing the costume of a diurnal cycle, and the three things missing from it are the three things
-a diurnal cycle is:
+Three authored numbers went away: a peak sensible flux, a peak latent flux, and a night-time cooling
+rate, each scaled by the sine of the sun's elevation. That is a *prescribed diurnal shape* wearing
+the costume of a diurnal cycle, and the three things missing from it are the three things a diurnal
+cycle is:
 
 * **No lag.** With no heat capacity the fluxes peaked exactly at solar noon.
-* **No response.** The ground could not be warmer or cooler than what an author typed, so as the
-  air warmed underneath it nothing reduced the flux into it — and that negative feedback is what
-  makes a boundary layer settle at a depth instead of growing all afternoon.
+* **No response.** The ground could not be warmer or cooler than what an author typed, so as the air
+  warmed underneath it nothing reduced the flux into it — and that negative feedback is what makes a
+  boundary layer settle at a depth instead of growing all afternoon.
 * **No changing Bowen ratio.** A surface drying out kept moistening the air at the rate it had
   when it was wet.
 
@@ -3086,8 +3067,8 @@ LE = rho L   C_H |U| beta (q_s(T_s) - q_v_air)
 
 `atmosphere_surface.comp`, 37 000 invocations against the 1.8 million every 3-D stage runs, and it
 measures **0.069 ms — 0.7 % of the step.** The skin temperature is prognostic, so it joins the
-shift: a nest that walks two kilometres brings the ground's warmth with it rather than laying a
-cold strip along its leading edge.
+shift: a nest that walks two kilometres brings the ground's warmth with it rather than laying a cold
+strip along its leading edge.
 
 **Measured, on a 24 h cycle over vegetated summer land:**
 
@@ -3099,20 +3080,20 @@ cold strip along its leading edge.
 | sensible flux turns negative | at sine **+0.065** — before sunset |
 | Bowen ratio through the day | **0.50 → −6.25** |
 
-Every row of that is emergent. The 90-minute lag is the slab's heat capacity; the morning
-transition waits for the ground to overtake the air rather than for the sun to rise; the evening
-one happens while the sun is still up, which is exactly when real convection stops. The Bowen
-ratio is now *reported* rather than authored, and it moves.
+Every row of that is emergent. The 90-minute lag is the slab's heat capacity; the morning transition
+waits for the ground to overtake the air rather than for the sun to rise; the evening one happens
+while the sun is still up, which is exactly when real convection stops. The Bowen ratio is now
+*reported* rather than authored, and it moves.
 
 Three decisions worth stating, because each replaced something that looked simpler:
 
 **The slab is integrated semi-implicitly.** Every flux stiffens as the skin warms — longwave as
 4εσT³, sensible linearly, latent through the Clausius–Clapeyron slope — some 85 W/m²/K against a
 soil slab of 10⁵ J/m²/K, a 20-minute relaxation time. Explicit would need a step under twice that,
-so an author choosing a thin slab (a road, a rock face) would walk into an oscillation that reads
-as a physics bug and is an integrator bug. Linearising about the current skin costs one divide,
-is unconditionally stable at any step length: the increment is the residual over `C + dt·λ` rather
-than over `C`, so the step cannot outrun the response that opposes it.
+so an author choosing a thin slab (a road, a rock face) would walk into an oscillation that reads as
+a physics bug and is an integrator bug. Linearising about the current skin costs one divide, is
+unconditionally stable at any step length: the increment is the residual over `C + dt·λ` rather than
+over `C`, so the step cannot outrun the response that opposes it.
 
 Two weaker claims than this paragraph first made, and the unit test is why. It is **not** exact in
 one step — `q_s` is exponential in the skin, so a step is one Newton iteration — and it is **not**
@@ -3149,8 +3130,7 @@ figures. Two separate causes, neither in this section:
    that makes cloud has to be pushed there.
 2. *Cloud never decays* because a saturated layer at 1585 m has **no sink in this model at all**
    overnight — it is too thin to rain, the mixed layer that fed it has collapsed so nothing mixes
-   it, and there is no radiative or subsidence drying. B3b's radiative terms are where that
-   belongs.
+   it, and there is no radiative or subsidence drying. B3b's radiative terms are where that belongs.
 
 #### B3b — cloud shades the ground it came from — **shipped**
 
@@ -3166,8 +3146,8 @@ ended with, which at a couple of seconds of game time per step is nothing a clou
 
 Cover and depth are carried separately, for the same reason the readback separates them: a
 tenth-covered column must let nine tenths of the sun straight through, not attenuate all of it by a
-tenth of the optical depth. Overlap is **maximum**, which is right for a convecting column and
-wrong for a frontal sheet.
+tenth of the optical depth. Overlap is **maximum**, which is right for a convecting column and wrong
+for a frontal sheet.
 
 **Measured**, the same run with the shading multiply removed and restored — a moist vegetated day
 under a 24 h sun, cloud present from dawn:
@@ -3188,9 +3168,9 @@ under its cloud. That is right at a high sun and wrong at a low one, where a sha
 kilometres downsun — but the error grows exactly as the flux being shaded shrinks, which is what
 makes it affordable. A correct one is a shadow march across neighbours and is not worth a march.
 
-**The other half of this phase's task was a wrong prediction, and it is recorded rather than
-quietly dropped.** The task predicted a warm drift needing a free-tropospheric radiative cooling
-term. Measured over **72 h** of diurnal cycling, mean θ′:
+**The other half of this phase's task was a wrong prediction, and it is recorded rather than quietly
+dropped.** The task predicted a warm drift needing a free-tropospheric radiative cooling term.
+Measured over **72 h** of diurnal cycling, mean θ′:
 
 | | 12 h | 24 h | 48 h | 72 h |
 |---|---|---|---|---|
@@ -3202,11 +3182,11 @@ There is no warm drift; the boundary layer trends *down* across three days and t
 cools slowly. So the term is **not added** — it would have been a scheme fixing a problem the model
 does not have. The slow cooling that is there is concentrated above 10 km, straddling the
 tropopause, where the base state's θ gradient is sharpest: that is numerical diffusion in the
-semi-Lagrangian transport across a stiff gradient, at −0.29 K/day, and a radiative scheme would
-not fix it. Recorded as a named limit rather than masked. *(The diffusion attribution was
-withdrawn 2026-07-31: with the transport stepping alone the drift is 0.02 K over the same 72 h.
-It is flow-driven — gravity waves accumulating under the sponge's lower edge — and was closed by
-moving the sponge edge; see the 2026-08-01 entries at the top of §11.)*
+semi-Lagrangian transport across a stiff gradient, at −0.29 K/day, and a radiative scheme would not
+fix it. Recorded as a named limit rather than masked. *(The diffusion attribution was withdrawn
+2026-07-31: with the transport stepping alone the drift is 0.02 K over the same 72 h. It is
+flow-driven — gravity waves accumulating under the sponge's lower edge — and was closed by moving
+the sponge edge; see the 2026-08-01 entries at the top of §11.)*
 
 #### B3c — the land/sea seam, deliberately not built — **decided**
 
@@ -3240,8 +3220,8 @@ story was good and the measurement disagreed with it; the measurement wins.
 
 #### B3d — ice, as a diagnosed phase rather than a second species — **shipped**
 
-The scheme is a **phase partition on temperature**, not cloud ice and snow as prognostic fields,
-and the choice is the whole design:
+The scheme is a **phase partition on temperature**, not cloud ice and snow as prognostic fields, and
+the choice is the whole design:
 
 > Carrying them costs another `rgba32f` volume — 28 MB at the shipped tier — plus its share of the
 > advection, the boundary-layer mixing, the shift and the readback, and it buys mixed-phase
@@ -3251,14 +3231,14 @@ and the choice is the whole design:
 > something that falls at a metre a second rather than seven — and all four are functions of the
 > temperature the cell already carries.
 
-So `nest_ice_fraction` ramps from 0 at 0 °C to 1 at −20 °C, and everything else is a function of
-it: the saturation curve (liquid and ice Magnus blended), the latent heat (vaporization plus the
-ice share of fusion — 13 % more), the autoconversion threshold (a quarter, once glaciated), the
-fall speed (rain's and snow's blended), and the **effective radius** the extinction divides by.
+So `nest_ice_fraction` ramps from 0 at 0 °C to 1 at −20 °C, and everything else is a function of it:
+the saturation curve (liquid and ice Magnus blended), the latent heat (vaporization plus the ice
+share of fusion — 13 % more), the autoconversion threshold (a quarter, once glaciated), the fall
+speed (rain's and snow's blended), and the **effective radius** the extinction divides by.
 
 **It costs 0.5 % of the step.** Measured by interleaving ice-on and ice-off builds three times in
-one session, because the GPU's clocks drifted between runs by 20 % and a straight before/after
-would have measured the clocks:
+one session, because the GPU's clocks drifted between runs by 20 % and a straight before/after would
+have measured the clocks:
 
 | | microphysics | extinction | whole submission |
 |---|---|---|---|
@@ -3280,8 +3260,8 @@ precipitates:
 Two signatures, and both are the ice curve rather than a tuning constant. **Coverage rises as the
 airmass cools while the condensate falls** — colder air holds less water, so the cloud is thinner,
 and yet more of the sky is covered, because the ice curve it condenses against sits well below the
-liquid one. And the cold column holds **3.5× the precipitation per unit cloud**, which is the
-slower fall speed and the lower glaciated threshold together.
+liquid one. And the cold column holds **3.5× the precipitation per unit cloud**, which is the slower
+fall speed and the lower glaciated threshold together.
 
 **The warm case is bit-identical to before any of this existed** — coverage, condensate and domain
 roughness agree to four decimals — which is the property that makes the partition adoptable: above
@@ -3292,17 +3272,17 @@ Melting needs no term: a flake falling into air above freezing arrives in a cell
 is zero, so it falls at rain's speed and evaporates on rain's curve from that level down.
 
 *Named limits.* No supercooled water below the glaciation point, no Bergeron transfer *timescale*
-(only its consequence), and melting is instantaneous where it really takes a few hundred metres.
-The two-species scheme is the refinement and its cost is quantified above. **Snow reaching the
-ground was not demonstrated in a free run**: this configuration cannot build a cloud deep enough to
+(only its consequence), and melting is instantaneous where it really takes a few hundred metres. The
+two-species scheme is the refinement and its cost is quantified above. **Snow reaching the ground
+was not demonstrated in a free run**: this configuration cannot build a cloud deep enough to
 precipitate on its own, so the precipitating measurements above have the autoconversion threshold
 lowered by hand. The fall-speed blend and the saturation curves are pinned by unit test instead.
 
-Also measured, and the reason B3b's third item exists: **the nocturnal deck has no sink at all**.
-A saturated layer at 1585 m is too thin to rain, the mixed layer that fed it has collapsed so
-nothing mixes it, and there is no subsidence — so it sits unchanged to three figures until dawn.
-Radiative cooling would make it *thicker*. The honest candidate is large-scale subsidence off the
-parent solution, which is Phase C's to supply and is left there.
+Also measured, and the reason B3b's third item exists: **the nocturnal deck has no sink at all**. A
+saturated layer at 1585 m is too thin to rain, the mixed layer that fed it has collapsed so nothing
+mixes it, and there is no subsidence — so it sits unchanged to three figures until dawn. Radiative
+cooling would make it *thicker*. The honest candidate is large-scale subsidence off the parent
+solution, which is Phase C's to supply and is left there.
 
 #### B3e — the acceptance bar, run: **two clauses of three**
 
@@ -3326,15 +3306,15 @@ anomaly at 8 m/s:
 | 18:00 | −1.00 | 0.637 | 19 m | 1 341 m | 10.8 | overnight deck |
 
 **What is emergent, and was not before B3:** a *radiation fog* that forms because the ground
-radiates to a cold sky and cools below the dew point, and then **burns off at mid-morning** when
-the sensible flux turns positive and lifts it. Neither end of that was reachable with a prescribed
-night flux, because the old constant had no idea how humid the air above it was — and both are the
-Brutsaert downwelling term and the prognostic skin doing exactly what they were added for. The
-same ground fog was a *defect* in Phase B2c; here it has a life cycle.
+radiates to a cold sky and cools below the dew point, and then **burns off at mid-morning** when the
+sensible flux turns positive and lifts it. Neither end of that was reachable with a prescribed night
+flux, because the old constant had no idea how humid the air above it was — and both are the
+Brutsaert downwelling term and the prognostic skin doing exactly what they were added for. The same
+ground fog was a *defect* in Phase B2c; here it has a life cycle.
 
 **Clause by clause.** Morning clear: **yes**, 04:30 through 07:30. Midday cumulus: **partly** — a
-proper fair-weather deck forms at the mixed-layer top with a base over a kilometre up, but at
-09:00 rather than at noon. Evening decay: **no** — the deck grows through the night instead.
+proper fair-weather deck forms at the mixed-layer top with a base over a kilometre up, but at 09:00
+rather than at noon. Evening decay: **no** — the deck grows through the night instead.
 
 > **Closed in Phase C1.** With the parent supplying subsidence the deck peaks at sunset and falls
 > 40 % overnight instead of growing. The diagnosis below was right, and the term that fixes it
@@ -3367,8 +3347,8 @@ What the phase set out to do was make the weather *emerge* rather than be author
 measurable rather than asserted: the core grows eddies exponentially with nothing placing a low,
 runs a complete baroclinic life cycle, puts its jet at 29–31°N because that is where January's
 subtropical jet is in the reanalysis it relaxes toward, and moves that jet with the season —
-equatorward into the southern winter and merely weaker into the northern one, which is a
-hemispheric asymmetry nothing in the engine encodes.
+equatorward into the southern winter and merely weaker into the northern one, which is a hemispheric
+asymmetry nothing in the engine encodes.
 
 One limit is carried out of the phase rather than hidden by it, and it is named where it is
 measured: the moisture cycles too slowly (§4.1). It does not block Phase D or E. The other
@@ -3378,29 +3358,29 @@ tuning problem (§11's C3 notes).
 
 #### C1 — large-scale vertical motion, and the clause B3e carried here — **shipped**
 
-B3e closed with one acceptance clause open and a named cause: an evening deck grew through the
-night instead of decaying, because a saturated layer aloft has no sink at all — too thin to rain,
-the mixed layer that fed it collapsed, and nothing dries it. The candidate was **large-scale
+B3e closed with one acceptance clause open and a named cause: an evening deck grew through the night
+instead of decaying, because a saturated layer aloft has no sink at all — too thin to rain, the
+mixed layer that fed it collapsed, and nothing dries it. The candidate was **large-scale
 subsidence**, which a limited-area model receives from its parent rather than generating. This
 section is that candidate, built and tested.
 
 **It is the first term the nest receives that is not a boundary condition.** The three parent
-anomalies feed the Davies zone; this is applied across the whole domain, because a 384 km window
-has no way to know it is sitting under a thousand-kilometre high. In `atmosphere_forces.comp` it is
+anomalies feed the Davies zone; this is applied across the whole domain, because a 384 km window has
+no way to know it is sitting under a thousand-kilometre high. In `atmosphere_forces.comp` it is
 vertical advection of potential temperature and vapour against the *total* profile — subsidence
 warms by compression and dries by bringing down air from where there is less water — with a shape
 that rises from zero at the ground to the supplied value near the boundary-layer top and decays to
 zero at the tropopause.
 
 **Where it comes from: Ekman pumping, and `SynopticLayer` already had it.** Its geostrophic wind
-carries a 25° surface-friction turn that relaxes with altitude, and *that turn is the
-cross-isobaric flow*. Air spirals inward toward a low and outward from a high, so the convergence
-has to go somewhere and where it goes is up. Taken as the divergence of the near-surface wind over
-the Ekman layer, `w = −h·∇·V`, numerically from four neighbouring samples rather than analytically
-— the analytic wind already *has* the friction in it, and re-deriving the divergence in closed form
-would be a second expression of the same thing, free to drift from the first. Measured: **1.0 cm/s
-in the mean and ±5.5 cm/s at the centres of a 20 hPa pair**, which is the textbook synoptic value,
-and it falls out of the friction angle rather than out of a constant chosen to produce it.
+carries a 25° surface-friction turn that relaxes with altitude, and *that turn is the cross-isobaric
+flow*. Air spirals inward toward a low and outward from a high, so the convergence has to go
+somewhere and where it goes is up. Taken as the divergence of the near-surface wind over the Ekman
+layer, `w = −h·∇·V`, numerically from four neighbouring samples rather than analytically — the
+analytic wind already *has* the friction in it, and re-deriving the divergence in closed form would
+be a second expression of the same thing, free to drift from the first. Measured: **1.0 cm/s in the
+mean and ±5.5 cm/s at the centres of a 20 hPa pair**, which is the textbook synoptic value, and it
+falls out of the friction angle rather than out of a constant chosen to produce it.
 
 **The acceptance re-run.** Same 24 h diurnal case as B3e, mean sky coverage:
 
@@ -3415,10 +3395,10 @@ and it falls out of the friction angle rather than out of a constant chosen to p
 | 18:00 | −1.00 | 0.604 | 0.353 | 0.274 | 0.092 |
 | **24:00** | 0.00 | **0.614** | **0.315** | 0.248 | 0.140 |
 
-Without subsidence the deck grows monotonically to dawn. With half a centimetre a second it peaks
-at sunset and **falls 40 % overnight**. The column water says the same thing: 13.31 → 16.54 kg/m²
-with no sink, against 13.31 → peak 15.58 → 14.93 with one. The sun switches off in both runs, so
-the difference is the sink and nothing else — **the diagnosis was right**.
+Without subsidence the deck grows monotonically to dawn. With half a centimetre a second it peaks at
+sunset and **falls 40 % overnight**. The column water says the same thing: 13.31 → 16.54 kg/m² with
+no sink, against 13.31 → peak 15.58 → 14.93 with one. The sun switches off in both runs, so the
+difference is the sink and nothing else — **the diagnosis was right**.
 
 Phase B's bar now reads: morning clear ✓, midday cumulus ✓ *in kind* and still late in timing,
 evening decay ✓. The remaining timing gap is `humidity_scale_height`, recorded above and
@@ -3449,18 +3429,18 @@ the scale is written as `PASCALS_PER_HECTOPASCAL / AIR_DENSITY` so there is no n
 
 `SynopticLayer` is not a simulation and never claimed to be: §1.3 records it translating authored
 elliptical Gaussians across the sphere and diagnosing a wind from their summed gradient, so a low
-can only ever do what it was told to do at genesis. This section is its replacement — §5's
-two-layer moist quasi-geostrophic core, in the new engine-neutral `atmosphere/` module, with
+can only ever do what it was told to do at genesis. This section is its replacement — §5's two-layer
+moist quasi-geostrophic core, in the new engine-neutral `atmosphere/` module, with
 `QuasiGeostrophicCore` as the tier and `FourierTransform` as the transform its inversion is built
 on. **C2 was the core alone**: it did not yet feed the nest and `SynopticLayer` was still the
-parent. C3 made that swap and deleted `SynopticLayer`; T0's real assets landed after it. Phase C
-is closed — see §4.1, §4.2 and the phase status below.
+parent. C3 made that swap and deleted `SynopticLayer`; T0's real assets landed after it. Phase C is
+closed — see §4.1, §4.2 and the phase status below.
 
 **Where it runs, and the section this contradicts.** §3.3 planned T1 on the GPU beside T2 and T3.
-That section has been corrected rather than quietly left: every consumer of this tier is
-host-side, the device would have bought a step that is already nearly free and paid for it with a
-readback, and the whole tier would have become untestable without a device. It is 36 ms of one
-core per step at 512×256, one step per six minutes of game time.
+That section has been corrected rather than quietly left: every consumer of this tier is host-side,
+the device would have bought a step that is already nearly free and paid for it with a readback, and
+the whole tier would have become untestable without a device. It is 36 ms of one core per step at
+512×256, one step per six minutes of game time.
 
 **The inversion is the whole reason this tier is cheap, and it decouples exactly.** The layer
 coupling enters the two potential-vorticity definitions with the same coefficient and opposite
@@ -3473,23 +3453,23 @@ forever.
 
 **Three details that are worth carrying to any future core on this grid.**
 
-- *The poles need no special case in the elliptic operator.* The grid is cell-centred, so its
-  polar cell edges fall exactly on the poles where `cos(latitude)` is zero, and "no flux across
-  the pole" is what the metric already says. The advective stencils do need to cross, and there
-  the even longitude count makes a pole crossing an **exact index shift by half a revolution** —
-  no interpolation, no reflection formula.
+- *The poles need no special case in the elliptic operator.* The grid is cell-centred, so its polar
+  cell edges fall exactly on the poles where `cos(latitude)` is zero, and "no flux across the pole"
+  is what the metric already says. The advective stencils do need to cross, and there the even
+  longitude count makes a pole crossing an **exact index shift by half a revolution** — no
+  interpolation, no reflection formula.
 - *The zonal Laplacian uses the discrete eigenvalue, not `-m^2`.* The Jacobian, the Ekman drag and
   the vertical velocity all read a relative vorticity that this inversion produced. Using the
   continuous eigenvalue would leave those three reading a field that does not quite satisfy the
   equation they assume — a small, permanent, entirely avoidable inconsistency.
-- *One filter does two jobs.* A latitude/longitude grid's zonal spacing shrinks as
-  `cos(latitude)`, and near the pole it would set the time step for the whole globe. Cutting the
-  wavenumbers that spacing cannot carry is the standard fix; making the cut-off clamp to the
-  grid's own highest wavenumber equatorward of 60° turns the same filter into the grid-scale
-  enstrophy sink a two-dimensional flow needs and does not otherwise have.
+- *One filter does two jobs.* A latitude/longitude grid's zonal spacing shrinks as `cos(latitude)`,
+  and near the pole it would set the time step for the whole globe. Cutting the wavenumbers that
+  spacing cannot carry is the standard fix; making the cut-off clamp to the grid's own highest
+  wavenumber equatorward of 60° turns the same filter into the grid-scale enstrophy sink a
+  two-dimensional flow needs and does not otherwise have.
 
-**Acceptance: cyclogenesis is emergent, and it equilibrates.** 512×256, 20 m/s shear, seeded with
-a perturbation of 1 m/s — a thirtieth of the jet — and nothing else placed:
+**Acceptance: cyclogenesis is emergent, and it equilibrates.** 512×256, 20 m/s shear, seeded with a
+perturbation of 1 m/s — a thirtieth of the jet — and nothing else placed:
 
 | day | eddy KE (J/m²) | zonal KE (J/m²) | jet (m/s) | peak wind (m/s) | lowest (hPa) |
 |---|---|---|---|---|---|
@@ -3503,9 +3483,9 @@ a perturbation of 1 m/s — a thirtieth of the jet — and nothing else placed:
 | 70 | 84 957 | 417 431 | 26.78 | 39.91 | −25.39 |
 
 The eddy energy grows exponentially — **0.26/day fitted over the whole growth phase, 0.32/day over
-days 8–12 where it is purely exponential**, an amplitude e-folding of six to eight days —
-saturates near 10⁵ J/m² against a zonal flow of 4.2×10⁵, and then runs a **15–20 day oscillation**:
-eddies grow, flatten the shear that feeds them, decay, and the relaxation rebuilds it. That is the
+days 8–12 where it is purely exponential**, an amplitude e-folding of six to eight days — saturates
+near 10⁵ J/m² against a zonal flow of 4.2×10⁵, and then runs a **15–20 day oscillation**: eddies
+grow, flatten the shear that feeds them, decay, and the relaxation rebuilds it. That is the
 baroclinic life cycle, and the fact that a 70-day run neither dies nor runs away is the half of the
 acceptance a growth rate alone does not cover. Over the run the strongest wind reaches 49 m/s and
 the deepest cyclone −31 hPa; day 0's −36 hPa is the prescribed jet's own field, not a storm.
@@ -3515,33 +3495,32 @@ the whole run, and because the equilibrated state spends as much time decaying a
 reported 0.047/day — a number that would have read as "no instability" for a core that is
 demonstrably unstable. It now closes at the first sample where the energy falls.
 
-**Why the growth is slower than the Eady estimate, and why that is the right answer.** A uniform
-20 m/s shear at a 700 km deformation radius suggests an amplitude e-folding near two days. Three
-things account for the six: the jet is *localized* (15° wide, so the mode has to fit inside it),
-the state is only about 1.5 times critical once Ekman drag has spun the lower layer down —
-Phillips' criterion puts the critical shear near `beta * L_d^2`, about 8 m/s here — and near a
-threshold the growth rate falls off steeply. The relaxation and the Ekman drag then take about
-0.2/day back out of the energy budget. Raising `upper_jet_speed_mps` is the knob if a scene wants
-storms sooner.
+**Why the growth is slower than the Eady estimate, and why that is the right answer.** A uniform 20
+m/s shear at a 700 km deformation radius suggests an amplitude e-folding near two days. Three things
+account for the six: the jet is *localized* (15° wide, so the mode has to fit inside it), the state
+is only about 1.5 times critical once Ekman drag has spun the lower layer down — Phillips' criterion
+puts the critical shear near `beta * L_d^2`, about 8 m/s here — and near a threshold the growth rate
+falls off steeply. The relaxation and the Ekman drag then take about 0.2/day back out of the energy
+budget. Raising `upper_jet_speed_mps` is the knob if a scene wants storms sooner.
 
 **Resolution is not a preference here, it is the difference between weather and no weather.** At
 64×32 the deformation radius is one cell and the run decays monotonically; at 256×128 it grows at
-0.09/day; at 512×256 it grows at 0.32/day. The cause is the grid-scale damping, which is
-calibrated against the two-cell wave: at 64 latitudes the most unstable mode *is* nearly the
-two-cell wave and the damping eats it, and at 256 it is twelve cells across and the damping cannot
-see it. The core's low tiers therefore cannot simply be the same physics on a coarser grid, and
+0.09/day; at 512×256 it grows at 0.32/day. The cause is the grid-scale damping, which is calibrated
+against the two-cell wave: at 64 latitudes the most unstable mode *is* nearly the two-cell wave and
+the damping eats it, and at 256 it is twelve cells across and the damping cannot see it. The core's
+low tiers therefore cannot simply be the same physics on a coarser grid, and
 `grid_scale_damping_seconds` is the parameter that has to move with them. **Named limit**, and the
 unit test that exercises the instability at 64 latitudes lengthens the damping for exactly this
 reason.
 
 **Measured against references that are not itself.** `test_quasigeostrophic_core.cpp`: the fast
-transform against a naive O(N²) one and the real-pair packing against two separate transforms;
-the recovered streamfunction against the potential-vorticity relation written out a second time
-in the test (residual under 10⁻⁶ of the field); the prescribed jet coming back through
-streamfunction, vorticity, inversion and differencing at 30 m/s ± 0.6; free advection conserving
-the domain integral of `q` to 10⁻⁴ and of `q²` to 2×10⁻³ over a simulated day; and an injected
-vorticity blob drifting **northwest** at 19.7 m/s against Rossby's `beta * R²` of 23.3 — the beta
-drift, in both of its components, from a core that was never told about it.
+transform against a naive O(N²) one and the real-pair packing against two separate transforms; the
+recovered streamfunction against the potential-vorticity relation written out a second time in the
+test (residual under 10⁻⁶ of the field); the prescribed jet coming back through streamfunction,
+vorticity, inversion and differencing at 30 m/s ± 0.6; free advection conserving the domain integral
+of `q` to 10⁻⁴ and of `q²` to 2×10⁻³ over a simulated day; and an injected vorticity blob drifting
+**northwest** at 19.7 m/s against Rossby's `beta * R²` of 23.3 — the beta drift, in both of its
+components, from a core that was never told about it.
 
 Every check that can assert a magnitude does. §11's C1 records the synoptic wind running 735 times
 too fast for the entire life of the shipped system, surviving because the one test covering it
@@ -3552,29 +3531,28 @@ asserted that the field was non-uniform — which a 15 km/s field satisfies perf
 - **There is no tropical rain**, and the global mean precipitation is 0.25 mm/day against Earth's
   2.7. §5 already names the cause — a two-layer quasi-geostrophic model has no Hadley circulation,
   so the ITCZ has to be a *T0-forced* convergence band — and T0 is analytic latitude bands in C2.
-  What does rain is mid-latitude frontal ascent, which is the part this formulation is entitled to.
-  *(Superseded: with T0's baked climatology this reaches 1.5–2.4 mm/day. §4.1.)*
+  What does rain is mid-latitude frontal ascent, which is the part this formulation is entitled
+  to. *(Superseded: with T0's baked climatology this reaches 1.5–2.4 mm/day. §4.1.)*
 - **A 36 ms step is a visible hitch under time compression.** *(First measured at 47 ms in this
-  phase; 36 ms is the figure the later status entries carry and is the one this document uses.)*
-  At 1× it lands once per six minutes
-  of wall clock and is invisible. At 60× it lands once per six seconds and is not. The step has no
-  dependency on anything mid-frame, so moving it to a worker is straightforward; it is not done
-  because nothing consumes the tier yet.
+  phase; 36 ms is the figure the later status entries carry and is the one this document uses.)* At
+  1× it lands once per six minutes of wall clock and is invisible. At 60× it lands once per six
+  seconds and is not. The step has no dependency on anything mid-frame, so moving it to a worker is
+  straightforward; it is not done because nothing consumes the tier yet.
 - **The moisture is transported by the lower layer's wind alone**, with the ascent-driven
-  convergence added as a source. A two-layer model has one interior wind per layer and no profile
-  to integrate against, so a column-mean transport would need a weighting invented for the purpose.
+  convergence added as a source. A two-layer model has one interior wind per layer and no profile to
+  integrate against, so a column-mean transport would need a weighting invented for the purpose.
 - **`inject_vorticity` exists on the core and nothing calls it.** It is §5's "place a low here"
   becoming an injected anomaly that then evolves, and wiring the editor to it is part of the swap
   below rather than part of the core.
 
 #### Phase C3 — the swap — **shipped**
 
-`SynopticLayer` is deleted. C2's core is the nest's parent: Davies relaxation fed from real
-fields, and C1's Ekman-pumping estimate replaced by the core's quasi-geostrophic omega, which was
-already diagnosed and unused. Editor authoring is vorticity injection. `Astro::Ephemeris` was
-already the single solar authority — the nest reads the sine of the *rendered* sun's elevation
-straight off the environment the ephemeris filled, so §1.6's "two different suns" defect was
-closed in B2c rather than here; this phase only confirmed no second solar model survives.
+`SynopticLayer` is deleted. C2's core is the nest's parent: Davies relaxation fed from real fields,
+and C1's Ekman-pumping estimate replaced by the core's quasi-geostrophic omega, which was already
+diagnosed and unused. Editor authoring is vorticity injection. `Astro::Ephemeris` was already the
+single solar authority — the nest reads the sine of the *rendered* sun's elevation straight off the
+environment the ephemeris filled, so §1.6's "two different suns" defect was closed in B2c rather
+than here; this phase only confirmed no second solar model survives.
 
 *The hemisphere defect went out with the class, as planned.* `SynopticLayer::wind_at` applied the
 surface-friction turn as the same rotation in both hemispheres; the core turns it correctly and a
@@ -3582,28 +3560,27 @@ unit test pins both signs.
 
 **What the parent now hands the nest.** Three fields, with two deliberately different references:
 
-- `thermal_anomaly_at` and `humidity_anomaly_at` are departures **from the zonal mean**, because
-  the nest's own base state already carries the mean and what it cannot generate is the eddy.
-  Handing it the absolute meridional gradient would tell a nest at 60° it is permanently 20 K
-  cold.
-- `frontal_strength_at` is the magnitude of the **total** thermal gradient, K per 100 km, because
-  a front is a concentration of the real temperature gradient and removing the zonal mean first
-  would erase the background baroclinic zone that frontogenesis concentrates. Threshold is the
-  consumer's business: the background zone reads a few tenths, a real front 5 or more.
-- `pressure_anomaly_hpa` **was corrected during this phase.** It returned `rho f0 psi_2` — the
-  total — which is dominated by the mean jet's own meridional gradient: measured at 139 hPa across
-  a 40-degree window, an order more than any cyclone. Reported that way the editor's map would
-  have been a picture of latitude. It is now a departure from the zonal mean like its two
-  siblings, and `QuasiGeostrophicDiagnostics::lowest_pressure_anomaly_hpa` was corrected with it
-  so "the deepest low in the world" names a low rather than whichever cell sits furthest poleward.
+- `thermal_anomaly_at` and `humidity_anomaly_at` are departures **from the zonal mean**, because the
+  nest's own base state already carries the mean and what it cannot generate is the eddy. Handing it
+  the absolute meridional gradient would tell a nest at 60° it is permanently 20 K cold.
+- `frontal_strength_at` is the magnitude of the **total** thermal gradient, K per 100 km, because a
+  front is a concentration of the real temperature gradient and removing the zonal mean first would
+  erase the background baroclinic zone that frontogenesis concentrates. Threshold is the consumer's
+  business: the background zone reads a few tenths, a real front 5 or more.
+- `pressure_anomaly_hpa` **was corrected during this phase.** It returned `rho f0 psi_2` — the total
+  — which is dominated by the mean jet's own meridional gradient: measured at 139 hPa across a
+  40-degree window, an order more than any cyclone. Reported that way the editor's map would have
+  been a picture of latitude. It is now a departure from the zonal mean like its two siblings, and
+  `QuasiGeostrophicDiagnostics::lowest_pressure_anomaly_hpa` was corrected with it so "the deepest
+  low in the world" names a low rather than whichever cell sits furthest poleward.
 
 **The editor's map samples rather than lists.** There is no `systems[]` left to iterate, so the
-Weather panel shades `pressure_anomaly_hpa` (or `frontal_strength_at`) on a 44x44 lattice, draws
-the low-level wind as a 9x9 arrow field over it, and injects an anomaly where clicked. Every
-slider the old panel offered — depth, radius, speed, heading — set a quantity the core now
-derives, and a slider that pretends to set a derived quantity is worse than no slider. What is
-left is strictly less direct control and strictly more honest, because the previous control was
-over a picture rather than over the weather.
+Weather panel shades `pressure_anomaly_hpa` (or `frontal_strength_at`) on a 44x44 lattice, draws the
+low-level wind as a 9x9 arrow field over it, and injects an anomaly where clicked. Every slider the
+old panel offered — depth, radius, speed, heading — set a quantity the core now derives, and a
+slider that pretends to set a derived quantity is worse than no slider. What is left is strictly
+less direct control and strictly more honest, because the previous control was over a picture rather
+than over the weather.
 
 **Persistence is a binary sidecar.** The state is two potential-vorticity fields and a moisture
 field on a 512x256 grid — **1 572 920 bytes measured**, which is not going into a human-editable
@@ -3643,10 +3620,10 @@ asserted.
 | 24 | 50 812 | 476 142 | 40.2 | 0.171 |
 
 Exponential growth of **0.254/day over days 8–20**, matching C2's independently measured 0.26/day,
-followed by the baroclinic life cycle's decay — eddy energy drawn out of the zonal flow (which
-falls 704 000 → 466 000) and then returned. **The acceptance clause "cyclogenesis is emergent —
-nothing places a low" is met**, and it is met through the shipped provider rather than only
-through the probe.
+followed by the baroclinic life cycle's decay — eddy energy drawn out of the zonal flow (which falls
+704 000 → 466 000) and then returned. **The acceptance clause "cyclogenesis is emergent — nothing
+places a low" is met**, and it is met through the shipped provider rather than only through the
+probe.
 
 > **A trap worth recording, because it cost real time here.** `advance()` is capped at
 > `max_steps_per_advance` (8), so **one call can never cover more than 48 minutes of game time** —
@@ -3657,16 +3634,16 @@ through the probe.
 
 ##### The injection was three times too loud — found, diagnosed, fixed
 
-**The symptom.** Measured at 128×64 right after injection, against the corrected pressure
-reference, a click at the panel's defaults put **−70.6 hPa** over the map; `FrontPassage` −94.8,
-`Storm` −110.9, `Clear` +61.9. A deep real low is −30 and the deepest ever recorded is near −50.
+**The symptom.** Measured at 128×64 right after injection, against the corrected pressure reference,
+a click at the panel's defaults put **−70.6 hPa** over the map; `FrontPassage` −94.8, `Storm`
+−110.9, `Clear` +61.9. A deep real low is −30 and the deepest ever recorded is near −50.
 
 **The cause was not arithmetic.** The field was geostrophically self-consistent and 0.451 is the
 correct peak-azimuthal-wind constant for a Gaussian vorticity blob. What made it deep is that
-`inject_vorticity` placed a **monopole** — a blob with net circulation — whose streamfunction
-grows *logarithmically outward* instead of decaying the way a compensated anomaly's does. A low
-placed anywhere therefore tilted the pressure field of the entire hemisphere, and did it in a way
-that still looked like a plausible synoptic pattern.
+`inject_vorticity` placed a **monopole** — a blob with net circulation — whose streamfunction grows
+*logarithmically outward* instead of decaying the way a compensated anomaly's does. A low placed
+anywhere therefore tilted the pressure field of the entire hemisphere, and did it in a way that
+still looked like a plausible synoptic pattern.
 
 **The fix is the physics, not a smaller number.** Every injection now lays down a broader opposing
 lobe carrying exactly the core's circulation, scaled by summing both lobes over the actual grid
@@ -3688,9 +3665,9 @@ force at synoptic radii. Re-tuned to what a system of each kind actually reaches
 | `Overcast` | — | 1 100 km, 8 m/s → **−24.8 hPa** |
 | `Clear` (a ridge) | +61.9 hPa | 1 200 km, −8.5 m/s → **+28.5 hPa** |
 
-And the far field, which is the point: the anomaly 60–120° away fell from *rivalling the centre*
-to 2–5 hPa. The editor's strength slider had its ceiling lowered from 45 to 30 m/s, because past
-about 30 at these radii it was offering an author a system the atmosphere has never made.
+And the far field, which is the point: the anomaly 60–120° away fell from *rivalling the centre* to
+2–5 hPa. The editor's strength slider had its ceiling lowered from 45 to 30 m/s, because past about
+30 at these radii it was offering an author a system the atmosphere has never made.
 
 Four tests pin it: the anomaly is local, it blows at the speed it was asked for, it is a depth
 that could exist, and its sign is right in both directions.
@@ -3840,17 +3817,18 @@ Stated here so they are decisions rather than discoveries:
 - **T0 asset pipeline** — *done*. `se climatology bake` builds `assets/atmosphere/climatology.set0`
   from NCEP-NCAR Reanalysis 1, NOAA OISST V2 and Natural Earth (ERA5 was dropped: it needs a
   Copernicus account, and an asset nobody else can reproduce is an asset nobody else can check).
-  Attribution rides inside the asset. Terrain and land-cover remain blocked on §15's terrain
-  system, which is what the ETOPO/MODIS half of this item was waiting for.
+  Attribution rides inside the asset. Terrain and land-cover remain blocked on §15's terrain system,
+  which is what the ETOPO/MODIS half of this item was waiting for.
 - `render_pipeline_refactor.md` **Phase 7** (sky-view / aerial-perspective LUTs) —
   consumed by §8.3's spatial fog and AP coupling; analytic fallbacks stand until it lands.
 - `render_pipeline_refactor.md` **Phase 11** (async compute) — the preferred home for the
   tier steps; the graphics queue is a working interim.
 - **Water/sea state** consumes `IAtmosphereQuery`'s wind field.
-- **Legacy references.** Nineteen source files still cite `docs/design/weather_and_clouds.md`
-  by section number in their file comments. Those files are rewritten or deleted by Phases
-  A–E; the references are corrected as each file is touched rather than swept blindly into
-  section numbers that no longer mean anything. The removed document remains in git history.
+- **Legacy references.** Fourteen source files still cite `docs/design/weather_and_clouds.md` by
+  section number in their file comments, sixteen citations in all. Those files are rewritten or
+  deleted by Phases A–E; the references are corrected as each file is touched rather than swept
+  blindly into section numbers that no longer mean anything. The removed document remains in git
+  history.
 
 ---
 

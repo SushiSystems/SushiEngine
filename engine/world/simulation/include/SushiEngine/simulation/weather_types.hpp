@@ -27,7 +27,7 @@
  * @file weather_types.hpp
  * @brief Plain value types shared by the T1 synoptic layer and the T2 regional grid.
  *
- * `docs/slop/weather_and_clouds.md` §3/§5 describes three weather tiers; this file
+ * `docs/design/weather_and_clouds.md` §3/§5 describes three weather tiers; this file
  * carries the small, dependency-free types the sim-domain tiers (T1, T2) and the
  * `IWeatherProvider` seam pass between each other. Deliberately free of any
  * `Astro::`/`Render::` dependency (the same reason `Render::SkyObserver` keeps a
@@ -69,7 +69,7 @@ namespace SushiEngine
          * "procedural weather is on" with `static_cast<bool>(weather_provider_)` would make
          * "no provider at all" the *definition* of the other mode — so Manual could not have
          * a provider, and therefore could not have a weather field, and therefore would apply
-         * one authored deck stack to an entire planet. See `docs/slop/atmosphere_system.md`'s
+         * one authored deck stack to an entire planet. See `docs/design/atmosphere_system.md`'s
          * WM-SEED for what that looks like from orbit.
          *
          * Both modes install a provider, so the choice is genuinely about *where the sky
@@ -188,7 +188,7 @@ namespace SushiEngine
         /**
          * @brief The layered-column meteorology at one point, ready for cloudscape compilation.
          *
-         * The MSFS/X-Plane-style column representation `docs/slop/weather_and_clouds.md`
+         * The MSFS/X-Plane-style column representation `docs/design/weather_and_clouds.md`
          * §5.2/§5.4 calls for: coverage/type/density per level plus surface wind and
          * precipitation. This is `IWeatherProvider`'s entire output contract — the renderer,
          * and everything downstream of it, never sees the synoptic systems or the regional
@@ -203,7 +203,7 @@ namespace SushiEngine
             /**
              * @brief Altitude of the lowest cloud in this column, metres; 0 when there is none.
              *
-             * `docs/slop/atmosphere_system.md` §1.2 lists cloud base among the things the
+             * `docs/design/atmosphere_system.md` §1.2 lists cloud base among the things the
              * fifteen floats of this struct could not express, and names that as the ceiling on
              * everything downstream. It is here now because the regional nest actually knows it —
              * a column's base is the altitude its condensate starts at — and because the one

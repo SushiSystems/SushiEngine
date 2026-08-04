@@ -22,7 +22,7 @@
 /**************************************************************************/
 
 // Integration_DeterministicReplay: proves SushiLoop M0/M1's core claim end to end
-// (docs/slop/SUSHILOOP.md) — replaying the same numbered input stream against a
+// (docs/design/SUSHILOOP.md) — replaying the same numbered input stream against a
 // fresh world, driven by the same fixed-step clock and the same seeded per-entity
 // RNGState, produces bit-identical world state. This is the property rollback
 // depends on: same input, same result, on the same binary.

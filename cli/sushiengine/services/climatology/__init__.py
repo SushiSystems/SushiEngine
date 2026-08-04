@@ -1,6 +1,6 @@
 """Bakes T0's climatology asset from public reanalysis and coastline data.
 
-`docs/slop/atmosphere_system.md` §4 calls sourcing and baking these fields a task of Phase
+`docs/design/atmosphere_system.md` §4 calls sourcing and baking these fields a task of Phase
 C rather than an afterthought, and this is that task. The output is a single `SET0` blob
 that `Climatology::adopt` reads; the engine never touches the network, and the bake never
 touches the engine.

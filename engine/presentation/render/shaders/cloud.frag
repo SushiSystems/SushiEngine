@@ -66,7 +66,7 @@ layout(set = 0, binding = 24) uniform sampler2D transmittance_lut;
 // top-of-atmosphere beam rather than by the attenuated one (sky.frag:557 does the same).
 layout(set = 0, binding = 26) uniform sampler2D sky_view_lut;
 // The T3-baked cloudscape *envelope* (CloudscapeCompilePass, reshaped by CloudsV2 —
-// docs/slop/atmosphere_system.md §7.6): r = coverage envelope, g = the contributing deck's
+// docs/design/atmosphere_system.md §7.6): r = coverage envelope, g = the contributing deck's
 // vertical profile, a = in-cloud water amplitude (half-encoded). The cloud's actual shape is in
 // no texture: this march carves it out of the envelope analytically, per sample, in the same
 // world-anchored pattern frame the bake evaluates its weather in — so the shape's effective

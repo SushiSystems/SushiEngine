@@ -100,7 +100,7 @@ namespace SushiEngine
          * same weather more finely rather than simulating a different amount of world.
          * High is the shipped 192×192×48 at 2 km — the spacing at which convection
          * stops being parameterized and starts being resolved
-         * (`docs/slop/atmosphere_system.md` §2.2), and the baseline every Phase B
+         * (`docs/design/atmosphere_system.md` §2.2), and the baseline every Phase B
          * measurement was taken against.
          *
          * @param quality The authored atmosphere tier.
@@ -131,7 +131,7 @@ namespace SushiEngine
                 case AtmosphereQuality::High:
                 default:
                     // The baseline discretization, and the one every measurement in
-                    // `docs/slop/atmosphere_system.md` §11's Phase B2c was taken against: 2 km
+                    // `docs/design/atmosphere_system.md` §11's Phase B2c was taken against: 2 km
                     // is where convection stops being parameterized and starts being resolved
                     // (§2.2), which is what this tier's acceptance bar rests on.
                     return {192u, 192u, 48u, 2000.0f, 18000.0f};

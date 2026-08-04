@@ -27,7 +27,7 @@
  * @file weather_field.hpp
  * @brief The spatial weather field the renderer reads instead of one global column.
  *
- * `docs/slop/atmosphere_system.md` §1.1 names the defect this type exists to close. A
+ * `docs/design/atmosphere_system.md` §1.1 names the defect this type exists to close. A
  * simulation that reaches the renderer as a *single* `WeatherColumn` sampled under the
  * observer compiles into a globally uniform deck stack, so everything actually visible in
  * the sky comes from tiled noise and no simulated structure — a front, a shower, a
@@ -115,7 +115,7 @@ namespace SushiEngine
             /**
              * @brief Whether the renderer should resolve cloud genus from this field.
              *
-             * `docs/slop/atmosphere_system.md` §7.4: with a spatial field the cloudscape bake
+             * `docs/design/atmosphere_system.md` §7.4: with a spatial field the cloudscape bake
              * resolves a genus *per baked column* from the local band state, instead of
              * instantiating one globally compiled deck stack everywhere. That is right for a
              * provider whose column state is meteorology — it is what lets a stratus sheet, a

@@ -30,7 +30,7 @@
  *
  * A game changes its whole mix by *state*: "combat" pushes music and lowers ambience,
  * "underwater" ducks everything and darkens it, "paused" dims the world under the menu
- * (§8 of `docs/slop/audio_system.md`). Each state is a **snapshot** — a set of target bus
+ * (§8 of `docs/design/audio_system.md`). Each state is a **snapshot** — a set of target bus
  * gains — and switching state cross-fades every bus toward the new snapshot over a
  * transition time. This is the Wwise States / FMOD snapshot mechanism.
  *

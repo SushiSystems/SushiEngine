@@ -27,7 +27,7 @@
  * @file seeded_weather.hpp
  * @brief Manual mode's provider: a whole planet's weather chosen by a seed.
  *
- * `docs/slop/atmosphere_system.md`'s WM-SEED. What this stands in for is not another provider
+ * `docs/design/atmosphere_system.md`'s WM-SEED. What this stands in for is not another provider
  * — it is the *absence* of one. Manual mode without an `IWeatherProvider` leaves one
  * hand-authored deck stack applied to every square metre of the body, which from orbit is a
  * uniformly milky sphere; the real Earth is mostly clear ocean with weather laid over it in

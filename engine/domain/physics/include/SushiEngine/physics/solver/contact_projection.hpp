@@ -28,7 +28,7 @@
  * @brief Resolving a contact manifold: non-penetration, friction, and restitution.
  *
  * The recipe is Müller et al. 2020, *Detailed Rigid Body Simulation with XPBD*,
- * §7.4 of `docs/slop/physics_system.md`, and it is split across the substep in
+ * §7.4 of `docs/design/physics_system.md`, and it is split across the substep in
  * the way that paper prescribes, for a reason worth stating once:
  *
  * - **Non-penetration and static friction are positional.** A box sitting on a

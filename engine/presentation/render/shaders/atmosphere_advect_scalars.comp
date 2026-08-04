@@ -4,7 +4,7 @@
 // Transports the nest's cell-centred scalars — potential temperature and the three moisture
 // species — along the flow, with a MacCormack-corrected semi-Lagrangian scheme at Courant ~ 1.
 //
-// docs/slop/atmosphere_system.md §1.4 is why this shader exists in this form. The shipped
+// docs/design/atmosphere_system.md §1.4 is why this shader exists in this form. The shipped
 // scheme ran plain bilinear semi-Lagrangian at Courant ~ 0.02 (15.6 km cells, a 15 s tick, 20
 // m/s wind: a departure point moved 0.019 of a cell), which is that interpolation's
 // *maximally diffusive* regime — every tick blended ~98 % of a cell with ~2 % of its

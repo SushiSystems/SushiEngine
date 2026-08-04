@@ -4,8 +4,15 @@
 
 When starting work on this project:
 
-1. Read `docs/CONTRIBUTING.md` first and follow its rules exactly.
-2. Then read every top-level `.md` file directly under `docs/` (not its subdirectories — skip `docs/design/`, the internal design-plan corpus, and `docs/api/`, the generated Doxygen page) to build context before making changes.
+1. Read `docs/CONTRIBUTING.md` first and follow its rules exactly, then
+   `docs/documentation-style-guide.md`, which governs everything you write in prose.
+2. Then read `docs/README.md`, the manual's index, and follow it into what your task
+   touches: `docs/architecture/` for how a subsystem works, `engine/<tier>/<module>/README.md`
+   for what a module owns, `docs/guides/` for the command line tool.
+3. `docs/design/` is the design corpus — engineering plans and their audits. It records intent,
+   so it may describe work that does not exist; read the one covering your subsystem before
+   changing that subsystem, and never treat it as a description of the tree. `docs/api/` and
+   `docs/api-site/` are generated Doxygen output — never edit them by hand.
 
 ## How to work
 

@@ -496,7 +496,7 @@ namespace SushiEngine
                 nest_ = nest;
 
                 // The nest's own addressing, for the bake to read condensate through
-                // (docs/slop/atmosphere_system.md §7.1). Stamped here rather than in
+                // (docs/design/atmosphere_system.md §7.1). Stamped here rather than in
                 // fill_scene_uniforms because the nest is centred on the *simulation's*
                 // observer while everything in that block is camera-relative, and this is the
                 // one place both are in hand.

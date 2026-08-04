@@ -27,7 +27,7 @@
  * @file weather_world_coupling.hpp
  * @brief The sim-side bridge: any `IWeatherProvider`'s column state -> `Render::WeatherCoupling`.
  *
- * `docs/slop/weather_and_clouds.md` §5.3 (W5, "coupling weather -> world (beyond clouds)"):
+ * `docs/design/weather_and_clouds.md` §5.3 (W5, "coupling weather -> world (beyond clouds)"):
  * fog/turbidity, wet ground, and precipitation intensity should all follow the *same*
  * `WeatherColumn` sample that already drives the compiled `Cloudscape`
  * (`WeatherCloudscapeCompiler`) -- the acceptance bar's "one cause, every symptom". This is

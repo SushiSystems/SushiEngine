@@ -33,7 +33,7 @@
  * images are private to this pass and barriered by hand, exactly as the atmosphere LUTs are;
  * the render graph only schedules the pass, and only when there is something to rebake.
  *
- * What the field *is* (`docs/slop/atmosphere_system.md` §7.2/§7.4):
+ * What the field *is* (`docs/design/atmosphere_system.md` §7.2/§7.4):
  *
  * - **Two camera-centred, non-wrapping windows.** A near one spanning 32 km, and a far one
  *   eight times wider for the part of the march that leaves it. Non-wrapping is what gives

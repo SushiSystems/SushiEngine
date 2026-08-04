@@ -1,11 +1,12 @@
 # Unified Hazard Model (UHM) — one execution vocabulary for sim, compute, and render
 
-**Status:** designed 2026-08-01. This is the "dedicated design pass" that
-`cross_platform_engineering_plan.md` §3.1 defers — the shared sim+render hazard vocabulary, the
-tracker discipline, and the interop contract at the domain boundary. It resolves that document's
-§9 risk-register entry ("hazard vocabularies diverge before a shared model is designed") and its
-open go/no-go decision on gating `RUNTIME-PORT0`/`RHI0`. Design authority for this pass was
-delegated by the owner on 2026-08-01.
+**Status:** designed, 2026-08-01.
+
+This is the "dedicated design pass" that `cross_platform_engineering_plan.md` §3.1 defers — the
+shared sim+render hazard vocabulary, the tracker discipline, and the interop contract at the domain
+boundary. It resolves that document's §9 risk-register entry ("hazard vocabularies diverge before a
+shared model is designed") and its open go/no-go decision on gating `RUNTIME-PORT0`/`RHI0`. Design
+authority for this pass was delegated by the owner on 2026-08-01.
 
 **Companion documents.** `cross_platform_engineering_plan.md` (the three walls; `Execution` seam §4,
 RHI §5); `sushiruntime/docs/design/ENGINE_BACKBONE_REFACTOR.md` (BB-0…BB-8 — this design *composes
@@ -19,16 +20,16 @@ doctrine); `SUSHILOOP.md` (the determinism contract the sim domain answers to).
 
 "Unified" means **one access algebra, one tracker semantic, and one boundary contract** — it does
 not mean one graph object. The sim graph (compile-once, replayed per fixed tick, bit-deterministic,
-rollback-replayable) and the render graph (rebuilt per presented frame, throughput-shaped,
-never re-recorded during rollback) stay two schedule domains, because their cadence and their
-determinism obligations are irreconcilable in one DAG — §3.1 already suspected this, and the
-ground truth below confirms it. What becomes *one* is: the vocabulary a node uses to declare an
-access (`AccessIntent` over a resource interval), the hazard-inference semantic every compiler
-applies to those declarations (last-writer/reader-set, RAW/WAR/WAW, deterministic tie-break), the
-determinism class stamped on every node, and the epoch-published `Handoff` through which the only
-legal cross-domain traffic flows. Each domain keeps its native resource currency in its hot path —
-pointers and byte intervals sim-side, virtual handles render-side — and the sum type §3.1 asked
-about lives in exactly one place: the boundary registry, where it is cold.
+rollback-replayable) and the render graph (rebuilt per presented frame, throughput-shaped, never
+re-recorded during rollback) stay two schedule domains, because their cadence and their determinism
+obligations are irreconcilable in one DAG — §3.1 already suspected this, and the ground truth below
+confirms it. What becomes *one* is: the vocabulary a node uses to declare an access (`AccessIntent`
+over a resource interval), the hazard-inference semantic every compiler applies to those
+declarations (last-writer/reader-set, RAW/WAR/WAW, deterministic tie-break), the determinism class
+stamped on every node, and the epoch-published `Handoff` through which the only legal cross-domain
+traffic flows. Each domain keeps its native resource currency in its hot path — pointers and byte
+intervals sim-side, virtual handles render-side — and the sum type §3.1 asked about lives in exactly
+one place: the boundary registry, where it is cold.
 
 ---
 
@@ -43,60 +44,60 @@ from them.
 column base addresses — whole-buffer regions today (`ecs/schedule.hpp:146-164`,
 `Buffer::dependency_key()`), while the runtime's `Core::ResourceRegion`
 (`{ResourceId base, byte offset, byte length}`, half-open, `WHOLE` sentinel) and the R3
-interval-boundary work (merged to `main` in `f801cc5`) make interval-exact sub-range tracking
-real where it is declared — the fixed-order reduce's levels and `DynamicGraph`'s island regions
-are the two in-tree proofs. The system kernels themselves are plain C++ over those pointers — no
-SYCL in any kernel body. One forward-compatibility fact matters to the vocabulary:
-`Core::ResourceId` is `void*` today but is *explicitly aliased so it can become an opaque
-registered id* (`resource_region.hpp:39`, WP-2's unfinished half) — the engine's mirror type
-must typedef its key for the same reason.
+interval-boundary work (merged to `main` in `f801cc5`) make interval-exact sub-range tracking real
+where it is declared — the fixed-order reduce's levels and `DynamicGraph`'s island regions are the
+two in-tree proofs. The system kernels themselves are plain C++ over those pointers — no SYCL in any
+kernel body. One forward-compatibility fact matters to the vocabulary: `Core::ResourceId` is `void*`
+today but is *explicitly aliased so it can become an opaque registered id*
+(`resource_region.hpp:39`, WP-2's unfinished half) — the engine's mirror type must typedef its key
+for the same reason.
 
 **G1b — The demanding sim consumer is no longer only the ECS.**
 `physics/solver/runtime_graph_builder.hpp` (created 2026-07-28, after the cross-platform plan's
-ground-truth pass; 42 `SushiRuntime::` usages) is the deepest coupling site in the engine and
-uses a far wider graph surface than `Schedule` does: `ElementRange` sub-buffer accesses,
-`API::when(...)` predicated nodes, `API::sized(...)` late-bound counts, `Residency`/`DeviceIndex`
-placement. Any `Execution` vocabulary that cannot express these cannot retarget the physics graph —
-§4.5 addresses each.
+ground-truth pass; 42 `SushiRuntime::` usages) is the deepest coupling site in the engine and uses a
+far wider graph surface than `Schedule` does: `ElementRange` sub-buffer accesses, `API::when(...)`
+predicated nodes, `API::sized(...)` late-bound counts, `Residency`/`DeviceIndex` placement. Any
+`Execution` vocabulary that cannot express these cannot retarget the physics graph — §4.5 addresses
+each.
 
-**G2 — The render domain's hazard currency is typed access intents over opaque virtual
-resources.** A pass declares `TextureAccess`/`BufferAccess` against frame-scoped virtual handles
-(`render/graph/resource_handle.hpp:96-126`), and the graph's *entire* barrier knowledge is one
-total function from those intents to the Vulkan `(stage, access, layout)` triple
+**G2 — The render domain's hazard currency is typed access intents over opaque virtual resources.**
+A pass declares `TextureAccess`/`BufferAccess` against frame-scoped virtual handles
+(`render/graph/resource_handle.hpp:96-126`), and the graph's *entire* barrier knowledge is one total
+function from those intents to the Vulkan `(stage, access, layout)` triple
 (`render/graph/resource_state.hpp:26-34`). Whole-resource granularity, re-declared every frame,
-usage flags inferred by unioning intents. This is already an access-intent model — the render
-domain needs **no semantic change** to participate in UHM, only a vocabulary alignment at RHI1.
+usage flags inferred by unioning intents. This is already an access-intent model — the render domain
+needs **no semantic change** to participate in UHM, only a vocabulary alignment at RHI1.
 
 **G3 — The boundary already has a designed direction.** The renderer *exports* allocations
 (`render/interop.hpp`: UUID-matched external memory, Win32 handle / POSIX fd, "the importing half
 belongs to whoever owns the other API"); SushiRuntime's import half plus completion export are
 BB-1a/BB-1b — planned, unbuilt, with the engine's `vulkan_interop_buffer.cpp` export path sitting
 callerless until they land. UHM's boundary contract is the engine-side orchestration of exactly
-those two seams, not a third mechanism. Note the correction to the cross-platform plan's §3
-wording: on desktop, zero-copy is **renderer-exports / runtime-imports** external memory — not
-USM columns handed raw to Vulkan. The USM-column-as-graphics-memory shape appears only on the
-native-`Execution` UMA path (§6, tier T3).
+those two seams, not a third mechanism. Note the correction to the cross-platform plan's §3 wording:
+on desktop, zero-copy is **renderer-exports / runtime-imports** external memory — not USM columns
+handed raw to Vulkan. The USM-column-as-graphics-memory shape appears only on the native-`Execution`
+UMA path (§6, tier T3).
 
-**G4 — Rollback constrains publication, not tracking.** `Loop::App` owns the fixed-step loop and
-a `RollbackBuffer` that snapshots/restores columns generically — full column copies, not deltas
+**G4 — Rollback constrains publication, not tracking.** `Loop::App` owns the fixed-step loop and a
+`RollbackBuffer` that snapshots/restores columns generically — full column copies, not deltas
 (`loop/rollback.hpp:96-121`; per-write dirty tracking is a recorded follow-on, not present); a
 reconciliation replays from the earliest mismatched tick through the *same compiled graph*
-(`Schedule::run` rebuilds only on `structure_version` change), with the structural constraint
-that no spawn/destroy may occur between capture and restore (`rollback.hpp:33-36`). The render
-domain must never observe an intermediate replayed tick — which makes "when may the render
-domain see sim output" a publication rule at the boundary, not a property of either tracker.
-Note also that today's shipping sim→render seam is a *value snapshot*: the editor never
-instantiates `Loop::App` at all — it hosts `ISimulation` and reads `render_scene()`, a copied
-`RenderScene` struct, once per host frame (`editor/main.cpp:439-461`). The copy-shaped
-host round-trip BB-1 describes is therefore the *current* T0 reality, not a regression risk.
+(`Schedule::run` rebuilds only on `structure_version` change), with the structural constraint that
+no spawn/destroy may occur between capture and restore (`rollback.hpp:33-36`). The render domain
+must never observe an intermediate replayed tick — which makes "when may the render domain see sim
+output" a publication rule at the boundary, not a property of either tracker. Note also that today's
+shipping sim→render seam is a *value snapshot*: the editor never instantiates `Loop::App` at all —
+it hosts `ISimulation` and reads `render_scene()`, a copied `RenderScene` struct, once per host
+frame (`editor/main.cpp:439-461`). The copy-shaped host round-trip BB-1 describes is therefore the
+*current* T0 reality, not a regression risk.
 
 **G5 — The engine already runs three compute lanes, by recorded doctrine.** SushiRuntime SYCL for
-the deterministic sim domain; Vulkan compute for render-resource computation (atmosphere's
-recorded rejection: *"its value is in the deterministic simulation domain, where the data does not
-have to become something the rasteriser samples"* — `atmosphere_system.md` Phase B3); CPU for
-host systems and fallbacks. UHM does not merge these lanes — it gives the first lane's output a
-typed, epoch-fenced route into the second's inputs, and it gives the future `Execution` RHI-compute
-backend (`RUNTIME-PORT8`) a vocabulary that already speaks GPU barriers.
+the deterministic sim domain; Vulkan compute for render-resource computation (atmosphere's recorded
+rejection: *"its value is in the deterministic simulation domain, where the data does not have to
+become something the rasteriser samples"* — `atmosphere_system.md` Phase B3); CPU for host systems
+and fallbacks. UHM does not merge these lanes — it gives the first lane's output a typed,
+epoch-fenced route into the second's inputs, and it gives the future `Execution` RHI-compute backend
+(`RUNTIME-PORT8`) a vocabulary that already speaks GPU barriers.
 
 ---
 
@@ -104,12 +105,12 @@ backend (`RUNTIME-PORT8`) a vocabulary that already speaks GPU barriers.
 
 **U1 — The engine owns the vocabulary; every runtime is a backend.** The UHM types live in
 `include/SushiEngine/execution/` with zero includes of SushiRuntime, SYCL, or Vulkan headers. The
-SushiRuntime path consumes them through a thin adapter inside the existing SYCL TU; the render
-graph consumes them through `Rhi` at RHI1; the native backend consumes them directly. This is the
-organic shape of the relationship: SushiRuntime plugs into a socket the engine defines — the
-engine is never wired into shapes the runtime defines. The one-way `SushiEngine → SushiRuntime`
-arrow (`ARCHITECTURE.md` §1) is untouched, and the runtime's API instability stops mattering to
-51 of the 52 files it can currently reach.
+SushiRuntime path consumes them through a thin adapter inside the existing SYCL TU; the render graph
+consumes them through `Rhi` at RHI1; the native backend consumes them directly. This is the organic
+shape of the relationship: SushiRuntime plugs into a socket the engine defines — the engine is never
+wired into shapes the runtime defines. The one-way `SushiEngine → SushiRuntime` arrow
+(`docs/architecture/overview.md` §1) is untouched, and the runtime's API instability stops mattering
+to 51 of the 52 files it can currently reach.
 
 **U2 — Unify algebra, not hot paths.** No hot path is retyped to a generic handle. Sim nodes keep
 pointer+interval keys (trivial lowering to `Core::ResourceRegion`); render passes keep
@@ -117,12 +118,12 @@ pointer+interval keys (trivial lowering to `Core::ResourceRegion`); render passe
 which is touched at registration and publication — cold, per-resource, not per-node-per-tick.
 
 **U3 — Cross-domain traffic is buffer-shaped, by doctrine.** BB-1 explicitly excludes importing
-Vulkan *images* into the runtime, and the atmosphere rejection explains why the reverse direction
-is also wrong. Therefore the boundary subset of the vocabulary is `BufferRegion` only. Image
-subresources exist in the vocabulary (the render domain needs them; a future RHI-compute sim
-backend needs them) but a `Handoff` registration of an image is a compile-time error. This single
-scoping decision dissolves most of §3.1's "vocabulary mismatch" concern: the superset type exists,
-but the shared wire format is the narrow, well-understood half.
+Vulkan *images* into the runtime, and the atmosphere rejection explains why the reverse direction is
+also wrong. Therefore the boundary subset of the vocabulary is `BufferRegion` only. Image
+subresources exist in the vocabulary (the render domain needs them; a future RHI-compute sim backend
+needs them) but a `Handoff` registration of an image is a compile-time error. This single scoping
+decision dissolves most of §3.1's "vocabulary mismatch" concern: the superset type exists, but the
+shared wire format is the narrow, well-understood half.
 
 **U4 — Determinism is a per-node class, enforced at the boundary.** `SUSHILOOP.md` locks
 bit-determinism for the sim; render nodes must not pay for it and must not poison it. The class
@@ -131,9 +132,9 @@ mechanical, assertable, and cheap.
 
 **U5 — Zero cost on today's shipping paths, measured.** Every UHM milestone carries an exit
 criterion phrased as "nothing regressed": byte-identical sim output logs, golden images unchanged
-(once RHI0 exists), zero steady-state allocations, capture-verified absence of staging copies.
-A unification that taxes the shipping Vulkan+SYCL desktop path to subsidize a hypothetical
-platform is rejected by construction.
+(once RHI0 exists), zero steady-state allocations, capture-verified absence of staging copies. A
+unification that taxes the shipping Vulkan+SYCL desktop path to subsidize a hypothetical platform is
+rejected by construction.
 
 ---
 
@@ -164,9 +165,9 @@ them. The waist is the design.
 ## 4. The vocabulary
 
 Header tree: `include/SushiEngine/execution/` — `access.hpp` (intents, classes), `interval.hpp`
-(regions), `hazard.hpp` (the semantic, §5), `handoff.hpp` (§6). Header-only, freestanding,
-no engine dependencies beyond `<cstdint>`/`<cstddef>` — these headers must compile in a SYCL TU,
-a stock-clang TU, and (later) an NDK TU without friction.
+(regions), `hazard.hpp` (the semantic, §5), `handoff.hpp` (§6). Header-only, freestanding, no engine
+dependencies beyond `<cstdint>`/`<cstddef>` — these headers must compile in a SYCL TU, a stock-clang
+TU, and (later) an NDK TU without friction.
 
 ### 4.1 Access intents
 
@@ -198,12 +199,12 @@ namespace SushiEngine::Execution
 
 The render graph's `TextureAccess`/`BufferAccess` are **projections** of this enum, not parallel
 inventions: at RHI1, each existing value gains a documented mapping (e.g.
-`TextureAccess::StorageComputeReadWrite` ⇒ `{StorageRead, StorageWrite}`,
-`BufferAccess::HostRead` ⇒ `HostRead`) and `resource_state.cpp`'s total function is re-keyed on
-the shared enum — the same table, relocated exactly as the cross-platform plan §5.3 already
-requires for Metal. The stage-qualified distinctions the current render enums carry
-(`SampledFragment` vs `SampledCompute`) become a `StageMask` field beside the intent rather than
-enum values, which is what Metal and console barrier models want anyway.
+`TextureAccess::StorageComputeReadWrite` ⇒ `{StorageRead, StorageWrite}`, `BufferAccess::HostRead` ⇒
+`HostRead`) and `resource_state.cpp`'s total function is re-keyed on the shared enum — the same
+table, relocated exactly as the cross-platform plan §5.3 already requires for Metal. The
+stage-qualified distinctions the current render enums carry (`SampledFragment` vs `SampledCompute`)
+become a `StageMask` field beside the intent rather than enum values, which is what Metal and
+console barrier models want anyway.
 
 ### 4.2 Resource intervals
 
@@ -282,8 +283,8 @@ inventing a new taxonomy.
 (`ecs/schedule.hpp:150-158`); under UHM it pushes
 `{BufferInterval{base, 0, capacity * elem_size}, Read ? ComputeRead : ComputeWrite}`. The
 RuntimeBackend lowers that to exactly the pointer regions SushiRuntime tracks today — byte-for-byte
-the same dependency behaviour, which is what keeps RUNTIME-PORT0's "byte-identical output logs"
-exit criterion honest.
+the same dependency behaviour, which is what keeps RUNTIME-PORT0's "byte-identical output logs" exit
+criterion honest.
 
 ### 4.5 The vocabulary must carry what `runtime_graph_builder.hpp` already uses
 
@@ -303,24 +304,25 @@ designed home so `Execution` does not silently become "the ECS subset":
 
 ## 5. The tracker: one semantic, N implementations, one shared core where it pays
 
-The hazard **semantic** is specified once, normatively, in `execution/hazard.hpp`'s documentation and
-a conformance test. Stating it precisely matters, because the two shipping reference points do
-*not* run the same algorithm and a naive "mirror the runtime" instruction is self-contradictory
-(the cross-platform plan §4.3 asked for both "mirror `dependency_tracker.cpp`" and "linear-time"
-— the runtime's tracker is an append-only per-shard access history with a backward overlap scan
-that terminates only on a *fully covering* prior write: effectively O(1) amortized for
-whole-buffer keys, but O(A²) per allocation exactly in the disjoint-sub-range case islands and
-chunk colours produce). UHM resolves this by splitting the contract in two:
+The hazard **semantic** is specified once, normatively, in `execution/hazard.hpp`'s documentation
+and a conformance test. Stating it precisely matters, because the two shipping reference points do
+*not* run the same algorithm and a naive "mirror the runtime" instruction is self-contradictory (the
+cross-platform plan §4.3 asked for both "mirror `dependency_tracker.cpp`" and "linear-time" — the
+runtime's tracker is an append-only per-shard access history with a backward overlap scan that
+terminates only on a *fully covering* prior write: effectively O(1) amortized for whole-buffer keys,
+but O(A²) per allocation exactly in the disjoint-sub-range case islands and chunk colours produce).
+UHM resolves this by splitting the contract in two:
 
 - **Safety floor (normative, all implementations):** every conflicting pair — RAW, WAR, WAW over
   overlapping intervals of one resource — is ordered. Conservative *extra* edges are permitted;
-  missing edges are not. This is the runtime's own recorded doctrine (`dynamic_graph.hpp:582-584`:
-  *"an extra cross edge costs parallelism; a missing one is a data race. Every simplification
-  here is chosen to fall on the first side"*), adopted as the UHM correctness floor.
+  missing edges are not. This is the runtime's own recorded doctrine
+  (`dynamic_graph.hpp:582-584`: *"an extra cross edge costs parallelism; a missing one is a data
+  race. Every simplification here is chosen to fall on the first side"*), adopted as the UHM
+  correctness floor.
 - **Determinism floor (normative):** the produced edge set and schedule are a pure function of
   declaration order and declared regions — never of pointer values, hash-iteration order, thread
-  timing, or shard collisions. (The runtime satisfies this today: its shard chains are
-  chronological per allocation and edges come only from interval overlap.)
+  timing, or shard collisions. (The runtime satisfies this today: its shard chains are chronological
+  per allocation and edges come only from interval overlap.)
 - **Quality target (engine's shared core only):** last-writer-per-interval + reader-set
   bookkeeping, linear-ish in declared accesses, so disjoint sub-range workloads do not pay the
   O(A²) scan. A tighter-but-still-safe edge set than the runtime's is allowed by the safety
@@ -339,10 +341,10 @@ Implementations:
 The conformance test (engine-side, `tests/functional/unit/test_hazard_semantics.cpp`) drives the
 shared core and — through a recorded-order probe graph — the RuntimeBackend with identical access
 sequences and asserts **every conflicting pair is ordered identically observable-side** (schedule
-equivalence over conflicts, per the floors above), plus schedule determinism across repeated
-builds. That is how "one semantic" stays true across implementations that deliberately share no
-code with the runtime — and how a schedule-shape difference between a tighter engine core and the
-runtime's conservative boundary layer stays a measured fact instead of a surprise.
+equivalence over conflicts, per the floors above), plus schedule determinism across repeated builds.
+That is how "one semantic" stays true across implementations that deliberately share no code with
+the runtime — and how a schedule-shape difference between a tighter engine core and the runtime's
+conservative boundary layer stays a measured fact instead of a surprise.
 
 ---
 
@@ -373,31 +375,30 @@ counter per entry, and two verbs.
     };
 ```
 
-- **Single-writer rule:** the publishing domain is fixed at registration. The render domain may
-  only `acquire` sim-published entries. Feedback (readbacks, gameplay mirrors of GPU state — the
-  weather pattern) flows through a *separate* registration published by the render/extract side
-  with `DeterminismClass::Tolerant` at frame boundaries; a `Bitwise` sim node reading such an
-  entry is a debug-build assertion (§7). There is no bidirectional entry, by construction.
+- **Single-writer rule:** the publishing domain is fixed at registration. The render domain may only
+  `acquire` sim-published entries. Feedback (readbacks, gameplay mirrors of GPU state — the weather
+  pattern) flows through a *separate* registration published by the render/extract side with
+  `DeterminismClass::Tolerant` at frame boundaries; a `Bitwise` sim node reading such an entry is a
+  debug-build assertion (§7). There is no bidirectional entry, by construction.
 - **Epoch = simulation tick.** `publish` after the last replayed tick only, so a rollback
   re-simulation is invisible to the render domain: it keeps rendering the last published epoch
   until a newer one appears (rate decoupling and rollback safety in one rule).
-- **`CompletionToken`** is the tier-appropriate "the data is really there" object: nothing (T0),
-  a host fence / `RunHandle` (T1), an exported timeline-semaphore value (T2). The render graph
-  turns an acquired token into either a host wait before submit (T1) or a queue wait (T2) — in
-  both cases *inferred inside the graph* from the acquire, never hand-placed by a pass. T2 has
-  an exact in-tree precedent already: the atmosphere nest runs outside the render graph on its
-  own timeline semaphore and the frame's submissions wait on it
-  (`vulkan_scene_view.cpp:829-850`) — `Handoff` generalizes that hand-wired pattern into the
-  registry so the *next* external producer (the runtime) doesn't hand-wire a second one.
+- **`CompletionToken`** is the tier-appropriate "the data is really there" object: nothing (T0), a
+  host fence / `RunHandle` (T1), an exported timeline-semaphore value (T2). The render graph turns
+  an acquired token into either a host wait before submit (T1) or a queue wait (T2) — in both cases
+  *inferred inside the graph* from the acquire, never hand-placed by a pass. T2 has an exact in-tree
+  precedent already: the atmosphere nest runs outside the render graph on its own timeline semaphore
+  and the frame's submissions wait on it (`vulkan_scene_view.cpp:829-850`) — `Handoff` generalizes
+  that hand-wired pattern into the registry so the *next* external producer (the runtime) doesn't
+  hand-wire a second one.
 
 ### 6.2 What `Handoff` deliberately is not
 
-Not a scheduler, not a copy engine, not a snapshot system. Whether the sim double-buffers a
-column so the render can overlap with tick N+1 is the sim domain's choice, expressed as
-publishing a different interval per epoch; `Handoff` records and fences, it never allocates or
-copies. (When BB-7's pipelined steps land and a sim thread overlaps the render thread, the
-publishing pattern is ring-buffered intervals + T2 tokens — the contract above already expresses
-it with no new surface.)
+Not a scheduler, not a copy engine, not a snapshot system. Whether the sim double-buffers a column
+so the render can overlap with tick N+1 is the sim domain's choice, expressed as publishing a
+different interval per epoch; `Handoff` records and fences, it never allocates or copies. (When
+BB-7's pipelined steps land and a sim thread overlaps the render thread, the publishing pattern is
+ring-buffered intervals + T2 tokens — the contract above already expresses it with no new surface.)
 
 ### 6.3 Tiers — how each platform realizes the same contract
 
@@ -412,19 +413,19 @@ it with no new surface.)
 The **allocator hook** is thereby owned: it is the T3 realization of `Handoff` visibility, designed
 here once, consumed by RUNTIME-PORT1 (the native allocator accepts an injected external allocator)
 and by the RHI's buffer creation (Wall 2) — the two-wall agreement point §3 of the cross-platform
-plan insists on. Direction per tier is asymmetric and deliberate: on desktop the **renderer
-exports and the runtime imports** (G3 — `render/interop.hpp`'s recorded doctrine); on T3 the
-**RHI supplies memory to `Execution`** at allocation time. Both keep graphics ownership of graphics
-memory, which is the invariant that survives every backend.
+plan insists on. Direction per tier is asymmetric and deliberate: on desktop the **renderer exports
+and the runtime imports** (G3 — `render/interop.hpp`'s recorded doctrine); on T3 the **RHI supplies
+memory to `Execution`** at allocation time. Both keep graphics ownership of graphics memory, which
+is the invariant that survives every backend.
 
 ### 6.4 Cross-device scoping
 
-`Handoff` guarantees its contract only when both sides share a physical device
-(`DeviceInfo::uuid` match — the key `render/interop.hpp` already selects by). Cross-*device*
-zero-copy (sim on a compute dGPU, render on another) is explicitly **out of scope**: T4 is the
-answer there, and the primary GPU-compute consumer that is genuinely device-remote (the SushiLoop
-server) is headless — its `Handoff` has no render domain at all and degenerates to a no-op
-registry. This adopts §3.1's own skepticism as a decision instead of a worry.
+`Handoff` guarantees its contract only when both sides share a physical device (`DeviceInfo::uuid`
+match — the key `render/interop.hpp` already selects by). Cross-*device* zero-copy (sim on a compute
+dGPU, render on another) is explicitly **out of scope**: T4 is the answer there, and the primary
+GPU-compute consumer that is genuinely device-remote (the SushiLoop server) is headless — its
+`Handoff` has no render domain at all and degenerates to a no-op registry. This adopts §3.1's own
+skepticism as a decision instead of a worry.
 
 ---
 
@@ -437,11 +438,11 @@ registry. This adopts §3.1's own skepticism as a decision instead of a worry.
 3. `Bitwise` output must be replay-stable under worker-count variation `{1, 2, max}` with the
    rebalancer off — the engine's §15.5 requirement, discharged by SushiRuntime's BB-3 conformance
    suite on the RuntimeBackend and by an equivalent engine-side suite on the NativeBackend.
-   Cross-backend, the contract is `Tolerant` (bit-determinism *within* a backend, tolerance
-   *across* — the cross-platform plan §4.3's contract, unchanged).
+   Cross-backend, the contract is `Tolerant` (bit-determinism *within* a backend, tolerance *across*
+   — the cross-platform plan §4.3's contract, unchanged).
 4. Rollback correctness is a publication rule, not a tracker rule (G4): `publish` fires once per
-   presented state. A backend that cannot express "run K ticks, signal once" composes it from
-   K runs and one publish — the contract does not care.
+   presented state. A backend that cannot express "run K ticks, signal once" composes it from K runs
+   and one publish — the contract does not care.
 5. The render domain never re-records in response to rollback — guaranteed structurally, because
    nothing on the render side can observe an unpublished epoch.
 
@@ -470,20 +471,21 @@ non-forced, organic relationship stated as a table.
 risk was vocabulary divergence *because* the shared design didn't exist; it now does, so:
 
 - **RUNTIME-PORT0** mints its `Execution` vocabulary as §4 above (`AccessIntent`, `BufferInterval`,
-  `NodeDescriptor`, `DeterminismClass`) instead of a private `Execution::ResourceRegion`+bare-pointer-lists
-  shape. Cost delta versus the plan's original sketch: near zero — the adapter to SushiRuntime
-  stays member-wise trivial by construction (§4.2), and kernel bodies are untouched.
+  `NodeDescriptor`, `DeterminismClass`) instead of a private
+  `Execution::ResourceRegion`+bare-pointer-lists shape. Cost delta versus the plan's original
+  sketch: near zero — the adapter to SushiRuntime stays member-wise trivial by construction (§4.2),
+  and kernel bodies are untouched.
 - **RHI0** was never vocabulary-bound; unchanged.
 - **RHI1** re-keys `resource_state.cpp` on `AccessIntent` + `StageMask` when it collapses
   `TextureState`/`BufferState` — work it was already doing; the only delta is *which* enum it
   lands on.
 - **RHI2** migrates the render barrier planner onto the shared hazard core (§5), under the RHI0
   harness.
-- **Requests to SushiRuntime** (via `physics_system.md` §18, per the two-repo convention): none
-  new. UHM consumes BB-1a/1b and BB-7 exactly as specified in `ENGINE_BACKBONE_REFACTOR.md`; the
-  only soft ask is that `import_buffer`'s returned `Buffer<T>` participates in interval-exact
-  tracking (BB-1a already commits to this) and that BB-1b lands the semaphore-export design (i)
-  variant, which keeps SYCL types out of the engine.
+- **Requests to SushiRuntime** (via `physics_system.md` §18, per the two-repo convention): none new.
+  UHM consumes BB-1a/1b and BB-7 exactly as specified in `ENGINE_BACKBONE_REFACTOR.md`; the only
+  soft ask is that `import_buffer`'s returned `Buffer<T>` participates in interval-exact tracking
+  (BB-1a already commits to this) and that BB-1b lands the semaphore-export design (i) variant,
+  which keeps SYCL types out of the engine.
 - **The runtime moved under the engine's feet, favourably — adopt it (BB-0 engine half).**
   Verified 2026-08-01: `feature/physics-substrate-seams` is *merged* (`f801cc5`) and a second
   wave landed on top (`cb894ff`: BB-3 determinism flags, BB-2 co-tenancy, BB-4 packaging).
@@ -600,8 +602,8 @@ Claims are stated as *measurable gates*, not adjectives; each is the proof oblig
 milestone that makes it true.
 
 1. **Nothing regresses at adoption.** UHM0/1/2 are provable no-ops (logs, traces, goldens).
-2. **The copy dies.** UHM3 deletes the solver→`read_range`→mirror→extract→upload round-trip for
-   each routed consumer (four are recorded waiting: palettes, soft-body vertices, VFX sim, render
+2. **The copy dies.** UHM3 deletes the solver→`read_range`→mirror→extract→upload round-trip for each
+   routed consumer (four are recorded waiting: palettes, soft-body vertices, VFX sim, render
    extract). Gate: RenderDoc/PIX capture contains no staging transfer for routed buffers.
 3. **The sync thins.** UHM4's gate: zero host-side waits on the routed path in a steady-state
    frame; the only cross-engine ordering is one queue wait per publish batch.
@@ -615,11 +617,11 @@ milestone that makes it true.
    already sets (§5.4: "likely a net CPU win", now with a harness to prove it).
 
 For calibration, not marketing: shipping engines at this scope (UE5's TaskGraph+RDG, Frostbite's
-FrameGraph) run CPU-job and render-hazard tracking as two systems joined by hand-placed sync
-points; render-graph automation at per-frame scope is industry standard, cross-domain *inferred*
-sync at an epoch boundary with a determinism class in the vocabulary is not. That — plus the
-zero-copy tiers — is the defensible differentiation. Everything else UHM does is disciplined
-normality, and should be, per the engine's own non-goals.
+FrameGraph) run CPU-job and render-hazard tracking as two systems joined by hand-placed sync points;
+render-graph automation at per-frame scope is industry standard, cross-domain *inferred* sync at an
+epoch boundary with a determinism class in the vocabulary is not. That — plus the zero-copy tiers —
+is the defensible differentiation. Everything else UHM does is disciplined normality, and should be,
+per the engine's own non-goals.
 
 ---
 
