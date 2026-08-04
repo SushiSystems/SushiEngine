@@ -127,7 +127,7 @@ motion blur, meshlets, GPU particles — **and the meteorology nest grid**:
   `vkDeviceWaitIdle`, **destroys the nest, and rebuilds it — losing all running
   weather** (conceded at `quality_params.hpp:326-328`).
 - The physics is not tier-invariant: cell size crosses the 2 km convection-resolving
-  threshold between tiers, and `docs/slop/atmosphere_system.md:476-484` records that
+  threshold between tiers, and `docs/design/atmosphere_system.md:476-484` records that
   the same configuration leaves High with 5.8 % cloudy columns and the other tiers
   between 0 and 0.1 %. **A rendering dropdown changes the meteorological result.**
 - The combo itself (`editor_panels.cpp:2598-2601`) carries no tooltip and no warning;

@@ -3847,7 +3847,7 @@ Stated here so they are decisions rather than discoveries:
 - `render_pipeline_refactor.md` **Phase 11** (async compute) — the preferred home for the
   tier steps; the graphics queue is a working interim.
 - **Water/sea state** consumes `IAtmosphereQuery`'s wind field.
-- **Legacy references.** Nineteen source files still cite `docs/slop/weather_and_clouds.md`
+- **Legacy references.** Nineteen source files still cite `docs/design/weather_and_clouds.md`
   by section number in their file comments. Those files are rewritten or deleted by Phases
   A–E; the references are corrected as each file is touched rather than swept blindly into
   section numbers that no longer mean anything. The removed document remains in git history.

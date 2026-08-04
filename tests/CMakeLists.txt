@@ -430,7 +430,7 @@ add_executable(sushiengine_functional_tests
     # measured from the wrong node puts it forty degrees away and looks fine.
     unit/test_body_frame.cpp
 
-    # Terrain P0 (`docs/slop/solar_system_overhaul.md`): the planetary tile addressing
+    # Terrain P0 (`docs/design/solar_system_overhaul.md`): the planetary tile addressing
     # and its projection, and the editable half of the height. Host-only header maths --
     # no renderer, no device, no baked asset, which is what lets the authoritative ground
     # be checked the same way the server will evaluate it. The precision case is the one
@@ -476,7 +476,7 @@ add_executable(sushiengine_functional_tests
     # graph that recompiles every time a body is spawned.
     integration/test_runtime_graph_builder.cpp
     # P8's per-island substepping leans on Execution::DynamicGraph/Region
-    # (docs/slop/physics_system.md §6.6, §18 R3). Seam-level, not physics-level: two
+    # (docs/design/physics_system.md §6.6, §18 R3). Seam-level, not physics-level: two
     # regions keyed independently, a drop that takes effect immediately, and a run
     # that does not recompose when nothing changed.
     integration/test_execution_dynamic_graph.cpp

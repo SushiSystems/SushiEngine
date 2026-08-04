@@ -7,7 +7,7 @@ sushiengine_add_module(NAME physics LAYER domain PUBLIC_DEPENDS core execution g
 # The offline half of physics/cooking: mesh in, simulation asset out. Its own target rather
 # than its own module, because it is host-only and never linked into a shipping runtime path
 # — it is the one part of physics allowed to be slow and to allocate freely
-# (docs/slop/physics_system.md §3.1, §8). Every consumer it has (the editor, the live
+# (docs/design/physics_system.md §3.1, §8). Every consumer it has (the editor, the live
 # simulation, the test suite) is a runtime-lane target, and the native lane carries no target
 # it has not proved out, so it is declared on that lane only.
 if(SUSHIENGINE_EXECUTION_BACKEND STREQUAL "runtime")

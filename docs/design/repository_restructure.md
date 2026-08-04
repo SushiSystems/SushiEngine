@@ -357,7 +357,7 @@ The restructure:
   script walks both trees and fails on asymmetry. Each module also keeps a short
   `README.md` stating what it owns, its tier and its dependencies.
 - `docs/getting-started/`, `docs/guides/`, `docs/reference/`, `docs/contributing/`.
-- `docs/slop/` → `docs/design/`, indexed, each file carrying a status header,
+- `docs/design/` → `docs/design/`, indexed, each file carrying a status header,
   excluded from Doxygen `INPUT` and from every public link.
 - `docs/documentation-style-guide.md` (new) — voice, naming, link and path-reference
   rules, **and explicit length ceilings**: one line per changelog bullet, a paragraph

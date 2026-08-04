@@ -2,7 +2,7 @@
 # is built on. It reaches no device and no graphics stack, deliberately: gameplay queries, the
 # regional nest's parent forcing and a headless probe all ask it what the weather is a thousand
 # kilometres away, and none of the three should have to bring one up to find out
-# (docs/slop/atmosphere_system.md §5). The regional nest (T2) is a Vulkan compute service and
+# (docs/design/atmosphere_system.md §5). The regional nest (T2) is a Vulkan compute service and
 # stays beside the renderer; the seam between the two tiers is plain data.
 sushiengine_add_module(NAME atmosphere LAYER domain PUBLIC_DEPENDS core
     SOURCES

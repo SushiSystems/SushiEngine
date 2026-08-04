@@ -223,7 +223,7 @@ Configures with `SUSHIENGINE_BUILD_AUDIO=ON`.
 ## `se planet` — baked planetary terrain
 
 Builds the `.planet` assets the terrain system reads: a cube-sphere height pyramid per body
-per quality tier (`docs/slop/solar_system_overhaul.md` §5).
+per quality tier (`docs/design/solar_system_overhaul.md` §5).
 
 ```bash
 pip install -e cli[planet]                       # numpy + requests, an optional extra

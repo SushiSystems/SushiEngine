@@ -38,10 +38,10 @@ The engine is header-only at this stage. Each layer depends only on the ones bel
 | UI | `ui/rect.hpp`, `ui/components.hpp`, `ui/layout.hpp`, `ui/interaction.hpp`, `ui/ui.hpp` | Retained ECS UI (Unity UGUI-shaped): `RectTransform`/`Canvas`/`UIImage`/`UIText`/`UIButton` components, the `resolve_rect` anchor solver, the pointer/click model, and the `UI` façade that builds, lays out, and drives a canvas of buttons (see §11). |
 | Physics     | `physics/core/`, `physics/geometry/`, `physics/collision/`, `physics/constraints/`, `physics/solver/`, `physics/soft/`, `physics/scene/` | Body state and handles, shapes and mass properties, broad/narrowphase, constraint descriptors and their projections, the XPBD solvers behind `IConstraintSolver`, soft-body topology, and the world lifecycle (see §4). |
 | Geometry    | `geometry/triangle_mesh.hpp`, `geometry/mesh_utilities.hpp`, `geometry/mesh_distance_query.hpp`, `geometry/signed_distance_field.hpp` | Engine-neutral triangle geometry: the mesh value types, topology analysis and repair, a host closest-point hierarchy, and the shared signed-distance baker that queries it. Links nothing — no Vulkan, no SYCL, no runtime — because both the renderer and the physics read it and neither may own it. |
-| Cooking     | `physics/cooking/cooking_parameters.hpp`, `physics/cooking/cooking_report.hpp`, `physics/cooking/cooker_interface.hpp`, `physics/cooking/cooked_asset_store.hpp`, `physics/cooking/collision_cooker.hpp`, `physics/cooking/soft_body_cooker.hpp`, `physics/cooking/mesh_post_processor.hpp`, `physics/cooking/cooking_service.hpp` | The offline pipeline that turns an imported mesh into a simulation asset: §8.2's fidelity dial, the cook report and the thresholds that fail a bad cook loudly, the `ICookingStage`/`IMeshCooker`/`ICookedAssetStore` seams, the content-hash cache, the two cookers that produce `.sushicollision` and `.sushisoft`, and the ordered import chain that runs them on a worker thread. Host-only, links only Geometry (plus Threads), and never linked into a shipping runtime path — an importer that needs a GPU is an importer that fails on a build machine. Getting triangles out of a file is a `MeshLoader` seam the consumer wires, which is why this module needs no cgltf (see §8 of `docs/slop/physics_system.md`). |
-| Atmosphere  | `atmosphere/fourier_transform.hpp`, `atmosphere/quasigeostrophic_core.hpp` | T1, the global dynamical core: two-layer moist quasi-geostrophic flow on a latitude/longitude grid, from which cyclones, fronts, the jet and storm tracks emerge rather than being placed (see §5 of `docs/slop/atmosphere_system.md`). Links nothing, for the same reason Geometry does — its consumers are gameplay queries, the regional nest's parent forcing, and a headless probe, and none should need a device to ask what the weather is. The regional nest (T2) is a Vulkan compute service and stays under `render/atmosphere/`. |
+| Cooking     | `physics/cooking/cooking_parameters.hpp`, `physics/cooking/cooking_report.hpp`, `physics/cooking/cooker_interface.hpp`, `physics/cooking/cooked_asset_store.hpp`, `physics/cooking/collision_cooker.hpp`, `physics/cooking/soft_body_cooker.hpp`, `physics/cooking/mesh_post_processor.hpp`, `physics/cooking/cooking_service.hpp` | The offline pipeline that turns an imported mesh into a simulation asset: §8.2's fidelity dial, the cook report and the thresholds that fail a bad cook loudly, the `ICookingStage`/`IMeshCooker`/`ICookedAssetStore` seams, the content-hash cache, the two cookers that produce `.sushicollision` and `.sushisoft`, and the ordered import chain that runs them on a worker thread. Host-only, links only Geometry (plus Threads), and never linked into a shipping runtime path — an importer that needs a GPU is an importer that fails on a build machine. Getting triangles out of a file is a `MeshLoader` seam the consumer wires, which is why this module needs no cgltf (see §8 of `docs/design/physics_system.md`). |
+| Atmosphere  | `atmosphere/fourier_transform.hpp`, `atmosphere/quasigeostrophic_core.hpp` | T1, the global dynamical core: two-layer moist quasi-geostrophic flow on a latitude/longitude grid, from which cyclones, fronts, the jet and storm tracks emerge rather than being placed (see §5 of `docs/design/atmosphere_system.md`). Links nothing, for the same reason Geometry does — its consumers are gameplay queries, the regional nest's parent forcing, and a headless probe, and none should need a device to ask what the weather is. The regional nest (T2) is a Vulkan compute service and stays under `render/atmosphere/`. |
 | Animation   | `animation/skeleton*.hpp`, `animation/clip*.hpp`, `animation/animator_*.hpp`, `animation/blend_tree.hpp`, `animation/avatar_mask.hpp`, `animation/additive.hpp`, `animation/pose_modifier.hpp`, `animation/ik_*.hpp`, `animation/morph.hpp`, `animation/generic_track.hpp`, `animation/humanoid.hpp`, `animation/retarget.hpp`, `animation/edit_preview.hpp`, `animation/animation_database.hpp` | Skeletal-animation stack (phases A0–A9): skeleton/clip/controller/mask assets, the deterministic `animator_step`, the `AnimatorEvaluator` (blend trees, mask-gated layers, additive), the IK / pose-modifier stack, morph + generic tracks, humanoid retargeting, and controller JSON authoring, behind the `IAnimationDatabase` seam (see §12). |
-| Execution   | `execution/access.hpp`, `execution/interval.hpp`, `execution/node_descriptor.hpp`, `execution/hazard.hpp`, `execution/context.hpp` | The seam every subsystem allocates and schedules through: the access algebra (`AccessIntent`, `BufferInterval`, `DeterminismClass`), the normative hazard semantic, and the `Context`/`Graph`/`Buffer` names a compile-time backend policy resolves. SushiRuntime is one implementation of it (`execution/backend/runtime_backend.hpp`), not the thing the engine is typed against (see §3 and `docs/slop/unified_hazard_model.md`). |
+| Execution   | `execution/access.hpp`, `execution/interval.hpp`, `execution/node_descriptor.hpp`, `execution/hazard.hpp`, `execution/context.hpp` | The seam every subsystem allocates and schedules through: the access algebra (`AccessIntent`, `BufferInterval`, `DeterminismClass`), the normative hazard semantic, and the `Context`/`Graph`/`Buffer` names a compile-time backend policy resolves. SushiRuntime is one implementation of it (`execution/backend/runtime_backend.hpp`), not the thing the engine is typed against (see §3 and `docs/design/unified_hazard_model.md`). |
 | Schedule    | `ecs/schedule.hpp` | Compiles systems to an execution graph and replays it. |
 | Commands    | `ecs/command_buffer.hpp` | Records structural changes, applied at a barrier. |
 | World       | `ecs/world.hpp` | Entities, archetypes, spawn/destroy, component access. |
@@ -1472,7 +1472,7 @@ cube ("sector") in that world space, and `FloatingOriginVector3` pairs a `Sector
 size. Keeping the local offset small (at most one sector wide) keeps a fragment's
 distance from the camera representable when it narrows to 32-bit at the GPU boundary,
 regardless of how far the sector is from the world origin. These types are the SushiLoop
-M0 foundation (`docs/slop/SUSHILOOP.md`) and are not yet consumed by any simulation code.
+M0 foundation (`docs/design/SUSHILOOP.md`) and are not yet consumed by any simulation code.
 
 The boundary `Scalar` is **always double** — there is no build switch. The engine's
 purpose is to simulate planet- and solar-scale worlds, where single precision quantises
@@ -1555,7 +1555,7 @@ names keeps existing and keeps holding the same entities in the same rows;
 constraint is documented as a hard scope boundary rather than handled generically.
 
 This also means capture is deliberately *not* the "only what changed" delta the
-design note (`docs/slop/SUSHILOOP.md`) ultimately wants — every live chunk is
+design note (`docs/design/SUSHILOOP.md`) ultimately wants — every live chunk is
 copied in full every tick. Real per-write dirty tracking needs something upstream
 (`Schedule`, `CommandBuffer`) to mark a chunk touched, which nothing does yet;
 getting the capture/restore/replay invariant right first, on the whole-chunk case,
@@ -1634,7 +1634,7 @@ runs `RuntimeSimulation` directly with no client/server split.
 
 ## 9. SushiLoop core
 
-`docs/slop/SUSHILOOP.md` is the design note; this section is the pointer from
+`docs/design/SUSHILOOP.md` is the design note; this section is the pointer from
 architecture to it. `loop/` holds the first, purely host-side layer of SushiLoop —
 plain C++, no runtime or SYCL involvement — that the fixed-tick sim/net/snapshot
 work (M1 onward) builds on:
@@ -2944,8 +2944,8 @@ load from disk overwrites it from the path, so a stale one never crosses a sessi
 ## 16. Weather simulation (T1 synoptic layer + T2 regional grid, phases W4-W6)
 
 > **Superseded.** This section documents what is *currently shipped*. The design it was
-> built from (`docs/slop/weather_and_clouds.md`) has been retired — removed, in git
-> history — and replaced by **`docs/slop/atmosphere_system.md`**, whose §1 audits why the
+> built from (`docs/design/weather_and_clouds.md`) has been retired — removed, in git
+> history — and replaced by **`docs/design/atmosphere_system.md`**, whose §1 audits why the
 > W4-W6 simulation tier does not deliver what it claims (chiefly: the meteorology never
 > reaches the sky spatially, because `extract()` samples one column and compiles it into a
 > globally uniform `Cloudscape` over tiled noise). §16 and §16.1/§16.2 below are replaced
@@ -2977,7 +2977,7 @@ eight steps per call, which means **one call covers at most 48 minutes of game t
 This replaced `SynopticLayer`, an analytic layer of up to eight moving elliptical Gaussian
 pressure systems with life-cycle timers and stylized fixed-angle front rays. It was never a
 simulation and did not claim to be: it translated authored shapes, so nothing could form,
-deepen or decay that had not been placed. `docs/slop/atmosphere_system.md` §1 records the
+deepen or decay that had not been placed. `docs/design/atmosphere_system.md` §1 records the
 audit and §11's Phase C the swap. The state that used to be a trivially-copyable
 `SynopticState` is now megabytes of field, which is why the editor persists it to a binary
 sidecar beside the scene rather than into the scene JSON.
@@ -3285,7 +3285,7 @@ builds clean.
 
 ### 16.3. The spatial weather field (atmosphere phase A)
 
-`docs/slop/atmosphere_system.md` §7. Everything above this subsection describes a bridge
+`docs/design/atmosphere_system.md` §7. Everything above this subsection describes a bridge
 that hands the renderer **one column**, which is why nothing the simulation computed could
 be seen as spatial structure: the sky's visible pattern came from a static tiled fBm map,
 modulated only by that column's global bias. This subsection is the second channel — the
@@ -3355,7 +3355,7 @@ The acceptance bar has not yet been confirmed by eye in a live editor session.
 
 ### 16.4. The cloudscape window, and genus as a derived label (atmosphere phase B1)
 
-`docs/slop/atmosphere_system.md` §7.2/§7.4. §16.3 gave the renderer a spatial field but read
+`docs/design/atmosphere_system.md` §7.2/§7.4. §16.3 gave the renderer a spatial field but read
 it per march sample, on top of a bake that was still one globally compiled deck stack painted
 over a periodic tile. This subsection replaces both halves of that: the tile becomes a
 camera-centred window, and the deck stack stops deciding what a march sample finds.
@@ -3440,7 +3440,7 @@ window is the natural follow-up.
 
 ### 16.5. The regional nest: anelastic convection on the GPU (atmosphere phase B2)
 
-`docs/slop/atmosphere_system.md` §6. §16.1–§16.2 describe a simulation whose own audit (§1.3–
+`docs/design/atmosphere_system.md` §6. §16.1–§16.2 describe a simulation whose own audit (§1.3–
 §1.5 of the design doc) found three independent 2-D layers with no vertical advection at all,
 saturation expressed as `if (humidity > 0.85)`, no latent heating, semi-Lagrangian advection at
 Courant ≈ 0.02 — its maximally diffusive regime — and all of it in a single-threaded scalar CPU
@@ -3665,8 +3665,8 @@ rather than merely *that* it is.
 The engine's ground has always been analytic: `PlanetParameters` is two colours and a
 roughness, and `sky.frag` paints a body from noise about its pole. That is enough to
 read as a lit sphere from orbit and nothing like enough to stand on, which is why
-`docs/slop/atmosphere_system.md` §15 records the missing terrain height field as the
-blocker for its Phase D. `docs/slop/solar_system_overhaul.md` is the design that closes
+`docs/design/atmosphere_system.md` §15 records the missing terrain height field as the
+blocker for its Phase D. `docs/design/solar_system_overhaul.md` is the design that closes
 it; `include/SushiEngine/terrain/` is its first phase, and it is host-only — no Vulkan
 header sits beneath any of it, because the server, the atmosphere's nest, and a unit test
 all have to be able to ask what the ground is doing without a renderer present.

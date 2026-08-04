@@ -9,7 +9,7 @@ two techniques — it is the arrangement that gives you a chassis that handles l
 and panels that dent like panels, and it is why the shell can lose a door without the car
 losing its handling.
 
-The design record is `docs/slop/physics_system.md` §11. This page is the path through it.
+The design record is `docs/design/physics_system.md` §11. This page is the path through it.
 
 ---
 

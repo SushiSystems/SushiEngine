@@ -8,7 +8,7 @@ open go/no-go decision on gating `RUNTIME-PORT0`/`RHI0`. Design authority for th
 delegated by the owner on 2026-08-01.
 
 **Companion documents.** `cross_platform_engineering_plan.md` (the three walls; `Execution` seam §4,
-RHI §5); `sushiruntime/docs/slop/ENGINE_BACKBONE_REFACTOR.md` (BB-0…BB-8 — this design *composes
+RHI §5); `sushiruntime/docs/design/ENGINE_BACKBONE_REFACTOR.md` (BB-0…BB-8 — this design *composes
 with* BB-1a/1b and BB-7, it does not re-plan them); `physics_system.md` §18 (the runtime request
 register); `atmosphere_system.md` Phase B3 (the recorded SYCL rejection this design treats as
 doctrine); `SUSHILOOP.md` (the determinism contract the sim domain answers to).

@@ -2,7 +2,7 @@
 
 `climatology.set0` is the mean state the global dynamical core relaxes toward — the "what
 is normally true here, at this time of year" that T1's weather is a departure from. See
-`docs/slop/atmosphere_system.md` §4.
+`docs/design/atmosphere_system.md` §4.
 
 It is committed rather than downloaded on demand: a scene must have a mean state without a
 network, and this is 3.4 MB once.

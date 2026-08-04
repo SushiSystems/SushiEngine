@@ -1,7 +1,7 @@
 # Baked planetary terrain
 
 This directory holds `.planet` assets — the cube-sphere height pyramids the terrain system
-reads (`docs/slop/solar_system_overhaul.md` §5.2, `include/SushiEngine/terrain/pack_format.hpp`).
+reads (`docs/design/solar_system_overhaul.md` §5.2, `include/SushiEngine/terrain/pack_format.hpp`).
 
 **They are not committed**, and that is deliberate. The compact lunar tier is 17 MB and the
 deeper tiers are hundreds; unlike `assets/atmosphere/climatology.set0` at 3.4 MB, these are

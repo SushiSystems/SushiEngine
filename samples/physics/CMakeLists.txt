@@ -15,7 +15,7 @@ if(SUSHIENGINE_BUILD_SAMPLE_DEMOS)
     # The volumetric XPBD lattice and positional contact resolution (Phase 4 physics).
     sushiengine_add_sample(soft_body_demo soft_body_demo.cpp)
 
-    # soft_body_budget measures docs/slop/physics_system.md §13.1's soft-body line — one body,
+    # soft_body_budget measures docs/design/physics_system.md §13.1's soft-body line — one body,
     # 20 000 tetrahedra, 32 substeps, ≤ 3 ms/tick — and reports the number rather than asserting
     # it, because the target is stated against one desktop-class GPU and a suite that fails on
     # the hardware it happens to run on is a suite people stop reading. The scene's *shape* is

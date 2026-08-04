@@ -70,7 +70,7 @@ set(SUSHIENGINE_EXECUTION_BACKEND "runtime" CACHE STRING
     "Execution backend for SushiEngine::Execution (runtime|native)")
 set_property(CACHE SUSHIENGINE_EXECUTION_BACKEND PROPERTY STRINGS runtime native)
 
-# Determinism guard rail (SushiLoop M0/M1, docs/slop/SUSHILOOP.md): reassociation and
+# Determinism guard rail (SushiLoop M0/M1, docs/design/SUSHILOOP.md): reassociation and
 # fused contraction let the compiler evaluate the same floating-point expression
 # differently between builds or optimisation levels, which breaks the "same input,
 # same result" contract rollback and replay depend on. ON by default so a plain

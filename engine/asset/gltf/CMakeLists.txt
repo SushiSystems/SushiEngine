@@ -2,7 +2,7 @@
 # the relocatable blobs the animator plays. It links no device and no graphics stack,
 # deliberately: the cooking pipeline starts at a file rather than at a mesh somebody already
 # had, and reaching one through the renderer's importer would mean bringing up a graphics stack
-# to cook a collider (docs/slop/physics_system.md §3.4). It also owns cgltf's one
+# to cook a collider (docs/design/physics_system.md §3.4). It also owns cgltf's one
 # implementation unit, which is what the renderer links it for — the renderer includes the
 # header for its types and takes the symbols from here.
 

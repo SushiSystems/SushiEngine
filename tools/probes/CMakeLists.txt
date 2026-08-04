@@ -53,7 +53,7 @@ if(SUSHIENGINE_BUILD_RENDER)
 
     # Steps the regional nest through hours of simulated weather in seconds of wall clock and
     # prints the observer column's vertical profile, taking the editor out of the loop for the
-    # questions docs/slop/atmosphere_system.md §11's Phase B2c leaves open.
+    # questions docs/design/atmosphere_system.md §11's Phase B2c leaves open.
     add_executable(sushiengine_atmosphere_probe atmosphere/main.cpp)
     # The nest is configured from the simulation's settings header, taken by include root for the
     # same reason the global probe takes the climatology one.

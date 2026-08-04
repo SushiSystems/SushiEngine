@@ -605,7 +605,7 @@ solver's shape. Everything below is checked against the runtime tree at
 #### The runtime was designed for this workload
 
 Worth stating first, because it changes how much of this plan is speculative. SushiRuntime's own
-engineering plan (`sushiruntime/docs/slop/SIMULATION_ENGINE_SUBSTRATE_PLAN.md`) records the owner's
+engineering plan (`sushiruntime/docs/design/SIMULATION_ENGINE_SUBSTRATE_PLAN.md`) records the owner's
 locked decisions, and four of them name this system directly:
 
 - **L7** — *"Full physics is in scope: particle/N-body, grid/field PDE, soft-body/constraint, **and
@@ -1415,7 +1415,7 @@ same asset structure; the vehicle asset chooses.
 ### 11.6 Aerodynamics — a cross-system tie-in
 
 The engine already has a full atmosphere and wind system (`sim/weather_wind.hpp`,
-`sim/atmosphere_forcing_buffer.hpp`, `docs/slop/atmosphere_system.md`). Vehicle drag and downforce, and
+`sim/atmosphere_forcing_buffer.hpp`, `docs/design/atmosphere_system.md`). Vehicle drag and downforce, and
 cloth and rope wind response, sample it through a `WindSampler` seam that mirrors the existing
 `GravitySampler` exactly (§4.5) — the physics names the abstraction, never the meteorology behind it.
 A flag on a pole in a storm and a car's high-speed lift come from the same field.
@@ -4924,7 +4924,7 @@ also rediscovering that the seam is ready.
 
 **R9, raised in this document, was not yet recorded where §18 itself says the record belongs.**
 §18's own first line: *"the runtime-side engineering request... lives in
-`sushiruntime/docs/slop/PHYSICS_SUBSTRATE_REQUIREMENTS.md`."* R9 was added to this document's §18
+`sushiruntime/docs/design/PHYSICS_SUBSTRATE_REQUIREMENTS.md`."* R9 was added to this document's §18
 table without a matching entry there. Fixed — R9 is now in that document's delivery table too,
 alongside R8 (raised and closed after that document's own "all seven" framing was written, and
 also missing until this pass).
@@ -5266,7 +5266,7 @@ not assumed.
 Per `docs/CONTRIBUTING.md`, *"a change that needs new runtime behavior belongs in the runtime, behind
 its public API, not bolted onto the engine."* This section is the engine-side record of what this plan
 needs from below; the runtime-side engineering request, with `file:line` evidence, lives in
-`sushiruntime/docs/slop/PHYSICS_SUBSTRATE_REQUIREMENTS.md`.
+`sushiruntime/docs/design/PHYSICS_SUBSTRATE_REQUIREMENTS.md`.
 
 **Four of the eight were recorded here as built** on the runtime's `feature/physics-substrate-seams`
 branch. Each row states what was asked, what landed, and — for those still open — what the physics
