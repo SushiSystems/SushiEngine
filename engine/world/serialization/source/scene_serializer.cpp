@@ -1510,18 +1510,28 @@ namespace SushiEngine
                     {
                         SushiEngine::Simulation::ShapeParameters shape =
                             world.shape_parameters(id);
-                        // Unlike a crowd's mesh, the imported material is not adopted onto the
-                        // Shape's own Material: a Shape always has its own authored, serialized
-                        // Material already, and silently overwriting it on every re-import would
-                        // make it a value the file cannot actually hold still. Mirrors the editor's
-                        // own `bind_shape_mesh`.
-                        SushiEngine::Render::MeshId meshes[1] = {
-                            SushiEngine::Render::INVALID_MESH};
-                        SushiEngine::Render::Material imported[1]{};
-                        if (!shape.mesh_path.empty())
-                            (void)assets.load_gltf(shape.mesh_path.c_str(), meshes, imported, 1);
-                        shape.mesh = meshes[0];
-                        world.set_shape_parameters(id, shape);
+                        // Guarded like the Material and Decal blocks above: an ordinary
+                        // Box/Sphere/Cylinder Shape has no imported-mesh state to resolve, and
+                        // `set_shape_parameters` triggers a full extract -- paying for that on
+                        // every Shape in the scene, which is nearly every entity in most
+                        // scenes, on every load would be a needless full-extract pass.
+                        if (shape.mesh != SushiEngine::Render::INVALID_MESH ||
+                            !shape.mesh_path.empty())
+                        {
+                            // Unlike a crowd's mesh, the imported material is not adopted onto
+                            // the Shape's own Material: a Shape always has its own authored,
+                            // serialized Material already, and silently overwriting it on every
+                            // re-import would make it a value the file cannot actually hold
+                            // still. Mirrors the editor's own `bind_shape_mesh`.
+                            SushiEngine::Render::MeshId meshes[1] = {
+                                SushiEngine::Render::INVALID_MESH};
+                            SushiEngine::Render::Material imported[1]{};
+                            if (!shape.mesh_path.empty())
+                                (void)assets.load_gltf(shape.mesh_path.c_str(), meshes, imported,
+                                                       1);
+                            shape.mesh = meshes[0];
+                            world.set_shape_parameters(id, shape);
+                        }
                     }
                 }
             }
