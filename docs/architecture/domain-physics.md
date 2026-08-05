@@ -220,14 +220,17 @@ independent field pair, the same shape as `has_physics_body`/`physics_body`.
 Three concerns previously conflated into one hardcoded cube now separate cleanly: what an entity
 *looks like*, what it *collides as*, and what drives its *motion*.
 `Simulation::ShapeParameters`/`ColliderParameters`
-(`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`) are both
-`{PrimitiveKind kind; Vector3 parameters;}` pairs, editor-facing and, like `ClothParameters`,
+(`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`) both start from a
+`{PrimitiveKind kind; Vector3 parameters;}` pair, editor-facing and, like `ClothParameters`,
 plain host-side bookkeeping on `RuntimeSimulation::Record`
 (`has_shape`/`shape_parameters`, `has_collider`/`collider_parameters`) rather than ECS components
 — neither is read or written by any `Schedule` system, so there is nothing to gain from an
 archetype migration. `PrimitiveKind` (`Box`, `Sphere`, `Cylinder`, `Plane`) is declared in
 `engine/world/simulation/include/SushiEngine/simulation/components.hpp` even though it backs no
-component, since it is the vocabulary both authoring structs share.
+component, since it is the vocabulary both authoring structs share. `ShapeParameters` alone also
+carries a `mesh`/`mesh_path` pair naming an imported glTF the Renderer draws instead of the
+primitive named by `kind` (`static_mesh_authoring.md`); `ColliderParameters` stays exactly the
+kind/parameters pair, since a collider has no imported-geometry path.
 
 `IWorldEditor::create_box`/`create_sphere`/`create_cylinder` each spawn a Renderer entity with a
 `Shape` and a `Collider` defaulted to the same kind/params — a created Box is collidable out of
@@ -249,7 +252,8 @@ header, adding a Renderer attaches a default Box mesh, and removing the Renderer
 with it (`applications/editor/source/scene/inspector_panel.cpp`). `create()` makes a truly empty
 entity — a plain `Transform`/`Orientation` with no Renderer and no mesh — so a bare "Create
 Entity" draws nothing, matching Unity's empty GameObject; the mesh kind is also now editable
-(Box↔Sphere↔Cylinder) rather than fixed at creation.
+(Box↔Sphere↔Cylinder, or Imported for a glTF loaded from a path, `static_mesh_authoring.md`)
+rather than fixed at creation.
 
 The Vulkan scene view
 (`engine/presentation/render/source/rhi/vulkan/vulkan_scene_view.cpp`) builds a unit sphere and a

@@ -1,6 +1,6 @@
 # Static Mesh Authoring — an imported asset as a scene prop (`SushiEngine::Render`)
 
-**Status:** designed, 2026-08-05.
+**Status:** shipped, 2026-08-05 (§11).
 
 An artist can import a glTF today only through two narrow doors: `Crowd`, for a rigged, animated
 character, and the physics cooking pipeline, which turns a mesh into a collider, a tetrahedral soft
@@ -213,4 +213,27 @@ with, exactly like a `Box`-kind Renderer with no `Collider` today.
 
 ## §11 Roadmap
 
-P0 — this document's entire scope (§3-§9) — not started.
+P0 — this document's entire scope (§3-§9) — **complete**, built via
+`docs/superpowers/plans/2026-08-05-static-mesh-authoring.md`, five tasks plus a final-review fix
+wave, all task-scoped and reviewed.
+
+The final whole-branch review found and closed seven real gaps this document's illustrative code
+left open: the Renderer's Mesh combo's switch to "Imported" mode had been reworked as a hand-rolled
+`ImGui::Combo` that recorded no undo step, did not mark the scene dirty, and wrote only the primary
+entity of a multi-selection, silently skipping the rest; switching back to a primitive kind left
+`ShapeParameters::mesh_path` populated, so `resolve_scene_assets` silently re-imported it after a
+Save→Load — the exact "invalid state" §2 calls unrepresentable; the player's identical
+`RenderInstance`→`MeshInstance` copy loop (`applications/player/source/player_app.cpp`), a second
+copy of the extraction §1 only ever audited in the editor, was missed entirely and never carried
+`mesh` either; `PhysicsSourceEntity` (`physics_extract.hpp`) embedded the whole `ShapeParameters`
+by value and paid a heap allocation per entity per fixed tick for a `mesh_path` the physics extract
+never reads; `resolve_scene_assets`'s Shape block ran `set_shape_parameters` — and the full extract
+it triggers — for every Shape in the scene on every load, unguarded, unlike the Material and Decal
+blocks beside it; the Source Mesh field committed to the world on every keystroke instead of on a
+deliberate action, unlike Crowd's and Soft Body's equivalent fields; and `AssetLibrary::load_gltf`
+had no path-keyed cache, so pressing Load twice leaked a mesh and ten entities importing the same
+file never actually shared one `MeshId`, defeating the per-geometry instancing §1 describes as
+already grouped. All seven are fixed on the shipped branch; `load_gltf` now caches by path the same
+way `TextureLibrary::load` already does for textures, and the Mesh combo hides "Imported" during a
+multi-selection rather than fanning out a per-entity asset choice — the one interaction detail that
+changed during implementation.

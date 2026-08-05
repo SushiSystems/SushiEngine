@@ -47,11 +47,12 @@ without touching a consumer. The layering, from abstract to concrete:
 - **Scene view** (`engine/presentation/render/include/SushiEngine/render/scene_view.hpp`:
   `ISceneView`, created by `IWindowRenderer::create_scene_view()`): an offscreen camera view of a
   `MeshInstance` set (each tagged with a `MeshKind` — Box, Sphere, or Cylinder — plus per-kind
-  shape params) plus a ground grid, drawn from a `CameraView`. The Vulkan implementation
-  (`engine/presentation/render/source/rhi/vulkan/vulkan_scene_view.*`) is double-buffered — the
-  frame being sampled by the UI is never the frame being drawn — and leaves its colour image
-  shader-readable so the editor samples it with `ImGui::Image`. It exposes only the sampler/view
-  handles a UI backend needs, never a full descriptor set.
+  shape params, or an imported mesh instead of a primitive when its `mesh` field is set,
+  `static_mesh_authoring.md`) plus a ground grid, drawn from a `CameraView`. The Vulkan
+  implementation (`engine/presentation/render/source/rhi/vulkan/vulkan_scene_view.*`) is
+  double-buffered — the frame being sampled by the UI is never the frame being drawn — and leaves
+  its colour image shader-readable so the editor samples it with `ImGui::Image`. It exposes only
+  the sampler/view handles a UI backend needs, never a full descriptor set.
 
   Alongside the shaded image it renders a second `R32_UINT` **id target** carrying each
   instance's picking id, copied to a host buffer each frame so `pick(x, y)` resolves a click to
