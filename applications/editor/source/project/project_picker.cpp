@@ -68,8 +68,11 @@ namespace SushiEngine
             std::error_code ec;
             std::vector<fs::directory_entry> directories;
             for (const auto& entry : fs::directory_iterator(current, ec))
-                if (entry.is_directory())
+            {
+                std::error_code entry_ec;
+                if (entry.is_directory(entry_ec) && !entry_ec)
                     directories.push_back(entry);
+            }
             for (const fs::directory_entry& entry : directories)
             {
                 const std::string name = entry.path().filename().string();
@@ -93,6 +96,7 @@ namespace SushiEngine
                     if (!create_ec)
                     {
                         request_switch_project(context, target.string());
+                        ImGui::CloseCurrentPopup();
                         context.show_project_picker = false;
                     }
                 }
@@ -103,12 +107,16 @@ namespace SushiEngine
                 if (ImGui::Button("Select This Folder"))
                 {
                     request_switch_project(context, current.string());
+                    ImGui::CloseCurrentPopup();
                     context.show_project_picker = false;
                 }
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel"))
+            {
+                ImGui::CloseCurrentPopup();
                 context.show_project_picker = false;
+            }
 
             ImGui::EndPopup();
         }
