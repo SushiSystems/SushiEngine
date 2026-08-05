@@ -76,6 +76,12 @@ namespace SushiEngine
                     select_only(context, world->create_box("Box"));
                     editor_log(context, "Created object 'Box'.");
                 }
+                if (ImGui::MenuItem("Imported Mesh"))
+                {
+                    context.history.record(*world);
+                    select_only(context, world->create_box("Imported Mesh"));
+                    editor_log(context, "Created object 'Imported Mesh'.");
+                }
                 if (ImGui::MenuItem("Sphere"))
                 {
                     context.history.record(*world);
