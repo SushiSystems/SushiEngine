@@ -10,6 +10,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- 2026-08-05 — Added File > New/Load Project: `EditorContext::project_root` can be changed at
+  runtime instead of only at startup, through the same unsaved-changes guard `request_new_scene`
+  already uses. See `docs/design/project_selection.md`.
+  - Added a directories-only picker modal (`project_picker.cpp`), no native OS dialog and no new
+    dependency.
+  - Changed `default_projects_root` from a `main.cpp`-local function into a shared one so the
+    File menu can seed the picker's starting directory.
 - 2026-08-05 — Added `docs/design/project_selection.md`: File ▸ New/Load Project, reusing the
   already cross-platform preferences store and the scene-replacement unsaved-changes guard. Design
   only, §9's P0 not started.
