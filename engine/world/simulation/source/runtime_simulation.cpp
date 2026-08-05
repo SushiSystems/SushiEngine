@@ -3252,7 +3252,13 @@ namespace SushiEngine
                             entity.has_collider = record->has_collider;
                             entity.collider_parameters = record->collider_parameters;
                             entity.has_shape = record->has_shape;
-                            entity.shape_parameters = record->shape_parameters;
+                            // Only the kind and dimensions travel here: `mesh`/`mesh_path`
+                            // are a rendering concern resolve_collider never reads, and this
+                            // is rebuilt for every live entity every fixed tick (see
+                            // ShapeColliderInput).
+                            entity.shape_parameters =
+                                ShapeColliderInput{record->shape_parameters.kind,
+                                                   record->shape_parameters.parameters};
                             entities.push_back(entity);
                         }
                         return entities;

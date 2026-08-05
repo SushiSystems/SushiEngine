@@ -51,6 +51,24 @@ namespace SushiEngine
     namespace Simulation
     {
         /**
+         * @brief A shape's primitive kind and dimensions, no more.
+         *
+         * `ShapeParameters` also carries `mesh` and `mesh_path`, which name a
+         * *renderer's* imported geometry (see `simulation.hpp`) and which
+         * @ref resolve_collider has never read: the physics fallback below only
+         * ever wants the primitive kind and its dimensions. @ref PhysicsSourceEntity
+         * is rebuilt fresh for every live entity on every fixed tick (see
+         * `physics_source_entities` in `runtime_simulation.cpp`), so embedding the
+         * whole `ShapeParameters` there would cost a heap allocation per entity per
+         * tick for `mesh_path`, for data nothing on this path reads.
+         */
+        struct ShapeColliderInput
+        {
+            PrimitiveKind kind = PrimitiveKind::Box;
+            Vector3 parameters{Vector3{0.5, 0.5, 0.5}};
+        };
+
+        /**
          * @brief One entity, as much of it as the physics extract needs.
          *
          * Deliberately flat and deliberately pre-resolved: the caller has already
@@ -94,7 +112,7 @@ namespace SushiEngine
             ColliderParameters collider_parameters;
 
             bool has_shape = false;
-            ShapeParameters shape_parameters;
+            ShapeColliderInput shape_parameters;
         };
 
         /**

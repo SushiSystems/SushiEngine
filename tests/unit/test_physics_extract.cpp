@@ -117,7 +117,7 @@ TEST(Unit_PhysicsExtract, AColliderOverridesTheVisualShape)
     PhysicsSourceEntity entity = bare_entity(1);
     entity.has_physics_body = true;
     entity.has_shape = true;
-    entity.shape_parameters = ShapeParameters{PrimitiveKind::Box, Vector3{5, 5, 5}};
+    entity.shape_parameters = ShapeColliderInput{PrimitiveKind::Box, Vector3{5, 5, 5}};
     entity.has_collider = true;
     entity.collider_parameters = ColliderParameters{PrimitiveKind::Sphere, Vector3{1, 1, 1}};
 
@@ -133,7 +133,7 @@ TEST(Unit_PhysicsExtract, TheVisualShapeIsUsedWhenThereIsNoCollider)
     PhysicsSourceEntity entity = bare_entity(1);
     entity.has_physics_body = true;
     entity.has_shape = true;
-    entity.shape_parameters = ShapeParameters{PrimitiveKind::Box, Vector3{4, 4, 4}};
+    entity.shape_parameters = ShapeColliderInput{PrimitiveKind::Box, Vector3{4, 4, 4}};
 
     const std::vector<RigidBodyDescription> bodies = extract_rigid_bodies({entity});
     ASSERT_EQ(bodies.size(), 1u);
