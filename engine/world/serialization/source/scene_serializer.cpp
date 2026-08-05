@@ -769,11 +769,16 @@ namespace SushiEngine
                 if (has_shape)
                 {
                     const auto parameters = world.shape_parameters(id);
-                    // The path only, on the crowd mesh convention: the handle a session
-                    // imported it to means nothing in the next one, so only the name
-                    // travels and `resolve_scene_assets` re-imports it on load.
+                    // Ids and paths both, on the decal/material live-handle convention: an
+                    // in-memory snapshot (capture_scene/apply_scene — Undo/Redo, Play->Stop)
+                    // restores the handle it was written with, while a load from disk
+                    // re-derives it from the path beside it in resolve_scene_assets. Writing
+                    // the path alone would make every undo step that touches an unrelated
+                    // entity reset this Shape's mesh to none, since apply_scene never
+                    // re-imports anything.
                     entry["shape"] = json{{"kind", static_cast<std::uint32_t>(parameters.kind)},
                                           {"params", vec3_to_json(parameters.parameters)},
+                                          {"mesh", parameters.mesh},
                                           {"mesh_path", parameters.mesh_path}};
                 }
 
@@ -1160,6 +1165,7 @@ namespace SushiEngine
                             s.value("kind", static_cast<std::uint32_t>(parameters.kind)));
                         if (s.contains("params"))
                             parameters.parameters = vec3_from_json(s["params"]);
+                        parameters.mesh = s.value("mesh", parameters.mesh);
                         parameters.mesh_path = s.value("mesh_path", std::string{});
                         world.set_shape_parameters(id, parameters);
                     }

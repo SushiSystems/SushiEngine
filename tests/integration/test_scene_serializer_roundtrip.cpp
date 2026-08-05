@@ -887,3 +887,35 @@ TEST(Integration_SceneSerializer, AnImportedMeshPathSurvivesCaptureApply)
     // ACrowdWithAnUnloadableRigComesBackUnbound makes for Crowd's mesh_path.
     EXPECT_EQ(after.mesh, Render::INVALID_MESH);
 }
+
+TEST(Integration_SceneSerializer, AnImportedMeshHandleSurvivesCaptureApply)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    const EntityId id = world.create_box("Prop");
+    ASSERT_NE(id, NULL_ENTITY);
+    ShapeParameters authored = world.shape_parameters(id);
+    authored.mesh_path = "models/car.gltf";
+    // Made up on purpose, on the same footing as build_crowd_scene's Crowd::mesh: the render
+    // asset library is a Vulkan object this binary does not build, so the id stands in for
+    // one a live editing session already imported. capture_scene/apply_scene back Undo/Redo
+    // and Play->Stop, neither of which touches Render::IAssetLibrary (only load_scene's
+    // resolve_scene_assets does), so a handle from *this* session has to come back exactly
+    // as written or every undo/redo anywhere in the scene would silently blank out every
+    // Shape's imported mesh, not just the one the undo step actually targeted.
+    authored.mesh = 11u;
+    world.set_shape_parameters(id, authored);
+
+    const nlohmann::json snapshot = Scene::capture_scene(world);
+    clear_world(world);
+    Scene::apply_scene(world, snapshot);
+
+    const EntityId restored = find_by_name(world, "Prop");
+    ASSERT_NE(restored, NULL_ENTITY);
+    const ShapeParameters after = world.shape_parameters(restored);
+    EXPECT_EQ(after.mesh_path, "models/car.gltf");
+    EXPECT_EQ(after.mesh, 11u);
+}
