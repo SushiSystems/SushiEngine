@@ -59,6 +59,7 @@ add_executable(sushiengine_editor
     source/render/lighting_panel.cpp
     source/render/render_settings_panels.cpp
     source/project/project_panel.cpp
+    source/project/project_picker.cpp
     source/scene/scene_commands.cpp
     source/scene/hierarchy_panel.cpp
     source/scene/inspector_panel.cpp

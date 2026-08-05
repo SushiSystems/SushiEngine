@@ -62,6 +62,7 @@
 #include "environment/weather_panel.hpp"
 #include "render/lighting_panel.hpp"
 #include "project/project_panel.hpp"
+#include "project/project_picker.hpp"
 #include "render/render_settings_panels.hpp"
 #include "core/preferences_window.hpp"
 #include "input/input_manager_window.hpp"
@@ -1217,6 +1218,7 @@ int main(int argc, char** argv)
                                                             &context.panels.audio_authoring);
             SushiEngine::Editor::draw_physics_statistics_panel(context);
             SushiEngine::Editor::draw_cook_bake_panel(context, cook_bake_state);
+            SushiEngine::Editor::draw_project_picker(context);
             SushiEngine::Editor::draw_vehicle_panel(context, vehicle_authoring);
             SushiEngine::Editor::draw_assembly_panel(context, assembly_authoring);
             SushiEngine::Editor::draw_preferences_window(context);

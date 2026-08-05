@@ -287,6 +287,13 @@ namespace SushiEngine
             std::string project_root;
             std::string current_directory;
 
+            enum class ProjectPickerMode { New, Load };
+
+            bool show_project_picker = false;
+            ProjectPickerMode project_picker_mode = ProjectPickerMode::Load;
+            std::string project_picker_directory;       // where the modal is currently browsing
+            std::string project_picker_new_folder_name; // New mode only
+
             // The scene currently open, if any (empty means unsaved/new). Save writes
             // here directly; Save As and the Save-As-prompted first save go through
             // `show_save_scene_as`, an inline filename popup rooted at `project_root`.
@@ -327,10 +334,12 @@ namespace SushiEngine
             {
                 None,
                 New,
-                Open
+                Open,
+                SwitchProject
             };
             PendingSceneAction pending_scene_action = PendingSceneAction::None;
             std::string pending_scene_open_path;
+            std::string pending_project_switch_path; // target for SwitchProject
 
             // A command against the selection, parked until the frame's panels have all
             // been drawn. Every one of these creates or destroys entities, and the surfaces
