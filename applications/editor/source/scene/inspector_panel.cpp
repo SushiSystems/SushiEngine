@@ -639,10 +639,16 @@ namespace SushiEngine
                             context, *world, access, id);
 
                         SushiEngine::Simulation::ShapeParameters& values = editor.mutable_values();
+                        bool changed = false;
                         bool imported = values.mesh != SushiEngine::Render::INVALID_MESH;
 
-                        static const char* const MESH_NAMES[] = {"Box", "Sphere", "Cylinder", "Imported"};
+                        // Plane is not a drawable mesh (Terrain uses a thin Box), so only
+                        // the three solid primitives are offered as the Renderer's mesh.
+                        static const char* const MESH_NAMES[] = {"Box", "Sphere", "Cylinder",
+                                                                 "Imported"};
                         int choice = imported ? 3 : static_cast<int>(values.kind);
+                        if (choice < 0 || choice >= 4)
+                            choice = 0;
                         if (ImGui::Combo("Mesh", &choice, MESH_NAMES, 4))
                         {
                             if (choice == 3)
@@ -652,21 +658,28 @@ namespace SushiEngine
                             else
                             {
                                 imported = false;
-                                values.kind = static_cast<SushiEngine::Simulation::PrimitiveKind>(choice);
+                                values.kind =
+                                    static_cast<SushiEngine::Simulation::PrimitiveKind>(choice);
                                 values.mesh = SushiEngine::Render::INVALID_MESH;
                             }
+                            changed = true;
                         }
 
                         if (imported)
                         {
                             ImGui::SetNextItemWidth(-80.0f);
-                            ImGui::InputText("Source Mesh", &values.mesh_path);
+                            if (ImGui::InputText("Source Mesh", &values.mesh_path))
+                                changed = true;
                             ImGui::SameLine();
                             if (ImGui::Button("Load"))
+                            {
                                 bind_shape_mesh(context, values);
+                                changed = true;
+                            }
                             if (values.mesh == SushiEngine::Render::INVALID_MESH)
-                                ImGui::TextColored(warning_color(), "No mesh imported -- this renderer draws "
-                                                                    "nothing yet.");
+                                ImGui::TextColored(warning_color(),
+                                                   "No mesh imported -- this renderer draws "
+                                                   "nothing yet.");
                             else
                                 ImGui::TextDisabled("Mesh imported.");
                         }
@@ -675,26 +688,34 @@ namespace SushiEngine
                             switch (values.kind)
                             {
                                 case SushiEngine::Simulation::PrimitiveKind::Sphere:
-                                    editor.vector_component(
-                                        "Radius##Mesh", &decltype(editor)::Values::parameters, 0, 0.01f,
-                                        0.01f, 1000.0f, "%.3f m", "Sphere radius before Scale, in metres.");
+                                    if (editor.vector_component(
+                                            "Radius##Mesh",
+                                            &decltype(editor)::Values::parameters, 0, 0.01f,
+                                            0.01f, 1000.0f, "%.3f m",
+                                            "Sphere radius before Scale, in metres."))
+                                        changed = true;
                                     break;
                                 case SushiEngine::Simulation::PrimitiveKind::Cylinder:
-                                    editor.vector("Radius / Half Height##Mesh",
-                                                  &decltype(editor)::Values::parameters, 0.01f, 0.01f,
-                                                  1000.0f, "%.3f m",
-                                                  "X is the radius, Y the half height, in metres; "
-                                                  "Z is unused.");
+                                    if (editor.vector("Radius / Half Height##Mesh",
+                                                      &decltype(editor)::Values::parameters, 0.01f,
+                                                      0.01f, 1000.0f, "%.3f m",
+                                                      "X is the radius, Y the half height, in metres; "
+                                                      "Z is unused."))
+                                        changed = true;
                                     break;
                                 default:
-                                    editor.vector("Half Extents##Mesh",
-                                                  &decltype(editor)::Values::parameters, 0.01f, 0.01f,
-                                                  1000.0f, "%.3f m",
-                                                  "Half the box's size along each local axis, in "
-                                                  "metres, before Scale.");
+                                    if (editor.vector("Half Extents##Mesh",
+                                                      &decltype(editor)::Values::parameters, 0.01f,
+                                                      0.01f, 1000.0f, "%.3f m",
+                                                      "Half the box's size along each local axis, in "
+                                                      "metres, before Scale."))
+                                        changed = true;
                                     break;
                             }
                         }
+
+                        if (changed)
+                            editor.write_primary();
                     }
                     else if (ImGui::SmallButton("Add Mesh"))
                     {
