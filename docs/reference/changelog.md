@@ -10,6 +10,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- 2026-08-05 — Added `docs/design/static_mesh_authoring.md`: placing an imported glTF as a plain
+  visual prop, an "Imported" kind on the existing Renderer component rather than a new one. Design
+  only, §11's P0 not started.
 - 2026-08-04 — Added a root `README.md`, which the project never had, and reduced `docs/README.md`
   to an index that holds no facts of its own.
 - 2026-08-04 — Added `docs/architecture/`, sixteen chapters split out of the 3841-line
