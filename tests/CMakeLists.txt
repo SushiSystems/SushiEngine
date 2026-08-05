@@ -533,11 +533,11 @@ add_executable(sushiengine_functional_tests
     # including §8.6's third invariant, that the render mesh cannot lag the
     # simulation because it is derived from it rather than copied out of it.
     integration/test_soft_body_service.cpp
+    integration/test_shape_render_extraction.cpp
     # P6-G5: what the editor's soft-body debug views mean, with the drawing left
     # out — that full scale is a material threshold rather than the body's own
     # worst element, which is the one mistake here that produces a plausible
     # picture instead of an obviously broken one.
-    integration/test_shape_render_extraction.cpp
     unit/test_soft_body_heat.cpp
     integration/test_cloth.cpp
     integration/test_app.cpp
