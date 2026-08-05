@@ -273,6 +273,16 @@ namespace SushiEngine
             // there is nowhere on the component itself for a text field to write into.
             std::string soft_body_source_path;
 
+            // The Renderer's Mesh combo, mid-transition into Imported mode for the entity
+            // named below, before a mesh has actually been imported. ShapeParameters has no
+            // "wants imported" field of its own (only mesh != INVALID_MESH means imported),
+            // so this bridges the frame gap between picking "Imported" and Load succeeding —
+            // reset whenever a different entity's Renderer section is drawn, so it cannot
+            // leak a stale "Imported" mode onto an unrelated entity.
+            SushiEngine::Simulation::EntityId shape_picker_pending_entity =
+                SushiEngine::Simulation::NULL_ENTITY;
+            bool shape_picker_wants_imported = false;
+
             // The Inspector/gizmo's single "primary" target (the most recently clicked
             // entity). `selected_entities` is the full Hierarchy multi-selection (Ctrl
             // toggles membership, Shift extends a range from `selection_anchor`); a plain

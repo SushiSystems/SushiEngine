@@ -640,29 +640,40 @@ namespace SushiEngine
 
                         SushiEngine::Simulation::ShapeParameters& values = editor.mutable_values();
                         bool changed = false;
-                        bool imported = values.mesh != SushiEngine::Render::INVALID_MESH;
+
+                        // Reset transient UI state if we've switched to a different entity.
+                        if (context.shape_picker_pending_entity != id)
+                        {
+                            context.shape_picker_pending_entity = id;
+                            context.shape_picker_wants_imported = false;
+                        }
+
+                        // Derive whether we should show the Imported path-entry UI: either the
+                        // entity has a loaded mesh, or the user just picked Imported mode.
+                        bool imported = values.mesh != SushiEngine::Render::INVALID_MESH ||
+                                        context.shape_picker_wants_imported;
 
                         // Plane is not a drawable mesh (Terrain uses a thin Box), so only
                         // the three solid primitives are offered as the Renderer's mesh.
                         static const char* const MESH_NAMES[] = {"Box", "Sphere", "Cylinder",
                                                                  "Imported"};
                         int choice = imported ? 3 : static_cast<int>(values.kind);
-                        if (choice < 0 || choice >= 4)
+                        if (!imported && (choice < 0 || choice > 2))
                             choice = 0;
                         if (ImGui::Combo("Mesh", &choice, MESH_NAMES, 4))
                         {
                             if (choice == 3)
                             {
-                                imported = true;
+                                context.shape_picker_wants_imported = true;
                             }
                             else
                             {
-                                imported = false;
+                                context.shape_picker_wants_imported = false;
                                 values.kind =
                                     static_cast<SushiEngine::Simulation::PrimitiveKind>(choice);
                                 values.mesh = SushiEngine::Render::INVALID_MESH;
+                                changed = true;
                             }
-                            changed = true;
                         }
 
                         if (imported)
