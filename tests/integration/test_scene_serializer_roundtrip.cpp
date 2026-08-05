@@ -859,3 +859,31 @@ TEST(Integration_SceneSerializer, UndoRestoresACrowd)
     ASSERT_TRUE(history.redo(world));
     EXPECT_EQ(find_by_name(world, "Marchers"), NULL_ENTITY);
 }
+
+TEST(Integration_SceneSerializer, AnImportedMeshPathSurvivesCaptureApply)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    const EntityId id = world.create_box("Prop");
+    ASSERT_NE(id, NULL_ENTITY);
+    ShapeParameters authored = world.shape_parameters(id);
+    authored.mesh_path = "models/car.gltf";
+    world.set_shape_parameters(id, authored);
+
+    const nlohmann::json snapshot = Scene::capture_scene(world);
+    clear_world(world);
+    Scene::apply_scene(world, snapshot);
+
+    const EntityId restored = find_by_name(world, "Prop");
+    ASSERT_NE(restored, NULL_ENTITY);
+    const ShapeParameters after = world.shape_parameters(restored);
+    EXPECT_EQ(after.mesh_path, "models/car.gltf");
+    // No real Render::IAssetLibrary runs in this test process, so the path cannot
+    // resolve — proving the round trip carries the path rather than a stale handle
+    // from a session that no longer exists, the same claim
+    // ACrowdWithAnUnloadableRigComesBackUnbound makes for Crowd's mesh_path.
+    EXPECT_EQ(after.mesh, Render::INVALID_MESH);
+}

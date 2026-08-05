@@ -769,8 +769,12 @@ namespace SushiEngine
                 if (has_shape)
                 {
                     const auto parameters = world.shape_parameters(id);
+                    // The path only, on the crowd mesh convention: the handle a session
+                    // imported it to means nothing in the next one, so only the name
+                    // travels and `resolve_scene_assets` re-imports it on load.
                     entry["shape"] = json{{"kind", static_cast<std::uint32_t>(parameters.kind)},
-                                          {"params", vec3_to_json(parameters.parameters)}};
+                                          {"params", vec3_to_json(parameters.parameters)},
+                                          {"mesh_path", parameters.mesh_path}};
                 }
 
                 const bool has_collider = world.has_collider(id);
@@ -1156,6 +1160,7 @@ namespace SushiEngine
                             s.value("kind", static_cast<std::uint32_t>(parameters.kind)));
                         if (s.contains("params"))
                             parameters.parameters = vec3_from_json(s["params"]);
+                        parameters.mesh_path = s.value("mesh_path", std::string{});
                         world.set_shape_parameters(id, parameters);
                     }
                 }
@@ -1392,12 +1397,13 @@ namespace SushiEngine
              *
              * The capture carries both a path and the handle it had when written; only the path
              * survives a session, so the handles a file was written with are re-derived here —
-             * particle sprites, material maps, decal maps, and a crowd's skinned mesh alike, an
-             * empty path resolving to no asset rather than keeping the stale handle. A post-pass
-             * rather than a hook inside `apply_scene` because the in-memory snapshots that share
-             * that function are same-session, where the captured handles are still the right
-             * ones. A crowd's skeleton and clip are absent here on purpose: those need no render
-             * library, so `set_crowd_parameters` has already re-registered them.
+             * particle sprites, material maps, decal maps, a crowd's skinned mesh, and a Shape's
+             * imported mesh alike, an empty path resolving to no asset rather than keeping the
+             * stale handle. A post-pass rather than a hook inside `apply_scene` because the
+             * in-memory snapshots that share that function are same-session, where the captured
+             * handles are still the right ones. A crowd's skeleton and clip are absent here on
+             * purpose: those need no render library, so `set_crowd_parameters` has already
+             * re-registered them.
              *
              * @param world  The freshly loaded world whose components are re-pointed.
              * @param assets The library every path is resolved through.
@@ -1492,6 +1498,24 @@ namespace SushiEngine
                         crowd.mesh = meshes[0];
                         adopt_material_maps(crowd.material, imported[0]);
                         world.set_crowd_parameters(id, crowd);
+                    }
+
+                    if (world.has_shape(id))
+                    {
+                        SushiEngine::Simulation::ShapeParameters shape =
+                            world.shape_parameters(id);
+                        // Unlike a crowd's mesh, the imported material is not adopted onto the
+                        // Shape's own Material: a Shape always has its own authored, serialized
+                        // Material already, and silently overwriting it on every re-import would
+                        // make it a value the file cannot actually hold still. Mirrors the editor's
+                        // own `bind_shape_mesh`.
+                        SushiEngine::Render::MeshId meshes[1] = {
+                            SushiEngine::Render::INVALID_MESH};
+                        SushiEngine::Render::Material imported[1]{};
+                        if (!shape.mesh_path.empty())
+                            (void)assets.load_gltf(shape.mesh_path.c_str(), meshes, imported, 1);
+                        shape.mesh = meshes[0];
+                        world.set_shape_parameters(id, shape);
                     }
                 }
             }
