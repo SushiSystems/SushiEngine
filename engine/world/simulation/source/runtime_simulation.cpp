@@ -3589,6 +3589,7 @@ namespace SushiEngine
                             instance.color = tint.color;
                             instance.shape_kind = record->shape_parameters.kind;
                             instance.shape_parameters = record->shape_parameters.parameters;
+                            instance.mesh = record->shape_parameters.mesh;
                             // Albedo tracks the entity's Tint; the rest of the PBR material is
                             // the authored per-entity record.
                             instance.material = record->material;

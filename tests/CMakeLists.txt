@@ -537,6 +537,7 @@ add_executable(sushiengine_functional_tests
     # out — that full scale is a material threshold rather than the body's own
     # worst element, which is the one mistake here that produces a plausible
     # picture instead of an obviously broken one.
+    integration/test_shape_render_extraction.cpp
     unit/test_soft_body_heat.cpp
     integration/test_cloth.cpp
     integration/test_app.cpp

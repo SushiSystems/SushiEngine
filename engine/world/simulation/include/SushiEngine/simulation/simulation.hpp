@@ -128,6 +128,7 @@ namespace SushiEngine
             /** @brief Per-kind shape parameters, see @ref ShapeParameters. */
             Vector3 shape_parameters{Vector3{0.5, 0.5, 0.5}};
             Render::Material material{}; /**< PBR metallic-roughness surface (albedo synced from @ref color). */
+            Render::MeshId mesh = Render::INVALID_MESH; /**< Mirrors ShapeParameters::mesh. */
         };
 
         /**
@@ -436,6 +437,8 @@ namespace SushiEngine
         {
             PrimitiveKind kind = PrimitiveKind::Box;
             Vector3 parameters{Vector3{0.5, 0.5, 0.5}};
+            std::string mesh_path;                    /**< glTF path `mesh` was imported from; empty = none. */
+            Render::MeshId mesh = Render::INVALID_MESH; /**< When set, `kind`/`parameters` are ignored downstream. */
         };
 
         /**

@@ -470,6 +470,7 @@ int main(int argc, char** argv)
                 instance.kind =
                     static_cast<SushiEngine::Render::MeshKind>(source.shape_kind);
                 instance.shape_parameters = source.shape_parameters;
+                instance.mesh = source.mesh;
                 instance.material = source.material;
                 instances.push_back(instance);
             }
