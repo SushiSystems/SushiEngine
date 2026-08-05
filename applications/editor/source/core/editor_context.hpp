@@ -283,6 +283,14 @@ namespace SushiEngine
                 SushiEngine::Simulation::NULL_ENTITY;
             bool shape_picker_wants_imported = false;
 
+            // The Renderer's Source Mesh field stages its typed path here, the same way
+            // `soft_body_source_path` below stages the Soft Body section's -- so typing does
+            // not commit a `set_shape_parameters` (and the full extract it triggers) on every
+            // keystroke. Seeded from `ShapeParameters::mesh_path` whenever the entity above
+            // changes, and cleared when the Mesh combo leaves Imported mode, so it never shows
+            // a path that does not belong to the entity on screen.
+            std::string shape_picker_source_path;
+
             // The Inspector/gizmo's single "primary" target (the most recently clicked
             // entity). `selected_entities` is the full Hierarchy multi-selection (Ctrl
             // toggles membership, Shift extends a range from `selection_anchor`); a plain

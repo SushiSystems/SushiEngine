@@ -175,7 +175,8 @@ namespace SushiEngine
              * @param context Editor state; supplies the asset library and the console.
              * @param values  The Shape being authored; its mesh is written from @c mesh_path.
              */
-            void bind_shape_mesh(EditorContext& context, SushiEngine::Simulation::ShapeParameters& values)
+            void bind_shape_mesh(EditorContext& context,
+                                 SushiEngine::Simulation::ShapeParameters& values)
             {
                 values.mesh = SushiEngine::Render::INVALID_MESH;
                 if (context.assets == nullptr || values.mesh_path.empty())
@@ -646,6 +647,7 @@ namespace SushiEngine
                         {
                             context.shape_picker_pending_entity = id;
                             context.shape_picker_wants_imported = false;
+                            context.shape_picker_source_path = values.mesh_path;
                         }
 
                         // Derive whether we should show the Imported path-entry UI: either the
@@ -653,37 +655,119 @@ namespace SushiEngine
                         bool imported = values.mesh != SushiEngine::Render::INVALID_MESH ||
                                         context.shape_picker_wants_imported;
 
-                        // Plane is not a drawable mesh (Terrain uses a thin Box), so only
-                        // the three solid primitives are offered as the Renderer's mesh.
+                        // Every other selected entity that also carries a Shape: the set a
+                        // primitive-kind pick below fans out to, mirroring what
+                        // ComponentEditor::choice does for an ordinary field. Gathered here
+                        // rather than read off `editor` because leaving Imported mode has to
+                        // carry `mesh` and `mesh_path` along with `kind`, which is more than
+                        // one field method can address as a single undo step.
+                        std::vector<EntityId> shape_targets;
+                        for (const EntityId target : targets)
+                            if (world->has_shape(target))
+                                shape_targets.push_back(target);
+
+                        // Plane is not a drawable mesh (Terrain uses a thin Box), so only the
+                        // three solid primitives are offered as the Renderer's mesh. Imported is
+                        // a fourth option, but only for a single selection: it hinges on the
+                        // transient, entity-scoped "pending import" state above, which has no
+                        // sound multi-entity meaning -- each entity's imported mesh is its own
+                        // asset choice, not a value a multi-edit should force identical, the
+                        // same reasoning the Crowd section's own asset binding follows below. A
+                        // primary entity that is already Imported still shows and edits its
+                        // Source Mesh row further down even while multi-selected, exactly as
+                        // Crowd and Soft Body do for their own assets.
                         static const char* const MESH_NAMES[] = {"Box", "Sphere", "Cylinder",
                                                                  "Imported"};
-                        int choice = imported ? 3 : static_cast<int>(values.kind);
-                        if (!imported && (choice < 0 || choice > 2))
-                            choice = 0;
-                        if (ImGui::Combo("Mesh", &choice, MESH_NAMES, 4))
+                        const int option_count = multi ? 3 : 4;
+
+                        // An entity counts as Imported for comparison purposes even when `kind`
+                        // still reads as a primitive: importing never touches `kind`, only
+                        // `mesh` says whether it is actually in effect.
+                        const auto effective_choice =
+                            [](const SushiEngine::Simulation::ShapeParameters& v) -> int
                         {
-                            if (choice == 3)
+                            return v.mesh != SushiEngine::Render::INVALID_MESH
+                                       ? 3
+                                       : static_cast<int>(v.kind);
+                        };
+                        bool kind_mixed = false;
+                        for (const EntityId target : shape_targets)
+                        {
+                            if (target == id)
+                                continue;
+                            if (effective_choice(world->shape_parameters(target)) !=
+                                effective_choice(values))
                             {
-                                context.shape_picker_wants_imported = true;
-                            }
-                            else
-                            {
-                                context.shape_picker_wants_imported = false;
-                                values.kind =
-                                    static_cast<SushiEngine::Simulation::PrimitiveKind>(choice);
-                                values.mesh = SushiEngine::Render::INVALID_MESH;
-                                changed = true;
+                                kind_mixed = true;
+                                break;
                             }
                         }
+
+                        const int display_choice = imported ? 3 : static_cast<int>(values.kind);
+                        const int clamped_choice =
+                            display_choice >= 0 && display_choice < 4 ? display_choice : 0;
+                        const char* const preview = kind_mixed ? "-" : MESH_NAMES[clamped_choice];
+                        if (ImGui::BeginCombo("Mesh", preview))
+                        {
+                            for (int option = 0; option < option_count; ++option)
+                            {
+                                if (!ImGui::Selectable(
+                                        MESH_NAMES[option],
+                                        !kind_mixed && option == display_choice))
+                                    continue;
+                                if (option == 3)
+                                {
+                                    context.shape_picker_wants_imported = true;
+                                }
+                                else
+                                {
+                                    // Leaving Imported mode (or just picking a different
+                                    // primitive) always clears `mesh` and `mesh_path` together
+                                    // with `kind`, on every selected entity with a Shape, as one
+                                    // undo step -- `resolve_scene_assets` re-imports from any
+                                    // non-empty `mesh_path` unconditionally on load, so a
+                                    // leftover path here would silently resurrect Imported mode
+                                    // after Save then Load.
+                                    context.history.record(*world);
+                                    context.shape_picker_wants_imported = false;
+                                    context.shape_picker_source_path.clear();
+                                    const auto new_kind =
+                                        static_cast<SushiEngine::Simulation::PrimitiveKind>(
+                                            option);
+                                    values.kind = new_kind;
+                                    values.mesh = SushiEngine::Render::INVALID_MESH;
+                                    values.mesh_path.clear();
+                                    imported = false;
+                                    changed = true;
+                                    for (const EntityId target : shape_targets)
+                                    {
+                                        if (target == id)
+                                            continue;
+                                        SushiEngine::Simulation::ShapeParameters target_values =
+                                            world->shape_parameters(target);
+                                        target_values.kind = new_kind;
+                                        target_values.mesh =
+                                            SushiEngine::Render::INVALID_MESH;
+                                        target_values.mesh_path.clear();
+                                        world->set_shape_parameters(target, target_values);
+                                    }
+                                }
+                            }
+                            ImGui::EndCombo();
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Which primitive this renderer draws, or "
+                                              "Imported for a glTF mesh loaded below.");
 
                         if (imported)
                         {
                             ImGui::SetNextItemWidth(-80.0f);
-                            if (ImGui::InputText("Source Mesh", &values.mesh_path))
-                                changed = true;
+                            ImGui::InputText("Source Mesh", &context.shape_picker_source_path);
                             ImGui::SameLine();
                             if (ImGui::Button("Load"))
                             {
+                                context.history.record(*world);
+                                values.mesh_path = context.shape_picker_source_path;
                                 bind_shape_mesh(context, values);
                                 changed = true;
                             }
@@ -693,6 +777,9 @@ namespace SushiEngine
                                                    "nothing yet.");
                             else
                                 ImGui::TextDisabled("Mesh imported.");
+                            if (multi)
+                                ImGui::TextDisabled("Source Mesh is authored on the primary "
+                                                    "selection only.");
                         }
                         else
                         {
