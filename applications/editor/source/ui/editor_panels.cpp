@@ -100,7 +100,7 @@ namespace SushiEngine
                 {
                     context.project_picker_mode = EditorContext::ProjectPickerMode::New;
                     context.project_picker_directory =
-                        std::filesystem::path(default_projects_root()).parent_path().string();
+                        fs::path(default_projects_root()).parent_path().string();
                     context.project_picker_new_folder_name.clear();
                     context.show_project_picker = true;
                 }
@@ -108,7 +108,7 @@ namespace SushiEngine
                 {
                     context.project_picker_mode = EditorContext::ProjectPickerMode::Load;
                     context.project_picker_directory =
-                        std::filesystem::path(context.project_root).parent_path().string();
+                        fs::path(context.project_root).parent_path().string();
                     context.show_project_picker = true;
                 }
                 ImGui::Separator();

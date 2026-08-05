@@ -93,7 +93,6 @@
 #include "physics/vehicle_panel.hpp"
 #include "terrain/terrain_panel.hpp"
 
-
 namespace
 {
     // A single dockspace covering the main viewport, so the panels can be dragged,

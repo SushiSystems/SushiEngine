@@ -141,6 +141,17 @@ namespace SushiEngine
             void set_profile_storage_path(const std::string& path) { profile_storage_path_ = path; }
 
             /**
+             * @brief Resets the profile set to defaults, discarding the project default and
+             * every override.
+             *
+             * `load_profiles` merges into whatever is already here and does nothing when the
+             * target file does not exist yet, so a caller switching to a different project must
+             * call this first — otherwise the previous project's cooking settings would carry
+             * over into a project that has never touched the Bake panel.
+             */
+            void reset_profiles() { profiles_ = Physics::Cooking::ImportProfileLibrary(); }
+
+            /**
              * @brief Loads the project's cooking profile from its storage path.
              *
              * A no-op, succeeding, when no path is set or the file does not exist yet — a

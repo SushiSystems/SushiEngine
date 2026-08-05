@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <filesystem>
+#include <system_error>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -583,6 +584,15 @@ namespace SushiEngine
             // longer current.
             void switch_project(EditorContext& context, const std::string& new_root)
             {
+                std::error_code ec;
+                if (!std::filesystem::is_directory(new_root, ec))
+                {
+                    editor_log(context, "Cannot switch project: '" + new_root +
+                                             "' does not exist as a directory.",
+                               LogLevel::Error);
+                    return;
+                }
+
                 new_scene(context);
                 context.project_root = new_root;
                 context.current_directory = new_root;
@@ -590,6 +600,11 @@ namespace SushiEngine
                 context.preferences_dirty = true;
                 if (context.cook_bake_state != nullptr)
                 {
+                    // Discard the old project's cooking settings before loading the new
+                    // project's: load_profiles merges into whatever is already loaded and is a
+                    // no-op when the target has never been saved, so without this reset a fresh
+                    // project would silently inherit the previous project's profile.
+                    context.cook_bake_state->reset_profiles();
                     context.cook_bake_state->set_profile_storage_path(
                         (std::filesystem::path(new_root) / "cooking_profile.json").string());
                     context.cook_bake_state->load_profiles();

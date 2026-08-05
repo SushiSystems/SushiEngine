@@ -42,7 +42,7 @@ namespace SushiEngine
 
         std::string default_projects_root()
         {
-            std::filesystem::path home;
+            fs::path home;
 #ifdef _WIN32
             char* value = nullptr;
             std::size_t length = 0;
@@ -55,10 +55,9 @@ namespace SushiEngine
             if (const char* value = std::getenv("HOME"))
                 home = value;
 #endif
-            std::filesystem::path root =
-                !home.empty() ? home / "sushiengine" / "project" : std::filesystem::current_path();
+            fs::path root = !home.empty() ? home / "sushiengine" / "project" : fs::current_path();
             std::error_code ec;
-            std::filesystem::create_directories(root, ec);
+            fs::create_directories(root, ec);
             return root.string();
         }
 
@@ -73,10 +72,7 @@ namespace SushiEngine
             ImGui::OpenPopup(title);
             if (!ImGui::BeginPopupModal(title, &context.show_project_picker,
                                         ImGuiWindowFlags_AlwaysAutoResize))
-            {
-                ImGui::EndPopup();
                 return;
-            }
 
             const fs::path current(context.project_picker_directory);
             ImGui::TextDisabled("%s", current.string().c_str());
@@ -88,8 +84,13 @@ namespace SushiEngine
             ImGui::BeginChild("project_picker_list", ImVec2(360.0f, 220.0f), true);
             std::error_code ec;
             std::vector<fs::directory_entry> directories;
-            for (const auto& entry : fs::directory_iterator(current, ec))
+            // Explicit iterator form: the range-for's implicit operator++ is the throwing
+            // overload, so a directory that becomes unreadable mid-browse would otherwise
+            // throw std::filesystem::filesystem_error out of the middle of a frame.
+            for (auto it = fs::directory_iterator(current, ec);
+                 !ec && it != fs::directory_iterator(); it.increment(ec))
             {
+                const fs::directory_entry& entry = *it;
                 std::error_code entry_ec;
                 if (entry.is_directory(entry_ec) && !entry_ec)
                     directories.push_back(entry);
@@ -119,6 +120,12 @@ namespace SushiEngine
                         request_switch_project(context, target.string());
                         ImGui::CloseCurrentPopup();
                         context.show_project_picker = false;
+                    }
+                    else
+                    {
+                        editor_log(context, "Could not create project folder '" +
+                                                 target.string() + "': " + create_ec.message(),
+                                   LogLevel::Error);
                     }
                 }
                 ImGui::EndDisabled();
