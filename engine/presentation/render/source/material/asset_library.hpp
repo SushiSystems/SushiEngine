@@ -40,6 +40,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <SushiEngine/material/material.hpp>
@@ -222,6 +223,38 @@ namespace SushiEngine
                     StagedAtmosphere staged_atmosphere_;
                     /** @brief Readers the next step must wait on; cleared by each flush. */
                     std::vector<VkSemaphoreSubmitInfo> atmosphere_readers_;
+
+                    /** @brief What one prior @ref load_gltf call for a path produced. */
+                    struct GltfImportCacheEntry
+                    {
+                        std::vector<MeshId> meshes;
+                        std::vector<Render::Material> materials;
+                    };
+
+                    /**
+                     * @brief Every path @ref load_gltf has already imported successfully.
+                     *
+                     * Keyed on the raw path string, unmodified -- the same convention
+                     * `TextureLibrary::find` already uses for its own by-path cache, rather than
+                     * a content hash: a glTF import has no separate "force re-import" gesture
+                     * the way the Bake panel's Re-cook button does for `CookedAssetStore`, so
+                     * there is nothing here that would ever need to get past a stale key on
+                     * purpose.
+                     *
+                     * A hit returns the meshes and materials already resident instead of
+                     * re-parsing the file and re-uploading fresh copies, which is what makes
+                     * pressing Load twice on one entity cheap instead of a leak, and what lets
+                     * several entities that import the same path end up sharing one @c MeshId
+                     * -- the render pass's per-geometry instancing only groups draws that share
+                     * an id.
+                     *
+                     * Not invalidated if the file on disk changes after being cached; the same
+                     * limitation `CookBakeState`'s own cache documents for its content hash.
+                     * Nothing currently offers a "re-import" gesture for a Shape's Source Mesh
+                     * either, so this is not a regression the way it would be for an asset with
+                     * one.
+                     */
+                    std::unordered_map<std::string, GltfImportCacheEntry> gltf_cache_;
 
                     Vulkan::VulkanDevice& device_;
                     Resources::ShaderLibrary shaders_;

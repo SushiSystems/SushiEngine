@@ -107,7 +107,10 @@ namespace SushiEngine
                  *
                  * Every primitive becomes one mesh; its material is converted to the
                  * authoring form above, including the `KHR_materials_*` extensions that
-                 * map onto the advanced lobes. Missing tangents are generated.
+                 * map onto the advanced lobes. Missing tangents are generated. Importing the
+                 * same path twice returns the meshes and materials already resident rather
+                 * than re-parsing and re-uploading, the same as @ref load_texture -- so
+                 * several entities naming the same file end up sharing one mesh.
                  *
                  * @param path      Filesystem path to a .gltf or .glb file.
                  * @param meshes    Receives one id per imported primitive.

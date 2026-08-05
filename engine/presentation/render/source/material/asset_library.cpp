@@ -23,6 +23,8 @@
 
 #include "material/asset_library.hpp"
 
+#include <algorithm>
+
 #include "material/gltf_importer.hpp"
 #include "rhi/vulkan/vulkan_device.hpp"
 #include "shader_catalogue.hpp"
@@ -93,7 +95,29 @@ namespace SushiEngine
             std::size_t AssetLibrary::load_gltf(const char* path, MeshId* meshes,
                                                 Render::Material* materials, std::size_t count)
             {
-                return import_gltf(path, meshes_, textures_, meshes, materials, count);
+                if (path == nullptr || meshes == nullptr || materials == nullptr || count == 0)
+                    return 0;
+
+                // A cache hit has to be able to fill every slot the caller asked for, or it
+                // falls through and imports for real -- every real call site today always
+                // asks for exactly one mesh (see gltf_cache_'s own comment), so this only
+                // matters if a future caller ever asks for more than an earlier call did.
+                const std::string key(path);
+                const auto cached = gltf_cache_.find(key);
+                if (cached != gltf_cache_.end() && cached->second.meshes.size() >= count)
+                {
+                    std::copy_n(cached->second.meshes.begin(), count, meshes);
+                    std::copy_n(cached->second.materials.begin(), count, materials);
+                    return count;
+                }
+
+                const std::size_t imported =
+                    import_gltf(path, meshes_, textures_, meshes, materials, count);
+                if (imported > 0)
+                    gltf_cache_[key] = GltfImportCacheEntry{
+                        std::vector<MeshId>(meshes, meshes + imported),
+                        std::vector<Render::Material>(materials, materials + imported)};
+                return imported;
             }
 
             std::size_t AssetLibrary::load_gltf_skinned_mesh(const char* path,
