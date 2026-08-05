@@ -165,6 +165,33 @@ namespace SushiEngine
             }
 
             /**
+             * @brief Imports a Renderer's mesh from its authored path.
+             *
+             * Unlike @ref bind_crowd_mesh, the imported material is not adopted onto the entity's
+             * own Material: a Shape always has its own authored, serialized Material already, and
+             * silently overwriting it on every re-import would make it a value the file cannot
+             * actually hold still.
+             *
+             * @param context Editor state; supplies the asset library and the console.
+             * @param values  The Shape being authored; its mesh is written from @c mesh_path.
+             */
+            void bind_shape_mesh(EditorContext& context, SushiEngine::Simulation::ShapeParameters& values)
+            {
+                values.mesh = SushiEngine::Render::INVALID_MESH;
+                if (context.assets == nullptr || values.mesh_path.empty())
+                    return;
+                SushiEngine::Render::MeshId meshes[1] = {SushiEngine::Render::INVALID_MESH};
+                SushiEngine::Render::Material materials[1]{};
+                if (context.assets->load_gltf(values.mesh_path.c_str(), meshes, materials, 1) == 0)
+                {
+                    editor_log(context, "No mesh imported from '" + values.mesh_path + "'.",
+                              LogLevel::Warning);
+                    return;
+                }
+                values.mesh = meshes[0];
+            }
+
+            /**
              * @brief Draws the partner picker: which body this entity is jointed to.
              *
              * Only entities that carry a Rigid Body are offered, because only they can be an
@@ -611,34 +638,62 @@ namespace SushiEngine
                         ComponentEditor<SushiEngine::Simulation::ShapeParameters> editor(
                             context, *world, access, id);
 
-                        // Plane is not a drawable mesh (Terrain uses a thin Box), so only
-                        // the three solid primitives are offered as the Renderer's mesh.
-                        static const char* const MESH_NAMES[] = {"Box", "Sphere", "Cylinder"};
-                        editor.choice("Mesh", &decltype(editor)::Values::kind, MESH_NAMES, 3,
-                                      "Which primitive this renderer draws.");
+                        SushiEngine::Simulation::ShapeParameters& values = editor.mutable_values();
+                        bool imported = values.mesh != SushiEngine::Render::INVALID_MESH;
 
-                        switch (editor.values().kind)
+                        static const char* const MESH_NAMES[] = {"Box", "Sphere", "Cylinder", "Imported"};
+                        int choice = imported ? 3 : static_cast<int>(values.kind);
+                        if (ImGui::Combo("Mesh", &choice, MESH_NAMES, 4))
                         {
-                            case SushiEngine::Simulation::PrimitiveKind::Sphere:
-                                editor.vector_component(
-                                    "Radius##Mesh", &decltype(editor)::Values::parameters, 0, 0.01f,
-                                    0.01f, 1000.0f, "%.3f m",
-                                    "Sphere radius before Scale, in metres.");
-                                break;
-                            case SushiEngine::Simulation::PrimitiveKind::Cylinder:
-                                editor.vector("Radius / Half Height##Mesh",
-                                              &decltype(editor)::Values::parameters, 0.01f, 0.01f,
-                                              1000.0f, "%.3f m",
-                                              "X is the radius, Y the half height, in metres; "
-                                              "Z is unused.");
-                                break;
-                            default:
-                                editor.vector("Half Extents##Mesh",
-                                              &decltype(editor)::Values::parameters, 0.01f, 0.01f,
-                                              1000.0f, "%.3f m",
-                                              "Half the box's size along each local axis, in "
-                                              "metres, before Scale.");
-                                break;
+                            if (choice == 3)
+                            {
+                                imported = true;
+                            }
+                            else
+                            {
+                                imported = false;
+                                values.kind = static_cast<SushiEngine::Simulation::PrimitiveKind>(choice);
+                                values.mesh = SushiEngine::Render::INVALID_MESH;
+                            }
+                        }
+
+                        if (imported)
+                        {
+                            ImGui::SetNextItemWidth(-80.0f);
+                            ImGui::InputText("Source Mesh", &values.mesh_path);
+                            ImGui::SameLine();
+                            if (ImGui::Button("Load"))
+                                bind_shape_mesh(context, values);
+                            if (values.mesh == SushiEngine::Render::INVALID_MESH)
+                                ImGui::TextColored(warning_color(), "No mesh imported -- this renderer draws "
+                                                                    "nothing yet.");
+                            else
+                                ImGui::TextDisabled("Mesh imported.");
+                        }
+                        else
+                        {
+                            switch (values.kind)
+                            {
+                                case SushiEngine::Simulation::PrimitiveKind::Sphere:
+                                    editor.vector_component(
+                                        "Radius##Mesh", &decltype(editor)::Values::parameters, 0, 0.01f,
+                                        0.01f, 1000.0f, "%.3f m", "Sphere radius before Scale, in metres.");
+                                    break;
+                                case SushiEngine::Simulation::PrimitiveKind::Cylinder:
+                                    editor.vector("Radius / Half Height##Mesh",
+                                                  &decltype(editor)::Values::parameters, 0.01f, 0.01f,
+                                                  1000.0f, "%.3f m",
+                                                  "X is the radius, Y the half height, in metres; "
+                                                  "Z is unused.");
+                                    break;
+                                default:
+                                    editor.vector("Half Extents##Mesh",
+                                                  &decltype(editor)::Values::parameters, 0.01f, 0.01f,
+                                                  1000.0f, "%.3f m",
+                                                  "Half the box's size along each local axis, in "
+                                                  "metres, before Scale.");
+                                    break;
+                            }
                         }
                     }
                     else if (ImGui::SmallButton("Add Mesh"))
