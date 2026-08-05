@@ -36,3 +36,6 @@ assets/hrtf/*.sofa
 # Baked planetary terrain (17 MB for the compact lunar tier, hundreds for the deeper
 # ones; reproduces from `se planet bake`, see assets/planet/README.md)
 assets/planet/*.planet
+
+# Scratch git worktrees for isolated feature work.
+.worktrees/
