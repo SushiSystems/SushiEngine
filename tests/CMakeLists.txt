@@ -533,6 +533,10 @@ add_executable(sushiengine_functional_tests
     # including §8.6's third invariant, that the render mesh cannot lag the
     # simulation because it is derived from it rather than copied out of it.
     integration/test_soft_body_service.cpp
+    # A Renderer entity whose ShapeParameters names an imported mesh must extract into
+    # RenderScene::instances carrying that same Render::MeshId alongside whatever `kind`
+    # still says, since the render passes (not this extraction step) are the ones that
+    # ignore `kind` when `mesh` is set (static_mesh_authoring.md).
     integration/test_shape_render_extraction.cpp
     # P6-G5: what the editor's soft-body debug views mean, with the drawing left
     # out — that full scale is a material threshold rather than the body's own
