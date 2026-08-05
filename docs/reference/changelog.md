@@ -10,6 +10,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- 2026-08-05 — Added `docs/design/project_selection.md`: File ▸ New/Load Project, reusing the
+  already cross-platform preferences store and the scene-replacement unsaved-changes guard. Design
+  only, §9's P0 not started.
 - 2026-08-05 — Added `docs/design/static_mesh_authoring.md`: placing an imported glTF as a plain
   visual prop, an "Imported" kind on the existing Renderer component rather than a new one. Design
   only, §11's P0 not started.
