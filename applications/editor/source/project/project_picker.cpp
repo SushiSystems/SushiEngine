@@ -24,7 +24,9 @@
 #include "project_picker.hpp"
 
 #include "../core/editor_context.hpp"
+#include "../scene/scene_commands.hpp"
 
+#include <cstdlib>
 #include <filesystem>
 #include <system_error>
 #include <vector>
@@ -38,8 +40,27 @@ namespace SushiEngine
     {
         namespace fs = std::filesystem;
 
-        // Forward declaration for request_switch_project (defined in scene_commands.hpp, Task 2)
-        void request_switch_project(EditorContext& context, const std::string& path);
+        std::string default_projects_root()
+        {
+            std::filesystem::path home;
+#ifdef _WIN32
+            char* value = nullptr;
+            std::size_t length = 0;
+            if (_dupenv_s(&value, &length, "USERPROFILE") == 0 && value != nullptr)
+            {
+                home = value;
+                std::free(value);
+            }
+#else
+            if (const char* value = std::getenv("HOME"))
+                home = value;
+#endif
+            std::filesystem::path root =
+                !home.empty() ? home / "sushiengine" / "project" : std::filesystem::current_path();
+            std::error_code ec;
+            std::filesystem::create_directories(root, ec);
+            return root.string();
+        }
 
         void draw_project_picker(EditorContext& context)
         {

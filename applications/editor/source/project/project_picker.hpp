@@ -23,11 +23,24 @@
 
 #pragma once
 
+#include <string>
+
 namespace SushiEngine
 {
     namespace Editor
     {
         struct EditorContext;
+
+        /**
+         * @brief Returns the default root directory for user-authored projects.
+         *
+         * Resolves to %USERPROFILE%/sushiengine/project on Windows or ~/sushiengine/project
+         * on other platforms, falling back to the current directory if the user profile
+         * cannot be resolved. The directory is created if it does not exist.
+         *
+         * @return The absolute path to the default projects root.
+         */
+        std::string default_projects_root();
 
         /**
          * @brief Draws the New/Load Project directory picker, when open.

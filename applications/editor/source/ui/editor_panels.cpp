@@ -27,6 +27,7 @@
 #include "panel_widgets.hpp"
 
 #include "../project/project_panel.hpp"
+#include "../project/project_picker.hpp"
 #include "../core/preferences_window.hpp"
 #include "../input/input_manager_window.hpp"
 #include "../scene/hierarchy_panel.hpp"
@@ -95,6 +96,22 @@ namespace SushiEngine
 
             if (ImGui::BeginMenu("File"))
             {
+                if (ImGui::MenuItem("New Project..."))
+                {
+                    context.project_picker_mode = EditorContext::ProjectPickerMode::New;
+                    context.project_picker_directory =
+                        std::filesystem::path(default_projects_root()).parent_path().string();
+                    context.project_picker_new_folder_name.clear();
+                    context.show_project_picker = true;
+                }
+                if (ImGui::MenuItem("Load Project..."))
+                {
+                    context.project_picker_mode = EditorContext::ProjectPickerMode::Load;
+                    context.project_picker_directory =
+                        std::filesystem::path(context.project_root).parent_path().string();
+                    context.show_project_picker = true;
+                }
+                ImGui::Separator();
                 if (menu_item_for_action(context, "New Scene", "NewScene", world != nullptr))
                     request_new_scene(context);
                 if (ImGui::MenuItem("Open Scene...", nullptr, false, world != nullptr))

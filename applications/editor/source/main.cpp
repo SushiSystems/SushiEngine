@@ -93,34 +93,6 @@
 #include "physics/vehicle_panel.hpp"
 #include "terrain/terrain_panel.hpp"
 
-namespace
-{
-    // Where user-authored projects live by default: never inside the engine's own
-    // source tree (writing project code next to the engine's is exactly the mixing
-    // the Project panel exists to avoid). Falls back to the current directory only if
-    // the per-user profile directory cannot be resolved.
-    std::string default_projects_root()
-    {
-        std::filesystem::path home;
-#ifdef _WIN32
-        char* value = nullptr;
-        std::size_t length = 0;
-        if (_dupenv_s(&value, &length, "USERPROFILE") == 0 && value != nullptr)
-        {
-            home = value;
-            std::free(value);
-        }
-#else
-        if (const char* value = std::getenv("HOME"))
-            home = value;
-#endif
-        std::filesystem::path root =
-            !home.empty() ? home / "sushiengine" / "project" : std::filesystem::current_path();
-        std::error_code ec;
-        std::filesystem::create_directories(root, ec);
-        return root.string();
-    }
-} // namespace
 
 namespace
 {
@@ -337,7 +309,7 @@ int main(int argc, char** argv)
         // the Bake surface below, because that surface's cooking profile is project-scoped
         // storage and needs to know where the project lives before it can load anything.
         context.project_root = context.preferences.last_project_root.empty()
-                                    ? default_projects_root()
+                                    ? SushiEngine::Editor::default_projects_root()
                                     : context.preferences.last_project_root;
         context.current_directory = context.project_root;
         if (context.preferences.last_project_root != context.project_root)
