@@ -39,3 +39,6 @@ assets/planet/*.planet
 
 # Scratch git worktrees for isolated feature work.
 .worktrees/
+
+# Scratch ledger/briefs/reports for subagent-driven-development plan execution.
+.superpowers/
