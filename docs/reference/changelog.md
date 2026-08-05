@@ -10,6 +10,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- 2026-08-05 — Added "Imported" mesh support to Renderer (`ShapeParameters::mesh_path`/`::mesh`),
+  wired to render extraction and render passes. Static props now work without `Crowd` or physics.
+  See `docs/design/static_mesh_authoring.md`.
+  - Added the Inspector Renderer section's "Imported" mesh choice and Create ▸ Objects'
+    "Imported Mesh" entry.
+  - Added `mesh_path` to scene serialization and round-tripped with undo/redo, preserving both
+    the mesh path and the loaded mesh handle; uses the same pattern as `CrowdParameters`.
 - 2026-08-05 — Added File > New/Load Project: `EditorContext::project_root` can be changed at
   runtime instead of only at startup, through the same unsaved-changes guard `request_new_scene`
   already uses. See `docs/design/project_selection.md`.
