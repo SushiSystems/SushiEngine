@@ -27,11 +27,14 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include <imgui.h>
+
+#include <SushiEngine/authoring/cook_bake_state.hpp>
 
 #include <SushiEngine/environment/environment.hpp>
 
@@ -572,6 +575,28 @@ namespace SushiEngine
                 editor_log(context, "New scene.");
             }
 
+            // Re-points every project-scoped path a live session holds, and persists the choice
+            // the same way every other Preferences field change already does (preferences_dirty,
+            // flushed once per frame by main.cpp). The old project's scene has nothing left to
+            // belong to once project_root moves, so this always starts from a clean scene rather
+            // than carrying entities whose asset paths resolve against a directory that is no
+            // longer current.
+            void switch_project(EditorContext& context, const std::string& new_root)
+            {
+                new_scene(context);
+                context.project_root = new_root;
+                context.current_directory = new_root;
+                context.preferences.last_project_root = new_root;
+                context.preferences_dirty = true;
+                if (context.cook_bake_state != nullptr)
+                {
+                    context.cook_bake_state->set_profile_storage_path(
+                        (std::filesystem::path(new_root) / "cooking_profile.json").string());
+                    context.cook_bake_state->load_profiles();
+                }
+                editor_log(context, "Switched project to '" + new_root + "'.");
+            }
+
             // Loads @p path over the live world. Shared by the immediate path and
             // `perform_pending_scene_action`.
             void open_scene(EditorContext& context, const std::string& path)
@@ -609,11 +634,15 @@ namespace SushiEngine
                 case EditorContext::PendingSceneAction::Open:
                     open_scene(context, context.pending_scene_open_path);
                     break;
+                case EditorContext::PendingSceneAction::SwitchProject:
+                    switch_project(context, context.pending_project_switch_path);
+                    break;
                 case EditorContext::PendingSceneAction::None:
                     break;
             }
             context.pending_scene_action = EditorContext::PendingSceneAction::None;
             context.pending_scene_open_path.clear();
+            context.pending_project_switch_path.clear();
         }
 
         // Requests a scene replacement (New or Open), deferring to the unsaved-changes
@@ -636,6 +665,19 @@ namespace SushiEngine
             else
             {
                 open_scene(context, path);
+            }
+        }
+
+        void request_switch_project(EditorContext& context, const std::string& new_root)
+        {
+            if (scene_is_dirty(context))
+            {
+                context.pending_scene_action = EditorContext::PendingSceneAction::SwitchProject;
+                context.pending_project_switch_path = new_root;
+            }
+            else
+            {
+                switch_project(context, new_root);
             }
         }
     } // namespace Editor

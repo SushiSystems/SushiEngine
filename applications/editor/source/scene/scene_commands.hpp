@@ -95,6 +95,14 @@ namespace SushiEngine
         void request_open_scene(EditorContext& context, const std::string& path);
 
         /**
+         * @brief Requests a project switch, deferring to the unsaved-changes prompt when the
+         * current scene is dirty rather than discarding it silently.
+         * @param context  Editor state.
+         * @param new_root The directory to make the new @ref EditorContext::project_root.
+         */
+        void request_switch_project(EditorContext& context, const std::string& new_root);
+
+        /**
          * @brief Runs whichever scene replacement was parked by a request, then clears it.
          *
          * Called by the unsaved-changes prompt's Save and Don't-Save buttons once the
