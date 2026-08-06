@@ -306,7 +306,7 @@ namespace SushiEngine
                 for (std::size_t i = description.nodes.size(); i-- > 0;)
                 {
                     const std::int32_t parent = description.nodes[i].parent;
-                    if (parent < 0)
+                    if (parent < 0 || static_cast<std::size_t>(parent) >= i)
                         continue;
                     if (classifications[i].carries_geometry || collider_below[i])
                         collider_below[static_cast<std::size_t>(parent)] = true;
@@ -371,9 +371,13 @@ namespace SushiEngine
                 const Geometry::GLTFNodeDescription& node = description.nodes[i];
                 const NodeClassification& classification = classifications[i];
 
+                // A parent is read only when it is genuinely one this pass has already emitted.
+                // `import_gltf_scene` guarantees that, but the description is a plain struct a
+                // caller can fill in by hand, and an unchecked index here would be a read past
+                // the end rather than a wrong answer.
                 std::int32_t parent_entity = synthetic_root ? 0 : -1;
                 LocalTransform inherited;
-                if (node.parent >= 0)
+                if (node.parent >= 0 && static_cast<std::size_t>(node.parent) < i)
                 {
                     const std::size_t parent = static_cast<std::size_t>(node.parent);
                     parent_entity = attach_parent[parent];
