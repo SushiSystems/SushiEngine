@@ -29,6 +29,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <SushiEngine/model/import_settings_io.hpp>
+
 namespace SushiEngine
 {
     namespace Authoring
@@ -39,15 +41,14 @@ namespace SushiEngine
             using Physics::Cooking::CookingParameters;
             using Physics::Cooking::CookingThresholds;
             using Physics::Cooking::ImportProfile;
-            using Physics::Cooking::ImportProfileLibrary;
-            using Physics::Cooking::ImportProfileOverride;
             using Physics::Cooking::NodeBeamCookerSettings;
 
-            // §16.45.3's storage format: everything the Bake panel and the Cooking Override
-            // modal can set, and nothing they cannot — `force_recook` is deliberately absent
-            // (it describes one press of a button, not a saved property, per its own doc
-            // comment on `ImportProfile`) and `DerivedCookingParameters` is never stored at
-            // all, since it is recomputed from `CookingParameters` on every read.
+            // §16.45.3's storage format for the project default: everything the Bake panel can
+            // set, and nothing it cannot — `force_recook` is deliberately absent (it describes
+            // one press of a button, not a saved property, per its own doc comment on
+            // `ImportProfile`) and `DerivedCookingParameters` is never stored at all, since it
+            // is recomputed from `CookingParameters` on every read. What one asset says differs
+            // is not here at all: it lives in that asset's `.meta` sidecar.
 
             json cooking_parameters_to_json(const CookingParameters& p)
             {
@@ -188,37 +189,6 @@ namespace SushiEngine
                 return profile;
             }
 
-            json import_profile_override_to_json(const ImportProfileOverride& o)
-            {
-                json j = json::object();
-                if (o.fidelity.has_value())
-                    j["fidelity"] = *o.fidelity;
-                if (o.cook_collision.has_value())
-                    j["cook_collision"] = *o.cook_collision;
-                if (o.cook_soft_body.has_value())
-                    j["cook_soft_body"] = *o.cook_soft_body;
-                if (o.cook_node_beam.has_value())
-                    j["cook_node_beam"] = *o.cook_node_beam;
-                if (o.static_geometry.has_value())
-                    j["static_geometry"] = *o.static_geometry;
-                return j;
-            }
-
-            ImportProfileOverride import_profile_override_from_json(const json& j)
-            {
-                ImportProfileOverride o;
-                if (j.contains("fidelity"))
-                    o.fidelity = j["fidelity"].get<float>();
-                if (j.contains("cook_collision"))
-                    o.cook_collision = j["cook_collision"].get<bool>();
-                if (j.contains("cook_soft_body"))
-                    o.cook_soft_body = j["cook_soft_body"].get<bool>();
-                if (j.contains("cook_node_beam"))
-                    o.cook_node_beam = j["cook_node_beam"].get<bool>();
-                if (j.contains("static_geometry"))
-                    o.static_geometry = j["static_geometry"].get<bool>();
-                return o;
-            }
         } // namespace
 
         using nlohmann::json;
@@ -251,8 +221,17 @@ namespace SushiEngine
 
         bool CookBakeState::load_profiles()
         {
+            last_migration_ = CookingOverrideMigration();
             if (profile_storage_path_.empty())
                 return true;
+
+            // Before the document is read, so what is read is already free of the path-keyed
+            // object: an override belongs beside its asset, and one read is where the move
+            // happens once per project rather than on every save.
+            if (!Model::migrate_cooking_overrides_to_sidecars(
+                    profile_storage_path_, last_migration_.migrated, last_migration_.dropped))
+                return false;
+
             std::ifstream stream(profile_storage_path_, std::ios::binary);
             if (!stream)
                 return true; // Nothing to load yet; not an error.
@@ -269,12 +248,6 @@ namespace SushiEngine
 
             if (document.contains("project_default"))
                 profiles_.set_project_default(import_profile_from_json(document["project_default"]));
-            if (document.contains("overrides") && document["overrides"].is_object())
-            {
-                for (const auto& [asset_path, override_json] : document["overrides"].items())
-                    profiles_.set_override(asset_path,
-                                          import_profile_override_from_json(override_json));
-            }
             return true;
         }
 
@@ -283,12 +256,8 @@ namespace SushiEngine
             if (profile_storage_path_.empty())
                 return true;
 
-            json overrides = json::object();
-            for (const auto& [asset_path, override_values] : profiles_.overrides())
-                overrides[asset_path] = import_profile_override_to_json(override_values);
-
-            json document{{"project_default", import_profile_to_json(profiles_.project_default())},
-                         {"overrides", overrides}};
+            const json document{
+                {"project_default", import_profile_to_json(profiles_.project_default())}};
 
             std::ofstream stream(profile_storage_path_, std::ios::binary | std::ios::trunc);
             if (!stream)
@@ -305,11 +274,28 @@ namespace SushiEngine
             service_.reset();
         }
 
+        Physics::Cooking::ImportProfile
+        CookBakeState::resolved_profile(const std::string& asset_path) const
+        {
+            // Two folds over the project default, the later one winning: the asset's `.meta` is
+            // where an override persists, and `profiles_` carries an edit made this session,
+            // which has to decide the cook it triggers before it reaches the sidecar. A
+            // sidecar that will not parse leaves `settings` defaulted, so the asset cooks at
+            // the project default rather than at half of what could be read out of it.
+            Model::ModelImportSettings settings;
+            Model::load_model_import_settings(asset_path, settings);
+            const Physics::Cooking::ImportProfile from_sidecar =
+                Physics::Cooking::resolve_import_profile(profiles_.project_default(),
+                                                         settings.cooking);
+            return Physics::Cooking::resolve_import_profile(from_sidecar,
+                                                            profiles_.get_override(asset_path));
+        }
+
         void CookBakeState::bake(const std::string& asset_path)
         {
             if (asset_path.empty())
                 return;
-            service_->submit(asset_path, profiles_.resolve(asset_path));
+            service_->submit(asset_path, resolved_profile(asset_path));
         }
 
         void CookBakeState::rebake(const std::string& asset_path)
@@ -320,7 +306,7 @@ namespace SushiEngine
             // The eviction itself happens inside the processor, which is the first place the
             // mesh and the cooker that owns the key are both in hand — the key needs the
             // source's content hash, and the source is behind the loader on the worker thread.
-            Physics::Cooking::ImportProfile profile = profiles_.resolve(asset_path);
+            Physics::Cooking::ImportProfile profile = resolved_profile(asset_path);
             profile.force_recook = true;
             service_->submit(asset_path, std::move(profile));
         }

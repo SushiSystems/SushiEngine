@@ -23,7 +23,9 @@
 
 #include <SushiEngine/model/import_settings_io.hpp>
 
+#include <filesystem>
 #include <fstream>
+#include <system_error>
 
 #include <nlohmann/json.hpp>
 
@@ -185,6 +187,74 @@ namespace SushiEngine
 
             std::ofstream stream(model_import_settings_path(asset_path),
                                  std::ios::binary | std::ios::trunc);
+            if (!stream)
+                return false;
+            stream << document.dump(2);
+            return static_cast<bool>(stream);
+        }
+
+        bool migrate_cooking_overrides_to_sidecars(const std::string& project_document_path,
+                                                   std::vector<std::string>& out_migrated,
+                                                   std::vector<std::string>& out_dropped)
+        {
+            out_migrated.clear();
+            out_dropped.clear();
+            if (project_document_path.empty())
+                return true;
+
+            json document;
+            {
+                std::ifstream stream(project_document_path, std::ios::binary);
+                if (!stream)
+                    return true; // A project that never saved a cooking document has nothing.
+                try
+                {
+                    stream >> document;
+                }
+                catch (const json::exception&)
+                {
+                    return false;
+                }
+            }
+
+            // The absent key is the second run, and every run after it. Leaving the document
+            // untouched here is what keeps the migration from rewriting a file per session.
+            if (!document.is_object() || !document.contains("overrides") ||
+                !document["overrides"].is_object())
+                return true;
+
+            for (const auto& entry : document["overrides"].items())
+            {
+                const std::string& asset_path = entry.key();
+                // The error-code overload, because a key the operating system will not even
+                // accept as a path is a dead override like any other, not an exception.
+                std::error_code path_error;
+                if (!std::filesystem::exists(asset_path, path_error))
+                {
+                    out_dropped.push_back(asset_path);
+                    continue;
+                }
+
+                // Read first, so the move overwrites the asset's cooking override and nothing
+                // else it already says about how it is imported.
+                ModelImportSettings settings;
+                if (!load_model_import_settings(asset_path, settings))
+                    return false;
+                try
+                {
+                    settings.cooking = cooking_override_from_json(entry.value());
+                }
+                catch (const json::exception&)
+                {
+                    return false;
+                }
+                if (!save_model_import_settings(asset_path, settings))
+                    return false;
+                out_migrated.push_back(asset_path);
+            }
+
+            document.erase("overrides");
+            std::ofstream stream(project_document_path, std::ios::binary | std::ios::trunc);
             if (!stream)
                 return false;
             stream << document.dump(2);

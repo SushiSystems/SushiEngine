@@ -35,6 +35,7 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/geometry/triangle_mesh.hpp>
+#include <SushiEngine/model/import_settings_io.hpp>
 #include <SushiEngine/physics/cooking/collision_asset.hpp>
 
 #include <SushiEngine/authoring/cook_bake_state.hpp>
@@ -253,12 +254,16 @@ TEST(Unit_CookBakeState, CooksBothKindsWhenTheProfileAsksForThem)
     EXPECT_FALSE(pillar->has_soft_body());
 }
 
-TEST(Unit_CookBakeState, TheProjectDefaultAndAnOverrideSurviveASaveAndLoad)
+TEST(Unit_CookBakeState, TheProjectDefaultSurvivesASaveAndLoadAndTheDocumentHoldsNothingElse)
 {
     // §16.45.3: the Bake panel's settings had no storage path at all — every edit made in a
     // session was gone the moment the editor closed. This is the claim that they are not,
     // written the way an editor restart actually exercises it: a fresh `Authoring::CookBakeState`,
     // pointed at the same path, must read back exactly what the first one wrote.
+    //
+    // The document holds the project default and nothing else. What one asset says differs
+    // belongs beside that asset, in its `.meta` sidecar (`docs/design/model_import.md` §4.2),
+    // so an override recorded on the library is deliberately absent from the file.
     const std::filesystem::path path =
         std::filesystem::temp_directory_path() / "sushiengine_cook_bake_state_test.json";
     std::filesystem::remove(path);
@@ -291,14 +296,45 @@ TEST(Unit_CookBakeState, TheProjectDefaultAndAnOverrideSurviveASaveAndLoad)
     EXPECT_EQ(loaded_project.parameters.hull_vertex_budget, 48);
     EXPECT_FLOAT_EQ(loaded_project.node_beam_settings.core_mass_fraction, 0.6f);
 
-    ASSERT_TRUE(reader.profiles().has_override("crate.gltf"));
-    const Physics::Cooking::ImportProfileOverride loaded_override =
-        reader.profiles().get_override("crate.gltf");
-    ASSERT_TRUE(loaded_override.cook_node_beam.has_value());
-    EXPECT_TRUE(*loaded_override.cook_node_beam);
-    EXPECT_FALSE(loaded_override.fidelity.has_value());
+    EXPECT_FALSE(reader.profiles().has_override("crate.gltf"));
+    EXPECT_EQ(reader.profiles().override_count(), 0u);
+    EXPECT_TRUE(reader.last_migration().empty());
 
     std::filesystem::remove(path);
+}
+
+TEST(Unit_CookBakeState, AnAssetsSidecarDecidesWhichCookersRunForIt)
+{
+    // The per-asset override lives in the asset's `.meta` now, so the file has to be what
+    // reaches the cooker — a migration that moved the settings somewhere nothing reads would
+    // have cost the artist every one of them.
+    const std::string asset = "test_cook_bake_sidecar_asset.gltf";
+    const std::string sidecar = Model::model_import_settings_path(asset);
+    std::filesystem::remove(sidecar);
+
+    Model::ModelImportSettings settings;
+    settings.cooking.cook_soft_body = false;
+    ASSERT_TRUE(Model::save_model_import_settings(asset, settings));
+
+    Authoring::CookBakeState state(
+        [&asset](const std::string& path, Geometry::TriangleMesh& out) -> bool
+        {
+            if (path != asset)
+                return false;
+            out = box_mesh(0.25f);
+            return true;
+        },
+        std::string());
+    // The project default cooks a soft body; the sidecar is the only thing saying otherwise.
+    make_quick(state, true);
+
+    bake_and_settle(state, asset);
+    const Authoring::BakedAssetEntry* entry = state.entry(asset);
+    ASSERT_NE(entry, nullptr);
+    EXPECT_TRUE(entry->has_collision());
+    EXPECT_FALSE(entry->has_soft_body());
+
+    std::filesystem::remove(sidecar);
 }
 
 TEST(Unit_CookBakeState, AnUnsetStoragePathIsANoOpRatherThanAFailure)

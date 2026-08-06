@@ -33,6 +33,7 @@
  */
 
 #include <string>
+#include <vector>
 
 #include <SushiEngine/model/import_settings.hpp>
 
@@ -71,5 +72,32 @@ namespace SushiEngine
          */
         bool save_model_import_settings(const std::string& asset_path,
                                         const ModelImportSettings& settings);
+
+        /**
+         * @brief Moves a project document's per-asset cooking overrides into `.meta` sidecars.
+         *
+         * Runs once, when the project's cooking document is read. Every override whose asset
+         * still exists is folded into that asset's sidecar, preserving any settings the sidecar
+         * already holds; an override whose asset is gone is dropped, because it was already
+         * unreachable and carrying it forward would hide that. The `overrides` key is then
+         * erased from the document, which is what makes a second run find nothing to do.
+         *
+         * A free function rather than a member of the type that calls it, so it is testable
+         * without constructing the bake model, which owns a worker thread.
+         *
+         * @param project_document_path The project's cooking JSON document.
+         * @param out_migrated          Receives the asset paths whose sidecars were written.
+         * @param out_dropped           Receives the asset paths that no longer exist.
+         * @return False when the document exists but could not be read, parsed or rewritten,
+         *         or when an asset's existing sidecar could not be parsed — that one is left
+         *         untouched rather than overwritten with what could be read of it, and the
+         *         document keeps its overrides so the move can be retried. Both vectors then
+         *         name whatever was written before the fault. A document that does not exist,
+         *         or that carries no `overrides` object, is not a failure — it is a project
+         *         that has nothing to migrate.
+         */
+        bool migrate_cooking_overrides_to_sidecars(const std::string& project_document_path,
+                                                   std::vector<std::string>& out_migrated,
+                                                   std::vector<std::string>& out_dropped);
     } // namespace Model
 } // namespace SushiEngine

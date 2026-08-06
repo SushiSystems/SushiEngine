@@ -33,7 +33,7 @@ Headers are relative to `include/SushiEngine/model/`.
 | Header | Declares |
 |---|---|
 | `import_settings.hpp` | `ModelImportSettings` — the scale, root rotation, per-kind toggles and cooking override one asset carries — and its equality. |
-| `import_settings_io.hpp` | `model_import_settings_path`, `load_model_import_settings` and `save_model_import_settings` — the sidecar's whole surface. |
+| `import_settings_io.hpp` | `model_import_settings_path`, `load_model_import_settings` and `save_model_import_settings`, plus `migrate_cooking_overrides_to_sidecars` — the one-way move off a project document's path-keyed `overrides` object. |
 
 The module's sources are `import_settings_io.cpp` and `instantiation_plan.cpp`. The latter is
 the translation unit `docs/design/model_import.md` §3 reserves for the planner and carries no
@@ -43,7 +43,12 @@ definitions yet.
 
 `tests/unit/test_model_import_settings_io.cpp` covers both headers: the sidecar path, the
 round trip of every field, that an unset cooking override stays unset rather than becoming a
-value, and that a malformed sidecar is reported rather than read as "no settings".
+value, that a malformed sidecar is reported rather than read as "no settings", and that the
+migration writes a sidecar without disturbing what it already held, drops an override whose
+asset is gone, and finds nothing to do on a second run.
+
+`tests/unit/test_cook_bake_state.cpp` covers the consumer end: an asset's sidecar decides which
+cookers run for it.
 
 The instantiation planner has no coverage because it has no code.
 

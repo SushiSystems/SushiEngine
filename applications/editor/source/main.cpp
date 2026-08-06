@@ -337,6 +337,9 @@ int main(int argc, char** argv)
                 context, "Could not parse the project's cooking_profile.json; using defaults.",
                 SushiEngine::Editor::LogLevel::Warning);
         }
+        SushiEngine::Editor::log_cooking_override_migration(
+            context, cook_bake_state.last_migration().migrated,
+            cook_bake_state.last_migration().dropped);
         // Injected so a panel that brings a mesh into the project can queue it for
         // cooking automatically (see project_panel.cpp's glTF open handler) instead of
         // an artist having to find and press the Bake panel's button for every asset.

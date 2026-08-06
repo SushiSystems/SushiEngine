@@ -99,6 +99,26 @@ namespace SushiEngine
         };
 
         /**
+         * @brief What one @ref CookBakeState::load_profiles moved out of the cooking document.
+         *
+         * A project written before per-asset overrides lived beside their assets carries them
+         * in a path-keyed object instead. Reading such a project moves them, and the two lists
+         * are how the move says so once rather than happening invisibly — the dropped one in
+         * particular, since an override whose asset is gone is settings the artist loses.
+         */
+        struct CookingOverrideMigration
+        {
+            /** @brief Asset paths whose `.meta` sidecar now carries what the document held. */
+            std::vector<std::string> migrated;
+
+            /** @brief Asset paths the document named that are no longer on disk. */
+            std::vector<std::string> dropped;
+
+            /** @brief Whether anything moved, so a caller can stay silent when nothing did. */
+            bool empty() const noexcept { return migrated.empty() && dropped.empty(); }
+        };
+
+        /**
          * @brief The Bake panel's model: the profile, the queue, and the last results.
          *
          * Owns the store, the chain and the worker service, because the panel is the only
@@ -127,14 +147,24 @@ namespace SushiEngine
             Physics::Cooking::ImportProfileLibrary& profiles() noexcept { return profiles_; }
 
             /**
-             * @brief Where the project's cooking profile is stored; empty means not persisted.
+             * @brief Where the project's cooking default is stored; empty means not persisted.
              *
              * Set once at startup, after the project root is known — which is after this
              * object is constructed, hence a setter rather than a constructor parameter.
              * `profiles()` returning a mutable reference means nothing here can intercept a
-             * write to record it automatically, so callers that mutate the profile (the Bake
-             * panel, the Cooking Override modal) call @ref save_profiles themselves once they
-             * are done, the same way they already call `set_project_default`/`set_override`.
+             * write to record it automatically, so the Bake panel calls @ref save_profiles
+             * itself once it is done, the same way it already calls `set_project_default`.
+             *
+             * The document holds the project default alone. What one asset says differs lives
+             * in that asset's own `<asset>.meta` sidecar, so renaming or moving the asset
+             * carries its settings rather than orphaning them
+             * (`docs/design/model_import.md` §4.2).
+             *
+             * An override recorded through `ImportProfileLibrary::set_override` is therefore a
+             * session-only edit: it decides the cooks this session triggers (see @ref bake),
+             * and @ref save_profiles does not write it anywhere. Persisting one means writing
+             * the asset's sidecar with `Model::save_model_import_settings`, which the Cooking
+             * Override modal does not yet do.
              *
              * @param path The file to load from and save to.
              */
@@ -149,21 +179,43 @@ namespace SushiEngine
              * call this first — otherwise the previous project's cooking settings would carry
              * over into a project that has never touched the Bake panel.
              */
-            void reset_profiles() { profiles_ = Physics::Cooking::ImportProfileLibrary(); }
+            void reset_profiles()
+            {
+                profiles_ = Physics::Cooking::ImportProfileLibrary();
+                last_migration_ = CookingOverrideMigration();
+            }
 
             /**
-             * @brief Loads the project's cooking profile from its storage path.
+             * @brief Loads the project's cooking default from its storage path.
+             *
+             * Moves any per-asset overrides an older project document still carries into their
+             * assets' `.meta` sidecars first, once, and reads the default out of what is left.
+             * @ref last_migration says what moved.
              *
              * A no-op, succeeding, when no path is set or the file does not exist yet — a
              * project that has never touched the Bake panel has nothing to load, and that is
              * not a failure.
              *
-             * @return False only when the path exists but could not be parsed.
+             * @return False only when the path exists but could not be parsed, or when the
+             *         migration could not complete.
              */
             bool load_profiles();
 
             /**
-             * @brief Saves the project's cooking profile to its storage path.
+             * @brief What the last @ref load_profiles moved out of the cooking document.
+             *
+             * Empty for a project that had nothing to move, which is every project after the
+             * first read. Exposed rather than logged here because this module links no console.
+             *
+             * @return The migrated and dropped asset paths.
+             */
+            const CookingOverrideMigration& last_migration() const noexcept
+            {
+                return last_migration_;
+            }
+
+            /**
+             * @brief Saves the project's cooking default to its storage path.
              * @return False when a path is set and the write failed; true (including a no-op)
              *         otherwise.
              */
@@ -177,6 +229,10 @@ namespace SushiEngine
 
             /**
              * @brief Queues @p asset_path for cooking at its resolved profile.
+             *
+             * The profile is the project default with the asset's `.meta` folded over it, and
+             * then whatever @ref profiles has recorded for it this session — so an edit that
+             * has not been written to the sidecar yet still decides the cook it triggers.
              *
              * @param asset_path The asset to cook.
              */
@@ -239,7 +295,12 @@ namespace SushiEngine
         private:
             void refresh_wireframe();
 
+            // The profile one asset is cooked at: the project default, the asset's own
+            // `.meta`, then this session's unsaved edit, each folded over the last.
+            Physics::Cooking::ImportProfile resolved_profile(const std::string& asset_path) const;
+
             Physics::Cooking::ImportProfileLibrary profiles_;
+            CookingOverrideMigration last_migration_;
             std::string profile_storage_path_;
             std::unique_ptr<Physics::Cooking::ICookedAssetStore> store_;
             Physics::Cooking::MeshPostProcessorChain chain_;

@@ -17,6 +17,10 @@ sushiengine_add_module(NAME authoring LAYER world
     # the simulation's own quality budgets, cook_bake_state.hpp the mesh a cook starts at, and
     # soft_body_heat.hpp the material a stress reading is scaled against.
     PUBLIC_DEPENDS core environment geometry physics serialization simulation
+    # model is private: cook_bake_state.cpp reads an asset's `.meta` sidecar to find what that
+    # asset says differs from the project's cooking defaults, and no header here names a
+    # ModelImportSettings.
+    PRIVATE_DEPENDS model
     # nlohmann_json is public because command_history.hpp holds a snapshot as a json document.
     # sushiengine_physics_cooking is public for the same reason: cook_bake_state.hpp is written
     # against the cooking service and the three cooked asset kinds it produces.
