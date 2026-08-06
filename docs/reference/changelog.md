@@ -84,6 +84,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   the pyramid instead of only persisting.
 
 ### Fixed
+- 2026-08-06 — Fixed `docs/architecture/domain-physics.md` describing a contact path that no longer
+  exists: `resolve_contacts()`, a `ContactBody` view over two worlds, sweep-and-prune, and "no
+  friction, no restitution".
 - 2026-08-06 — Fixed a raycast, sweep or overlap missing a vehicle entirely: the scene's query
   hierarchy held its rigid bodies and planes but never a car's shell nodes or wheels, and placing a
   vehicle did not mark the hierarchy stale.

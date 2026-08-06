@@ -82,26 +82,25 @@ bookkeeping in `RuntimeSimulation::Record` (`has_physics_body`, `physics_paramet
 The physics itself lives behind the `Simulation::IPhysicsScene` seam
 (`engine/world/simulation/include/SushiEngine/simulation/physics_services.hpp`), not in
 `RuntimeSimulation`: whenever the physics-driven entity set changes, `tick()` gathers one
-`RigidBodyDescription` per Rigid Body entity and calls `set_rigid_bodies`, which rebuilds a
-free-body `PhysicsWorld` (no constraints registered — no joints yet) inside the seam, the same
-"rebuild only when the input set changes" discipline `Schedule` and `XPBDSolver` follow. That
-rebuild snapshots every currently-simulated body's live state first, so toggling physics on one
-entity never resets another already-falling body; a brand-new body seeds from its descriptor pose
-at rest instead.
+`RigidBodyDescription` per Rigid Body entity and calls `set_rigid_bodies`, which *diffs* that set
+against the single `Physics::RuntimeGraphBuilder` solver the seam owns
+(`engine/domain/physics/include/SushiEngine/physics/solver/runtime_graph_builder.hpp`). An entity
+that was here last frame keeps its body, its handle and its velocity; one that has gone is removed
+with its constraints; one that is new is admitted at its descriptor pose, at rest. So toggling
+physics on one entity never disturbs another already-falling body.
 
-`RuntimeSimulation` only marshals poses across the seam and no longer owns a
-`PhysicsWorld` (single responsibility). `tick()` steps the world under gravity and writes the
-solved pose back before the ECS schedule runs, at a fixed assumed ~1/60s frame —
-`engine/world/loop/include/SushiEngine/loop/fixed_timestep.hpp`'s `FixedTimestepClock` is not
-wired into this loop yet. `.sushiscene`
+`RuntimeSimulation` only marshals poses across the seam; it owns no solver of its own. `tick()`
+steps the scene under a gravity sampler and writes the solved pose back before the ECS schedule
+runs. `.sushiscene`
 (`engine/world/serialization/source/scene_serializer.cpp`) carries
 `has_physics_body`/`physics_body` as an independent field pair (not mutually exclusive with
 camera/renderer, unlike those two).
 
-`RuntimeSimulation` now owns a `Loop::FixedTimestepClock` (see
-[SushiLoop core](world.md#2-sushiloop-core)) instead of assuming a fixed ~1/60s frame:
-`ISimulation::tick()` takes the host's measured real elapsed time (`real_delta_seconds`) instead
-of no argument, accumulates it into the clock, and runs one full step — physics, then the ECS
+`RuntimeSimulation` owns a `Loop::FixedTimestepClock` (see
+[SushiLoop core](world.md#2-sushiloop-core), and
+`engine/world/loop/include/SushiEngine/loop/fixed_timestep.hpp`):
+`ISimulation::tick()` takes the host's measured real elapsed time (`real_delta_seconds`),
+accumulates it into the clock, and runs one full step — physics, then the ECS
 schedule, then the render snapshot extract — once per whole fixed step the clock reports (zero on
 a fast host frame, more than one after a hitch). The physics sub-step duration is derived from
 the clock's fixed step (`fixed_dt() / PHYSICS_SUBSTEPS_PER_TICK`) rather than a second,
@@ -124,9 +123,10 @@ after `PhysicsWorld::step()`, it walks every archetype matching `{PhysicsBody, T
 Orientation}` (the same `World::query()` + per-chunk-column walk `Schedule::each` uses
 internally, but as a plain host loop — there is no parallel work here worth a graph node) and
 copies each registered body's solved position/orientation into the entity's
-`Transform`/`Orientation`. There is no reverse (ECS -> physics) sync yet — nothing today needs to
-teleport a physics-driven entity by editing its `Transform` directly — and no wiring into
-`RuntimeSimulation`'s tick loop or the editor yet; this is the seam, not the integration.
+`Transform`/`Orientation`. It has no reverse (ECS -> physics) direction and no wiring into
+`RuntimeSimulation`'s tick loop or the editor; it is a seam beside the live path rather than the
+one the live path takes, and placing a physics-driven entity is `IRigidBodyService::set_rigid_pose`
+on `IPhysicsScene`.
 
 ### 1.2. Cloth (SushiLoop M5)
 
@@ -149,10 +149,11 @@ topology. `Integration_Cloth` (`tests/integration/test_cloth.cpp`) proves the gr
 constraint counts, which row is pinned) and that the pinned row never moves while the rest of the
 grid falls and settles under gravity.
 
-Volumetric (tetrahedral) soft bodies are explicitly **not** built here — cloth is a 2D constraint
-grid over point masses, not a general deformable-solid solver, and a tet-mesh XPBD extension
-(volume-preservation constraints, a different topology entirely) is a distinct future milestone,
-not a natural extension of this file.
+Volumetric (tetrahedral) soft bodies are **not** built here — cloth is a 2D constraint grid over
+point masses, not a general deformable-solid solver, and a tetrahedral mesh is a different
+topology entirely. They live in `engine/domain/physics/include/SushiEngine/physics/soft/` as the
+finite-element model (`finite_element_model.hpp`, `fem_element.hpp`), not as an extension of this
+file.
 
 **The editor's "Cloth" toggle** (`engine/world/simulation/source/runtime_simulation.cpp`) wires
 `build_cloth_grid` into the live tick loop, following the same route the
@@ -166,13 +167,13 @@ partial state to carry across a topology change the way a falling free body's po
 survives an unrelated Rigid Body toggle.
 
 `tick()` gathers one `ClothDescription` per Cloth entity and calls
-`IClothService::set_cloth_grids`; the rebuild is a wholesale replace, every grid torn down and
-rebuilt from its current `Transform::position` as the grid origin, at rest. Inside the seam,
-cloth lives in its own `PhysicsWorld`, separate from the Rigid Body world — same constraint type,
-a second instance — specifically so the full-rebuild-on-any-change discipline never forces the
-free-body snapshot-and-carry-over logic to special-case an entire pinned grid.
-`IPhysicsStepper::step` advances both worlds under the same gravity and sub-step count, driven by
-the fixed step `Loop::FixedTimestepClock`
+`IClothService::set_cloth_grids`. A set whose grids all keep the shape they already had costs a
+comparison and nothing else (`cloth_matches`); anything else is a wholesale replace, every grid
+torn down and rebuilt from its current `Transform::position` as the grid origin, at rest. Inside
+the seam a cloth particle is an ordinary body in the same solver as every rigid body, not a second
+world of its own — which is what makes rigid-to-cloth contact an ordinary contact rather than a
+coupling between two solvers. `IPhysicsStepper::step` advances all of it under one gravity sampler
+and one substep schedule, floored by the fixed step `Loop::FixedTimestepClock`
 [reports](#11-xpbd-the-rigid-body-generalization-sushiloop-m2) — there is no separately hardcoded
 cloth tick rate.
 
@@ -217,9 +218,8 @@ independent field pair, the same shape as `has_physics_body`/`physics_body`.
 
 ### 1.3. Primitive shapes, colliders, and Terrain
 
-Three concerns previously conflated into one hardcoded cube now separate cleanly: what an entity
-*looks like*, what it *collides as*, and what drives its *motion*.
-`Simulation::ShapeParameters`/`ColliderParameters`
+Three concerns separate cleanly: what an entity *looks like*, what it *collides as*, and what
+drives its *motion*. `Simulation::ShapeParameters`/`ColliderParameters`
 (`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`) both start from a
 `{PrimitiveKind kind; Vector3 parameters;}` pair, editor-facing and, like `ClothParameters`,
 plain host-side bookkeeping on `RuntimeSimulation::Record`
@@ -229,39 +229,39 @@ archetype migration. `PrimitiveKind` (`Box`, `Sphere`, `Cylinder`, `Plane`) is d
 `engine/world/simulation/include/SushiEngine/simulation/components.hpp` even though it backs no
 component, since it is the vocabulary both authoring structs share. `ShapeParameters` alone also
 carries a `mesh`/`mesh_path` pair naming an imported glTF the Renderer draws instead of the
-primitive named by `kind` (`static_mesh_authoring.md`); `ColliderParameters` stays exactly the
-kind/parameters pair, since a collider has no imported-geometry path.
+primitive named by `kind` (`docs/design/static_mesh_authoring.md`); `ColliderParameters` stays
+exactly the kind/parameters pair, since a collider has no imported-geometry path.
 
 `IWorldEditor::create_box`/`create_sphere`/`create_cylinder` each spawn a Renderer entity with a
 `Shape` and a `Collider` defaulted to the same kind/params — a created Box is collidable out of
 the box, and either can be edited or removed independently afterward. `create_terrain` spawns a
 large, thin flat `Box` Shape (the visual) paired with a `Plane` `Collider`, and — critically —
 **no Rigid Body/`PhysicsBody`**: nothing integrates Terrain's pose, which is what makes it immune
-to gravity, while its `Collider` still marks it as a future narrowphase participant. **No
-narrowphase or contact solver reads `Collider` data yet** — it is pure authoring data for a
-rigidbody/rigidbody and rigidbody/softbody contact-resolution milestone that has not been built;
-see [the XPBD note](#11-xpbd-the-rigid-body-generalization-sushiloop-m2) that XPBD today has no
-collision detection at all, only distance constraints.
+to gravity, while `extract_static_planes`
+(`engine/world/simulation/include/SushiEngine/simulation/physics_extract.hpp`) turns its `Collider`
+into the standing plane every body rests on. `Collider` is what the contact pass and the scene
+queries read: the extract copies it onto each `RigidBodyDescription`, `PhysicsSimulation` keys it
+by body slot, and `shape_for_slot` turns it into the `CollisionShape` the broadphase bounds, the
+narrowphase generates a manifold from, and a raycast tests against.
 
-`RenderInstance`/`Render::MeshInstance` both gained `shape_kind`/`shape_parameters` (mirrored as
-`Render::MeshKind` to keep the render seam free of any dependency on `Simulation`; the editor's
-per-frame copy loop maps one to the other). `extract()` gates drawing on `has_shape` **and**
+`Simulation::RenderInstance` gained `shape_kind`/`shape_parameters`, mirrored on
+`Render::MeshInstance` as `kind`/`shape_parameters` — the render-side enumerator is
+`Render::MeshKind`, which keeps the render seam free of any dependency on `Simulation`, and the
+editor's per-frame copy loop maps one to the other. `extract()` gates drawing on `has_shape` **and**
 `has_renderer` together, because the mesh (Shape) is now a feature of the Renderer rather than an
 independent component: the Inspector edits the mesh kind and dimensions inside the Renderer
 header, adding a Renderer attaches a default Box mesh, and removing the Renderer takes the mesh
 with it (`applications/editor/source/scene/inspector_panel.cpp`). `create()` makes a truly empty
 entity — a plain `Transform`/`Orientation` with no Renderer and no mesh — so a bare "Create
 Entity" draws nothing, matching Unity's empty GameObject; the mesh kind is also now editable
-(Box↔Sphere↔Cylinder, or Imported for a glTF loaded from a path, `static_mesh_authoring.md`)
-rather than fixed at creation.
+(Box↔Sphere↔Cylinder, or Imported for a glTF loaded from a path — see
+`docs/design/static_mesh_authoring.md`) rather than fixed at creation.
 
-The Vulkan scene view
-(`engine/presentation/render/source/rhi/vulkan/vulkan_scene_view.cpp`) builds a unit sphere and a
-unit cylinder alongside its existing unit cube in `create_geometry()`, and its draw pass groups
-instances by `MeshKind` to bind each mesh's buffers once per group; an instance's
-`shape_parameters` become a local scale multiplied into its model matrix before the MVP push
-constant (`shape_scale()`), so a default `{0.5,0.5,0.5}` Box still renders as the historical unit
-cube.
+`engine/presentation/render/source/geometry/mesh_registry.hpp` is the device's mesh store: a unit
+cube, a unit sphere and a unit cylinder, plus every imported mesh. The draw passes group instances
+by `MeshKind` to bind each mesh's buffers once per group, and `Geometry::shape_scale` turns an
+instance's `shape_parameters` into the local scale multiplied into its model matrix, so a default
+`{0.5,0.5,0.5}` Box draws as a unit cube.
 
 Entity creation ("Create Empty Entity", Camera, and the Box/Sphere/Cylinder/Terrain `Objects`
 submenu) lives in one place, `draw_create_object_menu_items` in
@@ -285,37 +285,47 @@ including a full 15-axis SAT `collide_obb_obb` for oriented-box vs. oriented-box
 geometry only — no runtime, ECS, or solver dependency — so they are unit-tested directly
 (`Unit_Collision`).
 
-`engine/domain/physics/include/SushiEngine/physics/collision/contact_solver.hpp` consumes them:
-non-penetration is an inequality constraint that only pushes bodies apart, so rather than living
-in the compile-once `XPBDSolver` (whose constraint set is fixed) it is a positional projection
-pass regenerated from the narrowphase each sub-step, run between `predict` and `update_velocity`.
-Because `update_velocity` derives velocity from the post-projection position, a body that lands
-on a surface loses its downward velocity with no explicit restitution term (inelastic contact).
+`engine/domain/physics/include/SushiEngine/physics/collision/contact_solver.hpp` consumes them for
+`PhysicsWorld`: non-penetration is an inequality constraint that only pushes bodies apart, so
+rather than living in the compile-once `XPBDSolver` (whose constraint set is fixed) it is a
+positional projection pass regenerated from the narrowphase each sub-step, run between `predict`
+and `update_velocity`. Because `update_velocity` derives velocity from the post-projection
+position, a body that lands on a surface loses its downward velocity with no explicit restitution
+term. That path is the one `samples/physics/soft_body_demo.cpp` and `Unit_Collision` drive; the
+live scene takes a different one, below.
 
 `engine/domain/physics/include/SushiEngine/physics/soft/soft_body.hpp` is the 3D counterpart of
 the [cloth grid](#12-cloth-sushiloop-m5): `build_soft_body_lattice` wires an `nx*ny*nz` particle
 grid held by structural (axis) and shear (face-diagonal) `XPBDDistanceConstraint`s into a
 `PhysicsWorld`, so the same solver runs a deformable block with no new constraint type — a
-mass-spring soft body (tetrahedral volume constraints are a later refinement). Both are validated
-headlessly (`Integration_SoftBody`, `samples/physics/soft_body_demo.cpp`).
+mass-spring soft body. Both are validated headlessly (`Integration_SoftBody`,
+`samples/physics/soft_body_demo.cpp`). It is not what the live scene runs either:
+`ISoftBodyService::set_soft_bodies` instances a cooked tetrahedral asset as a
+`Physics::SoftBodyInstance` over the finite-element model in `physics/soft/fem_element.hpp`.
 
-Contacts are now wired into the **live tick**. `PhysicsWorld::step` takes an optional post-solve
-callback — run each sub-step between the constraint solve and the velocity derivation — so the
-world stays collider-agnostic while a caller injects a narrowphase. `PhysicsSimulation<T>` uses
-it: `resolve_contacts()` builds one unified `ContactBody<T>` view over both the rigid world and
-the cloth world, runs a sweep-and-prune broadphase across all bodies combined (rigid bodies as
-true oriented boxes or spheres, from the entity's Collider/Shape, plus the scene's static `Plane`
-colliders — Terrain, supplied every tick via `set_static_planes`), and resolves every candidate
-pair through the shared `ContactBody`-based projection — **two-way coupling**: a rigid body and a
-cloth particle that overlap are each pushed apart by their own generalized inverse mass, so cloth
-drapes over a rigid *and* pushes back on it (only cloth-cloth pairs are skipped).
+Contacts are wired into the **live tick**. `PhysicsWorld::step` takes an optional post-solve
+callback — run each sub-step between the constraint solve and the velocity derivation — so that
+world stays collider-agnostic while a caller injects a narrowphase.
+`Simulation::PhysicsSimulation` does it in one solver instead, and needs no injection seam,
+because every kind of body *is* a body to it: a cloth particle, a vehicle's shell node and a crate
+are the same thing to the solve. Each tick it keeps a `Physics::BVHBroadphase` over one proxy per
+body — a rigid body as the oriented box or sphere its `Collider` names, a cloth particle, shell
+node or wheel as the sphere its radius names, plus the scene's static `Plane` colliders (Terrain,
+supplied every tick via `set_static_planes`) — generates a manifold per candidate pair, and
+submits each one to the solver as a contact constraint.
 
-So a body dropped on terrain comes to rest (its downward velocity absorbed with no restitution
-term, since velocity is derived from the post-contact position) and a cloth sheet settles over,
-and visibly displaces, a rigid sphere it overlaps. Remaining gaps: no friction, no restitution,
-one contact point per pair (a resting box can rock), and no cloth self-collision yet; rendering a
-deforming surface mesh (cloth and soft bodies reach the renderer as vertex sets) is otherwise
-complete — cloth already draws shaded and pickable through the
+Coupling is **two-way** with no special case: a rigid body and a cloth particle that overlap are
+each pushed apart by their own generalized inverse mass, so cloth drapes over a rigid *and* pushes
+back on it. Cloth-cloth pairs and the pairs inside one vehicle are excluded, by each layer's
+self-excluding `CollisionFilter` rather than by a test in the manifold pass.
+
+So a body dropped on terrain comes to rest, and a cloth sheet settles over, and visibly displaces,
+a rigid sphere it overlaps. Friction and restitution come from the two bodies' `PhysicsMaterial`s,
+combined per pair by `make_contact_parameters`; a manifold carries up to four points, so a resting
+box does not rock. The remaining gap is cloth self-collision: soft bodies have it
+(`physics/soft/soft_self_collision.hpp`), cloth does not, and its layer excludes itself for that
+reason. Rendering a deforming surface mesh (cloth and soft bodies reach the renderer as vertex
+sets) is complete — cloth draws shaded and pickable through the
 [mesh pipeline](#12-cloth-sushiloop-m5), not as a wireframe.
 
 ### 1.5. Editor authoring: cloth, UI, and custom components
