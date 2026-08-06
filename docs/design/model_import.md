@@ -307,9 +307,20 @@ The rules, in the order they apply:
    makes a wheel impossible to rotate and a door impossible to open.
 8. **A single glTF root becomes the subtree root. Several roots gain a synthetic root** named after
    the file stem, so the result is always one selectable, one movable, one deletable thing.
-9. **`scale_factor` and `root_rotation_degrees` apply to the subtree root only.** Applying either
-   per node would compound it once per level of the hierarchy. Both default to no change (§4.2), so
-   an ordinary import produces the file's own placement untouched.
+9. **`root_rotation_degrees` applies to the subtree root only.** Rotating per node would compound it
+   once per level of the hierarchy.
+10. **`scale_factor` multiplies every node's local translation, and the local scale of geometry-
+    carrying entities only.** The root is not scaled. This is forced by how the physics extract
+    resolves a collider: `resolve_collider` scales by `entity.local_scale`, the entity's own scale,
+    not by `world_scale` (`physics_extract.hpp:105-106,129-140`). Putting the factor on the root
+    would scale the drawing through the hierarchy and leave every generated collider at the file's
+    raw size — silently wrong physics the moment `generate_colliders` and a `scale_factor` are set
+    together. Distributing it this way keeps the composed world position correct, because scaling
+    each level's translation scales their sum, while keeping the factor out of the parent chain so
+    it cannot compound; and it puts the factor exactly where `resolve_collider` reads it.
+
+Both settings default to no change (§4.2), so an ordinary import reproduces the file's own placement
+untouched and neither rule has any effect.
 10. **Names are made unique among siblings**, not globally: two wheels may both contain a node named
     `Tire`, and renaming one of them would misdescribe the file.
 
@@ -425,19 +436,27 @@ The weight is on the pure layer, which needs no device:
 No serialization test is added, and none is needed: §4.3 introduces no component, so an imported
 subtree is ordinary entities that `scene_serializer.cpp` already round-trips and already covers.
 
-## §11 Open verification items
+## §11 Verified assumptions, and one limitation they exposed
 
-Recorded rather than assumed, and closed during implementation before the code that depends on them
-is written:
+Both items this document opened were closed by reading the tree rather than by assuming an answer.
 
-1. **Does a cooked collider respect its entity's scale?** §5 applies `scale_factor` to the root
-   transform, which is correct for the visual mesh. A collider cooked from file-space geometry is
-   only correct at that scale if the physics side applies the entity's scale too. If it does not,
-   `generate_colliders` must carry the scale into the cook instead, and this document is amended
-   rather than the discrepancy shipped.
-2. **Does cgltf expose `KHR_lights_punctual` in the vendored version?** §4.1 assumes
-   `cgltf_node::light`. If the pinned version does not, importing lights moves to §12 and
-   `import_lights` is not offered rather than offered and inert.
+1. **A collider is scaled by its entity's own scale, not by its world scale.** `resolve_collider`
+   applies `entity.local_scale` (`physics_extract.hpp:129-140`); both scales are extracted
+   (`:105-106`) and the collider path deliberately takes the local one. §5 rule 10 is written to
+   that fact rather than around it.
+2. **cgltf exposes `KHR_lights_punctual`.** The vendored version 1.15 parses the extension at both
+   the node and document level, giving `cgltf_node::light` and a `cgltf_light` carrying type
+   (directional, point, spot), colour, intensity, range and both spot cone angles, with
+   `cgltf_light_index` for the join. Cameras are exposed the same way, perspective and orthographic.
+   §4.1 and §5 rules 4 and 5 stand as written.
+
+The first answer exposes a limitation that predates this document and that it does not fix: because
+a collider is sized by its own entity's scale, a collider under a node the **file itself** scales is
+sized without that parent's contribution. This is true of any scaled hierarchy in the engine today,
+not something imported models introduce. The importer does not work around it, and does not pretend
+it is absent: when `generate_colliders` is set and the file scales a node that has collider-carrying
+descendants, the import reports it as a warning naming the node, so the artist finds out at import
+rather than when something falls through the floor.
 
 ## §12 Future work, explicitly deferred
 
