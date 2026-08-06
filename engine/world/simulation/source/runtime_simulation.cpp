@@ -980,6 +980,30 @@ namespace SushiEngine
                         record->has_crowd = value;
                     }
 
+                    bool has_prefab_instance(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        // The path is the flag: an instance with no prefab named is not an
+                        // instance, which is also how set_prefab_instance clears one.
+                        return record != nullptr && !record->prefab_instance.path.empty();
+                    }
+
+                    PrefabInstanceParameters prefab_instance(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->prefab_instance
+                                                 : PrefabInstanceParameters{};
+                    }
+
+                    void set_prefab_instance(EntityId id,
+                                             const PrefabInstanceParameters& parameters) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->prefab_instance = parameters;
+                    }
+
                     std::uint32_t register_crowd_skeleton(const std::string& gltf_path) override
                     {
                         const auto cached = crowd_skeleton_cache_.find(gltf_path);
@@ -1986,6 +2010,11 @@ namespace SushiEngine
                         // extract, keyed by EntityId, not a per-instance component.
                         bool has_crowd = false;
                         CrowdParameters crowd_parameters{};
+                        // Which prefab this entity's subtree was built from, on the root of an
+                        // instance and nowhere else. No `has_` flag beside it: a non-empty path
+                        // is the flag, so there is one way to be an instance rather than two
+                        // that can disagree.
+                        PrefabInstanceParameters prefab_instance{};
                         // A punctual light on this entity: same plain host bookkeeping as
                         // cloth/shape, extracted into RenderScene::lights each frame with
                         // the entity's transform supplying the light's position and aim.

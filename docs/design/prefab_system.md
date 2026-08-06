@@ -168,11 +168,23 @@ them yet.
 
 After `load_scene` finishes, one pass over the world: for every root carrying
 `PrefabInstanceParameters`, read the prefab's current revision and compare. When they differ,
-destroy the subtree below that root, rebuild it from the prefab, and write the new revision.
+destroy the instance's subtree, rebuild it from the prefab under the same parent, and write the new
+revision.
 
-**The root's own name and transform are preserved.** They are the instance's placement, not the
-prefab's content, and a rebuild that moved every street light back to the origin would be a rebuild
-nobody could use.
+**The root is replaced, not kept and re-dressed**, and its name and transform are then written back
+over the rebuilt one. They are the instance's placement, not the prefab's content, and a rebuild
+that moved every street light back to the origin would be a rebuild nobody could use.
+
+Keeping the old root and rebuilding only beneath it was the obvious shape and is wrong: the
+commonest prefab there is — one object dragged out of the Hierarchy — has *no* children, so its
+root carries the whole of its content. Re-dressing that root means dropping every component the
+file's root declares, and such a prefab would refresh into an empty entity. Replacing the root
+changes the instance's `EntityId`, which is why this pass runs where nothing is holding one: on
+load, before the editor has a selection.
+
+The destroy is bottom-up, because `destroy` leaves a destroyed parent's children as roots rather
+than cascading (`runtime_simulation.cpp:323`). Destroying the root first would scatter the old
+subtree across the scene instead of removing it.
 
 The pass runs in `load_scene` and **not** in `apply_scene`. This is the detail that is easiest to
 get wrong and the most damaging to get wrong: `apply_scene` is the path undo restores through, and

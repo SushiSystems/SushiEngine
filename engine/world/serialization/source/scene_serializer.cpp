@@ -40,6 +40,7 @@
 #include "effect_serializer.hpp"
 #include "entity_record.hpp"
 #include "environment_serializer.hpp"
+#include "prefab_serializer.hpp"
 
 namespace SushiEngine
 {
@@ -905,6 +906,16 @@ namespace SushiEngine
                         script_array.push_back(script_to_json(world.script_component(id, type_name)));
                     entry["scripts"] = std::move(script_array);
                 }
+
+                // No `has_prefab_instance` flag beside it: the block's presence is the flag,
+                // because this component has no present-but-empty state to distinguish. That
+                // also keeps it out of every entity in every file that has no prefab.
+                if (world.has_prefab_instance(id))
+                {
+                    const auto parameters = world.prefab_instance(id);
+                    entry["prefab_instance"] =
+                        json{{"path", parameters.path}, {"revision", parameters.revision}};
+                }
                 return entry;
             }
 
@@ -1262,6 +1273,15 @@ namespace SushiEngine
                 if (entry.contains("scripts") && entry["scripts"].is_array())
                     for (const json& s : entry["scripts"])
                         world.add_script_component(id, script_from_json(s));
+
+                if (entry.contains("prefab_instance"))
+                {
+                    const json& p = entry["prefab_instance"];
+                    SushiEngine::Simulation::PrefabInstanceParameters parameters;
+                    parameters.path = p.value("path", std::string{});
+                    parameters.revision = p.value("revision", std::string{});
+                    world.set_prefab_instance(id, parameters);
+                }
                 return id;
             }
 
@@ -1582,6 +1602,7 @@ namespace SushiEngine
                 apply_scene(world, root);
                 if (assets != nullptr)
                     resolve_scene_assets(world, *assets);
+                (void)refresh_prefab_instances(world);
                 return true;
             }
 
@@ -1593,6 +1614,12 @@ namespace SushiEngine
             apply_scene(world, root);
             if (assets != nullptr)
                 resolve_scene_assets(world, *assets);
+            // Beside resolve_scene_assets and for the same reason: both are post-load passes
+            // that must not run in apply_scene, which is the path undo restores through.
+            // Refreshing there would reinstate the very change being undone. `load_scene` has
+            // nowhere to report to, so the unreadable paths are dropped here; the editor calls
+            // this directly and surfaces them.
+            (void)refresh_prefab_instances(world);
             if (root.contains("weather"))
                 weather_from_json(root["weather"], world, path);
             if (sky != nullptr && root.contains("sky"))

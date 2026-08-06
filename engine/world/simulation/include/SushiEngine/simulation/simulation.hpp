@@ -909,6 +909,21 @@ namespace SushiEngine
             std::vector<ScriptField> fields;     /**< Its authored fields, in order. */
         };
 
+        /**
+         * @brief The prefab an entity's subtree was built from, and the revision it was built at.
+         *
+         * Carried by an instance's root entity and by no other. Two fields are the whole
+         * linkage: the refresh pass that runs when a scene opens compares @ref revision against
+         * the prefab's current one and rebuilds what does not match. Edits made inside the
+         * subtree do not survive that rebuild; preserving them is override resolution, which is
+         * a later phase and has no affordance in this one.
+         */
+        struct PrefabInstanceParameters
+        {
+            std::string path;     /**< The `.sushiprefab` this subtree was built from. */
+            std::string revision; /**< The prefab's revision at the time it was built. */
+        };
+
         /** @brief The resolved camera for one display: the winner among its cameras. */
         struct DisplayCamera
         {
@@ -1548,6 +1563,33 @@ namespace SushiEngine
                  * @param value Whether it should be a crowd entity after this call.
                  */
                 virtual void set_has_crowd(EntityId id, bool value) = 0;
+
+                /**
+                 * @brief Whether @p id is the root of a prefab instance.
+                 *
+                 * True exactly when the entity's @ref PrefabInstanceParameters names a path.
+                 * There is no `set_has_prefab_instance` to go with this: a non-empty path is
+                 * what makes an entity an instance, so the component has no
+                 * present-but-empty state for a flag to distinguish. A reader looking for the
+                 * fourth accessor its neighbours have is told here that it is absent on
+                 * purpose.
+                 */
+                virtual bool has_prefab_instance(EntityId id) const noexcept = 0;
+
+                /** @brief The entity's prefab linkage (defaults if it is not an instance). */
+                virtual PrefabInstanceParameters prefab_instance(EntityId id) const = 0;
+
+                /**
+                 * @brief Writes an entity's prefab linkage.
+                 *
+                 * Pass a value whose `path` is empty to unlink the subtree: the entities stay
+                 * exactly as they are and stop being rebuilt from the asset.
+                 *
+                 * @param id         The entity to update.
+                 * @param parameters The prefab and the revision it was built at.
+                 */
+                virtual void set_prefab_instance(EntityId id,
+                                                 const PrefabInstanceParameters& parameters) = 0;
 
                 /** @brief Whether @p id carries a punctual light. */
                 virtual bool has_light(EntityId id) const noexcept = 0;

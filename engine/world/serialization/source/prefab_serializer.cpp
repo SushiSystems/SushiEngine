@@ -39,8 +39,10 @@ namespace SushiEngine
     namespace Scene
     {
         using SushiEngine::Simulation::EntityId;
+        using SushiEngine::Simulation::EntityTransform;
         using SushiEngine::Simulation::IWorldEditor;
         using SushiEngine::Simulation::NULL_ENTITY;
+        using SushiEngine::Simulation::PrefabInstanceParameters;
         using json = nlohmann::json;
 
         namespace
@@ -168,6 +170,82 @@ namespace SushiEngine
 
             out = document["revision"].get<std::string>();
             return !out.empty();
+        }
+
+        std::vector<std::string> refresh_prefab_instances(IWorldEditor& world)
+        {
+            std::vector<std::string> unreadable;
+
+            // Snapshotted first: the body destroys and creates entities, and walking a list
+            // it invalidates is the bug this line exists to prevent. An entity destroyed as
+            // part of an enclosing instance is simply no longer live, and `has_prefab_instance`
+            // answers false for it.
+            const std::vector<EntityId> candidates = world.entities();
+            for (const EntityId id : candidates)
+            {
+                if (!world.has_prefab_instance(id))
+                    continue;
+                const PrefabInstanceParameters link = world.prefab_instance(id);
+
+                // The cheap read first, for every instance; the whole document only for the
+                // stale ones. Opening a scene otherwise scales with the size of its prefabs
+                // rather than their number.
+                std::string current;
+                if (!read_prefab_revision(link.path, current))
+                {
+                    unreadable.push_back(link.path);
+                    continue;
+                }
+                if (current == link.revision)
+                    continue;
+
+                json document;
+                {
+                    std::ifstream file(link.path);
+                    try
+                    {
+                        file >> document;
+                    }
+                    catch (const json::parse_error&)
+                    {
+                        // A file whose revision parsed but whose body did not is still a
+                        // prefab this pass cannot use, and the subtree stays as it is.
+                        unreadable.push_back(link.path);
+                        continue;
+                    }
+                }
+
+                // The placement belongs to the scene and the content to the file, so the two
+                // are pulled apart here: everything below is rebuilt, and these three survive.
+                const std::string name = world.name(id);
+                const EntityTransform placement = world.transform(id);
+                const EntityId parent = world.parent(id);
+
+                // Bottom-up, because `destroy` leaves a destroyed parent's children as roots
+                // rather than cascading: destroying the root first would scatter the old
+                // subtree into the scene instead of removing it.
+                const std::vector<EntityId> previous = subtree_of(world, id);
+                for (auto it = previous.rbegin(); it != previous.rend(); ++it)
+                    world.destroy(*it);
+
+                // The root is replaced rather than kept and re-dressed, so a prefab whose own
+                // root carries geometry keeps it — which is every prefab authored from a
+                // single object, and would otherwise refresh into an empty entity.
+                const EntityId rebuilt = apply_prefab(world, document, parent);
+                if (rebuilt == NULL_ENTITY)
+                {
+                    unreadable.push_back(link.path);
+                    continue;
+                }
+
+                world.set_name(rebuilt, name);
+                world.set_transform(rebuilt, placement);
+                PrefabInstanceParameters refreshed;
+                refreshed.path = link.path;
+                refreshed.revision = current;
+                world.set_prefab_instance(rebuilt, refreshed);
+            }
+            return unreadable;
         }
     } // namespace Scene
 } // namespace SushiEngine

@@ -579,6 +579,11 @@ add_executable(sushiengine_functional_tests
     # component it forgets is destroyed by all four.
     integration/test_scene_serializer_roundtrip.cpp
 
+    # prefab_system.md §5's refresh: a stale instance is rebuilt from its file while keeping
+    # its placement, a current one is left untouched, a missing prefab loses nothing, and
+    # apply_scene — undo's path — does not refresh at all.
+    integration/test_prefab_instance.cpp
+
     # §5.5's PhysicsJoint, from the Inspector's component down to the solver: a joint
     # holds a body up that a control body identically built does not stay up without,
     # it reports the load it carries (§10.4), it tears out above a threshold and stays

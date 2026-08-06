@@ -10,6 +10,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- 2026-08-06 — Added prefab assets: an entity subtree saved as a `.sushiprefab`, placed as
+  instances, and rebuilt from the asset when a scene is opened at an older revision. See
+  `docs/design/prefab_system.md`.
 - 2026-08-05 — Added "Imported" mesh support to Renderer (`ShapeParameters::mesh_path`/`::mesh`),
   wired to render extraction and render passes. Static props now work without `Crowd` or physics.
   See `docs/design/static_mesh_authoring.md`.

@@ -34,6 +34,7 @@
  */
 
 #include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -97,5 +98,30 @@ namespace SushiEngine
          * @return False when the file cannot be read or parsed, or carries no revision.
          */
         bool read_prefab_revision(const std::string& path, std::string& out);
+
+        /**
+         * @brief Rebuilds every prefab instance in @p world whose revision no longer matches
+         *     its file.
+         *
+         * For each entity carrying `PrefabInstanceParameters`: read the prefab's current
+         * revision, and when it differs, replace the whole subtree from the file. The
+         * instance's name and transform are written back over the rebuilt root — they are its
+         * placement, not the prefab's content, and a rebuild that moved every street light
+         * back to the origin would be one nobody could use. Everything else is the file's,
+         * including the root's own components, which is why the root is replaced rather than
+         * kept and re-dressed.
+         *
+         * Call this from `load_scene` and not from `apply_scene`. `apply_scene` is the path
+         * undo restores through, and refreshing there would reinstate the very change being
+         * undone.
+         *
+         * @param world The world to refresh.
+         * @return The paths of prefabs that could not be read, in encounter order. Their
+         *     instances are left exactly as they were, so a file that is merely missing
+         *     unlinks a subtree in the editor's display rather than deleting it or severing
+         *     the link a restored file would resolve.
+         */
+        std::vector<std::string> refresh_prefab_instances(
+            SushiEngine::Simulation::IWorldEditor& world);
     } // namespace Scene
 } // namespace SushiEngine

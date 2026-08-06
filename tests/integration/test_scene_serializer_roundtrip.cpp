@@ -919,3 +919,86 @@ TEST(Integration_SceneSerializer, AnImportedMeshHandleSurvivesCaptureApply)
     EXPECT_EQ(after.mesh_path, "models/car.gltf");
     EXPECT_EQ(after.mesh, 11u);
 }
+
+TEST(Integration_SceneSerializer, APrefabInstanceSurvivesTheSceneFile)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+
+    clear_world(world);
+    const EntityId lamp = world.create("StreetLamp");
+    PrefabInstanceParameters authored;
+    authored.path = "prefabs/street_lamp.sushiprefab";
+    authored.revision = "1234567890";
+    world.set_prefab_instance(lamp, authored);
+
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "sushiengine_prefab_instance.sushiscene";
+    std::error_code error;
+    std::filesystem::remove(path, error);
+    ASSERT_TRUE(Scene::save_scene(world, path.string()));
+
+    clear_world(world);
+    ASSERT_TRUE(Scene::load_scene(world, path.string()));
+
+    const EntityId restored = find_by_name(world, "StreetLamp");
+    ASSERT_NE(restored, NULL_ENTITY);
+    ASSERT_TRUE(world.has_prefab_instance(restored));
+    EXPECT_EQ(world.prefab_instance(restored).path, authored.path);
+    // The revision has to survive too, or every instance reads as stale on the next load and
+    // the refresh rebuilds a world that never changed.
+    EXPECT_EQ(world.prefab_instance(restored).revision, authored.revision);
+
+    std::filesystem::remove(path, error);
+    std::filesystem::remove(std::filesystem::path(path.string() + ".atmos"), error);
+}
+
+TEST(Integration_SceneSerializer, APrefabInstanceSurvivesCaptureApply)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+
+    clear_world(world);
+    const EntityId lamp = world.create("StreetLamp");
+    PrefabInstanceParameters authored;
+    authored.path = "prefabs/street_lamp.sushiprefab";
+    authored.revision = "1234567890";
+    world.set_prefab_instance(lamp, authored);
+
+    const nlohmann::json snapshot = Scene::capture_scene(world);
+    world.set_prefab_instance(lamp, PrefabInstanceParameters{});
+    ASSERT_FALSE(world.has_prefab_instance(lamp));
+    Scene::apply_scene(world, snapshot);
+
+    // Undo restores the link, so undoing a "break prefab link" is undoable like anything else.
+    const EntityId restored = find_by_name(world, "StreetLamp");
+    ASSERT_NE(restored, NULL_ENTITY);
+    ASSERT_TRUE(world.has_prefab_instance(restored));
+    EXPECT_EQ(world.prefab_instance(restored).path, authored.path);
+    EXPECT_EQ(world.prefab_instance(restored).revision, authored.revision);
+}
+
+TEST(Integration_SceneSerializer, AnEntityWithNoPrefabInstanceComesBackWithout)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+
+    clear_world(world);
+    world.create("PlainBox");
+
+    // A component nobody set must not bloat every entity in every file, and must not come back
+    // as an instance of a prefab that does not exist — which the refresh pass would then try
+    // to read on every load.
+    const nlohmann::json snapshot = Scene::capture_scene(world);
+    ASSERT_TRUE(snapshot.contains("entities"));
+    ASSERT_EQ(snapshot["entities"].size(), 1u);
+    EXPECT_FALSE(snapshot["entities"].front().contains("prefab_instance"));
+
+    Scene::apply_scene(world, snapshot);
+    const EntityId box = find_by_name(world, "PlainBox");
+    ASSERT_NE(box, NULL_ENTITY);
+    EXPECT_FALSE(world.has_prefab_instance(box));
+}
