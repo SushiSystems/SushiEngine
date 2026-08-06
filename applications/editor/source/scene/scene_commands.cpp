@@ -23,6 +23,8 @@
 
 #include "scene_commands.hpp"
 
+#include <SushiEngine/model_import/prefab_output.hpp>
+
 #include "../ui/panel_widgets.hpp"
 
 #include <algorithm>
@@ -481,17 +483,40 @@ namespace SushiEngine
             if (world == nullptr)
                 return false;
 
-            const std::string prefab_path = asset_path + ".sushiprefab";
+            // A prefab is placed as itself; anything else is a model, whose prefab lives
+            // beside it under the same name with the extension appended.
+            const bool is_prefab =
+                std::filesystem::path(asset_path).extension() == ".sushiprefab";
+            const std::string prefab_path =
+                is_prefab ? asset_path : asset_path + ".sushiprefab";
+
             std::error_code exists_error;
+            if (!is_prefab && !std::filesystem::exists(prefab_path, exists_error))
+            {
+                // Imported here rather than reported as a missing step. `import_gltf_scene`
+                // reads the node graph and explicitly loads no buffers, so this parses a
+                // structure and writes a document — it does not touch vertex data, and the
+                // cost is not the one a mouse-release handler has to refuse to pay.
+                SushiEngine::Model::ModelImportReport report;
+                if (!SushiEngine::ModelImport::write_model_prefab(asset_path, report))
+                {
+                    editor_log(context,
+                               "Could not import '" +
+                                   std::filesystem::path(asset_path).filename().string() + "'.",
+                               LogLevel::Warning);
+                    return false;
+                }
+                // Everything the import could not carry across, in the artist's words rather
+                // than left in a report nobody reads.
+                for (const std::string& warning : report.warnings)
+                    editor_log(context, warning, LogLevel::Warning);
+                editor_log(context, "Imported '" +
+                                        std::filesystem::path(asset_path).filename().string() +
+                                        "' as a prefab.");
+            }
             if (!std::filesystem::exists(prefab_path, exists_error))
             {
-                // Not an error state, just an asset nobody has imported yet. Saying which file
-                // is missing is what lets the user act on it.
-                editor_log(context,
-                           "No prefab beside '" +
-                               std::filesystem::path(asset_path).filename().string() +
-                               "'. Import the model first.",
-                           LogLevel::Warning);
+                editor_log(context, "No prefab at '" + prefab_path + "'.", LogLevel::Warning);
                 return false;
             }
 

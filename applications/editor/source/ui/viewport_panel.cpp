@@ -744,7 +744,11 @@ namespace SushiEngine
                     const std::string dropped(static_cast<const char*>(payload->Data));
                     const std::string extension =
                         std::filesystem::path(dropped).extension().string();
-                    if (extension == ".gltf" || extension == ".glb")
+                    // A prefab is placed as itself; a model is placed through the prefab
+                    // written beside it. Nothing else has a meaning here — a texture dropped
+                    // on the view would place an entity the user then has to find and delete.
+                    if (extension == ".gltf" || extension == ".glb" ||
+                        extension == ".sushiprefab")
                         *inputs.dropped_model_path = dropped;
                 }
                 ImGui::EndDragDropTarget();

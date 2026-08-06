@@ -100,6 +100,7 @@ target_link_libraries(sushiengine_editor PRIVATE
     sushiengine_serialization
     sushiengine_authoring
     sushiengine_model
+    sushiengine_model_import
     sushiengine_platform
     sushiengine_input_backend
     sushiengine_audio_backend

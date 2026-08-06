@@ -170,18 +170,15 @@ namespace SushiEngine
         void delete_selection(EditorContext& context);
 
         /**
-         * @brief Places an instance of @p asset_path's prefab, and selects it.
+         * @brief Places an instance of @p asset_path, and selects it.
          *
-         * The Scene view's model drop. Reads `<asset_path>.sushiprefab`, the file the model
-         * importer writes beside an asset, and builds an instance of it as one undo step.
-         *
-         * A model that has not been imported yet is reported and nothing is placed. Importing
-         * it here is deliberately not done: reading and planning a large glTF inside a
-         * mouse-release handler would block the interface for as long as it took, which reads
-         * as a hang rather than as work.
+         * The Scene view's drop. A `.sushiprefab` is placed as itself; a model is placed
+         * through the prefab written beside it, which is imported first if it is not there
+         * yet — `import_gltf_scene` reads a node graph and loads no buffers, so that import
+         * parses a structure rather than any geometry.
          *
          * @param context    Editor state; mutates the world, the selection and the log.
-         * @param asset_path The `.gltf` or `.glb` that was dropped.
+         * @param asset_path The `.gltf`, `.glb` or `.sushiprefab` that was dropped.
          * @return Whether an instance was placed.
          */
         bool place_model_instance(EditorContext& context, const std::string& asset_path);
