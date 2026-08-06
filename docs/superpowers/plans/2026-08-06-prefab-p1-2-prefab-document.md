@@ -231,6 +231,7 @@ the file pins, then:
 ```cpp
 #include <filesystem>
 #include <fstream>
+#include <algorithm>
 #include <set>
 #include <string>
 #include <system_error>
@@ -468,6 +469,25 @@ TEST(Unit_PrefabSerializer, AnAddedEntityChangesTheRevision)
     EXPECT_NE(before, after);
 }
 
+TEST(Unit_PrefabSerializer, AReorderedArrayChangesTheRevision)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+
+    const EntityId root = build_subtree(world);
+    const nlohmann::json document = Scene::capture_prefab(world, root);
+    ASSERT_GE(document["entities"].size(), 3u);
+
+    // §9 lists order among the things a revision must notice. It holds trivially while the
+    // revision hashes the serialized array, and stops holding the day someone "improves" it
+    // into a hash over a set of per-entity hashes — which is exactly the change this case is
+    // here to fail.
+    nlohmann::json reordered = document["entities"];
+    std::swap(reordered[1], reordered[2]);
+    EXPECT_NE(Scene::prefab_revision(document["entities"]), Scene::prefab_revision(reordered));
+}
+
 TEST(Unit_PrefabSerializer, CapturingANonLiveEntityYieldsAnEmptyDocument)
 {
     const auto simulation = create_simulation();
@@ -671,7 +691,9 @@ result is an object carrying a non-empty string `revision`.
 se build
 se test --suite functional
 ```
-Expected: every `Unit_PrefabSerializer.*` case passes, and the total rises from 1469 to 1482.
+Expected: every `Unit_PrefabSerializer.*` case passes, and the total rises from 1469 to 1483 — the
+fourteen cases above. A total that rises by less means a case was dropped; a total unchanged means
+the suite prefix is wrong and nothing was discovered.
 
 - [ ] **Step 8: Update the README and commit**
 

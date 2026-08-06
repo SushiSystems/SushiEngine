@@ -279,7 +279,7 @@ because this component has no empty-but-present state to distinguish.
 se build
 se test --suite functional
 ```
-Expected: the three new `Integration_SceneSerializer` cases pass; total 1485.
+Expected: the three new `Integration_SceneSerializer` cases pass; total 1486.
 
 - [ ] **Step 6: Commit**
 
@@ -462,8 +462,12 @@ TEST(Integration_PrefabInstance, AMissingPrefabLeavesTheEntitiesInPlaceAndDoesNo
     ASSERT_EQ(unreadable.size(), 1u);
     EXPECT_EQ(unreadable.front(), path.string());
 
-    // §4: a missing prefab unlinks a subtree, it does not delete one. The objects the user
-    // placed are still there and still linked, so restoring the file restores the link.
+    // §8 says a missing prefab "marks the root unlinked". Read that as what the editor
+    // *shows*, not as clearing the component — the returned path is what the editor marks
+    // from. Clearing it would make a file that is merely not pulled yet, or on an unmounted
+    // drive, destroy the link permanently: restoring the file would restore nothing, and the
+    // user would have no way to tell that from a prefab they deliberately unlinked. The
+    // component is the cheapest thing in the scene and the only record of the association.
     EXPECT_EQ(world.entities().size(), 4u);
     EXPECT_NE(find_by_name(world, "Deep"), NULL_ENTITY);
     EXPECT_TRUE(world.has_prefab_instance(instance));
@@ -635,7 +639,7 @@ se build
 se test --suite functional
 ```
 Expected: every `Integration_PrefabInstance.*` case passes, `ApplySceneDoesNotRefresh` included;
-total 1490.
+total 1491.
 
 - [ ] **Step 7: Changelog and commit**
 
