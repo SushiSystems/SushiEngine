@@ -1002,3 +1002,64 @@ TEST(Integration_SceneSerializer, AnEntityWithNoPrefabInstanceComesBackWithout)
     ASSERT_NE(box, NULL_ENTITY);
     EXPECT_FALSE(world.has_prefab_instance(box));
 }
+
+TEST(Integration_SceneSerializer, ANestedHierarchyKeepsItsLocalTransforms)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    // No test in this file nested an entity until now, which is how apply_scene shipped
+    // reinterpreting a child's stored local transform as a world pose: `set_parent`
+    // recomputes the local to preserve the world pose, and the second pass parents entities
+    // *after* the first pass has already written their locals. Save/Load, Undo/Redo and
+    // Play→Stop all ride this seam, so a hierarchy drifted a little further on every one.
+    const EntityId parent = world.create("Parent");
+    const EntityId child = world.create("Child");
+    const EntityId grandchild = world.create("Grandchild");
+    world.set_parent(child, parent);
+    world.set_parent(grandchild, child);
+
+    EntityTransform parent_local;
+    parent_local.position = Vector3{10.0, 20.0, 30.0};
+    parent_local.scale = Vector3{2.0, 2.0, 2.0};
+    world.set_transform(parent, parent_local);
+
+    EntityTransform child_local;
+    child_local.position = Vector3{1.0, 2.0, 3.0};
+    child_local.rotation = Quaternion{0.5, 0.5, 0.5, 0.5};
+    child_local.scale = Vector3{4.0, 5.0, 6.0};
+    world.set_transform(child, child_local);
+
+    EntityTransform grandchild_local;
+    grandchild_local.position = Vector3{7.0, 8.0, 9.0};
+    world.set_transform(grandchild, grandchild_local);
+
+    const nlohmann::json snapshot = Scene::capture_scene(world);
+    clear_world(world);
+    Scene::apply_scene(world, snapshot);
+
+    const EntityId restored_child = find_by_name(world, "Child");
+    const EntityId restored_grandchild = find_by_name(world, "Grandchild");
+    ASSERT_NE(restored_child, NULL_ENTITY);
+    ASSERT_NE(restored_grandchild, NULL_ENTITY);
+    EXPECT_EQ(world.parent(restored_child), find_by_name(world, "Parent"));
+    EXPECT_EQ(world.parent(restored_grandchild), restored_child);
+
+    const EntityTransform child_after = world.transform(restored_child);
+    EXPECT_DOUBLE_EQ(child_after.position.x, 1.0);
+    EXPECT_DOUBLE_EQ(child_after.position.y, 2.0);
+    EXPECT_DOUBLE_EQ(child_after.position.z, 3.0);
+    EXPECT_DOUBLE_EQ(child_after.rotation.w, 0.5);
+    EXPECT_DOUBLE_EQ(child_after.scale.x, 4.0);
+    EXPECT_DOUBLE_EQ(child_after.scale.y, 5.0);
+    EXPECT_DOUBLE_EQ(child_after.scale.z, 6.0);
+
+    // The grandchild matters separately: its parent is itself parented, so a fix that only
+    // worked one level down would restore the child and still drift this one.
+    const EntityTransform grandchild_after = world.transform(restored_grandchild);
+    EXPECT_DOUBLE_EQ(grandchild_after.position.x, 7.0);
+    EXPECT_DOUBLE_EQ(grandchild_after.position.y, 8.0);
+    EXPECT_DOUBLE_EQ(grandchild_after.position.z, 9.0);
+}

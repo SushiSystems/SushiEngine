@@ -87,6 +87,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   the pyramid instead of only persisting.
 
 ### Fixed
+- 2026-08-07 — Fixed a nested entity losing its local transform through `apply_scene`, drifting
+  hierarchies on every Save/Load and undo: `set_parent` preserves the world pose, so parenting
+  after the transform divided the stored local out.
 - 2026-08-06 — Fixed a vehicle's authored surfaces never reaching its contacts: every body of every
   car resolved to the default material. Added `VehicleAsset::materials` and resolved each body's
   `material_index` against it.

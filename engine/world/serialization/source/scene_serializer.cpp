@@ -567,6 +567,25 @@ namespace SushiEngine
                 material.fracture_stress = j.value("fracture_stress", material.fracture_stress);
                 return material;
             }
+
+            /**
+             * @brief The local transform a record states, defaulting each axis it omits.
+             *
+             * Read in two places — when the entity is created and again after it is
+             * parented — so it is one function rather than two copies that can disagree
+             * about what a missing `scale` means.
+             */
+            SushiEngine::Simulation::EntityTransform transform_from_record(const json& entry)
+            {
+                SushiEngine::Simulation::EntityTransform transform;
+                if (entry.contains("position"))
+                    transform.position = vec3_from_json(entry["position"]);
+                if (entry.contains("rotation"))
+                    transform.rotation = quaternion_from_json(entry["rotation"]);
+                if (entry.contains("scale"))
+                    transform.scale = vec3_from_json(entry["scale"]);
+                return transform;
+            }
         } // namespace
 
         namespace Detail
@@ -926,14 +945,7 @@ namespace SushiEngine
                 const bool is_camera = entry.value("is_camera", false);
                 const EntityId id = is_camera ? world.create_camera(name) : world.create(name);
 
-                SushiEngine::Simulation::EntityTransform transform;
-                if (entry.contains("position"))
-                    transform.position = vec3_from_json(entry["position"]);
-                if (entry.contains("rotation"))
-                    transform.rotation = quaternion_from_json(entry["rotation"]);
-                if (entry.contains("scale"))
-                    transform.scale = vec3_from_json(entry["scale"]);
-                world.set_transform(id, transform);
+                world.set_transform(id, transform_from_record(entry));
                 world.set_visible(id, entry.value("visible", true));
 
                 if (is_camera && entry.contains("camera"))
@@ -1295,7 +1307,20 @@ namespace SushiEngine
             {
                 const int parent_index = entry.value("parent", -1);
                 if (parent_index >= 0 && static_cast<std::size_t>(parent_index) < created.size())
+                {
                     world.set_parent(id, created[static_cast<std::size_t>(parent_index)]);
+                    // `set_parent` preserves the entity's world pose by recomputing its local
+                    // transform, which is what an artist dragging a node in the Hierarchy
+                    // needs and the opposite of what a load needs: the record already holds
+                    // the local transform, and the entity was still a root when it was
+                    // written, so that value has just been reinterpreted as a world pose and
+                    // divided out. Writing it back restores what the file says.
+                    //
+                    // Safe in any order the array happens to parent its entities in, because
+                    // a local transform is absolute data — it does not depend on whether an
+                    // ancestor has been parented yet.
+                    world.set_transform(id, transform_from_record(entry));
+                }
 
                 if (!entry.value("has_joint", false))
                     return;
