@@ -41,6 +41,7 @@
 #include <string>
 
 #include "../core/editor_context.hpp"
+#include "prefab_serializer.hpp"
 #include "scene_serializer.hpp"
 
 namespace SushiEngine
@@ -167,6 +168,23 @@ namespace SushiEngine
          * @param context Editor state; mutates the world and clears the selection.
          */
         void delete_selection(EditorContext& context);
+
+        /**
+         * @brief Places an instance of @p asset_path's prefab, and selects it.
+         *
+         * The Scene view's model drop. Reads `<asset_path>.sushiprefab`, the file the model
+         * importer writes beside an asset, and builds an instance of it as one undo step.
+         *
+         * A model that has not been imported yet is reported and nothing is placed. Importing
+         * it here is deliberately not done: reading and planning a large glTF inside a
+         * mouse-release handler would block the interface for as long as it took, which reads
+         * as a hang rather than as work.
+         *
+         * @param context    Editor state; mutates the world, the selection and the log.
+         * @param asset_path The `.gltf` or `.glb` that was dropped.
+         * @return Whether an instance was placed.
+         */
+        bool place_model_instance(EditorContext& context, const std::string& asset_path);
 
         /**
          * @brief Runs the selection command parked this frame, if any, and clears it.

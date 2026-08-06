@@ -385,15 +385,12 @@ namespace SushiEngine
             std::string renaming_project_path;
             std::string project_filter;
 
-            // What the Scene view's model drop *would* do, while it does nothing. Written by
-            // the drop and read only by the line reporting it, so the target can be reviewed
-            // for placement and wording before it creates anything. Removed once it is wired.
-            struct PrefabInterfacePreview
-            {
-                // The model the last Scene-view drop would have placed.
-                std::string placed_asset;
-            };
-            PrefabInterfacePreview prefab_ui;
+            // The model dropped onto the Scene view this frame, or empty. The viewport reports
+            // where a drop landed and nothing more — it draws a rendered image and knows
+            // nothing about prefabs, assets or the world — so the main loop reads this after
+            // the panel is drawn, places the instance, and clears it. Acting inside the panel
+            // would put a world edit in the middle of a walk the panel is in the middle of.
+            std::string dropped_model_path;
 
             // Scratch state for the shared inline-rename field (`inline_rename_field`),
             // which the Hierarchy's tree rows, its filtered search rows, and the Project

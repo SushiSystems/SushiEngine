@@ -28,6 +28,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
+#include <string>
 #include <system_error>
 #include <unordered_map>
 #include <utility>
@@ -471,6 +473,68 @@ namespace SushiEngine
             select_only(context, NULL_ENTITY);
             editor_log(context, "Deleted " + std::to_string(removed) + " entit" +
                                      (removed == 1 ? "y" : "ies") + ".");
+        }
+
+        bool place_model_instance(EditorContext& context, const std::string& asset_path)
+        {
+            IWorldEditor* world = world_of(context);
+            if (world == nullptr)
+                return false;
+
+            const std::string prefab_path = asset_path + ".sushiprefab";
+            std::error_code exists_error;
+            if (!std::filesystem::exists(prefab_path, exists_error))
+            {
+                // Not an error state, just an asset nobody has imported yet. Saying which file
+                // is missing is what lets the user act on it.
+                editor_log(context,
+                           "No prefab beside '" +
+                               std::filesystem::path(asset_path).filename().string() +
+                               "'. Import the model first.",
+                           LogLevel::Warning);
+                return false;
+            }
+
+            nlohmann::json document;
+            {
+                std::ifstream file(prefab_path);
+                if (!file)
+                {
+                    editor_log(context, "Could not open '" + prefab_path + "'.",
+                               LogLevel::Warning);
+                    return false;
+                }
+                try
+                {
+                    file >> document;
+                }
+                catch (const nlohmann::json::parse_error&)
+                {
+                    editor_log(context, "'" + prefab_path + "' is not a readable prefab.",
+                               LogLevel::Warning);
+                    return false;
+                }
+            }
+
+            // Recorded before anything is created, so the whole placement undoes as one step
+            // rather than leaving a partial subtree behind.
+            context.history.record(*world);
+            const EntityId root = Scene::apply_prefab(*world, document, NULL_ENTITY);
+            if (root == NULL_ENTITY)
+            {
+                editor_log(context, "'" + prefab_path + "' holds no entity.", LogLevel::Warning);
+                return false;
+            }
+
+            Simulation::PrefabInstanceParameters link;
+            link.path = prefab_path;
+            link.revision = document.value("revision", std::string());
+            world->set_prefab_instance(root, link);
+
+            // Selected, because what the user just placed is what they will move next.
+            select_only(context, root);
+            editor_log(context, "Placed '" + world->name(root) + "'.");
+            return true;
         }
 
         Scene::SceneSkyState capture_sky_state(const EditorContext& context)

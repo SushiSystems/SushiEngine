@@ -884,7 +884,7 @@ int main(int argc, char** argv)
                 scene_inputs.pickable = true;
                 // The Scene view accepts a model dropped from the Project browser; the Game
                 // view does not, since the game is played rather than authored.
-                scene_inputs.dropped_model_path = &context.prefab_ui.placed_asset;
+                scene_inputs.dropped_model_path = &context.dropped_model_path;
                 scene_inputs.gizmo_target = gizmo_target;
                 scene_inputs.gizmo_mode = context.gizmo_mode;
                 scene_inputs.gizmo_space = gizmo_space;
@@ -950,6 +950,16 @@ int main(int argc, char** argv)
                 scene_inputs.scene_skinned_count = scene.skinned_instances.size();
                 gizmo_edited = scene_view.draw(context.panels.scene_view, environment, selected,
                                                scene_inputs);
+                // After the panel is drawn, never inside it: placing an instance creates
+                // entities, and the panel is in the middle of a walk over the ones that
+                // already exist. Cleared whether or not the placement succeeded, so a model
+                // with no prefab beside it reports once rather than on every frame after.
+                if (!context.dropped_model_path.empty())
+                {
+                    (void)SushiEngine::Editor::place_model_instance(context,
+                                                                    context.dropped_model_path);
+                    context.dropped_model_path.clear();
+                }
                 // The Scene view is the surface the UI is authored against, so its size
                 // drives every Canvas's layout — the per-frame equivalent of a window
                 // resize event for a full-viewport UI root.
