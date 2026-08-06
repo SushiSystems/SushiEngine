@@ -38,6 +38,7 @@
 
 #include "byte_encoding.hpp"
 #include "effect_serializer.hpp"
+#include "entity_record.hpp"
 #include "environment_serializer.hpp"
 
 namespace SushiEngine
@@ -567,21 +568,23 @@ namespace SushiEngine
             }
         } // namespace
 
-        json capture_scene(IWorldEditor& world, ISceneBlobTable* blobs)
+        namespace Detail
         {
-            const std::vector<EntityId> ids = world.entities();
-            std::unordered_map<EntityId, int> index_of;
-            for (std::size_t i = 0; i < ids.size(); ++i)
-                index_of.emplace(ids[i], static_cast<int>(i));
-
-            json root = json::array();
-            for (const EntityId id : ids)
+            json write_entity_record(IWorldEditor& world, EntityId id,
+                                     const std::unordered_map<EntityId, int>& index_of,
+                                     ISceneBlobTable* blobs)
             {
                 json entry;
                 entry["name"] = world.name(id);
                 entry["visible"] = world.visible(id);
                 const EntityId parent_id = world.parent(id);
-                entry["parent"] = parent_id == NULL_ENTITY ? -1 : index_of.at(parent_id);
+                // A parent outside the document is written as no parent at all, which is what
+                // makes a subtree's root a root: `capture_scene` puts every entity in the map,
+                // so this reads as it always did there.
+                const auto parent_entry = index_of.find(parent_id);
+                entry["parent"] = parent_id == NULL_ENTITY || parent_entry == index_of.end()
+                                      ? -1
+                                      : parent_entry->second;
 
                 const auto transform = world.transform(id);
                 entry["position"] = vec3_to_json(transform.position);
@@ -902,48 +905,15 @@ namespace SushiEngine
                         script_array.push_back(script_to_json(world.script_component(id, type_name)));
                     entry["scripts"] = std::move(script_array);
                 }
-
-                root.push_back(std::move(entry));
+                return entry;
             }
 
-            // The environment rides every capture beside the entities. This is what makes
-            // undo, Save Scene, and Play→Stop agree that lighting/sky/weather physics are
-            // scene content: a snapshot of the entity array alone cannot restore what its
-            // callers claim it restores, and a single Ctrl+Z would rewind the world while
-            // leaving the environment exactly as it was.
-            json capture;
-            capture["entities"] = std::move(root);
-            capture["environment"] = environment_to_json(world.environment());
-            return capture;
-        }
-
-        void apply_scene(IWorldEditor& world, const json& root, const ISceneBlobTable* blobs)
-        {
-            // A capture is an object {entities, environment}; a bare array is the older
-            // entity-only shape (pre-environment captures, and clipboard-era files) and
-            // simply leaves the environment as it is.
-            const json& entity_list =
-                root.is_object() && root.contains("entities") ? root["entities"] : root;
-            if (root.is_object() && root.contains("environment"))
-                // The live environment is the base, so fields the capture omits — and the
-                // runtime-owned channels the shape never writes (forcing pointers, weather
-                // field, ephemeris output) — ride through unchanged.
-                world.set_environment(
-                    environment_from_json(root["environment"], world.environment()));
-
-            // Replace the world wholesale: clear every existing entity before
-            // recreating the file's, so a load is never a merge with the prior scene.
-            for (const EntityId id : world.entities())
-                world.destroy(id);
-
-            std::vector<EntityId> created;
-            created.reserve(entity_list.size());
-            for (const auto& entry : entity_list)
+            EntityId read_entity_record(IWorldEditor& world, const json& entry,
+                                        const ISceneBlobTable* blobs)
             {
                 const std::string name = entry.value("name", std::string("Entity"));
                 const bool is_camera = entry.value("is_camera", false);
                 const EntityId id = is_camera ? world.create_camera(name) : world.create(name);
-                created.push_back(id);
 
                 SushiEngine::Simulation::EntityTransform transform;
                 if (entry.contains("position"))
@@ -1292,6 +1262,7 @@ namespace SushiEngine
                 if (entry.contains("scripts") && entry["scripts"].is_array())
                     for (const json& s : entry["scripts"])
                         world.add_script_component(id, script_from_json(s));
+                return id;
             }
 
             // Links between entities are resolved only after every entity exists, since
@@ -1299,18 +1270,18 @@ namespace SushiEngine
             // in this one pass: a parent link and a joint's partner are the same problem
             // and a second pass that handled only one of them would be an invitation to
             // resolve the next such link in the first pass and have it half work.
-            for (std::size_t i = 0; i < entity_list.size(); ++i)
+            void link_entity_record(IWorldEditor& world, const json& entry, EntityId id,
+                                    const std::vector<EntityId>& created)
             {
-                const json& entry = entity_list[i];
                 const int parent_index = entry.value("parent", -1);
                 if (parent_index >= 0 && static_cast<std::size_t>(parent_index) < created.size())
-                    world.set_parent(created[i], created[static_cast<std::size_t>(parent_index)]);
+                    world.set_parent(id, created[static_cast<std::size_t>(parent_index)]);
 
                 if (!entry.value("has_joint", false))
-                    continue;
-                world.set_has_joint(created[i], true);
+                    return;
+                world.set_has_joint(id, true);
                 if (!entry.contains("joint"))
-                    continue;
+                    return;
 
                 const json& j = entry["joint"];
                 SushiEngine::Simulation::PhysicsJointParameters parameters;
@@ -1345,8 +1316,58 @@ namespace SushiEngine
                 parameters.joint.break_force = j.value("break_force", parameters.joint.break_force);
                 parameters.joint.break_torque =
                     j.value("break_torque", parameters.joint.break_torque);
-                world.set_joint_parameters(created[i], parameters);
+                world.set_joint_parameters(id, parameters);
             }
+        } // namespace Detail
+
+        json capture_scene(IWorldEditor& world, ISceneBlobTable* blobs)
+        {
+            const std::vector<EntityId> ids = world.entities();
+            std::unordered_map<EntityId, int> index_of;
+            for (std::size_t i = 0; i < ids.size(); ++i)
+                index_of.emplace(ids[i], static_cast<int>(i));
+
+            json root = json::array();
+            for (const EntityId id : ids)
+                root.push_back(Detail::write_entity_record(world, id, index_of, blobs));
+
+            // The environment rides every capture beside the entities. This is what makes
+            // undo, Save Scene, and Play→Stop agree that lighting/sky/weather physics are
+            // scene content: a snapshot of the entity array alone cannot restore what its
+            // callers claim it restores, and a single Ctrl+Z would rewind the world while
+            // leaving the environment exactly as it was.
+            json capture;
+            capture["entities"] = std::move(root);
+            capture["environment"] = environment_to_json(world.environment());
+            return capture;
+        }
+
+        void apply_scene(IWorldEditor& world, const json& root, const ISceneBlobTable* blobs)
+        {
+            // A capture is an object {entities, environment}; a bare array is the older
+            // entity-only shape (pre-environment captures, and clipboard-era files) and
+            // simply leaves the environment as it is.
+            const json& entity_list =
+                root.is_object() && root.contains("entities") ? root["entities"] : root;
+            if (root.is_object() && root.contains("environment"))
+                // The live environment is the base, so fields the capture omits — and the
+                // runtime-owned channels the shape never writes (forcing pointers, weather
+                // field, ephemeris output) — ride through unchanged.
+                world.set_environment(
+                    environment_from_json(root["environment"], world.environment()));
+
+            // Replace the world wholesale: clear every existing entity before
+            // recreating the file's, so a load is never a merge with the prior scene.
+            for (const EntityId id : world.entities())
+                world.destroy(id);
+
+            std::vector<EntityId> created;
+            created.reserve(entity_list.size());
+            for (const auto& entry : entity_list)
+                created.push_back(Detail::read_entity_record(world, entry, blobs));
+
+            for (std::size_t i = 0; i < entity_list.size(); ++i)
+                Detail::link_entity_record(world, entity_list[i], created[i], created);
         }
 
         bool save_scene(IWorldEditor& world, const std::string& path, const SceneSkyState* sky)
