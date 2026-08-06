@@ -301,6 +301,10 @@ The rules, in the order they apply:
    which one is rendering.
 6. **A node carrying a skin** is reported and its mesh is skipped (§2). The node itself is still
    created, so the hierarchy keeps its shape and the omission is visible rather than a hole.
+6a. **A node carrying more than one of mesh, light and camera resolves in that priority order** and
+    reports what it could not also become. glTF permits the combination; an entity carries one of
+    these three. Geometry wins because it is what an artist sees, and the loser is named in the
+    report rather than dropped without a word.
 7. **`preserve_pivots == false` drops a node that carries no mesh, light, camera or skin and is not
    the subtree root**, folding the dropped node's local transform into each of its children so the
    composed world transform is unchanged. The default is `true`, because a dropped pivot is what
