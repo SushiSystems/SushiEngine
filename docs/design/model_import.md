@@ -313,20 +313,29 @@ The rules, in the order they apply:
    the file stem, so the result is always one selectable, one movable, one deletable thing.
 9. **`root_rotation_degrees` applies to the subtree root only.** Rotating per node would compound it
    once per level of the hierarchy.
-10. **`scale_factor` multiplies every node's local translation, and the local scale of geometry-
-    carrying entities only.** The root is not scaled. This is forced by how the physics extract
-    resolves a collider: `resolve_collider` scales by `entity.local_scale`, the entity's own scale,
-    not by `world_scale` (`physics_extract.hpp:105-106,129-140`). Putting the factor on the root
-    would scale the drawing through the hierarchy and leave every generated collider at the file's
-    raw size — silently wrong physics the moment `generate_colliders` and a `scale_factor` are set
-    together. Distributing it this way keeps the composed world position correct, because scaling
-    each level's translation scales their sum, while keeping the factor out of the parent chain so
-    it cannot compound; and it puts the factor exactly where `resolve_collider` reads it.
+10. **Geometry always lands on a leaf.** A node that carries a mesh *and* has children is split the
+    way rule 3 splits a multi-primitive node: the node entity stays a plain transform and the
+    geometry moves to a child of its own. Rule 3's split is then the special case of this one, not
+    a separate mechanism.
 
-Both settings default to no change (§4.2), so an ordinary import reproduces the file's own placement
-untouched and neither rule has any effect.
-10. **Names are made unique among siblings**, not globally: two wheels may both contain a node named
+    This exists to make rule 11 safe. Without it, a geometry-carrying node sits in its own
+    children's parent chain, and any scale placed on it multiplies theirs.
+11. **`scale_factor` multiplies every node's local translation and the local scale of every
+    geometry-carrying entity.** It is never placed on an entity that has children, which rule 10
+    guarantees, so it cannot compound down the hierarchy.
+
+    Where it goes is forced by how the physics extract resolves a collider: `resolve_collider`
+    scales by `entity.local_scale`, the entity's own scale, not by `world_scale`
+    (`physics_extract.hpp:105-106,129-140`). Putting the factor on the subtree root instead would
+    scale the drawing through the hierarchy and leave every generated collider at the file's raw
+    size — silently wrong physics the moment `generate_colliders` and a `scale_factor` are set
+    together. Scaling each level's translation scales their sum, so the composed world position
+    comes out right, and the factor sits exactly where `resolve_collider` reads it.
+12. **Names are made unique among siblings**, not globally: two wheels may both contain a node named
     `Tire`, and renaming one of them would misdescribe the file.
+
+`scale_factor` and `root_rotation_degrees` default to no change (§4.2), so an ordinary import
+reproduces the file's own placement untouched and rules 9 and 11 have no effect.
 
 ## §6 The render seam
 
