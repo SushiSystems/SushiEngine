@@ -385,15 +385,11 @@ namespace SushiEngine
             std::string renaming_project_path;
             std::string project_filter;
 
-            // What the prefab gestures *would* do, while they do nothing. Every field here is
-            // written by a gesture and read only by the line that reports it, so the drop
-            // targets can be reviewed for placement and wording before either writes a file
-            // or creates an entity. Removed once both are wired; nothing else may read it.
+            // What the Scene view's model drop *would* do, while it does nothing. Written by
+            // the drop and read only by the line reporting it, so the target can be reviewed
+            // for placement and wording before it creates anything. Removed once it is wired.
             struct PrefabInterfacePreview
             {
-                // The `.sushiprefab` the last Hierarchy-to-Project drop would have written.
-                std::string authored_path;
-
                 // The model the last Scene-view drop would have placed.
                 std::string placed_asset;
             };

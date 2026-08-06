@@ -26,6 +26,8 @@
 #include <SushiEngine/authoring/cook_bake_state.hpp>
 #include <SushiEngine/model/import_settings_io.hpp>
 
+#include "prefab_serializer.hpp"
+
 #include "../animation/animated_mesh_preview.hpp"
 #include "../scene/scene_commands.hpp"
 #include "../ui/panel_widgets.hpp"
@@ -162,6 +164,44 @@ namespace SushiEngine
                 for (int n = 1; fs::exists(candidate); ++n)
                     candidate = parent / (base + " (" + std::to_string(n) + ")" + extension);
                 return candidate;
+            }
+
+            // Saves `entity` and its descendants into `folder` as a prefab, and turns the
+            // entity into an instance of what was just written. Converting it is what makes
+            // the gesture legible: what stays selected is the thing the user edits next, and
+            // a gesture that left the original a plain subtree would make "did that work?"
+            // unanswerable without opening the folder.
+            void write_entity_as_prefab(EditorContext& context, Simulation::IWorldEditor& world,
+                                        Simulation::EntityId entity, const fs::path& folder)
+            {
+                const fs::path target =
+                    unique_child_path(folder, world.name(entity), ".sushiprefab");
+                const nlohmann::json document = Scene::capture_prefab(world, entity);
+                if (document["entities"].empty())
+                {
+                    editor_log(context, "Nothing to save: that entity is no longer in the scene.");
+                    return;
+                }
+
+                {
+                    std::ofstream file(target.string());
+                    if (!file || !(file << document.dump(2)))
+                    {
+                        editor_log(context, "Could not write '" + target.string() + "'.");
+                        return;
+                    }
+                }
+
+                // Recorded before the world changes, so one Ctrl+Z restores the subtree to
+                // what it was. The file is deliberately not removed by that undo: it is
+                // visible in the browser, and deleting a file the user can see would be an
+                // edit they cannot undo back.
+                context.history.record(world);
+                Simulation::PrefabInstanceParameters link;
+                link.path = target.string();
+                link.revision = document.value("revision", std::string());
+                world.set_prefab_instance(entity, link);
+                editor_log(context, "Saved prefab '" + target.filename().string() + "'.");
             }
 
             // Truncates a display name to a tile-friendly length rather than wrapping —
@@ -576,32 +616,12 @@ namespace SushiEngine
                     const Simulation::EntityId dragged =
                         *static_cast<const Simulation::EntityId*>(payload->Data);
                     if (Simulation::IWorldEditor* world = world_of(context))
-                        // The same `unique_child_path` the write will use, so the preview
-                        // names the file the user will actually get, " (1)" suffix and all.
-                        context.prefab_ui.authored_path =
-                            unique_child_path(current, world->name(dragged), ".sushiprefab")
-                                .string();
+                        write_entity_as_prefab(context, *world, dragged, current);
                 }
                 ImGui::EndDragDropTarget();
             }
 
             ImGui::EndChild();
-
-            if (!context.prefab_ui.authored_path.empty())
-            {
-                ImGui::Separator();
-                ImGui::TextDisabled("Would write: %s",
-                                    fs::path(context.prefab_ui.authored_path)
-                                        .filename()
-                                        .string()
-                                        .c_str());
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s", context.prefab_ui.authored_path.c_str());
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Clear##prefab_preview"))
-                    context.prefab_ui.authored_path.clear();
-            }
-
             ImGui::End();
         }
 
