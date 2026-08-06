@@ -574,6 +574,31 @@ namespace SushiEngine
             if (context.assets != nullptr)
                 Scene::resolve_scene_assets(*world, *context.assets);
 
+            // Counted and reported, because the failure it catches is silent otherwise: a
+            // subtree can arrive with every entity, transform and name correct and still draw
+            // nothing, and "it is in the Hierarchy but not in the view" is not a state the
+            // user can diagnose. A Shape with a path and no mesh is a mesh the renderer could
+            // not import, which is a different problem from a prefab that did not load.
+            std::size_t shapes = 0;
+            std::size_t unresolved = 0;
+            for (const EntityId id : world->entities())
+            {
+                if (!world->has_shape(id))
+                    continue;
+                const Simulation::ShapeParameters shape = world->shape_parameters(id);
+                if (shape.mesh_path.empty())
+                    continue;
+                ++shapes;
+                if (shape.mesh == SushiEngine::Render::INVALID_MESH)
+                    ++unresolved;
+            }
+            if (unresolved > 0)
+                editor_log(context,
+                           "Placed, but " + std::to_string(unresolved) + " of " +
+                               std::to_string(shapes) +
+                               " meshes could not be imported — nothing will draw for those.",
+                           LogLevel::Warning);
+
             // Selected, because what the user just placed is what they will move next.
             select_only(context, root);
             editor_log(context, "Placed '" + world->name(root) + "'.");
