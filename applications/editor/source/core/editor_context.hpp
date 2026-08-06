@@ -385,6 +385,20 @@ namespace SushiEngine
             std::string renaming_project_path;
             std::string project_filter;
 
+            // What the prefab gestures *would* do, while they do nothing. Every field here is
+            // written by a gesture and read only by the line that reports it, so the drop
+            // targets can be reviewed for placement and wording before either writes a file
+            // or creates an entity. Removed once both are wired; nothing else may read it.
+            struct PrefabInterfacePreview
+            {
+                // The `.sushiprefab` the last Hierarchy-to-Project drop would have written.
+                std::string authored_path;
+
+                // The model the last Scene-view drop would have placed.
+                std::string placed_asset;
+            };
+            PrefabInterfacePreview prefab_ui;
+
             // Scratch state for the shared inline-rename field (`inline_rename_field`),
             // which the Hierarchy's tree rows, its filtered search rows, and the Project
             // tiles all draw. Held here rather than as a static inside each panel so the

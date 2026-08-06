@@ -222,6 +222,17 @@ namespace SushiEngine
              */
             Simulation::EntityId selected_entity = Simulation::NULL_ENTITY;
 
+            /**
+             * @brief Receives the path of a model dropped onto the view, or null to refuse.
+             *
+             * An out-channel rather than an action, because this panel draws a rendered image
+             * and knows nothing about prefabs, assets or the world: it reports where the drop
+             * landed and its owner decides what that means. Only `.gltf` and `.glb` are
+             * accepted — a texture dropped on the view has no meaning here, and taking it
+             * would place something the user then has to find and delete.
+             */
+            std::string* dropped_model_path = nullptr;
+
             /** The isolated effect preview drawn in this viewport, or null. */
             EffectPreview* particle_preview = nullptr;
 

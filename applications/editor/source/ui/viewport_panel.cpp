@@ -31,9 +31,12 @@
 
 #include <SushiEngine/ui/layout.hpp>
 
+#include <filesystem>
+
 #include "../physics/collision_overlay.hpp"
 #include "../physics/soft_body_overlay.hpp"
 #include "game_view_toolbar.hpp"
+#include "panel_widgets.hpp"
 
 namespace SushiEngine
 {
@@ -728,6 +731,34 @@ namespace SushiEngine
             ImGui::Image(slot_textures_[view_->current_slot()],
                          ImVec2(static_cast<float>(width), static_cast<float>(height)));
             const bool image_hovered = ImGui::IsItemHovered();
+
+            // Immediately after the Image and before any overlay: a drag-drop target binds to
+            // the last item drawn, so a toolbar or a gizmo drawn in between would take the
+            // drop instead of the view.
+            if (inputs.dropped_model_path != nullptr && ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload =
+                        ImGui::AcceptDragDropPayload(ASSET_PATH_PAYLOAD))
+                {
+                    const std::string dropped(static_cast<const char*>(payload->Data));
+                    const std::string extension =
+                        std::filesystem::path(dropped).extension().string();
+                    if (extension == ".gltf" || extension == ".glb")
+                        *inputs.dropped_model_path = dropped;
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (inputs.dropped_model_path != nullptr && !inputs.dropped_model_path->empty())
+            {
+                const ImVec2 restore = ImGui::GetCursorPos();
+                ImGui::SetCursorPos(ImVec2(12.0f, 34.0f));
+                ImGui::TextDisabled("Would place: %s",
+                                    std::filesystem::path(*inputs.dropped_model_path)
+                                        .filename()
+                                        .string()
+                                        .c_str());
+                ImGui::SetCursorPos(restore);
+            }
 
             // UI overlay: canvases, panels, images, text, and buttons painted on top of
             // the rendered image with ImGui's draw list — a 2D layer over the 3D view,

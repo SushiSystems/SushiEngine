@@ -48,6 +48,7 @@
 #endif
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
 
 namespace SushiEngine
@@ -562,7 +563,45 @@ namespace SushiEngine
                     }
             }
 
+            // Dragging an entity out of the Hierarchy and onto this browser saves it as a
+            // prefab in the folder being browsed. The whole browser is the target rather than
+            // one tile, because the gesture is "put this entity in this folder" and a target
+            // the size of an icon makes the user aim at something that is not the destination.
+            if (ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect,
+                                                 ImGui::GetID("project_prefab_author")))
+            {
+                if (const ImGuiPayload* payload =
+                        ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY"))
+                {
+                    const Simulation::EntityId dragged =
+                        *static_cast<const Simulation::EntityId*>(payload->Data);
+                    if (Simulation::IWorldEditor* world = world_of(context))
+                        // The same `unique_child_path` the write will use, so the preview
+                        // names the file the user will actually get, " (1)" suffix and all.
+                        context.prefab_ui.authored_path =
+                            unique_child_path(current, world->name(dragged), ".sushiprefab")
+                                .string();
+                }
+                ImGui::EndDragDropTarget();
+            }
+
             ImGui::EndChild();
+
+            if (!context.prefab_ui.authored_path.empty())
+            {
+                ImGui::Separator();
+                ImGui::TextDisabled("Would write: %s",
+                                    fs::path(context.prefab_ui.authored_path)
+                                        .filename()
+                                        .string()
+                                        .c_str());
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", context.prefab_ui.authored_path.c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##prefab_preview"))
+                    context.prefab_ui.authored_path.clear();
+            }
+
             ImGui::End();
         }
 

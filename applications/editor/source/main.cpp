@@ -882,6 +882,9 @@ int main(int argc, char** argv)
                 scene_inputs.instances = instances.data();
                 scene_inputs.instance_count = instances.size();
                 scene_inputs.pickable = true;
+                // The Scene view accepts a model dropped from the Project browser; the Game
+                // view does not, since the game is played rather than authored.
+                scene_inputs.dropped_model_path = &context.prefab_ui.placed_asset;
                 scene_inputs.gizmo_target = gizmo_target;
                 scene_inputs.gizmo_mode = context.gizmo_mode;
                 scene_inputs.gizmo_space = gizmo_space;

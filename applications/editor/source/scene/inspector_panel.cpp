@@ -38,7 +38,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include <imgui.h>
@@ -305,6 +307,36 @@ namespace SushiEngine
             else
                 ImGui::Text("Id: %llu", static_cast<unsigned long long>(id));
             ImGui::Separator();
+
+            // Above Transform, because it says what this entity *is* rather than where it
+            // stands, and because an artist who does not know a subtree is a prefab instance
+            // will not understand why it changed shape when they opened the scene.
+            if (!multi && world->has_prefab_instance(id) &&
+                ImGui::CollapsingHeader("Prefab", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                const Simulation::PrefabInstanceParameters link = world->prefab_instance(id);
+                ImGui::TextDisabled("Source");
+                ImGui::SameLine();
+                ImGui::TextUnformatted(
+                    std::filesystem::path(link.path).filename().string().c_str());
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", link.path.c_str());
+
+                // The revision is shown because it is the only thing that explains why a
+                // subtree changed on open: without it an artist cannot tell a refresh from
+                // someone else's edit.
+                ImGui::TextDisabled("Revision");
+                ImGui::SameLine();
+                ImGui::TextUnformatted(link.revision.c_str());
+
+                std::error_code prefab_error;
+                if (!std::filesystem::exists(link.path, prefab_error))
+                    // Unlinked, not broken: the entities are all still here and the link is
+                    // still recorded, so restoring the file restores the connection.
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                                       "Unlinked: this prefab was not found.");
+                ImGui::Separator();
+            }
 
             if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
             {
