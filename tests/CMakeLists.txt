@@ -142,6 +142,10 @@ add_executable(sushiengine_functional_tests
     # The bake surface's decisions (§14) — whether Re-cook gets past the cache, whether the
     # overlay follows the selection.
     unit/test_cook_bake_state.cpp
+    # model_import.md §4.2's `.meta` sidecar: what survives a write and a read, that an unset
+    # cooking override stays unset, and that a broken sidecar is reported rather than read as
+    # "this asset has no settings".
+    unit/test_model_import_settings_io.cpp
     # T1, the global dynamical core, reachable without a device for the same reason:
     # it is a neutral module, so its transform, its elliptic inversion and its
     # conservation properties are testable against references that are not itself.
@@ -643,6 +647,9 @@ target_include_directories(sushiengine_functional_tests
 # three of the renderer's translation units compiled in by hand. It carries cgltf's
 # include directory and its one implementation unit with it, so neither is named here.
 target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_gltf)
+# The `.meta` sidecar and the migration off the project's path-keyed override object, as the
+# module that owns them rather than as a translation unit compiled in from another directory.
+target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_model)
 # The player's launch path, as two translation units rather than as a linked library: the
 # player is an executable, and applications/player/ is only added to the build graph when
 # SUSHIENGINE_BUILD_PLAYER is on — which a tests configure is not. Splitting a library out of

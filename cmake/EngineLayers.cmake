@@ -33,6 +33,7 @@ set(SUSHIENGINE_MODULE_LAYERS
     audio           domain
     input           domain
     gltf            asset
+    model           asset
     render          presentation
     loop            world
     simulation      world
