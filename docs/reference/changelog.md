@@ -84,6 +84,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   the pyramid instead of only persisting.
 
 ### Fixed
+- 2026-08-06 — Fixed a `.meta` sidecar that fails to parse cooking its asset at the project default
+  silently: `CookBakeState::take_unreadable_sidecars` names it and the Bake panel logs one warning
+  per asset.
 - 2026-08-06 — Fixed a vehicle in a scene receiving neither gravity nor a broadphase proxy: the
   scene's body inventory never enumerated its vehicles, so a car spawned at altitude fell
   1.67e-05 m over 90 ticks instead of metres.

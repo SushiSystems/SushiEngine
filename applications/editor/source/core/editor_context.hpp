@@ -719,6 +719,31 @@ namespace SushiEngine
         }
 
         /**
+         * @brief Says which assets cooked at the project default because their `.meta` failed.
+         *
+         * A sidecar that will not parse is settings that stopped applying, and an artist who
+         * is not told assumes the setting is wrong rather than the file
+         * (`docs/design/model_import.md` §8). One line per asset, at Warning, because a cook
+         * that used the wrong profile still produced an asset and nothing else reports it.
+         *
+         * Takes the path list rather than the bake model, so the context header keeps its
+         * forward declaration of `Authoring::CookBakeState` instead of including it.
+         *
+         * @param context     Editor state whose console receives the lines.
+         * @param asset_paths Assets whose sidecar could not be read, from
+         *                    `Authoring::CookBakeState::take_unreadable_sidecars`.
+         */
+        inline void log_unreadable_import_sidecars(EditorContext& context,
+                                                   const std::vector<std::string>& asset_paths)
+        {
+            for (const std::string& asset_path : asset_paths)
+                editor_log(context,
+                           "Could not parse the .meta sidecar for '" + asset_path +
+                               "'; cooked it at the project default instead.",
+                           LogLevel::Warning);
+        }
+
+        /**
          * @brief Whether the scene has unsaved changes.
          *
          * True whenever the undo history has advanced past the revision recorded at the

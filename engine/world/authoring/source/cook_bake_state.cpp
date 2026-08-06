@@ -274,16 +274,32 @@ namespace SushiEngine
             service_.reset();
         }
 
+        void CookBakeState::note_unreadable_sidecar(const std::string& asset_path)
+        {
+            if (std::find(unreadable_sidecars_.begin(), unreadable_sidecars_.end(), asset_path) ==
+                unreadable_sidecars_.end())
+                unreadable_sidecars_.push_back(asset_path);
+        }
+
+        std::vector<std::string> CookBakeState::take_unreadable_sidecars()
+        {
+            std::vector<std::string> taken;
+            taken.swap(unreadable_sidecars_);
+            return taken;
+        }
+
         Physics::Cooking::ImportProfile
-        CookBakeState::resolved_profile(const std::string& asset_path) const
+        CookBakeState::resolved_profile(const std::string& asset_path)
         {
             // Two folds over the project default, the later one winning: the asset's `.meta` is
             // where an override persists, and `profiles_` carries an edit made this session,
             // which has to decide the cook it triggers before it reaches the sidecar. A
             // sidecar that will not parse leaves `settings` defaulted, so the asset cooks at
-            // the project default rather than at half of what could be read out of it.
+            // the project default rather than at half of what could be read out of it — and is
+            // recorded, because that is the artist's settings not applying.
             Model::ModelImportSettings settings;
-            Model::load_model_import_settings(asset_path, settings);
+            if (!Model::load_model_import_settings(asset_path, settings))
+                note_unreadable_sidecar(asset_path);
             const Physics::Cooking::ImportProfile from_sidecar =
                 Physics::Cooking::resolve_import_profile(profiles_.project_default(),
                                                          settings.cooking);

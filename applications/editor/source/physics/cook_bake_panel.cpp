@@ -487,8 +487,11 @@ namespace SushiEngine
         void draw_cook_bake_panel(EditorContext& context, Authoring::CookBakeState& state)
         {
             // Polled before the open check: a bake the artist started and then closed the
-            // window on must still finish and still be there when it is reopened.
+            // window on must still finish and still be there when it is reopened. The sidecar
+            // report is drained here for the same reason — a cook queued from the Project
+            // panel must say what it could not read whether or not this window is open.
             state.poll();
+            log_unreadable_import_sidecars(context, state.take_unreadable_sidecars());
 
             if (!context.panels.bake)
                 return;

@@ -29,6 +29,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -335,6 +336,60 @@ TEST(Unit_CookBakeState, AnAssetsSidecarDecidesWhichCookersRunForIt)
     EXPECT_FALSE(entry->has_soft_body());
 
     std::filesystem::remove(sidecar);
+}
+
+TEST(Unit_CookBakeState, AMalformedSidecarIsReportedAndTheAssetCooksAtTheProjectDefault)
+{
+    // `docs/design/model_import.md` §8: a `.meta` that fails to parse is reported and the
+    // project default is used for that import. Both halves are asserted, because either one
+    // alone is a failure an artist cannot diagnose — a silent fallback looks like the setting
+    // is wrong, and a report without a fallback would be an asset that did not cook at all.
+    const std::string asset = "test_cook_bake_malformed_sidecar_asset.gltf";
+    const std::string sidecar = Model::model_import_settings_path(asset);
+    {
+        std::ofstream stream(sidecar, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(bool(stream));
+        stream << "{ this is not json";
+    }
+
+    Authoring::CookBakeState state(
+        [&asset](const std::string& path, Geometry::TriangleMesh& out) -> bool
+        {
+            if (path != asset)
+                return false;
+            out = box_mesh(0.5f);
+            return true;
+        },
+        std::string());
+    // The project default cooks a soft body. The sidecar cannot say otherwise, so a soft body
+    // in the entry is what proves the default was the profile that ran.
+    make_quick(state, true);
+
+    bake_and_settle(state, asset);
+
+    const std::vector<std::string> reported = state.take_unreadable_sidecars();
+    ASSERT_EQ(reported.size(), 1u);
+    EXPECT_EQ(reported[0], asset);
+    // Drained, so the panel reports it once rather than on every frame that follows.
+    EXPECT_TRUE(state.take_unreadable_sidecars().empty());
+
+    const Authoring::BakedAssetEntry* entry = state.entry(asset);
+    ASSERT_NE(entry, nullptr);
+    EXPECT_TRUE(entry->has_collision());
+    EXPECT_TRUE(entry->has_soft_body());
+
+    std::filesystem::remove(sidecar);
+}
+
+TEST(Unit_CookBakeState, AReadableSidecarReportsNothing)
+{
+    // The counterpart, and the one that stops the report from being noise: an asset with no
+    // sidecar at all has never been configured, which is the ordinary case and not a fault.
+    Authoring::CookBakeState state(table_loader(), std::string());
+    make_quick(state, false);
+
+    bake_and_settle(state, "crate.gltf");
+    EXPECT_TRUE(state.take_unreadable_sidecars().empty());
 }
 
 TEST(Unit_CookBakeState, AnUnsetStoragePathIsANoOpRatherThanAFailure)
