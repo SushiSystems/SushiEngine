@@ -438,6 +438,17 @@ namespace SushiEngine
             PrimitiveKind kind = PrimitiveKind::Box;
             Vector3 parameters{Vector3{0.5, 0.5, 0.5}};
             std::string mesh_path;                    /**< glTF path `mesh` was imported from; empty = none. */
+
+            /**
+             * @brief Which mesh of @ref mesh_path this Shape draws.
+             *
+             * A glTF file holds many meshes, and a model whose nodes each carry a different
+             * one needs to say which — a path alone addresses the file, not the geometry in
+             * it. Zero is the first mesh, which is what a single-mesh file and every Shape
+             * authored before this field meant.
+             */
+            std::uint32_t mesh_index = 0;
+
             Render::MeshId mesh = Render::INVALID_MESH; /**< When set, `kind`/`parameters` are ignored downstream. */
         };
 

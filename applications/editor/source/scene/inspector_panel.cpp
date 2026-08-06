@@ -183,15 +183,23 @@ namespace SushiEngine
                 values.mesh = SushiEngine::Render::INVALID_MESH;
                 if (context.assets == nullptr || values.mesh_path.empty())
                     return;
-                SushiEngine::Render::MeshId meshes[1] = {SushiEngine::Render::INVALID_MESH};
-                SushiEngine::Render::Material materials[1]{};
-                if (context.assets->load_gltf(values.mesh_path.c_str(), meshes, materials, 1) == 0)
+                // One slot per mesh up to and including the one wanted: `load_gltf` fills
+                // from the file's first mesh, so the requested index is only reachable by
+                // asking for everything before it too.
+                const std::size_t wanted = static_cast<std::size_t>(values.mesh_index) + 1;
+                std::vector<SushiEngine::Render::MeshId> meshes(
+                    wanted, SushiEngine::Render::INVALID_MESH);
+                std::vector<SushiEngine::Render::Material> materials(wanted);
+                const std::size_t imported = context.assets->load_gltf(
+                    values.mesh_path.c_str(), meshes.data(), materials.data(), wanted);
+                if (imported <= values.mesh_index)
                 {
-                    editor_log(context, "No mesh imported from '" + values.mesh_path + "'.",
+                    editor_log(context, "No mesh " + std::to_string(values.mesh_index) +
+                                            " in '" + values.mesh_path + "'.",
                               LogLevel::Warning);
                     return;
                 }
-                values.mesh = meshes[0];
+                values.mesh = meshes[values.mesh_index];
             }
 
             /**

@@ -1063,3 +1063,52 @@ TEST(Integration_SceneSerializer, ANestedHierarchyKeepsItsLocalTransforms)
     EXPECT_DOUBLE_EQ(grandchild_after.position.y, 8.0);
     EXPECT_DOUBLE_EQ(grandchild_after.position.z, 9.0);
 }
+
+TEST(Integration_SceneSerializer, AnImportedMeshIndexSurvivesCaptureApply)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    // A path addresses the file, not the geometry in it. A model whose nodes each carry a
+    // different mesh needs both, and a Shape that carried only the path would draw the file's
+    // first mesh for every one of them — silently, and identically.
+    const EntityId id = world.create_box("Wheel");
+    ASSERT_NE(id, NULL_ENTITY);
+    ShapeParameters authored = world.shape_parameters(id);
+    authored.mesh_path = "models/car.gltf";
+    authored.mesh_index = 3u;
+    world.set_shape_parameters(id, authored);
+
+    const nlohmann::json snapshot = Scene::capture_scene(world);
+    clear_world(world);
+    Scene::apply_scene(world, snapshot);
+
+    const EntityId restored = find_by_name(world, "Wheel");
+    ASSERT_NE(restored, NULL_ENTITY);
+    EXPECT_EQ(world.shape_parameters(restored).mesh_path, "models/car.gltf");
+    EXPECT_EQ(world.shape_parameters(restored).mesh_index, 3u);
+}
+
+TEST(Integration_SceneSerializer, AShapeWrittenBeforeMeshIndexExistedReadsAsTheFirstMesh)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+    world.create_box("Old");
+
+    // Every scene already on disk was written without this field, and each of those Shapes
+    // meant the file's first mesh. Reading a missing key as anything but zero would move
+    // geometry in scenes nobody edited.
+    nlohmann::json snapshot = Scene::capture_scene(world);
+    ASSERT_EQ(snapshot["entities"].size(), 1u);
+    snapshot["entities"][0]["has_shape"] = true;
+    snapshot["entities"][0]["shape"] = nlohmann::json{{"mesh_path", "models/car.gltf"}};
+
+    Scene::apply_scene(world, snapshot);
+    const EntityId restored = find_by_name(world, "Old");
+    ASSERT_NE(restored, NULL_ENTITY);
+    EXPECT_EQ(world.shape_parameters(restored).mesh_index, 0u);
+}
