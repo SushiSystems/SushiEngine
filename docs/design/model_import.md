@@ -6,13 +6,19 @@ A glTF file reaches the engine today through three doors, and every one of them 
 structure away. The cooking pipeline merges the whole file into a single `Geometry::TriangleMesh`.
 The renderer's importer bakes each node's world transform into its vertices and returns a flat list
 of primitives. The Renderer component binds exactly one of those primitives and ignores the rest.
-A model authored in Blender as a root with five objects, each carrying two children, therefore
-arrives in the scene as one piece of one object.
+A model authored as a root with five objects, each carrying two children, therefore arrives in the
+scene as one piece of one object.
 
 This document specifies the import path that keeps the structure: a glTF node graph becomes an
 entity hierarchy, with the pivots, names, per-node materials, lights and cameras the file actually
 declares. It also specifies the per-asset import settings that drive it, stored beside the asset
 rather than in a project-wide table keyed by path.
+
+The subject is the **format**, not any authoring tool. Nothing here reads an exporter's name,
+branches on which program wrote the file, or carries a setting named after one. glTF 2.0 fixes what
+a conformant file means — a right-handed coordinate system with +Y up, and metres for every linear
+distance — so an importer that trusts the format needs no per-tool correction, and §4.2's one
+transform escape hatch is named after the correction it applies rather than after who might need it.
 
 Companion docs: `static_mesh_authoring.md` §10, which deferred exactly this work and whose two
 deferrals this document takes up; `physics_system.md` §3.4, which explains why the importer sits
@@ -195,12 +201,10 @@ caller would lose precision for nothing.
 ```cpp
 namespace SushiEngine::Model
 {
-    enum class AxisConvention { AsAuthored, BlenderZUp };
-
     struct ModelImportSettings
     {
         float scale_factor = 1.0f;
-        AxisConvention axis_convention = AxisConvention::AsAuthored;
+        Vector3f root_rotation_degrees{0, 0, 0};   // folded into the subtree root; see below
         bool import_materials = true;
         bool import_lights = true;
         bool import_cameras = true;
@@ -212,6 +216,16 @@ namespace SushiEngine::Model
     };
 }
 ```
+
+`scale_factor` and `root_rotation_degrees` both default to no change, and that default is the one a
+conformant file needs. glTF 2.0 fixes the coordinate system as right-handed with +Y up and fixes
+metres as the unit of every linear distance, so unlike a format that leaves the axis to whoever
+wrote the file, a glTF states its own orientation and an importer that rotates it is corrupting it.
+Neither field is an axis-convention picker and neither names an authoring tool: `scale_factor`
+exists because a project may not use one unit per metre, and `root_rotation_degrees` is an escape
+hatch for a file whose exporter ignored the specification. Both are named after the correction they
+apply, so a value other than the default is visibly a repair to a non-conformant asset rather than a
+routine step every import is expected to configure.
 
 Settings are stored in `<asset>.meta` beside the asset — `models/Car.gltf` is described by
 `models/Car.gltf.meta`. This replaces the path-keyed `overrides` object of §1: a setting written
@@ -294,9 +308,9 @@ The rules, in the order they apply:
    makes a wheel impossible to rotate and a door impossible to open.
 8. **A single glTF root becomes the subtree root. Several roots gain a synthetic root** named after
    the file stem, so the result is always one selectable, one movable, one deletable thing.
-9. **`scale_factor` and `axis_convention` apply to the subtree root only.** Applying either per node
-   would compound it once per level of the hierarchy. `BlenderZUp` contributes a -90 degree rotation
-   about X to the root's transform.
+9. **`scale_factor` and `root_rotation_degrees` apply to the subtree root only.** Applying either
+   per node would compound it once per level of the hierarchy. Both default to no change (§4.2), so
+   an ordinary import produces the file's own placement untouched.
 10. **Names are made unique among siblings**, not globally: two wheels may both contain a node named
     `Tire`, and renaming one of them would misdescribe the file.
 
@@ -428,6 +442,21 @@ is written:
 
 ## §12 Future work, explicitly deferred
 
+- **A prefab system, and what it does to §4.3.** Model import does not need one, and this document
+  is designed so that it does not wait for one. The pressure for prefabs comes from elsewhere:
+  placing many copies of one authored composite and editing them together, and instantiating an
+  authored composite from gameplay at run time. Neither is an import problem. What §4.3's link
+  deliberately does not do is preserve edits made inside an imported subtree across a reimport;
+  keeping them is override resolution, which is the hard half of a prefab system and not a feature
+  that can be added to two fields.
+
+  When a prefab system does arrive, `ModelSourceParameters` is **superseded rather than extended**.
+  A prefab instance already needs a source and a revision, so those two fields become a subset of
+  its own, and the importer's role converges on what Unity's does: produce a prefab asset, and let
+  placing it be ordinary instantiation. The work discarded at that point is two fields, one
+  serializer block and the Reimport command — a fraction of what building override resolution,
+  nested prefabs and a prefab edit mode now would cost, and none of it is load-bearing for anything
+  else in this document. A future reader should replace §4.3 at that point, not grow it.
 - **The asset inspector.** Project-panel selection fills the Inspector with the asset's importer
   sections, and the Bake window and Cooking Override modal fold into it. The next sub-project, and
   the direct consumer of §4.2.
