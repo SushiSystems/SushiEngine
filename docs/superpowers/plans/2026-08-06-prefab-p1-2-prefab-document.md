@@ -691,9 +691,11 @@ result is an object carrying a non-empty string `revision`.
 se build
 se test --suite functional
 ```
-Expected: every `Unit_PrefabSerializer.*` case passes, and the total rises from 1469 to 1483 — the
-fourteen cases above. A total that rises by less means a case was dropped; a total unchanged means
-the suite prefix is wrong and nothing was discovered.
+Expected: every `Unit_PrefabSerializer.*` case passes, and the total rises from 1469 to 1484 — the
+fourteen cases above plus `CapturingADestroyedEntityYieldsAnEmptyDocument`, which the
+implementation added because a destroyed id is not `NULL_ENTITY` and a guard checking only for
+`NULL_ENTITY` would walk one. A total that rises by less means a case was dropped; a total
+unchanged means the suite prefix is wrong and nothing was discovered.
 
 - [ ] **Step 8: Update the README and commit**
 

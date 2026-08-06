@@ -150,6 +150,10 @@ add_executable(sushiengine_functional_tests
     # becomes, when it splits, where a dropped pivot's transform goes, and where the scale
     # factor lands. The planner takes a description built by hand, so none of it needs a device.
     unit/test_model_instantiation_plan.cpp
+    # prefab_system.md §3's file: that a capture is a slice of the subtree and not of the world,
+    # that its root is written as a root, that the revision notices a change and ignores a
+    # non-change, and that the identifier §4.4 owes the next phase is present and unique.
+    unit/test_prefab_serializer.cpp
     # T1, the global dynamical core, reachable without a device for the same reason:
     # it is a neutral module, so its transform, its elliptic inversion and its
     # conservation properties are testable against references that are not itself.

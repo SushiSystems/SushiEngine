@@ -86,6 +86,18 @@ namespace SushiEngine
              * @return The hash, usable as an @ref SushiEngine::Scene::ISceneBlobTable key.
              */
             std::uint64_t content_hash(const std::vector<std::byte>& bytes) noexcept;
+
+            /**
+             * @brief FNV-1a 64 over @p text's bytes.
+             *
+             * The same function as the byte overload, over the other thing this module
+             * hashes: a document's serialized text. One hash for both keeps a prefab's
+             * revision and a blob's key comparable rather than merely similar.
+             *
+             * @param text The text to hash; an empty one hashes to the offset basis.
+             * @return The hash.
+             */
+            std::uint64_t content_hash(const std::string& text) noexcept;
         } // namespace Detail
     } // namespace Scene
 } // namespace SushiEngine

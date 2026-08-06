@@ -187,15 +187,32 @@ namespace SushiEngine
                 return true;
             }
 
+            namespace
+            {
+                // One loop for both overloads, so a blob's key and a prefab's revision cannot
+                // drift into two hashes that only look alike.
+                std::uint64_t hash_bytes(const unsigned char* data, std::size_t length) noexcept
+                {
+                    std::uint64_t hash = 14695981039346656037ull;
+                    for (std::size_t i = 0; i < length; ++i)
+                    {
+                        hash ^= static_cast<std::uint64_t>(data[i]);
+                        hash *= 1099511628211ull;
+                    }
+                    return hash;
+                }
+            } // namespace
+
             std::uint64_t content_hash(const std::vector<std::byte>& bytes) noexcept
             {
-                std::uint64_t hash = 14695981039346656037ull;
-                for (const std::byte value : bytes)
-                {
-                    hash ^= static_cast<std::uint64_t>(std::to_integer<unsigned char>(value));
-                    hash *= 1099511628211ull;
-                }
-                return hash;
+                return hash_bytes(reinterpret_cast<const unsigned char*>(bytes.data()),
+                                  bytes.size());
+            }
+
+            std::uint64_t content_hash(const std::string& text) noexcept
+            {
+                return hash_bytes(reinterpret_cast<const unsigned char*>(text.data()),
+                                  text.size());
             }
         } // namespace Detail
     } // namespace Scene

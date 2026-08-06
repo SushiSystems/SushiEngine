@@ -8,6 +8,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 sushiengine_add_module(NAME serialization LAYER world
     SOURCES
         source/scene_serializer.cpp
+        source/prefab_serializer.cpp
         source/effect_serializer.cpp
         source/environment_serializer.cpp
         # Base64 and the content hash the scene shape names a cooked blob by. Private to

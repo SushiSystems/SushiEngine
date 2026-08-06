@@ -37,13 +37,19 @@ Headers are relative to `include/SushiEngine/serialization/`.
 | Header | Declares |
 |---|---|
 | `scene_serializer.hpp` | Reading and writing a `.sushiscene` file through `IWorldEditor`. |
+| `prefab_serializer.hpp` | Reading and writing a `.sushiprefab`: one entity subtree as an asset. |
 | `scene_blob_table.hpp` | The table that names each cooked blob a scene references by content hash. |
 | `environment_serializer.hpp` | The one JSON shape for an authored environment. |
 | `effect_serializer.hpp` | Reading and writing `.sushieffect` files. |
 
 `source/byte_encoding.cpp` holds the base64 codec and the content hash. It is module-private —
-spelled in no published header — because JSON is the only reason either exists and there is one
-consumer.
+spelled in no published header — because JSON is the only reason either exists and there are only
+consumers inside this module.
+
+`source/entity_record.hpp` holds one entity's record: written, read back, and linked to its
+neighbours. Also module-private, and the reason the scene and prefab shapes cannot drift apart —
+both serializers call these rather than each carrying its own copy of what an entity looks like in
+JSON.
 
 ## Tests
 
@@ -52,6 +58,10 @@ Covered by the functional suite in `tests/`, which links `sushiengine_serializat
 blob table and the embedded environment, and `tests/unit/test_vfx_effect_serializer.cpp`
 round-trips an effect. `tests/unit/test_byte_encoding.cpp` covers the private codec by naming it
 through its source path, which the test target adds as an include directory.
+
+`tests/unit/test_prefab_serializer.cpp` covers the prefab shape: that a capture is a slice of the
+subtree rather than of the world, that its root is written as a root, and that the revision notices
+a change and ignores a non-change.
 
 `environment_serializer.hpp` has no case of its own; it is covered where the scene round-trip
 carries an environment.
