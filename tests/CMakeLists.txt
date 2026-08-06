@@ -142,6 +142,14 @@ add_executable(sushiengine_functional_tests
     # The bake surface's decisions (§14) — whether Re-cook gets past the cache, whether the
     # overlay follows the selection.
     unit/test_cook_bake_state.cpp
+    # model_import.md §4.2's `.meta` sidecar: what survives a write and a read, that an unset
+    # cooking override stays unset, and that a broken sidecar is reported rather than read as
+    # "this asset has no settings".
+    unit/test_model_import_settings_io.cpp
+    # model_import.md §5's ten rules, which is every decision the import makes: what a node
+    # becomes, when it splits, where a dropped pivot's transform goes, and where the scale
+    # factor lands. The planner takes a description built by hand, so none of it needs a device.
+    unit/test_model_instantiation_plan.cpp
     # T1, the global dynamical core, reachable without a device for the same reason:
     # it is a neutral module, so its transform, its elliptic inversion and its
     # conservation properties are testable against references that are not itself.
@@ -538,6 +546,10 @@ add_executable(sushiengine_functional_tests
     # still says, since the render passes (not this extraction step) are the ones that
     # ignore `kind` when `mesh` is set (static_mesh_authoring.md).
     integration/test_shape_render_extraction.cpp
+    # A glTF file's node graph as the file states it: the ordering guarantee consumers index
+    # by, the file's own node index as the join key, both forms a node may state its transform
+    # in, and a punctual light and a camera (model_import.md §4.1).
+    integration/test_gltf_scene_import.cpp
     # P6-G5: what the editor's soft-body debug views mean, with the drawing left
     # out — that full scale is a material threshold rather than the body's own
     # worst element, which is the one mistake here that produces a plausible
@@ -643,6 +655,9 @@ target_include_directories(sushiengine_functional_tests
 # three of the renderer's translation units compiled in by hand. It carries cgltf's
 # include directory and its one implementation unit with it, so neither is named here.
 target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_gltf)
+# The `.meta` sidecar and the migration off the project's path-keyed override object, as the
+# module that owns them rather than as a translation unit compiled in from another directory.
+target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_model)
 # The player's launch path, as two translation units rather than as a linked library: the
 # player is an executable, and applications/player/ is only added to the build graph when
 # SUSHIENGINE_BUILD_PLAYER is on — which a tests configure is not. Splitting a library out of

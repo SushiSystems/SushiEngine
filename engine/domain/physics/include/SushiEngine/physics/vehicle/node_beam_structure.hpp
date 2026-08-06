@@ -242,6 +242,7 @@ namespace SushiEngine
 
                     nodes_.clear();
                     node_parts_.clear();
+                    node_radii_.clear();
                     node_positions_.clear();
                     beams_.clear();
                     attachments_.clear();
@@ -309,6 +310,22 @@ namespace SushiEngine
 
                 /** @brief How many nodes were instanced. */
                 std::size_t node_count() const noexcept { return nodes_.size(); }
+
+                /**
+                 * @brief The sphere one node presents to a collision pass, in metres.
+                 *
+                 * A node is a particle and a particle has no shape of its own, so the
+                 * radius the asset carries is the only answer to "how big is this
+                 * node"; kept here because a scene that collides the shell has nowhere
+                 * else to ask. Zero is the honest reading for an asset that authored no
+                 * radius — such a node presents no surface rather than a guessed one.
+                 *
+                 * @param index The node, in asset order; out of range answers zero.
+                 */
+                T node_radius(std::size_t index) const noexcept
+                {
+                    return index < node_radii_.size() ? node_radii_[index] : T(0);
+                }
 
                 /**
                  * @brief One node's body handle, for naming it in something else.
@@ -486,6 +503,7 @@ namespace SushiEngine
                 {
                     nodes_.reserve(view.node_count);
                     node_parts_.reserve(view.node_count);
+                    node_radii_.reserve(view.node_count);
                     node_positions_.assign(view.node_count, Vector3{0, 0, 0});
 
                     for (std::uint32_t i = 0; i < view.node_count; ++i)
@@ -523,6 +541,7 @@ namespace SushiEngine
                             return false;
                         nodes_.push_back(handle);
                         node_parts_.push_back(record.part);
+                        node_radii_.push_back(record.radius > Scalar(0) ? T(record.radius) : T(0));
                         node_positions_[i] = Vector3{Scalar(body.position.x),
                                                      Scalar(body.position.y),
                                                      Scalar(body.position.z)};
@@ -750,6 +769,7 @@ namespace SushiEngine
 
                 std::vector<BodyHandle> nodes_;
                 std::vector<std::uint32_t> node_parts_;
+                std::vector<T> node_radii_;
                 std::vector<Vector3> node_positions_;
                 std::vector<BeamLink> beams_;
                 std::vector<AttachmentLink> attachments_;

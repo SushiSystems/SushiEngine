@@ -84,6 +84,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   the pyramid instead of only persisting.
 
 ### Fixed
+- 2026-08-06 — Fixed a vehicle in a scene receiving neither gravity nor a broadphase proxy: the
+  scene's body inventory never enumerated its vehicles, so a car spawned at altitude fell
+  1.67e-05 m over 90 ticks instead of metres.
+  - Added `VehicleInstanceT::for_each_body`, the one enumeration `live_slot_count`,
+    `write_every_body` and `rebuild_contact_index` now share.
+  - Added `CollisionLayers::vehicle`, so a car's shell nodes and wheels collide with the world
+    at their authored radii and not with each other.
 - 2026-08-04 — Fixed `samples/sandbox` and `samples/physics/pgs_demo` calling
   `SushiRuntime::API::Runtime::create()`. They are the two targets that prove the native lane
   builds, and SushiRuntime is not in that lane's build graph at all.
@@ -125,6 +132,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   with their widgets and serialization: no renderer or shader read them.
 
 ### Changed
+- 2026-08-06 — Changed per-asset cooking overrides to live in a `<asset>.meta` sidecar rather than
+  a path-keyed object in the project document, so moving an asset no longer orphans its settings.
+  - Migrated an older project's overrides once, when its cooking document is read, reporting both
+    what moved and what was dropped because the asset it named is gone.
 - 2026-08-04 — Changed `docs/slop/` to `docs/design/`, indexed, each document carrying a sourced
   status header; a directory named after what the corpus looked like when it was dumped there told
   readers to skip the only account of why anything is shaped the way it is.

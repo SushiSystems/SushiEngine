@@ -42,6 +42,17 @@ namespace SushiEngine
 {
     namespace Render
     {
+        /** @brief One imported primitive, and the glTF node it belongs to. */
+        struct ImportedPrimitive
+        {
+            /** @brief The file's own node index — the key an importer's plan is joined on. */
+            std::uint32_t source_node = 0;
+            /** @brief Which primitive of that node's mesh. */
+            std::uint32_t primitive = 0;
+            MeshId mesh = INVALID_MESH;
+            Render::Material material;
+        };
+
         /**
          * @brief The renderer's texture and mesh asset store.
          *
@@ -120,6 +131,30 @@ namespace SushiEngine
                  */
                 virtual std::size_t load_gltf(const char* path, MeshId* meshes,
                                               Material* materials, std::size_t count) = 0;
+
+                /**
+                 * @brief Imports every primitive of a glTF file, in mesh-local space, with its
+                 * node recorded.
+                 *
+                 * Differs from @ref load_gltf in the two ways a scene-graph import needs. It
+                 * reports which node each primitive came from, so a caller matches meshes to
+                 * nodes by the file's own index rather than by trusting two parsers to walk in
+                 * the same order forever. And it does not bake a node's world transform into
+                 * the vertices, because the entity's transform carries the placement: baking it
+                 * here would apply it twice, and leaving it out lets several nodes referencing
+                 * one glTF mesh share one @ref MeshId instead of each uploading their own.
+                 *
+                 * Entries come back in the file's node order, so a caller that means to receive
+                 * the whole file sizes @p capacity for every node's primitives; a call that
+                 * fills @p out exactly is treated as possibly truncated and is not cached.
+                 *
+                 * @param path     Path to a `.gltf` or `.glb` file.
+                 * @param out      Receives one entry per imported primitive.
+                 * @param capacity Capacity of @p out.
+                 * @return Number of entries written, or 0 if the file could not be read.
+                 */
+                virtual std::size_t load_gltf_scene(const char* path, ImportedPrimitive* out,
+                                                    std::size_t capacity) = 0;
 
                 /**
                  * @brief Imports one glTF skin's triangle primitives as skinned meshes.

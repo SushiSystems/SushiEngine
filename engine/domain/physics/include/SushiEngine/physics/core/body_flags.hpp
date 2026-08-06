@@ -124,15 +124,15 @@ namespace SushiEngine
         /**
          * @brief The layers the engine itself knows the meaning of.
          *
-         * Two, and both exist because something in the engine has to name them:
-         * everything authored lands on @ref default_layer, and cloth needs a layer
-         * of its own so that "cloth particles do not collide with each other" can be
-         * *stated as data* rather than asked as `if (a.is_cloth && b.is_cloth)`.
-         * That flag was §1.2 item 15, and its replacement is one line of
-         * initialization — which is the whole argument of §4.4 in miniature: a
-         * behaviour difference expressed as a type tag has to be tested for
-         * everywhere the type goes, and the same difference expressed as data is
-         * tested once, by the code that already tests every other pair.
+         * Three, and each exists because something in the engine has to name it:
+         * everything authored lands on @ref default_layer, and cloth and vehicles
+         * each need a layer of their own so that "these do not collide with each
+         * other" can be *stated as data* rather than asked as
+         * `if (a.is_cloth && b.is_cloth)`. That flag was §1.2 item 15, and its
+         * replacement is one line of initialization — which is the whole argument of
+         * §4.4 in miniature: a behaviour difference expressed as a type tag has to be
+         * tested for everywhere the type goes, and the same difference expressed as
+         * data is tested once, by the code that already tests every other pair.
          *
          * Game layers start above these and are the author's to name.
          */
@@ -144,8 +144,20 @@ namespace SushiEngine
             /** @brief Cloth particles, which collide with everything except each other. */
             constexpr std::uint32_t cloth = 1u << 1;
 
+            /**
+             * @brief A vehicle's own bodies, which collide with the world but not each other.
+             *
+             * A corner's carrier and its wheel are instanced at the same point and a
+             * shell node sits inside the core's hull, so every contact within one car
+             * is spurious and each would be resolved against the joint or beam already
+             * holding that pair together. Two cars therefore do not collide either,
+             * which is the same trade cloth takes and is stated in
+             * `docs/design/physics_system.md` §11.
+             */
+            constexpr std::uint32_t vehicle = 1u << 2;
+
             /** @brief The first layer a game is free to define. */
-            constexpr std::uint32_t first_user_layer = 1u << 2;
+            constexpr std::uint32_t first_user_layer = 1u << 3;
         } // namespace CollisionLayers
 
         /**

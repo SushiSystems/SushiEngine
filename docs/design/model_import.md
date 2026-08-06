@@ -97,10 +97,10 @@ Traced file by file rather than assumed from a name.
 
 ## §2 Non-goals
 
-- **No prefab system.** The imported hierarchy is not a prefab instance: there are no per-instance
-  overrides, no nested prefabs, and no automatic propagation when the asset changes. The link is
-  the two fields of §4.3 and the explicit Reimport action of §7. Anything more is a separate
-  subsystem with its own override-resolution and merge semantics.
+- **No prefab system, and no link to the asset at all.** The imported hierarchy is a plain entity
+  subtree: no per-instance overrides, no nested prefabs, no propagation when the asset changes, and
+  no reimport. §4.3 states why the small version of the link is withdrawn rather than built, and
+  §12 states what takes it over.
 - **No rigged-model path.** A node carrying a skin is reported and skipped. Skinned import already
   has its own machinery (`import_gltf_skinned_mesh`, `import_gltf_animated`) reached through the
   Crowd component, and joining it to a node hierarchy is a distinct problem.
@@ -211,8 +211,6 @@ namespace SushiEngine::Model
         bool preserve_pivots = true;
         bool generate_colliders = false;
         Physics::Cooking::ImportProfileOverride cooking;
-
-        std::uint64_t hash() const noexcept;   // §4.3's staleness key
     };
 }
 ```
@@ -240,28 +238,29 @@ object whose asset still exists is written out as a `.meta` file carrying that o
 `project_default`. An entry whose asset no longer exists is discarded and reported — it was already
 dead, and saying so is the honest outcome rather than carrying it forward invisibly.
 
-`hash()` covers every field including the embedded override. It is a value hash, not a file hash: it
-answers "were these the settings this subtree was built from", which is what §7's Reimport prompt
-needs, and it does not change when an unrelated asset's `.meta` does.
+The settings carry no revision identity — no hash, no version counter. Nothing in this phase asks
+"were these the settings that subtree was built from", because §4.3 builds nothing that remembers.
+The prefab system defines whatever revision identity it needs when it defines the link.
 
-### §4.3 `ModelSourceParameters` — the link back to the asset
+### §4.3 The link back to the asset — deferred to the prefab system
 
-```cpp
-namespace SushiEngine::Simulation
-{
-    struct ModelSourceParameters
-    {
-        std::string path;                 // the .gltf or .glb this subtree was built from
-        std::uint64_t settings_hash = 0;  // ModelImportSettings::hash() at instantiation
-    };
-}
-```
+An imported subtree carries **no link to the asset it came from**, and this document builds none.
 
-Carried by the root entity of an imported subtree and by nothing else, with the accessor triple
-every other component already has on `IWorldEditor` — `has_model_source`, `model_source`,
-`set_model_source` — and a round trip through `scene_serializer.cpp` beside the existing component
-blocks. Two fields are the whole linkage mechanism: the editor compares the stored hash against the
-current `.meta`'s and can then say which instances in the open scene are out of date.
+The obvious small version of the link is a component on the root entity holding the asset's path and
+a hash of the settings it was built from, plus a Reimport action that rebuilds the subtree. This
+document does not specify it, because the prefab system does (§12), and it would own it whole: a
+prefab instance necessarily records a source and a revision, so those two fields are a subset of
+what it defines anyway. The one thing two fields cannot do — preserve edits made inside the subtree
+across a rebuild — is override resolution, and that is the prefab system's central problem rather
+than an addition to a small component.
+
+The cost of building the small version first is a component, a `scene_serializer.cpp` block, an
+`IWorldEditor` accessor triple and an undo command, every one of them replaced by the design that
+supersedes them. So the linkage is a stated hole rather than a temporary fill:
+**changing an asset's `.meta` does not update subtrees already placed in a scene.** An artist who
+changes import settings deletes the placed subtree and drags the asset in again. That is a real
+limitation of this phase, it is visible the first time anyone tries it, and it is the price of not
+writing the same mechanism twice.
 
 ## §5 The instantiation plan
 
@@ -302,17 +301,41 @@ The rules, in the order they apply:
    which one is rendering.
 6. **A node carrying a skin** is reported and its mesh is skipped (§2). The node itself is still
    created, so the hierarchy keeps its shape and the omission is visible rather than a hole.
+6a. **A node carrying more than one of mesh, light and camera resolves in that priority order** and
+    reports what it could not also become. glTF permits the combination; an entity carries one of
+    these three. Geometry wins because it is what an artist sees, and the loser is named in the
+    report rather than dropped without a word.
 7. **`preserve_pivots == false` drops a node that carries no mesh, light, camera or skin and is not
    the subtree root**, folding the dropped node's local transform into each of its children so the
    composed world transform is unchanged. The default is `true`, because a dropped pivot is what
    makes a wheel impossible to rotate and a door impossible to open.
 8. **A single glTF root becomes the subtree root. Several roots gain a synthetic root** named after
    the file stem, so the result is always one selectable, one movable, one deletable thing.
-9. **`scale_factor` and `root_rotation_degrees` apply to the subtree root only.** Applying either
-   per node would compound it once per level of the hierarchy. Both default to no change (§4.2), so
-   an ordinary import produces the file's own placement untouched.
-10. **Names are made unique among siblings**, not globally: two wheels may both contain a node named
+9. **`root_rotation_degrees` applies to the subtree root only.** Rotating per node would compound it
+   once per level of the hierarchy.
+10. **Geometry always lands on a leaf.** A node that carries a mesh *and* has children is split the
+    way rule 3 splits a multi-primitive node: the node entity stays a plain transform and the
+    geometry moves to a child of its own. Rule 3's split is then the special case of this one, not
+    a separate mechanism.
+
+    This exists to make rule 11 safe. Without it, a geometry-carrying node sits in its own
+    children's parent chain, and any scale placed on it multiplies theirs.
+11. **`scale_factor` multiplies every node's local translation and the local scale of every
+    geometry-carrying entity.** It is never placed on an entity that has children, which rule 10
+    guarantees, so it cannot compound down the hierarchy.
+
+    Where it goes is forced by how the physics extract resolves a collider: `resolve_collider`
+    scales by `entity.local_scale`, the entity's own scale, not by `world_scale`
+    (`physics_extract.hpp:105-106,129-140`). Putting the factor on the subtree root instead would
+    scale the drawing through the hierarchy and leave every generated collider at the file's raw
+    size — silently wrong physics the moment `generate_colliders` and a `scale_factor` are set
+    together. Scaling each level's translation scales their sum, so the composed world position
+    comes out right, and the factor sits exactly where `resolve_collider` reads it.
+12. **Names are made unique among siblings**, not globally: two wheels may both contain a node named
     `Tire`, and renaming one of them would misdescribe the file.
+
+`scale_factor` and `root_rotation_degrees` default to no change (§4.2), so an ordinary import
+reproduces the file's own placement untouched and rules 9 and 11 have no effect.
 
 ## §6 The render seam
 
@@ -356,12 +379,12 @@ Deliberately narrow, because the asset inspector is the next sub-project (§2).
 - **Double click.** The file is inspected first. When it declares a skin it goes to the animated
   preview as it does today; otherwise it is instantiated into the scene. This is where §9's naming
   correction lands.
-- **Reimport.** A context-menu action on a root entity that carries `ModelSourceParameters`:
-  destroys the subtree, re-runs the plan, and rebuilds it under the same entity, preserving that
-  entity's own name and transform. Edits made inside the subtree are lost, and the menu item's
-  tooltip says so before the click rather than after.
-- **Undo.** An instantiation and a reimport are each one `Authoring::CommandHistory` step. Twenty
-  entities appearing from one drag must disappear from one undo.
+- **No Reimport action** (§4.3). Nothing in the editor offers to rebuild a placed subtree from its
+  asset, because nothing records which asset it came from. A control that cannot do what its label
+  says is the failure `editor_ux_overhaul.md` rules out under wire-or-remove, so the honest state
+  for this phase is the absence of the control rather than a disabled one.
+- **Undo.** An instantiation is one `Authoring::CommandHistory` step. Twenty entities appearing from
+  one drag must disappear from one undo.
 
 ## §8 Errors and the import report
 
@@ -423,40 +446,44 @@ The weight is on the pure layer, which needs no device:
 - `import_gltf_scene` integration test against a real asset through `SE_TEST_ASSET_DIR`, the
   mechanism `tests/unit/test_animation_morph_import.cpp` already uses: node count, parent links, and
   names. This closes part of the coverage gap `engine/asset/gltf/README.md` states about itself.
-- `ModelSourceParameters` round trip through `test_scene_serializer_roundtrip.cpp`, beside the
-  existing component cases.
+No serialization test is added, and none is needed: §4.3 introduces no component, so an imported
+subtree is ordinary entities that `scene_serializer.cpp` already round-trips and already covers.
 
-## §11 Open verification items
+## §11 Verified assumptions, and one limitation they exposed
 
-Recorded rather than assumed, and closed during implementation before the code that depends on them
-is written:
+Both items this document opened were closed by reading the tree rather than by assuming an answer.
 
-1. **Does a cooked collider respect its entity's scale?** §5 applies `scale_factor` to the root
-   transform, which is correct for the visual mesh. A collider cooked from file-space geometry is
-   only correct at that scale if the physics side applies the entity's scale too. If it does not,
-   `generate_colliders` must carry the scale into the cook instead, and this document is amended
-   rather than the discrepancy shipped.
-2. **Does cgltf expose `KHR_lights_punctual` in the vendored version?** §4.1 assumes
-   `cgltf_node::light`. If the pinned version does not, importing lights moves to §12 and
-   `import_lights` is not offered rather than offered and inert.
+1. **A collider is scaled by its entity's own scale, not by its world scale.** `resolve_collider`
+   applies `entity.local_scale` (`physics_extract.hpp:129-140`); both scales are extracted
+   (`:105-106`) and the collider path deliberately takes the local one. §5 rule 10 is written to
+   that fact rather than around it.
+2. **cgltf exposes `KHR_lights_punctual`.** The vendored version 1.15 parses the extension at both
+   the node and document level, giving `cgltf_node::light` and a `cgltf_light` carrying type
+   (directional, point, spot), colour, intensity, range and both spot cone angles, with
+   `cgltf_light_index` for the join. Cameras are exposed the same way, perspective and orthographic.
+   §4.1 and §5 rules 4 and 5 stand as written.
+
+The first answer exposes a limitation that predates this document and that it does not fix: because
+a collider is sized by its own entity's scale, a collider under a node the **file itself** scales is
+sized without that parent's contribution. This is true of any scaled hierarchy in the engine today,
+not something imported models introduce. The importer does not work around it, and does not pretend
+it is absent: when `generate_colliders` is set and the file scales a node that has collider-carrying
+descendants, the import reports it as a warning naming the node, so the artist finds out at import
+rather than when something falls through the floor.
 
 ## §12 Future work, explicitly deferred
 
-- **A prefab system, and what it does to §4.3.** Model import does not need one, and this document
-  is designed so that it does not wait for one. The pressure for prefabs comes from elsewhere:
-  placing many copies of one authored composite and editing them together, and instantiating an
-  authored composite from gameplay at run time. Neither is an import problem. What §4.3's link
-  deliberately does not do is preserve edits made inside an imported subtree across a reimport;
-  keeping them is override resolution, which is the hard half of a prefab system and not a feature
-  that can be added to two fields.
+- **The prefab system owns the link back to the asset.** It is designed separately and it inherits
+  the whole of §4.3: what an instance records about its source, when an instance counts as stale,
+  what a rebuild does to edits made inside it, and what the editor offers for all of that. Model
+  import does not wait for it — everything else in this document ships without it — but it does not
+  pre-empt it either, which is why §4.3 builds nothing rather than building a smaller version.
 
-  When a prefab system does arrive, `ModelSourceParameters` is **superseded rather than extended**.
-  A prefab instance already needs a source and a revision, so those two fields become a subset of
-  its own, and the importer's role converges on what Unity's does: produce a prefab asset, and let
-  placing it be ordinary instantiation. The work discarded at that point is two fields, one
-  serializer block and the Reimport command — a fraction of what building override resolution,
-  nested prefabs and a prefab edit mode now would cost, and none of it is load-bearing for anything
-  else in this document. A future reader should replace §4.3 at that point, not grow it.
+  The convergence to expect: an imported model becomes a prefab asset, and placing it becomes
+  ordinary prefab instantiation, which is what Unity does with an imported model. That makes the
+  importer a producer of prefabs rather than a producer of loose entities, and it is a change to
+  what §5's plan is turned into, not to the plan itself. §3 to §6 are unaffected by it, which is the
+  reason they can be built now.
 - **The asset inspector.** Project-panel selection fills the Inspector with the asset's importer
   sections, and the Bake window and Cooking Override modal fold into it. The next sub-project, and
   the direct consumer of §4.2.
@@ -470,5 +497,11 @@ is written:
 
 ## §13 Roadmap
 
-P0 — §3 to §10 — **designed, not started.** The implementation plan is written separately, per the
-precedent of `docs/superpowers/plans/2026-08-05-static-mesh-authoring.md`.
+P0 — §3 to §10, with §4.3 withdrawn — **designed, not started.** The implementation plan is written
+separately, per the precedent of `docs/superpowers/plans/2026-08-05-static-mesh-authoring.md`.
+
+The scope P0 delivers: a glTF file's node graph as an entity hierarchy, per-asset settings in a
+`.meta` sidecar with the one-way migration off the path-keyed store, drag-and-drop instantiation,
+collider generation on import, and §9's naming correction. The scope P0 does not deliver, stated so
+it is not mistaken for an oversight: no link from a placed subtree back to its asset and therefore
+no reimport (§4.3), no rigged models inside a hierarchy (§2), and no asset inspector (§12).

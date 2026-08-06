@@ -234,10 +234,15 @@ TEST(Unit_SynopticField, TheFlowAroundALowIsCyclonic)
     // that flow around a northern-hemisphere low turns counterclockwise, so directly north of
     // one the wind blows west.
     //
-    // Searched across seeds rather than assuming centre 0 is a northern low — which one is
-    // depends on the seed, and a test that depended on that would be testing the generator.
-    bool checked = false;
-    for (std::uint64_t seed = 1; seed <= 20 && !checked; ++seed)
+    // "North of a low, coverage falls going north" is a premise, not a given: `coverage_at`
+    // sums every centre, and a high is both broader (an e-folding radius up to 2000 km against
+    // a low's 1400) and stronger (an amplitude up to 0.90 against 0.56), so one sitting nearby
+    // can carry the local gradient the other way. The premise is therefore measured at each
+    // sample point and the meteorological claim is made only where it actually holds — which is
+    // also what makes this a test of the wind law rather than of the generator's layout.
+    constexpr double GRADIENT_STEP_RADIANS = 2.0e-3; // the step `wind_at` differences over.
+    int checked = 0;
+    for (std::uint64_t seed = 1; seed <= 20; ++seed)
     {
         SeededWeather weather(seed, EARTH_RADIUS_M);
         const Atmosphere::SynopticField* field = weather.synoptic_field();
@@ -252,17 +257,25 @@ TEST(Unit_SynopticField, TheFlowAroundALowIsCyclonic)
 
             const GeodeticPosition north_flank{centre.latitude_radians + 4.0 * DEGREE,
                                                centre.longitude_radians};
+            const double northward_coverage_gradient =
+                field->coverage_at(north_flank.latitude_radians + GRADIENT_STEP_RADIANS,
+                                   north_flank.longitude_radians) -
+                field->coverage_at(north_flank.latitude_radians - GRADIENT_STEP_RADIANS,
+                                   north_flank.longitude_radians);
+            if (northward_coverage_gradient >= 0.0)
+                continue; // a neighbour owns the gradient here; this point says nothing
+
             const WindSample wind = weather.wind_at(north_flank, 0.25);
             EXPECT_LT(wind.eastward_mps, 0.0)
                 << "seed " << seed << " centre " << i
-                << ": flow north of a northern low must run west";
+                << ": where coverage falls northward the flow must run west";
             // And it is a real wind, not a rounding artefact of a flat spot.
             EXPECT_GT(std::fabs(wind.eastward_mps), 1.0);
-            checked = true;
-            break;
+            ++checked;
         }
     }
-    ASSERT_TRUE(checked) << "no northern-hemisphere low placed in twenty seeds";
+    ASSERT_GT(checked, 0) << "no point in twenty seeds had coverage falling northward of a "
+                             "northern-hemisphere low, so the wind law went untested";
 }
 
 TEST(Unit_SynopticField, TheWindIsPerpendicularToTheCoverageGradient)

@@ -24,6 +24,7 @@
 #include "project_panel.hpp"
 
 #include <SushiEngine/authoring/cook_bake_state.hpp>
+#include <SushiEngine/model/import_settings_io.hpp>
 
 #include "../animation/animated_mesh_preview.hpp"
 #include "../scene/scene_commands.hpp"
@@ -586,7 +587,11 @@ namespace SushiEngine
             ImportProfileLibrary& profiles = context.cook_bake_state->profiles();
             if (loaded_for != context.cooking_override_target)
             {
-                working = profiles.get_override(context.cooking_override_target);
+                // Read from the asset's sidecar, which is where an override lives now; the
+                // library's copy is only this session's.
+                Model::ModelImportSettings settings;
+                (void)Model::load_model_import_settings(context.cooking_override_target, settings);
+                working = settings.cooking;
                 loaded_for = context.cooking_override_target;
             }
 
@@ -627,20 +632,46 @@ namespace SushiEngine
                 ImGui::Separator();
                 const bool close = [&]
                 {
+                    // An override is persisted to the asset's own `.meta` sidecar, and set on
+                    // the in-memory library as well so this session's cooks see it without a
+                    // re-read. The project document no longer carries overrides at all, so
+                    // `save_profiles` alone would leave Apply looking like it saved and losing
+                    // the value on restart.
+                    const auto commit = [&context, &profiles](const ImportProfileOverride& value)
+                    {
+                        profiles.set_override(context.cooking_override_target, value);
+                        Model::ModelImportSettings settings;
+                        if (!Model::load_model_import_settings(context.cooking_override_target,
+                                                               settings))
+                        {
+                            editor_log(context,
+                                       "Could not read the import settings beside '" +
+                                           context.cooking_override_target +
+                                           "'; the previous ones were replaced.",
+                                       LogLevel::Warning);
+                        }
+                        settings.cooking = value;
+                        if (!Model::save_model_import_settings(context.cooking_override_target,
+                                                               settings))
+                        {
+                            editor_log(context,
+                                       "Could not write the import settings beside '" +
+                                           context.cooking_override_target +
+                                           "'; this change is lost when the editor closes.",
+                                       LogLevel::Warning);
+                        }
+                        context.cook_bake_state->rebake(context.cooking_override_target);
+                    };
+
                     if (ImGui::Button("Apply"))
                     {
-                        profiles.set_override(context.cooking_override_target, working);
-                        context.cook_bake_state->save_profiles();
-                        context.cook_bake_state->rebake(context.cooking_override_target);
+                        commit(working);
                         return true;
                     }
                     ImGui::SameLine();
                     if (ImGui::Button("Clear Override"))
                     {
-                        profiles.set_override(context.cooking_override_target,
-                                              ImportProfileOverride{});
-                        context.cook_bake_state->save_profiles();
-                        context.cook_bake_state->rebake(context.cooking_override_target);
+                        commit(ImportProfileOverride{});
                         return true;
                     }
                     ImGui::SameLine();
