@@ -32,6 +32,7 @@
 #include <SushiEngine/ui/layout.hpp>
 
 #include <filesystem>
+#include <string>
 
 #include "../physics/collision_overlay.hpp"
 #include "../physics/soft_body_overlay.hpp"
@@ -750,14 +751,16 @@ namespace SushiEngine
             }
             if (inputs.dropped_model_path != nullptr && !inputs.dropped_model_path->empty())
             {
-                const ImVec2 restore = ImGui::GetCursorPos();
-                ImGui::SetCursorPos(ImVec2(12.0f, 34.0f));
-                ImGui::TextDisabled("Would place: %s",
-                                    std::filesystem::path(*inputs.dropped_model_path)
-                                        .filename()
-                                        .string()
-                                        .c_str());
-                ImGui::SetCursorPos(restore);
+                // Painted straight onto the draw list, the way the UI overlay below is: this
+                // is a layer over the rendered image, not a part of the panel's layout.
+                // Moving the cursor to place it and moving it back leaves ImGui with a cursor
+                // past the content bounds and no item to grow them, which it reports.
+                const std::string label =
+                    "Would place: " +
+                    std::filesystem::path(*inputs.dropped_model_path).filename().string();
+                ImGui::GetWindowDrawList()->AddText(
+                    ImVec2(image_origin.x + 12.0f, image_origin.y + 12.0f),
+                    ImGui::GetColorU32(ImGuiCol_TextDisabled), label.c_str());
             }
 
             // UI overlay: canvases, panels, images, text, and buttons painted on top of
