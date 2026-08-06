@@ -158,6 +158,27 @@ namespace SushiEngine
         bool load_scene(SushiEngine::Simulation::IWorldEditor& world, const std::string& path,
                          SceneSkyState* sky = nullptr,
                          SushiEngine::Render::IAssetLibrary* assets = nullptr);
+
+        /**
+         * @brief Re-derives every file-backed render handle in @p world from its path.
+         *
+         * A handle belongs to the session that imported the asset, so only the path beside it
+         * survives a file — particle sprites, material and decal maps, a crowd's skinned mesh
+         * and a Shape's imported mesh all get their live handle here. An empty path resolves
+         * to no asset rather than keeping a stale one.
+         *
+         * Public because a load is not the only way entities arrive from a file: placing a
+         * prefab builds a subtree whose Shapes name a mesh nobody has imported into this
+         * session yet, and without this pass they carry a path, a Renderer, and no geometry.
+         *
+         * Deliberately not called from `apply_scene`, which is the same-session snapshot path
+         * — undo, redo and Play→Stop — where the captured handles are still the right ones.
+         *
+         * @param world  The world whose components are re-pointed.
+         * @param assets The library every path is resolved through.
+         */
+        void resolve_scene_assets(SushiEngine::Simulation::IWorldEditor& world,
+                                  SushiEngine::Render::IAssetLibrary& assets);
     } // namespace Scene
 } // namespace SushiEngine
 

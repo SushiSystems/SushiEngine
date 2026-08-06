@@ -1472,144 +1472,145 @@ namespace SushiEngine
                 target.detail_mask_map = source.detail_mask_map;
             }
 
-            /**
-             * @brief Re-resolves every file-backed render handle after a load from disk.
-             *
-             * The capture carries both a path and the handle it had when written; only the path
-             * survives a session, so the handles a file was written with are re-derived here —
-             * particle sprites, material maps, decal maps, a crowd's skinned mesh, and a Shape's
-             * imported mesh alike, an empty path resolving to no asset rather than keeping the
-             * stale handle. A post-pass rather than a hook inside `apply_scene` because the
-             * in-memory snapshots that share that function are same-session, where the captured
-             * handles are still the right ones. A crowd's skeleton and clip are absent here on
-             * purpose: those need no render library, so `set_crowd_parameters` has already
-             * re-registered them.
-             *
-             * @param world  The freshly loaded world whose components are re-pointed.
-             * @param assets The library every path is resolved through.
-             */
-            void resolve_scene_assets(IWorldEditor& world,
-                                      SushiEngine::Render::IAssetLibrary& assets)
+        } // namespace
+
+        /**
+         * @brief Re-resolves every file-backed render handle after a load from disk.
+         *
+         * The capture carries both a path and the handle it had when written; only the path
+         * survives a session, so the handles a file was written with are re-derived here —
+         * particle sprites, material maps, decal maps, a crowd's skinned mesh, and a Shape's
+         * imported mesh alike, an empty path resolving to no asset rather than keeping the
+         * stale handle. A post-pass rather than a hook inside `apply_scene` because the
+         * in-memory snapshots that share that function are same-session, where the captured
+         * handles are still the right ones. A crowd's skeleton and clip are absent here on
+         * purpose: those need no render library, so `set_crowd_parameters` has already
+         * re-registered them.
+         *
+         * @param world  The freshly loaded world whose components are re-pointed.
+         * @param assets The library every path is resolved through.
+         */
+        void resolve_scene_assets(IWorldEditor& world,
+                                  SushiEngine::Render::IAssetLibrary& assets)
+        {
+            using SushiEngine::Render::INVALID_TEXTURE;
+            using SushiEngine::Render::TextureColorSpace;
+            const auto resolve = [&assets](const std::string& path,
+                                           TextureColorSpace color_space)
             {
-                using SushiEngine::Render::INVALID_TEXTURE;
-                using SushiEngine::Render::TextureColorSpace;
-                const auto resolve = [&assets](const std::string& path,
-                                               TextureColorSpace color_space)
+                return path.empty() ? INVALID_TEXTURE
+                                    : assets.load_texture(path.c_str(), color_space);
+            };
+
+            for (const EntityId id : world.entities())
+            {
+                if (world.has_particle_emitter(id))
                 {
-                    return path.empty() ? INVALID_TEXTURE
-                                        : assets.load_texture(path.c_str(), color_space);
-                };
+                    SushiEngine::VFX::ParticleEffect effect = world.particle_effect_source(id);
+                    resolve_effect_textures(effect, assets);
+                    world.set_particle_effect_source(id, effect);
+                }
 
-                for (const EntityId id : world.entities())
+                const SushiEngine::Simulation::MaterialTexturePaths paths =
+                    world.material_texture_paths(id);
+                SushiEngine::Render::Material material = world.material(id);
+                const bool any_handle =
+                    material.albedo_map != INVALID_TEXTURE ||
+                    material.metallic_roughness_map != INVALID_TEXTURE ||
+                    material.normal_map != INVALID_TEXTURE ||
+                    material.height_map != INVALID_TEXTURE ||
+                    material.occlusion_map != INVALID_TEXTURE ||
+                    material.emissive_map != INVALID_TEXTURE ||
+                    material.detail_albedo_map != INVALID_TEXTURE ||
+                    material.detail_normal_map != INVALID_TEXTURE ||
+                    material.detail_mask_map != INVALID_TEXTURE;
+                if (any_handle || !material_paths_empty(paths))
                 {
-                    if (world.has_particle_emitter(id))
-                    {
-                        SushiEngine::VFX::ParticleEffect effect = world.particle_effect_source(id);
-                        resolve_effect_textures(effect, assets);
-                        world.set_particle_effect_source(id, effect);
-                    }
+                    material.albedo_map =
+                        resolve(paths.albedo_map, TextureColorSpace::SRGB);
+                    material.metallic_roughness_map =
+                        resolve(paths.metallic_roughness_map, TextureColorSpace::Linear);
+                    material.normal_map =
+                        resolve(paths.normal_map, TextureColorSpace::Linear);
+                    material.height_map =
+                        resolve(paths.height_map, TextureColorSpace::Linear);
+                    material.occlusion_map =
+                        resolve(paths.occlusion_map, TextureColorSpace::Linear);
+                    material.emissive_map =
+                        resolve(paths.emissive_map, TextureColorSpace::SRGB);
+                    material.detail_albedo_map =
+                        resolve(paths.detail_albedo_map, TextureColorSpace::SRGB);
+                    material.detail_normal_map =
+                        resolve(paths.detail_normal_map, TextureColorSpace::Linear);
+                    material.detail_mask_map =
+                        resolve(paths.detail_mask_map, TextureColorSpace::Linear);
+                    world.set_material(id, material);
+                }
 
-                    const SushiEngine::Simulation::MaterialTexturePaths paths =
-                        world.material_texture_paths(id);
-                    SushiEngine::Render::Material material = world.material(id);
-                    const bool any_handle =
-                        material.albedo_map != INVALID_TEXTURE ||
-                        material.metallic_roughness_map != INVALID_TEXTURE ||
-                        material.normal_map != INVALID_TEXTURE ||
-                        material.height_map != INVALID_TEXTURE ||
-                        material.occlusion_map != INVALID_TEXTURE ||
-                        material.emissive_map != INVALID_TEXTURE ||
-                        material.detail_albedo_map != INVALID_TEXTURE ||
-                        material.detail_normal_map != INVALID_TEXTURE ||
-                        material.detail_mask_map != INVALID_TEXTURE;
-                    if (any_handle || !material_paths_empty(paths))
+                if (world.has_decal(id))
+                {
+                    SushiEngine::Simulation::DecalParameters decal = world.decal_parameters(id);
+                    if (decal.albedo_map != INVALID_TEXTURE ||
+                        decal.orm_map != INVALID_TEXTURE ||
+                        !decal.albedo_map_path.empty() || !decal.orm_map_path.empty())
                     {
-                        material.albedo_map =
-                            resolve(paths.albedo_map, TextureColorSpace::SRGB);
-                        material.metallic_roughness_map =
-                            resolve(paths.metallic_roughness_map, TextureColorSpace::Linear);
-                        material.normal_map =
-                            resolve(paths.normal_map, TextureColorSpace::Linear);
-                        material.height_map =
-                            resolve(paths.height_map, TextureColorSpace::Linear);
-                        material.occlusion_map =
-                            resolve(paths.occlusion_map, TextureColorSpace::Linear);
-                        material.emissive_map =
-                            resolve(paths.emissive_map, TextureColorSpace::SRGB);
-                        material.detail_albedo_map =
-                            resolve(paths.detail_albedo_map, TextureColorSpace::SRGB);
-                        material.detail_normal_map =
-                            resolve(paths.detail_normal_map, TextureColorSpace::Linear);
-                        material.detail_mask_map =
-                            resolve(paths.detail_mask_map, TextureColorSpace::Linear);
-                        world.set_material(id, material);
+                        decal.albedo_map =
+                            resolve(decal.albedo_map_path, TextureColorSpace::SRGB);
+                        decal.orm_map =
+                            resolve(decal.orm_map_path, TextureColorSpace::Linear);
+                        world.set_decal_parameters(id, decal);
                     }
+                }
 
-                    if (world.has_decal(id))
-                    {
-                        SushiEngine::Simulation::DecalParameters decal = world.decal_parameters(id);
-                        if (decal.albedo_map != INVALID_TEXTURE ||
-                            decal.orm_map != INVALID_TEXTURE ||
-                            !decal.albedo_map_path.empty() || !decal.orm_map_path.empty())
-                        {
-                            decal.albedo_map =
-                                resolve(decal.albedo_map_path, TextureColorSpace::SRGB);
-                            decal.orm_map =
-                                resolve(decal.orm_map_path, TextureColorSpace::Linear);
-                            world.set_decal_parameters(id, decal);
-                        }
-                    }
+                if (world.has_crowd(id))
+                {
+                    SushiEngine::Simulation::CrowdParameters crowd =
+                        world.crowd_parameters(id);
+                    // Skin 0, the one `register_crowd_skeleton` cooks its rig from: a mesh
+                    // taken from a different skin would be posed by the wrong joints. An
+                    // unnamed or unimportable file leaves the invalid mesh and empty maps
+                    // seeded here, so the crowd draws nothing rather than drawing with
+                    // whatever now holds the ids the scene was written with.
+                    SushiEngine::Render::MeshId meshes[1] = {
+                        SushiEngine::Render::INVALID_MESH};
+                    SushiEngine::Render::Material imported[1]{};
+                    if (!crowd.mesh_path.empty())
+                        (void)assets.load_gltf_skinned_mesh(crowd.mesh_path.c_str(), 0,
+                                                            meshes, imported, 1);
+                    crowd.mesh = meshes[0];
+                    adopt_material_maps(crowd.material, imported[0]);
+                    world.set_crowd_parameters(id, crowd);
+                }
 
-                    if (world.has_crowd(id))
+                if (world.has_shape(id))
+                {
+                    SushiEngine::Simulation::ShapeParameters shape =
+                        world.shape_parameters(id);
+                    // Guarded like the Material and Decal blocks above: an ordinary
+                    // Box/Sphere/Cylinder Shape has no imported-mesh state to resolve, and
+                    // `set_shape_parameters` triggers a full extract -- paying for that on
+                    // every Shape in the scene, which is nearly every entity in most
+                    // scenes, on every load would be a needless full-extract pass.
+                    if (shape.mesh != SushiEngine::Render::INVALID_MESH ||
+                        !shape.mesh_path.empty())
                     {
-                        SushiEngine::Simulation::CrowdParameters crowd =
-                            world.crowd_parameters(id);
-                        // Skin 0, the one `register_crowd_skeleton` cooks its rig from: a mesh
-                        // taken from a different skin would be posed by the wrong joints. An
-                        // unnamed or unimportable file leaves the invalid mesh and empty maps
-                        // seeded here, so the crowd draws nothing rather than drawing with
-                        // whatever now holds the ids the scene was written with.
-                        SushiEngine::Render::MeshId meshes[1] = {
-                            SushiEngine::Render::INVALID_MESH};
-                        SushiEngine::Render::Material imported[1]{};
-                        if (!crowd.mesh_path.empty())
-                            (void)assets.load_gltf_skinned_mesh(crowd.mesh_path.c_str(), 0,
-                                                                meshes, imported, 1);
-                        crowd.mesh = meshes[0];
-                        adopt_material_maps(crowd.material, imported[0]);
-                        world.set_crowd_parameters(id, crowd);
-                    }
-
-                    if (world.has_shape(id))
-                    {
-                        SushiEngine::Simulation::ShapeParameters shape =
-                            world.shape_parameters(id);
-                        // Guarded like the Material and Decal blocks above: an ordinary
-                        // Box/Sphere/Cylinder Shape has no imported-mesh state to resolve, and
-                        // `set_shape_parameters` triggers a full extract -- paying for that on
-                        // every Shape in the scene, which is nearly every entity in most
-                        // scenes, on every load would be a needless full-extract pass.
-                        if (shape.mesh != SushiEngine::Render::INVALID_MESH ||
-                            !shape.mesh_path.empty())
-                        {
-                            // Unlike a crowd's mesh, the imported material is not adopted onto
-                            // the Shape's own Material: a Shape always has its own authored,
-                            // serialized Material already, and silently overwriting it on every
-                            // re-import would make it a value the file cannot actually hold
-                            // still. Mirrors the editor's own `bind_shape_mesh`.
-                            // Joined on the file's own node and primitive indices, through the
-                            // import that does not bake a node's world transform into its
-                            // vertices: the entity's transform already carries the placement,
-                            // and a baked one would apply it twice.
-                            shape.mesh = SushiEngine::Render::resolve_imported_mesh(
-                                assets, shape.mesh_path.c_str(), shape.source_node,
-                                shape.primitive);
-                            world.set_shape_parameters(id, shape);
-                        }
+                        // Unlike a crowd's mesh, the imported material is not adopted onto
+                        // the Shape's own Material: a Shape always has its own authored,
+                        // serialized Material already, and silently overwriting it on every
+                        // re-import would make it a value the file cannot actually hold
+                        // still. Mirrors the editor's own `bind_shape_mesh`.
+                        // Joined on the file's own node and primitive indices, through the
+                        // import that does not bake a node's world transform into its
+                        // vertices: the entity's transform already carries the placement,
+                        // and a baked one would apply it twice.
+                        shape.mesh = SushiEngine::Render::resolve_imported_mesh(
+                            assets, shape.mesh_path.c_str(), shape.source_node,
+                            shape.primitive);
+                        world.set_shape_parameters(id, shape);
                     }
                 }
             }
-        } // namespace
+        }
 
         bool load_scene(IWorldEditor& world, const std::string& path, SceneSkyState* sky,
                         SushiEngine::Render::IAssetLibrary* assets)
@@ -1633,9 +1634,12 @@ namespace SushiEngine
             if (root.is_array())
             {
                 apply_scene(world, root);
+                // The refresh first: it destroys and rebuilds subtrees, and the entities it
+                // creates carry a path and no handle. Resolving before it would resolve the
+                // ones it is about to replace and leave the replacements with no geometry.
+                (void)refresh_prefab_instances(world);
                 if (assets != nullptr)
                     resolve_scene_assets(world, *assets);
-                (void)refresh_prefab_instances(world);
                 return true;
             }
 
@@ -1645,14 +1649,18 @@ namespace SushiEngine
             // apply_scene restores the entities and the environment together (the same
             // object shape capture_scene produces); the file-only extras follow.
             apply_scene(world, root);
-            if (assets != nullptr)
-                resolve_scene_assets(world, *assets);
             // Beside resolve_scene_assets and for the same reason: both are post-load passes
             // that must not run in apply_scene, which is the path undo restores through.
             // Refreshing there would reinstate the very change being undone. `load_scene` has
             // nowhere to report to, so the unreadable paths are dropped here; the editor calls
             // this directly and surfaces them.
+            //
+            // Before the resolve, not after: a rebuilt subtree's Shapes carry a path and no
+            // handle, so resolving first would resolve the entities the refresh is about to
+            // destroy and leave the ones it creates with nothing to draw.
             (void)refresh_prefab_instances(world);
+            if (assets != nullptr)
+                resolve_scene_assets(world, *assets);
             if (root.contains("weather"))
                 weather_from_json(root["weather"], world, path);
             if (sky != nullptr && root.contains("sky"))

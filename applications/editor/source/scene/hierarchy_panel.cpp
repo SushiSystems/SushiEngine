@@ -358,6 +358,13 @@ namespace SushiEngine
                             context.history.record(*world);
                             world->set_parent(dragged, NULL_ENTITY);
                         }
+                        // An asset dropped here is placed as a root. Parked rather than
+                        // placed on the spot: creating entities in the middle of the walk
+                        // this panel is drawing would invalidate it.
+                        if (const ImGuiPayload* asset =
+                                ImGui::AcceptDragDropPayload(ASSET_PATH_PAYLOAD))
+                            context.dropped_model_path.assign(
+                                static_cast<const char*>(asset->Data));
                         ImGui::EndDragDropTarget();
                     }
 

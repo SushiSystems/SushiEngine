@@ -950,16 +950,6 @@ int main(int argc, char** argv)
                 scene_inputs.scene_skinned_count = scene.skinned_instances.size();
                 gizmo_edited = scene_view.draw(context.panels.scene_view, environment, selected,
                                                scene_inputs);
-                // After the panel is drawn, never inside it: placing an instance creates
-                // entities, and the panel is in the middle of a walk over the ones that
-                // already exist. Cleared whether or not the placement succeeded, so a model
-                // with no prefab beside it reports once rather than on every frame after.
-                if (!context.dropped_model_path.empty())
-                {
-                    (void)SushiEngine::Editor::place_model_instance(context,
-                                                                    context.dropped_model_path);
-                    context.dropped_model_path.clear();
-                }
                 // The Scene view is the surface the UI is authored against, so its size
                 // drives every Canvas's layout — the per-frame equivalent of a window
                 // resize event for a full-viewport UI root.
@@ -1220,6 +1210,18 @@ int main(int argc, char** argv)
             // inside a walk over its own copy of the entity list. Acting where the gesture
             // happens would leave the rest of that walk holding stale ids.
             SushiEngine::Editor::run_pending_entity_command(context);
+
+            // An asset dropped on the Scene view or the Hierarchy, placed here for the same
+            // reason and not where the drop landed: it creates entities, and both panels
+            // report their drop from inside a walk over the entities that already exist.
+            // Cleared either way, so a placement that could not happen says so once rather
+            // than on every frame after.
+            if (!context.dropped_model_path.empty())
+            {
+                (void)SushiEngine::Editor::place_model_instance(context,
+                                                                context.dropped_model_path);
+                context.dropped_model_path.clear();
+            }
 
             // Persist preferences once per frame after any edit, and apply the fields
             // that take effect live (the camera speed; theme is applied on change).

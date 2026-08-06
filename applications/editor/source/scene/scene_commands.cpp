@@ -483,10 +483,21 @@ namespace SushiEngine
             if (world == nullptr)
                 return false;
 
-            // A prefab is placed as itself; anything else is a model, whose prefab lives
-            // beside it under the same name with the extension appended.
-            const bool is_prefab =
-                std::filesystem::path(asset_path).extension() == ".sushiprefab";
+            // Guarded here rather than only at each drop target, because two panels now feed
+            // this and a third would arrive without the filter: a texture reaching the import
+            // below would be parsed as a glTF and reported as a broken model.
+            const std::string extension =
+                std::filesystem::path(asset_path).extension().string();
+            if (extension != ".gltf" && extension != ".glb" && extension != ".sushiprefab")
+            {
+                editor_log(context, "'" + extension + "' is not something the scene can place.",
+                           LogLevel::Warning);
+                return false;
+            }
+
+            // A prefab is placed as itself; a model is placed through the prefab beside it,
+            // named after the whole asset path with the extension appended.
+            const bool is_prefab = extension == ".sushiprefab";
             const std::string prefab_path =
                 is_prefab ? asset_path : asset_path + ".sushiprefab";
 
@@ -555,6 +566,13 @@ namespace SushiEngine
             link.path = prefab_path;
             link.revision = document.value("revision", std::string());
             world->set_prefab_instance(root, link);
+
+            // A prefab names its meshes and textures by path, because a handle belongs to the
+            // session that imported them. Without this the subtree arrives complete in every
+            // way except the one that matters — entities, transforms, a Renderer each, and no
+            // geometry to draw. `load_scene` runs the same pass for the same reason.
+            if (context.assets != nullptr)
+                Scene::resolve_scene_assets(*world, *context.assets);
 
             // Selected, because what the user just placed is what they will move next.
             select_only(context, root);
