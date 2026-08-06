@@ -74,9 +74,16 @@ A `.sushiprefab` file:
 ```json
 {
   "revision": "<content hash of the entity array>",
-  "entities": [ /* capture_scene's own entity records; parent is an array index */ ]
+  "entities": [
+    /* capture_scene's own entity records, each with one field added:
+       "prefab_entity_id": a value unique within this file and stable across
+       reads. Parent stays an array index, as capture_scene writes it. */
+  ]
 }
 ```
+
+The added `prefab_entity_id` has **no consumer in this phase** and is written anyway. §4.4 states
+why.
 
 `entities[0]` is the root, and every other entry's `parent` chain reaches it. The array is exactly
 what `capture_scene` produces for the subtree, so `apply_scene`'s reader is reused rather than
@@ -120,6 +127,42 @@ opened.
 
 It also fails better. A prefab file that has gone missing leaves the placed entities intact and
 merely unlinked; a reference-only scene would lose the objects entirely.
+
+### §4.4 Identity, and the one thing this phase owes the next
+
+An override — the whole subject of the phase after this one — has to name what it overrides. This
+codebase gives it nothing to name with: an entity's parentage is written as an array index
+(`scene_serializer.cpp:584`) and `EntityId` is a runtime value that does not survive a save (§1).
+
+The scope of that problem is narrower than it first looks. **An override is always relative to a
+prefab.** Saying "this instance's `Tire` uses a different material" requires telling that `Tire`
+apart from the prefab's other entities — not from every entity in the project. So identity belongs
+to the **prefab file**, not to the scene, and the scene's entity records need no new field at all.
+That is why `.sushiprefab` carries a `prefab_entity_id` per entry (§3) and a scene carries none.
+
+The alternatives were weighed and rejected on one criterion — which of them makes a P1 decision
+irreversible:
+
+- **A sibling-index path** (`2/0/1`) costs nothing to store and breaks the moment a node is inserted
+  into the prefab: every override past it shifts and silently applies to the wrong entity. Silent
+  misapplication is the most expensive failure class in this codebase, and it is what §8 exists to
+  prevent elsewhere.
+- **A name path** (`Body/Wheel_FL/Tire`) is readable and costs nothing, but a rename severs the
+  override, and §5's own sibling naming permits two cousins to share a name.
+- **A scene-wide identifier on every entity** is what a project needs once one scene references
+  another. Nothing does yet, and adopting it here would widen every entity record and disturb the
+  save, undo and play-mode paths §4 is specifically shaped to leave alone.
+
+So this phase writes an identifier it does not read. That is a deliberate exception to this
+document's own YAGNI, and the reason is asymmetric cost: the field is one value per entity and is
+discarded in a day if the scheme turns out wrong, whereas a prefab format shipped without it means
+every prefab authored before override resolution arrives is unmatchable afterwards.
+
+**What this phase does not solve, and must not pretend to:** preserving an identifier across a
+*re-author*, when a prefab is written again from an edited instance. That needs a correspondence
+between the old file's entities and the new one's, which is override resolution's problem and is
+designed with it. In this phase a re-author may assign fresh identifiers, because nothing reads
+them yet.
 
 ## §5 Refresh on load
 
@@ -195,13 +238,35 @@ The weight sits where it can run without a device:
   it stale. This is §5's whole hazard and it gets its own case.
 - A missing prefab leaves the entities in place, marks the root unlinked and does not crash.
 
-## §10 Future work, explicitly deferred
+## §10 The later phases, and what each needs from the one before
 
-- **Override resolution**, and the persistent entity identity it requires (§1). The next phase, and
-  the one that makes an instance editable without losing the edit.
-- **Nested prefabs**, which follow override resolution.
-- **Prefab edit mode**, an isolated view for authoring a prefab without placing it.
-- **Runtime instantiation**, for gameplay spawning.
+Designed only as far as their boundaries and their prerequisites. Each gets its own document and
+its own implementation plan; what is fixed here is the order and what each may assume.
+
+**P2 — Override resolution.** An instance records how it differs from its prefab, and a rebuild
+preserves those differences instead of discarding them. Needs from P1: `prefab_entity_id` (§4.4),
+which P1 writes. Owns, and must design: how an override is stored in the scene (a list on the
+instance root keyed by identifier and field), what happens to an override whose target no longer
+exists in the prefab, how an identifier survives a re-author, and the Inspector affordances that
+show a value as overridden and revert it. This is the phase that turns §2's "edits are lost" into
+"edits are kept", and it is the largest of the four.
+
+**P3 — Nested prefabs and prefab edit mode.** A prefab whose content includes an instance of
+another, and an isolated view for editing a prefab without placing it. Needs from P2: override
+resolution, because a nested instance's overrides compose with its parent's and there is nothing to
+compose before P2 exists. P1 flattens a nested instance and reports it (§2); P3 is what stops
+flattening.
+
+**P4 — Runtime instantiation.** Gameplay creating an instance during a frame rather than an artist
+creating one in the editor. Needs from P1: the asset format and the instantiation path. Owns:
+lifetime, pooling, and whether instantiation is deterministic enough for the fixed-step loop —
+questions that belong to the simulation, not to authoring, which is why this is last rather than
+second despite being independent of P2.
+
+**What none of them changes:** §4's decision that a scene stores an instance expanded. P2 adds an
+override list beside the instance component; it does not move to storing a reference. That keeps
+`capture_scene` and `apply_scene`, and therefore undo, redo and the play-mode snapshot, untouched
+by the whole roadmap rather than only by its first phase.
 
 ## §11 Roadmap
 
