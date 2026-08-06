@@ -215,6 +215,25 @@ namespace SushiEngine
             }
 
             /**
+             * @brief Assets whose `.meta` would not parse, and clears the list.
+             *
+             * A sidecar that fails to parse leaves the asset cooking at the project default
+             * (`docs/design/model_import.md` §8), and an artist whose settings stopped
+             * applying has to be told it was the file rather than the setting. Reported
+             * through polled state rather than through a callback for @ref last_migration's
+             * reason: this module links no console, and the panel that draws it already calls
+             * @ref poll every frame.
+             *
+             * Drained rather than accumulated, so a report is made once and not on every
+             * frame that follows it. One entry per asset per drain, not one per queued cook,
+             * because the broken thing is the sidecar and saying so twice adds nothing.
+             *
+             * @return The asset paths, in the order they were cooked; empty when every
+             *         sidecar read.
+             */
+            std::vector<std::string> take_unreadable_sidecars();
+
+            /**
              * @brief Saves the project's cooking default to its storage path.
              * @return False when a path is set and the write failed; true (including a no-op)
              *         otherwise.
@@ -296,11 +315,17 @@ namespace SushiEngine
             void refresh_wireframe();
 
             // The profile one asset is cooked at: the project default, the asset's own
-            // `.meta`, then this session's unsaved edit, each folded over the last.
-            Physics::Cooking::ImportProfile resolved_profile(const std::string& asset_path) const;
+            // `.meta`, then this session's unsaved edit, each folded over the last. Not
+            // const, because reading a sidecar that will not parse is a fact the caller has
+            // to be told about and this is where it is found.
+            Physics::Cooking::ImportProfile resolved_profile(const std::string& asset_path);
+
+            // Records one asset whose sidecar would not parse, once per drain.
+            void note_unreadable_sidecar(const std::string& asset_path);
 
             Physics::Cooking::ImportProfileLibrary profiles_;
             CookingOverrideMigration last_migration_;
+            std::vector<std::string> unreadable_sidecars_;
             std::string profile_storage_path_;
             std::unique_ptr<Physics::Cooking::ICookedAssetStore> store_;
             Physics::Cooking::MeshPostProcessorChain chain_;

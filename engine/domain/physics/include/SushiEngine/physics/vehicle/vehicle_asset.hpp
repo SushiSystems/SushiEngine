@@ -51,6 +51,7 @@
 
 #include <SushiEngine/core/types.hpp>
 #include <SushiEngine/physics/aero/wind.hpp>
+#include <SushiEngine/physics/core/material.hpp>
 #include <SushiEngine/physics/vehicle/powertrain.hpp>
 #include <SushiEngine/physics/vehicle/suspension.hpp>
 
@@ -151,6 +152,33 @@ namespace SushiEngine
              * trailer, a wreck, a physics-test chassis — rather than as a failure.
              */
             PowertrainSettingsT<T> powertrain;
+
+            /**
+             * @brief The surfaces this vehicle's bodies collide as, indexed by material index.
+             *
+             * The table `SuspensionSetupT::material_index`, @ref node_material_index and
+             * @ref core_material_index point into. A car is the one place a body's material
+             * has to be an index rather than a value: an ordinary rigid body carries its
+             * `PhysicsMaterial` on its own description, but a vehicle is one record standing
+             * for four hundred bodies, and a table indexed per body is the only way that
+             * record can say the wheels are one surface and the panels another.
+             *
+             * Empty is the ordinary case: an index that names no entry resolves to
+             * `PhysicsMaterialT`'s own defaults, which describe an ordinary solid.
+             */
+            std::vector<PhysicsMaterialT<T>> materials;
+
+            /** @brief Which of @ref materials the shell's nodes collide as. */
+            std::uint32_t node_material_index = 0;
+
+            /**
+             * @brief Which of @ref materials the rigid core collides as.
+             *
+             * Its own, for `NodeBeamStructureSettings`' reason: the shell is the panel that
+             * touches the world and the core is a mass whose collision shape is authored
+             * separately (§11.2).
+             */
+            std::uint32_t core_material_index = 0;
         };
 
         /** @brief The boundary vehicle asset: @ref VehicleAssetT fixed to `Scalar`. */

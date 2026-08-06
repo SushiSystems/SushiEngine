@@ -48,7 +48,7 @@ Headers are relative to `include/SushiEngine/authoring/`.
 | `game_view_settings.hpp` | The Game view's aspect presets and orientation. |
 | `gizmo_state.hpp` | The gizmo's mode and axis-frame vocabulary, free of the controller. |
 | `autosave.hpp` | `AutosaveTimer` — the autosave decision as a tickable clock that runs only while a save would be meaningful. |
-| `cook_bake_state.hpp` | What the Bake panel knows, with no interface toolkit near it. Its stored document holds the project's cooking default alone; what one asset says differs lives in that asset's `.meta` sidecar, and `CookingOverrideMigration` reports what one read moved there. |
+| `cook_bake_state.hpp` | What the Bake panel knows, with no interface toolkit near it. Its stored document holds the project's cooking default alone; what one asset says differs lives in that asset's `.meta` sidecar, and `CookingOverrideMigration` reports what one read moved there. A sidecar that will not parse is named by `take_unreadable_sidecars` rather than swallowed. |
 | `soft_body_heat.hpp` | What a soft-body debug view means, with no drawing in it. |
 
 `command_history.cpp`, `preferences.cpp` and `cook_bake_state.cpp` are the module's sources; the

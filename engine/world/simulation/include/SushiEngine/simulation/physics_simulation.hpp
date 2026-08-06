@@ -700,10 +700,24 @@ namespace SushiEngine
                         settings.position = to_vector(description.position);
                         settings.orientation = to_quaternion(description.orientation);
                         settings.velocity = to_vector(description.velocity);
+                        // The shell and the core are two surfaces, and the asset is the only
+                        // thing that knows which. Left at zero these were an authored field
+                        // the scene never passed on, so every panel on every car collided as
+                        // the default solid.
+                        settings.node_material_index = description.setup.node_material_index;
+                        settings.core_material_index = description.setup.core_material_index;
 
                         if (!entry.instance->create(*solver_, view,
                                                     to_vehicle_setup(description.setup), settings))
                             continue;
+
+                        // Converted element by element through the same `to_material` a rigid
+                        // body's own material takes, so the table is at the solve's precision
+                        // rather than the boundary's.
+                        entry.materials.reserve(description.setup.materials.size());
+                        for (const Physics::PhysicsMaterialT<Scalar>& material :
+                             description.setup.materials)
+                            entry.materials.push_back(to_material(material));
 
                         entry.surface_indices.assign(
                             view.surface_indices,
@@ -712,9 +726,10 @@ namespace SushiEngine
                         vehicles_.push_back(std::move(entry));
                     }
                     // A vehicle is hundreds of bodies, so every proxy index the broadphase
-                    // holds is now stale - the same rebuild a rigid-body change forces.
-                    proxies_dirty_ = true;
-                    bodies_dirty_ = true;
+                    // holds is now stale - the same rebuild a rigid-body change forces, and
+                    // through the same hook, so the query hierarchy and the warm-start keys
+                    // are not left behind by the one membership change that skipped it.
+                    note_membership_changed();
                 }
 
                 /** @copydoc IVehicleService::set_vehicle_input */
@@ -1210,6 +1225,18 @@ namespace SushiEngine
                      * to free them — and the render extract asks for these every frame.
                      */
                     std::vector<std::uint32_t> surface_indices;
+
+                    /**
+                     * @brief The surfaces this vehicle's bodies contact as, by material index.
+                     *
+                     * `VehicleAssetT::materials` at the solve's precision, resolved once at
+                     * instancing through the same `to_material` a rigid body's own material
+                     * goes through. Held per vehicle rather than per body because that is what
+                     * the authored record is: `RigidBodyDescription` carries a material by
+                     * value because it stands for one body, and a vehicle's cannot, because
+                     * one record stands for the core, every shell node and every wheel.
+                     */
+                    std::vector<Physics::PhysicsMaterialT<T>> materials;
 
                     /** @brief What the last `set_vehicles` built this from, to diff against. */
                     const std::byte* asset = nullptr;
@@ -2449,6 +2476,18 @@ namespace SushiEngine
                                 const std::size_t slot = solver_->body_slot(handle);
                                 if (radius > T(0) && slot < particle_radius_.size())
                                     particle_radius_[slot] = radius;
+                                // §11.5's `material_index`, resolved. The body carries the
+                                // index its authored setup gave it — a wheel its corner's, a
+                                // node the shell's, the core its own — and the vehicle's
+                                // table is what turns that into a surface. An index naming no
+                                // entry is left out, so `material_of` answers with the
+                                // default rather than with a neighbouring row.
+                                if (slot >= bodies_.size())
+                                    return;
+                                const std::uint32_t material = bodies_[slot].material_index;
+                                if (material < entry.materials.size())
+                                    material_of_slot_.emplace(std::uint32_t(slot),
+                                                              entry.materials[material]);
                             });
                     }
 
@@ -2567,10 +2606,10 @@ namespace SushiEngine
                  * @brief The surface @p slot contacts as, or the default for anything else.
                  *
                  * The default rather than a refusal, because the slots without an entry are
-                 * cloth particles, soft-body vertices, a vehicle's own bodies and the
-                 * standing plane body — none of which is a rigid body an author gave a
-                 * material to through a `Collider`, and all of which have
-                 * to contact *something*. `PhysicsMaterialT`'s own defaults describe an
+                 * cloth particles, soft-body vertices, the standing plane body, and any
+                 * vehicle body whose `material_index` names no row of its vehicle's table —
+                 * none of which is a surface an author stated, and all of which have to
+                 * contact *something*. `PhysicsMaterialT`'s own defaults describe an
                  * ordinary solid, so an unauthored surface behaves plausibly rather than
                  * like frictionless glass.
                  *
@@ -2973,7 +3012,19 @@ namespace SushiEngine
                     return converted;
                 }
 
-                /** @brief Rebuilds the query hierarchy if the world has moved. */
+                /**
+                 * @brief Rebuilds the query hierarchy if the world has moved.
+                 *
+                 * Holds the rigid bodies, the standing planes, and a vehicle's shell nodes
+                 * and wheels — everything a ray can be expected to find, at the same shape
+                 * the contact pass collides it as, so a query and a contact never disagree
+                 * about where a surface is.
+                 *
+                 * Cloth particles are the one kind of body the contact index registers and
+                 * this one does not, and no reason for the difference is recorded anywhere:
+                 * a raycast through a cloth sheet reports whatever is behind it. That is an
+                 * open gap, not a decision.
+                 */
                 void refresh_query_index() const
                 {
                     if (!query_dirty_ || !solver_)
@@ -2996,6 +3047,29 @@ namespace SushiEngine
                                         bodies_[slot].inv_mass > T(0)
                                             ? 0u
                                             : Physics::BodyFlags::static_body);
+                    }
+                    // A vehicle's collision surface, on the same terms `rebuild_contact_index`
+                    // registers it: the sphere each shell node and wheel collides as, and
+                    // nothing for the core or a carrier, whose zero radius says they present
+                    // no surface. A car that is invisible to a raycast is a car nothing can
+                    // aim at, target or spawn on top of.
+                    for (const VehicleEntry& entry : vehicles_)
+                    {
+                        if (!entry.instance)
+                            continue;
+                        entry.instance->for_each_body(
+                            [&](const Physics::BodyHandle handle, T radius)
+                            {
+                                const std::size_t slot = solver_->body_slot(handle);
+                                if (!(radius > T(0)) || slot >= bodies_.size())
+                                    return;
+                                add_query_proxy(
+                                    Physics::make_sphere_shape<T>(bodies_[slot].position, radius),
+                                    entry.entity,
+                                    bodies_[slot].inv_mass > T(0)
+                                        ? 0u
+                                        : Physics::BodyFlags::static_body);
+                            });
                     }
                     for (const Physics::PlaneCollider<T>& plane : planes_)
                         add_query_proxy(Physics::make_plane_shape<T>(plane.normal, plane.offset),
