@@ -39,6 +39,16 @@ GoogleTest, CMake with `sushiengine_add_module`, Dear ImGui for the editor surfa
 
 ---
 
+## Test naming — non-negotiable
+
+`tests/CMakeLists.txt:665-676` registers `gtest_discover_tests` three times, filtering on
+`Unit_*`, `Integration_*` and `Regression_*`. **A test whose suite name carries none of those
+prefixes is discovered by nothing**: CTest runs zero of its cases and `se test --suite functional`
+reports green having never executed them. Every suite name in this part is therefore
+`Unit_<Name>` for a file under `tests/unit/` and `Integration_<Name>` for one under
+`tests/integration/`. Do not drop the prefix, and do not trust a green run of a test you cannot
+see named in the CTest output.
+
 ## Where this plan sits
 
 This is **part four of four**. Parts one to three build everything this part calls, and all three

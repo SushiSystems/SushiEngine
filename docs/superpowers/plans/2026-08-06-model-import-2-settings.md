@@ -66,6 +66,16 @@ se test --suite functional         # unit + integration + regression
 ---
 ---
 
+## Test naming — non-negotiable
+
+`tests/CMakeLists.txt:665-676` registers `gtest_discover_tests` three times, filtering on
+`Unit_*`, `Integration_*` and `Regression_*`. **A test whose suite name carries none of those
+prefixes is discovered by nothing**: CTest runs zero of its cases and `se test --suite functional`
+reports green having never executed them. Every suite name in this part is therefore
+`Unit_<Name>` for a file under `tests/unit/` and `Integration_<Name>` for one under
+`tests/integration/`. Do not drop the prefix, and do not trust a green run of a test you cannot
+see named in the CTest output.
+
 ## Where this plan sits
 
 This is **part two of four** of the model import plan. It builds the per-asset settings and
@@ -292,7 +302,7 @@ namespace
     };
 }
 
-TEST(ModelImportSettingsIO, TheSidecarPathAppendsMetaToTheWholeAssetPath)
+TEST(Unit_ModelImportSettingsIO, TheSidecarPathAppendsMetaToTheWholeAssetPath)
 {
     EXPECT_EQ(SushiEngine::Model::model_import_settings_path("models/Car.gltf"),
               "models/Car.gltf.meta");
@@ -300,7 +310,7 @@ TEST(ModelImportSettingsIO, TheSidecarPathAppendsMetaToTheWholeAssetPath)
               "models/Car.glb.meta");
 }
 
-TEST(ModelImportSettingsIO, AnAssetWithNoSidecarLoadsTheDefaultsAndDoesNotFail)
+TEST(Unit_ModelImportSettingsIO, AnAssetWithNoSidecarLoadsTheDefaultsAndDoesNotFail)
 {
     ModelImportSettings settings;
     settings.scale_factor = 42.0f;
@@ -309,7 +319,7 @@ TEST(ModelImportSettingsIO, AnAssetWithNoSidecarLoadsTheDefaultsAndDoesNotFail)
     EXPECT_EQ(settings, ModelImportSettings{});
 }
 
-TEST(ModelImportSettingsIO, DefaultedSettingsSurviveAWriteAndRead)
+TEST(Unit_ModelImportSettingsIO, DefaultedSettingsSurviveAWriteAndRead)
 {
     ScratchSidecar cleanup;
     const ModelImportSettings written;
@@ -321,7 +331,7 @@ TEST(ModelImportSettingsIO, DefaultedSettingsSurviveAWriteAndRead)
     EXPECT_EQ(read, written);
 }
 
-TEST(ModelImportSettingsIO, EveryFieldSurvivesAWriteAndRead)
+TEST(Unit_ModelImportSettingsIO, EveryFieldSurvivesAWriteAndRead)
 {
     ScratchSidecar cleanup;
     ModelImportSettings written;
@@ -344,7 +354,7 @@ TEST(ModelImportSettingsIO, EveryFieldSurvivesAWriteAndRead)
     EXPECT_EQ(read, written);
 }
 
-TEST(ModelImportSettingsIO, AnUnsetCookingOverrideStaysUnsetRatherThanBecomingAValue)
+TEST(Unit_ModelImportSettingsIO, AnUnsetCookingOverrideStaysUnsetRatherThanBecomingAValue)
 {
     ScratchSidecar cleanup;
     ModelImportSettings written;
@@ -360,7 +370,7 @@ TEST(ModelImportSettingsIO, AnUnsetCookingOverrideStaysUnsetRatherThanBecomingAV
     EXPECT_FALSE(read.cooking.static_geometry.has_value());
 }
 
-TEST(ModelImportSettingsIO, AMalformedSidecarFailsAndYieldsTheDefaults)
+TEST(Unit_ModelImportSettingsIO, AMalformedSidecarFailsAndYieldsTheDefaults)
 {
     ScratchSidecar cleanup;
     {
@@ -441,7 +451,7 @@ se build
 se test --suite functional
 ```
 
-Expected: `ModelImportSettingsIO.*` all pass. `se build` failing at configure time with a
+Expected: `Unit_ModelImportSettingsIO.*` all pass. `se build` failing at configure time with a
 `FATAL_ERROR` about a module not in `SUSHIENGINE_MODULE_LAYERS` means Step 1 was missed.
 
 - [ ] **Step 10: Run the checks and commit**
@@ -528,7 +538,7 @@ namespace
     }
 }
 
-TEST(CookingOverrideMigration, AnOverrideBecomesASidecarAndLeavesTheDocument)
+TEST(Unit_CookingOverrideMigration, AnOverrideBecomesASidecarAndLeavesTheDocument)
 {
     const std::string document = "test_migration_project.json";
     const std::string present = "present_asset.gltf";
@@ -563,7 +573,7 @@ TEST(CookingOverrideMigration, AnOverrideBecomesASidecarAndLeavesTheDocument)
     std::remove(SushiEngine::Model::model_import_settings_path(present).c_str());
 }
 
-TEST(CookingOverrideMigration, RunningItTwiceChangesNothingTheSecondTime)
+TEST(Unit_CookingOverrideMigration, RunningItTwiceChangesNothingTheSecondTime)
 {
     const std::string document = "test_migration_idempotent.json";
     const std::string present = "present_asset.gltf";
@@ -591,7 +601,7 @@ TEST(CookingOverrideMigration, RunningItTwiceChangesNothingTheSecondTime)
     std::remove(SushiEngine::Model::model_import_settings_path(present).c_str());
 }
 
-TEST(CookingOverrideMigration, AProjectWithNoDocumentIsNotAFailure)
+TEST(Unit_CookingOverrideMigration, AProjectWithNoDocumentIsNotAFailure)
 {
     std::vector<std::string> migrated;
     std::vector<std::string> dropped;
@@ -638,7 +648,7 @@ se build
 se test --suite functional
 ```
 
-Expected: `CookingOverrideMigration.*` pass and no existing cooking test regresses.
+Expected: `Unit_CookingOverrideMigration.*` pass and no existing cooking test regresses.
 
 - [ ] **Step 6: Update the README and commit**
 

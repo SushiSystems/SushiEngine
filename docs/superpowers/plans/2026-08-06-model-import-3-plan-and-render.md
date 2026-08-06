@@ -66,6 +66,16 @@ se test --suite functional         # unit + integration + regression
 ---
 ---
 
+## Test naming — non-negotiable
+
+`tests/CMakeLists.txt:665-676` registers `gtest_discover_tests` three times, filtering on
+`Unit_*`, `Integration_*` and `Regression_*`. **A test whose suite name carries none of those
+prefixes is discovered by nothing**: CTest runs zero of its cases and `se test --suite functional`
+reports green having never executed them. Every suite name in this part is therefore
+`Unit_<Name>` for a file under `tests/unit/` and `Integration_<Name>` for one under
+`tests/integration/`. Do not drop the prefix, and do not trust a green run of a test you cannot
+see named in the CTest output.
+
 ## Where this plan sits
 
 This is **part three of four** of the model import plan. It builds the decision that turns a
@@ -278,7 +288,7 @@ namespace
     }
 }
 
-TEST(ModelInstantiationPlan, AnEmptyDescriptionPlansNothing)
+TEST(Unit_ModelInstantiationPlan, AnEmptyDescriptionPlansNothing)
 {
     GLTFSceneDescription description;
     ModelImportReport report;
@@ -287,7 +297,7 @@ TEST(ModelInstantiationPlan, AnEmptyDescriptionPlansNothing)
     EXPECT_EQ(report.entities, 0u);
 }
 
-TEST(ModelInstantiationPlan, ANodeWithOneMeshPrimitiveCarriesItsOwnShape)
+TEST(Unit_ModelInstantiationPlan, ANodeWithOneMeshPrimitiveCarriesItsOwnShape)
 {
     GLTFSceneDescription description;
     GLTFNodeDescription tire = node("Tire", -1, 0);
@@ -305,7 +315,7 @@ TEST(ModelInstantiationPlan, ANodeWithOneMeshPrimitiveCarriesItsOwnShape)
     EXPECT_EQ(report.primitives_imported, 1u);
 }
 
-TEST(ModelInstantiationPlan, ANodeWithTwoPrimitivesStaysATransformAndGainsAChildPerPrimitive)
+TEST(Unit_ModelInstantiationPlan, ANodeWithTwoPrimitivesStaysATransformAndGainsAChildPerPrimitive)
 {
     GLTFSceneDescription description;
     GLTFNodeDescription body = node("Body", -1, 0);
@@ -329,7 +339,7 @@ TEST(ModelInstantiationPlan, ANodeWithTwoPrimitivesStaysATransformAndGainsAChild
     EXPECT_FLOAT_EQ(plan.entities[1].scale.x, 1.0f);
 }
 
-TEST(ModelInstantiationPlan, EveryParentPrecedesItsChild)
+TEST(Unit_ModelInstantiationPlan, EveryParentPrecedesItsChild)
 {
     GLTFSceneDescription description;
     description.nodes.push_back(node("Root", -1, 0));
@@ -345,7 +355,7 @@ TEST(ModelInstantiationPlan, EveryParentPrecedesItsChild)
     EXPECT_EQ(plan.entities[2].parent, 1);
 }
 
-TEST(ModelInstantiationPlan, SeveralRootsGainASyntheticRootNamedAfterTheFile)
+TEST(Unit_ModelInstantiationPlan, SeveralRootsGainASyntheticRootNamedAfterTheFile)
 {
     GLTFSceneDescription description;
     description.nodes.push_back(node("First", -1, 0));
@@ -360,7 +370,7 @@ TEST(ModelInstantiationPlan, SeveralRootsGainASyntheticRootNamedAfterTheFile)
     EXPECT_EQ(plan.entities[2].parent, 0);
 }
 
-TEST(ModelInstantiationPlan, ASingleRootIsTheSubtreeRootWithNoWrapper)
+TEST(Unit_ModelInstantiationPlan, ASingleRootIsTheSubtreeRootWithNoWrapper)
 {
     GLTFSceneDescription description;
     description.nodes.push_back(node("Car", -1, 0));
@@ -372,7 +382,7 @@ TEST(ModelInstantiationPlan, ASingleRootIsTheSubtreeRootWithNoWrapper)
     EXPECT_EQ(plan.entities[0].name, "Car");
 }
 
-TEST(ModelInstantiationPlan, AnUnnamedNodeIsNamedAfterItsFileIndex)
+TEST(Unit_ModelInstantiationPlan, AnUnnamedNodeIsNamedAfterItsFileIndex)
 {
     GLTFSceneDescription description;
     description.nodes.push_back(node("", -1, 7));
@@ -383,7 +393,7 @@ TEST(ModelInstantiationPlan, AnUnnamedNodeIsNamedAfterItsFileIndex)
     EXPECT_EQ(plan.entities[0].name, "node 7");
 }
 
-TEST(ModelInstantiationPlan, SiblingNamesAreDisambiguatedAndCousinsKeepTheirSharedName)
+TEST(Unit_ModelInstantiationPlan, SiblingNamesAreDisambiguatedAndCousinsKeepTheirSharedName)
 {
     GLTFSceneDescription description;
     description.nodes.push_back(node("Root", -1, 0));
@@ -403,7 +413,7 @@ TEST(ModelInstantiationPlan, SiblingNamesAreDisambiguatedAndCousinsKeepTheirShar
     EXPECT_EQ(plan.entities[4].name, "Tire");
 }
 
-TEST(ModelInstantiationPlan, ADirectionalLightIsSkippedAndCountedRatherThanCreated)
+TEST(Unit_ModelInstantiationPlan, ADirectionalLightIsSkippedAndCountedRatherThanCreated)
 {
     GLTFSceneDescription description;
     GLTFNodeDescription sun = node("Sun", -1, 0);
@@ -422,7 +432,7 @@ TEST(ModelInstantiationPlan, ADirectionalLightIsSkippedAndCountedRatherThanCreat
     EXPECT_FALSE(report.warnings.empty());
 }
 
-TEST(ModelInstantiationPlan, APointLightBecomesALightEntityWhenTheSettingIsOn)
+TEST(Unit_ModelInstantiationPlan, APointLightBecomesALightEntityWhenTheSettingIsOn)
 {
     GLTFSceneDescription description;
     GLTFNodeDescription lamp = node("Lamp", -1, 0);
@@ -438,7 +448,7 @@ TEST(ModelInstantiationPlan, APointLightBecomesALightEntityWhenTheSettingIsOn)
     EXPECT_EQ(report.lights_imported, 1u);
 }
 
-TEST(ModelInstantiationPlan, ImportLightsOffLeavesTheNodeAPlainTransform)
+TEST(Unit_ModelInstantiationPlan, ImportLightsOffLeavesTheNodeAPlainTransform)
 {
     GLTFSceneDescription description;
     GLTFNodeDescription lamp = node("Lamp", -1, 0);
@@ -455,7 +465,7 @@ TEST(ModelInstantiationPlan, ImportLightsOffLeavesTheNodeAPlainTransform)
     EXPECT_EQ(report.lights_imported, 0u);
 }
 
-TEST(ModelInstantiationPlan, ACameraNodeBecomesACameraEntity)
+TEST(Unit_ModelInstantiationPlan, ACameraNodeBecomesACameraEntity)
 {
     GLTFSceneDescription description;
     GLTFNodeDescription shot = node("Shot", -1, 0);
@@ -471,7 +481,7 @@ TEST(ModelInstantiationPlan, ACameraNodeBecomesACameraEntity)
     EXPECT_EQ(report.cameras_imported, 1u);
 }
 
-TEST(ModelInstantiationPlan, ImportCamerasOffLeavesTheNodeAPlainTransform)
+TEST(Unit_ModelInstantiationPlan, ImportCamerasOffLeavesTheNodeAPlainTransform)
 {
     GLTFSceneDescription description;
     GLTFNodeDescription shot = node("Shot", -1, 0);
@@ -488,7 +498,7 @@ TEST(ModelInstantiationPlan, ImportCamerasOffLeavesTheNodeAPlainTransform)
     EXPECT_EQ(report.cameras_imported, 0u);
 }
 
-TEST(ModelInstantiationPlan, ANodeCarryingBothAMeshAndACameraPrefersItsGeometry)
+TEST(Unit_ModelInstantiationPlan, ANodeCarryingBothAMeshAndACameraPrefersItsGeometry)
 {
     // glTF permits it and the engine's entity cannot be both. Geometry wins because it is what
     // the artist sees, and the camera is reported rather than dropped in silence.
@@ -507,7 +517,7 @@ TEST(ModelInstantiationPlan, ANodeCarryingBothAMeshAndACameraPrefersItsGeometry)
     EXPECT_FALSE(report.warnings.empty());
 }
 
-TEST(ModelInstantiationPlan, ASkinnedNodeKeepsItsPlaceInTheTreeButLosesItsMesh)
+TEST(Unit_ModelInstantiationPlan, ASkinnedNodeKeepsItsPlaceInTheTreeButLosesItsMesh)
 {
     GLTFSceneDescription description;
     GLTFNodeDescription rigged = node("Body", -1, 0);
@@ -525,7 +535,7 @@ TEST(ModelInstantiationPlan, ASkinnedNodeKeepsItsPlaceInTheTreeButLosesItsMesh)
     EXPECT_EQ(report.primitives_imported, 0u);
 }
 
-TEST(ModelInstantiationPlan, ScaleFactorReachesGeometryScaleAndEveryTranslationButNoParentChain)
+TEST(Unit_ModelInstantiationPlan, ScaleFactorReachesGeometryScaleAndEveryTranslationButNoParentChain)
 {
     GLTFSceneDescription description;
     GLTFNodeDescription root = node("Root", -1, 0);
@@ -551,7 +561,7 @@ TEST(ModelInstantiationPlan, ScaleFactorReachesGeometryScaleAndEveryTranslationB
     EXPECT_FLOAT_EQ(plan.entities[1].scale.x, 0.5f);
 }
 
-TEST(ModelInstantiationPlan, PreservePivotsOffDropsAnEmptyNodeAndKeepsItsChildWhereItWas)
+TEST(Unit_ModelInstantiationPlan, PreservePivotsOffDropsAnEmptyNodeAndKeepsItsChildWhereItWas)
 {
     GLTFSceneDescription description;
     GLTFNodeDescription root = node("Root", -1, 0);
@@ -586,7 +596,7 @@ TEST(ModelInstantiationPlan, PreservePivotsOffDropsAnEmptyNodeAndKeepsItsChildWh
     EXPECT_FLOAT_EQ(world_position(dropped, 1).x, expected);
 }
 
-TEST(ModelInstantiationPlan, PreservePivotsOffKeepsANodeThatCarriesSomething)
+TEST(Unit_ModelInstantiationPlan, PreservePivotsOffKeepsANodeThatCarriesSomething)
 {
     GLTFSceneDescription description;
     description.nodes.push_back(node("Root", -1, 0));
@@ -604,7 +614,7 @@ TEST(ModelInstantiationPlan, PreservePivotsOffKeepsANodeThatCarriesSomething)
     EXPECT_EQ(report.pivots_dropped, 0u);
 }
 
-TEST(ModelInstantiationPlan, GenerateCollidersMarksOnlyGeometryCarryingEntities)
+TEST(Unit_ModelInstantiationPlan, GenerateCollidersMarksOnlyGeometryCarryingEntities)
 {
     GLTFSceneDescription description;
     description.nodes.push_back(node("Root", -1, 0));
@@ -622,7 +632,7 @@ TEST(ModelInstantiationPlan, GenerateCollidersMarksOnlyGeometryCarryingEntities)
     EXPECT_TRUE(plan.entities[1].generate_collider);
 }
 
-TEST(ModelInstantiationPlan, AColliderUnderAFileScaledParentIsWarnedAbout)
+TEST(Unit_ModelInstantiationPlan, AColliderUnderAFileScaledParentIsWarnedAbout)
 {
     GLTFSceneDescription description;
     GLTFNodeDescription root = node("Root", -1, 0);
@@ -642,7 +652,7 @@ TEST(ModelInstantiationPlan, AColliderUnderAFileScaledParentIsWarnedAbout)
     EXPECT_FALSE(report.warnings.empty());
 }
 
-TEST(ModelInstantiationPlan, TheRootRotationLandsOnTheRootAndNowhereElse)
+TEST(Unit_ModelInstantiationPlan, TheRootRotationLandsOnTheRootAndNowhereElse)
 {
     GLTFSceneDescription description;
     description.nodes.push_back(node("Root", -1, 0));
@@ -701,7 +711,7 @@ se build
 se test --suite functional
 ```
 
-Expected: every `ModelInstantiationPlan.*` case passes.
+Expected: every `Unit_ModelInstantiationPlan.*` case passes.
 
 - [ ] **Step 7: Update the README and commit**
 
