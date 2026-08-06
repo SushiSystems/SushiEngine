@@ -700,10 +700,24 @@ namespace SushiEngine
                         settings.position = to_vector(description.position);
                         settings.orientation = to_quaternion(description.orientation);
                         settings.velocity = to_vector(description.velocity);
+                        // The shell and the core are two surfaces, and the asset is the only
+                        // thing that knows which. Left at zero these were an authored field
+                        // the scene never passed on, so every panel on every car collided as
+                        // the default solid.
+                        settings.node_material_index = description.setup.node_material_index;
+                        settings.core_material_index = description.setup.core_material_index;
 
                         if (!entry.instance->create(*solver_, view,
                                                     to_vehicle_setup(description.setup), settings))
                             continue;
+
+                        // Converted element by element through the same `to_material` a rigid
+                        // body's own material takes, so the table is at the solve's precision
+                        // rather than the boundary's.
+                        entry.materials.reserve(description.setup.materials.size());
+                        for (const Physics::PhysicsMaterialT<Scalar>& material :
+                             description.setup.materials)
+                            entry.materials.push_back(to_material(material));
 
                         entry.surface_indices.assign(
                             view.surface_indices,
@@ -1211,6 +1225,18 @@ namespace SushiEngine
                      * to free them — and the render extract asks for these every frame.
                      */
                     std::vector<std::uint32_t> surface_indices;
+
+                    /**
+                     * @brief The surfaces this vehicle's bodies contact as, by material index.
+                     *
+                     * `VehicleAssetT::materials` at the solve's precision, resolved once at
+                     * instancing through the same `to_material` a rigid body's own material
+                     * goes through. Held per vehicle rather than per body because that is what
+                     * the authored record is: `RigidBodyDescription` carries a material by
+                     * value because it stands for one body, and a vehicle's cannot, because
+                     * one record stands for the core, every shell node and every wheel.
+                     */
+                    std::vector<Physics::PhysicsMaterialT<T>> materials;
 
                     /** @brief What the last `set_vehicles` built this from, to diff against. */
                     const std::byte* asset = nullptr;
@@ -2450,6 +2476,18 @@ namespace SushiEngine
                                 const std::size_t slot = solver_->body_slot(handle);
                                 if (radius > T(0) && slot < particle_radius_.size())
                                     particle_radius_[slot] = radius;
+                                // §11.5's `material_index`, resolved. The body carries the
+                                // index its authored setup gave it — a wheel its corner's, a
+                                // node the shell's, the core its own — and the vehicle's
+                                // table is what turns that into a surface. An index naming no
+                                // entry is left out, so `material_of` answers with the
+                                // default rather than with a neighbouring row.
+                                if (slot >= bodies_.size())
+                                    return;
+                                const std::uint32_t material = bodies_[slot].material_index;
+                                if (material < entry.materials.size())
+                                    material_of_slot_.emplace(std::uint32_t(slot),
+                                                              entry.materials[material]);
                             });
                     }
 
@@ -2568,10 +2606,10 @@ namespace SushiEngine
                  * @brief The surface @p slot contacts as, or the default for anything else.
                  *
                  * The default rather than a refusal, because the slots without an entry are
-                 * cloth particles, soft-body vertices, a vehicle's own bodies and the
-                 * standing plane body — none of which is a rigid body an author gave a
-                 * material to through a `Collider`, and all of which have
-                 * to contact *something*. `PhysicsMaterialT`'s own defaults describe an
+                 * cloth particles, soft-body vertices, the standing plane body, and any
+                 * vehicle body whose `material_index` names no row of its vehicle's table —
+                 * none of which is a surface an author stated, and all of which have to
+                 * contact *something*. `PhysicsMaterialT`'s own defaults describe an
                  * ordinary solid, so an unauthored surface behaves plausibly rather than
                  * like frictionless glass.
                  *

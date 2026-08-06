@@ -106,6 +106,13 @@ that slider's frame turned about its own axis.
   real bug once; the doc comment on the field is the fix.
 - **`steered` / `driven`** — which corners the steering angle reaches and which the
   drivetrain feeds.
+- **`material_index`** — which entry of `VehicleAsset::materials` the wheel and its carrier
+  collide as. **Point it at a frictionless entry whenever that corner's tyre model is on.**
+  The solver's own Coulomb friction runs inside the substep loop on the same contact the tyre
+  model reads, so a gripping wheel gets both, and the car ends up with grip nobody authored
+  and no single wrong number to find. `VehicleAsset::node_material_index` and
+  `::core_material_index` do the same for the shell and the core; an index naming no entry
+  contacts as the default solid.
 
 ---
 
@@ -180,6 +187,10 @@ Stated rather than discovered:
   nothing else; a reloaded vehicle comes back at the default corners, tyres, drivetrain and
   aerodynamics until `VehicleAsset` has a serializer of its own. The Vehicle window says so
   rather than the file losing it silently.
+- The **material table has no editor surface**. The scene resolves every vehicle body's
+  `material_index` against `VehicleAsset::materials` and applies the result to its contacts,
+  but the Vehicle window draws neither the table nor the indices; authoring one means calling
+  `IWorldEditor::set_vehicle_parameters` from code.
 - The cooked **render skinning is not drawn**. What you see is the collision surface, which
   is the shape the physics owns end to end; drawing the pretty mesh needs that mesh's own
   index buffer, which lives in the visual asset rather than in the `.sushinodebeam`.

@@ -635,3 +635,71 @@ TEST(Integration_PhysicsSimulation, AVehiclesShellIsFoundByASceneQuery)
     EXPECT_TRUE(physics->overlap_sphere(core.position, Scalar(0.05), SceneQueryFilter{}).empty())
         << "a body with no collision surface must not become a query proxy";
 }
+
+namespace
+{
+    /**
+     * @brief Slides the square shell along the ground and reports how far it got.
+     *
+     * The shell starts resting on the plane at 5 m/s, so the only thing that decides where
+     * it stops is the friction between its nodes' surface and the plane's. Two seconds is
+     * long enough for a gripping shell to stop outright and a frictionless one to keep every
+     * metre per second it started with, which is what makes the two answers far apart rather
+     * than a tolerance argument.
+     *
+     * @param materials The vehicle's material table; the shell's nodes take entry 0.
+     * @return The core's x position after 120 ticks, in metres.
+     */
+    double shell_slide_distance(const std::vector<Physics::PhysicsMaterial>& materials)
+    {
+        std::vector<std::byte> blob;
+        if (!Physics::Cooking::build_node_beam_blob(square_shell_asset(), blob))
+            return 0.0;
+
+        auto physics = create_physics_simulation(Harness::shared_context());
+
+        VehicleDescription vehicle;
+        vehicle.id = 7;
+        vehicle.asset = blob.data();
+        vehicle.asset_size = blob.size();
+        // Node centres exactly one radius above the plane: the shell starts resting on it.
+        vehicle.position = Vector3{0, SHELL_NODE_RADIUS, 0};
+        vehicle.velocity = Vector3{Scalar(5), 0, 0};
+        vehicle.setup.materials = materials;
+        physics->set_vehicles({vehicle});
+        physics->set_static_planes(ground());
+
+        for (int tick = 0; tick < 120; ++tick)
+            physics->step(earth_gravity(), still_air(), SUBSTEPS);
+
+        SolvedPose core;
+        if (!physics->vehicle_core_pose(7, core))
+            return 0.0;
+        return double(core.position.x);
+    }
+} // namespace
+
+TEST(Integration_PhysicsSimulation, AVehiclesAuthoredMaterialDecidesHowItsShellSlides)
+{
+    // `SuspensionSetupT::material_index` and `NodeBeamStructureSettings::node_material_index`
+    // are the only way a car can say its wheels are one surface and its panels another, and
+    // they are indices: the table they name is `VehicleAssetT::materials`, and the scene is
+    // what has to resolve one against the other. Unresolved, every body of every car contacts
+    // as the default solid, and these two runs would land in the same place.
+    const double gripping = shell_slide_distance({});
+
+    Physics::PhysicsMaterial ice;
+    ice.static_friction = 0;
+    ice.dynamic_friction = 0;
+    ice.restitution = 0;
+    // The plane is the default surface and asks for `average`, which would leave half of its
+    // own friction on a contact with a frictionless body. `minimum` is the stricter mode, so
+    // `stricter_mode` picks it for the pair and the smaller of the two coefficients wins.
+    ice.friction_combine = Physics::MaterialCombineMode::minimum;
+
+    const double frictionless = shell_slide_distance({ice});
+
+    EXPECT_LT(gripping, 4.0) << "a shell on the default surface must be slowed by friction";
+    EXPECT_GT(frictionless, gripping + 4.0)
+        << "the authored material never reached the contact: both runs slid the same way";
+}
