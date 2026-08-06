@@ -538,6 +538,10 @@ add_executable(sushiengine_functional_tests
     # still says, since the render passes (not this extraction step) are the ones that
     # ignore `kind` when `mesh` is set (static_mesh_authoring.md).
     integration/test_shape_render_extraction.cpp
+    # A glTF file's node graph as the file states it: the ordering guarantee consumers index
+    # by, the file's own node index as the join key, both forms a node may state its transform
+    # in, and a punctual light and a camera (model_import.md §4.1).
+    integration/test_gltf_scene_import.cpp
     # P6-G5: what the editor's soft-body debug views mean, with the drawing left
     # out — that full scale is a material threshold rather than the body's own
     # worst element, which is the one mistake here that produces a plausible
