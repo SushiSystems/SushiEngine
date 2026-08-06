@@ -35,6 +35,7 @@
 #include <nlohmann/json.hpp>
 
 #include <SushiEngine/render/asset_library_interface.hpp>
+#include <SushiEngine/render/imported_mesh.hpp>
 
 #include "byte_encoding.hpp"
 #include "effect_serializer.hpp"
@@ -803,7 +804,8 @@ namespace SushiEngine
                                           {"params", vec3_to_json(parameters.parameters)},
                                           {"mesh", parameters.mesh},
                                           {"mesh_path", parameters.mesh_path},
-                                          {"mesh_index", parameters.mesh_index}};
+                                          {"source_node", parameters.source_node},
+                                          {"primitive", parameters.primitive}};
                 }
 
                 const bool has_collider = world.has_collider(id);
@@ -1161,9 +1163,11 @@ namespace SushiEngine
                             parameters.parameters = vec3_from_json(s["params"]);
                         parameters.mesh = s.value("mesh", parameters.mesh);
                         parameters.mesh_path = s.value("mesh_path", std::string{});
-                        // Absent in a scene written before a Shape could name which mesh it
-                        // drew, and zero is what those files meant: the file's first.
-                        parameters.mesh_index = s.value("mesh_index", parameters.mesh_index);
+                        // Absent in a scene written before a Shape could name which node it
+                        // drew, and zero is what those files meant: the file's first node and
+                        // its first primitive.
+                        parameters.source_node = s.value("source_node", parameters.source_node);
+                        parameters.primitive = s.value("primitive", parameters.primitive);
                         world.set_shape_parameters(id, parameters);
                     }
                 }
@@ -1593,18 +1597,13 @@ namespace SushiEngine
                             // serialized Material already, and silently overwriting it on every
                             // re-import would make it a value the file cannot actually hold
                             // still. Mirrors the editor's own `bind_shape_mesh`.
-                            // One slot per mesh up to and including the one this Shape names:
-                            // `load_gltf` fills from the file's first mesh, so the requested
-                            // index is only reachable by asking for everything before it too.
-                            const std::size_t wanted =
-                                static_cast<std::size_t>(shape.mesh_index) + 1;
-                            std::vector<SushiEngine::Render::MeshId> meshes(
-                                wanted, SushiEngine::Render::INVALID_MESH);
-                            std::vector<SushiEngine::Render::Material> imported(wanted);
-                            if (!shape.mesh_path.empty())
-                                (void)assets.load_gltf(shape.mesh_path.c_str(), meshes.data(),
-                                                       imported.data(), wanted);
-                            shape.mesh = meshes[shape.mesh_index];
+                            // Joined on the file's own node and primitive indices, through the
+                            // import that does not bake a node's world transform into its
+                            // vertices: the entity's transform already carries the placement,
+                            // and a baked one would apply it twice.
+                            shape.mesh = SushiEngine::Render::resolve_imported_mesh(
+                                assets, shape.mesh_path.c_str(), shape.source_node,
+                                shape.primitive);
                             world.set_shape_parameters(id, shape);
                         }
                     }

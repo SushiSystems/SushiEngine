@@ -440,14 +440,18 @@ namespace SushiEngine
             std::string mesh_path;                    /**< glTF path `mesh` was imported from; empty = none. */
 
             /**
-             * @brief Which mesh of @ref mesh_path this Shape draws.
+             * @brief The `mesh_path` node this Shape draws, by the file's own node index.
              *
-             * A glTF file holds many meshes, and a model whose nodes each carry a different
-             * one needs to say which — a path alone addresses the file, not the geometry in
-             * it. Zero is the first mesh, which is what a single-mesh file and every Shape
-             * authored before this field meant.
+             * A path addresses the file, not the geometry in it, so a model whose nodes each
+             * carry a different mesh needs this too. The file's index rather than a position
+             * in whatever order an importer walked: two parsers agreeing on a walk order today
+             * is not a property either of them promises, and `IAssetLibrary::load_gltf_scene`
+             * reports this key precisely so nothing has to rely on that.
              */
-            std::uint32_t mesh_index = 0;
+            std::uint32_t source_node = 0;
+
+            /** @brief Which primitive of that node's mesh; a mesh may hold several. */
+            std::uint32_t primitive = 0;
 
             Render::MeshId mesh = Render::INVALID_MESH; /**< When set, `kind`/`parameters` are ignored downstream. */
         };

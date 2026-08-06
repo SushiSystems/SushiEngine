@@ -1064,7 +1064,7 @@ TEST(Integration_SceneSerializer, ANestedHierarchyKeepsItsLocalTransforms)
     EXPECT_DOUBLE_EQ(grandchild_after.position.z, 9.0);
 }
 
-TEST(Integration_SceneSerializer, AnImportedMeshIndexSurvivesCaptureApply)
+TEST(Integration_SceneSerializer, AnImportedMeshsNodeAndPrimitiveSurviveCaptureApply)
 {
     const auto simulation = create_simulation();
     ASSERT_NE(simulation, nullptr);
@@ -1078,7 +1078,8 @@ TEST(Integration_SceneSerializer, AnImportedMeshIndexSurvivesCaptureApply)
     ASSERT_NE(id, NULL_ENTITY);
     ShapeParameters authored = world.shape_parameters(id);
     authored.mesh_path = "models/car.gltf";
-    authored.mesh_index = 3u;
+    authored.source_node = 3u;
+    authored.primitive = 2u;
     world.set_shape_parameters(id, authored);
 
     const nlohmann::json snapshot = Scene::capture_scene(world);
@@ -1088,10 +1089,11 @@ TEST(Integration_SceneSerializer, AnImportedMeshIndexSurvivesCaptureApply)
     const EntityId restored = find_by_name(world, "Wheel");
     ASSERT_NE(restored, NULL_ENTITY);
     EXPECT_EQ(world.shape_parameters(restored).mesh_path, "models/car.gltf");
-    EXPECT_EQ(world.shape_parameters(restored).mesh_index, 3u);
+    EXPECT_EQ(world.shape_parameters(restored).source_node, 3u);
+    EXPECT_EQ(world.shape_parameters(restored).primitive, 2u);
 }
 
-TEST(Integration_SceneSerializer, AShapeWrittenBeforeMeshIndexExistedReadsAsTheFirstMesh)
+TEST(Integration_SceneSerializer, AShapeWrittenBeforeTheseKeysExistedReadsAsTheFirstPrimitive)
 {
     const auto simulation = create_simulation();
     ASSERT_NE(simulation, nullptr);
@@ -1110,5 +1112,6 @@ TEST(Integration_SceneSerializer, AShapeWrittenBeforeMeshIndexExistedReadsAsTheF
     Scene::apply_scene(world, snapshot);
     const EntityId restored = find_by_name(world, "Old");
     ASSERT_NE(restored, NULL_ENTITY);
-    EXPECT_EQ(world.shape_parameters(restored).mesh_index, 0u);
+    EXPECT_EQ(world.shape_parameters(restored).source_node, 0u);
+    EXPECT_EQ(world.shape_parameters(restored).primitive, 0u);
 }

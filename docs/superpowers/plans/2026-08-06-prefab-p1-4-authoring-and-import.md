@@ -1,4 +1,4 @@
-# Prefab P1 Implementation Plan — part one, the asset and the instance
+# Prefab P1 Implementation Plan — part four, authoring and model import
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
@@ -424,10 +424,12 @@ belong in different modules because they are different kinds of thing.
 sushiengine_add_module(NAME model_import LAYER world
     SOURCES
         source/prefab_output.cpp
-    # A caller names ModelImportReport to read what the import could not carry across.
-    PUBLIC_DEPENDS model
-    # The pieces the path is assembled from; none appears in this module's header.
-    PRIVATE_DEPENDS gltf serialization simulation)
+    # A caller names ModelImportReport to read what the import could not carry across, and
+    # ModelInstantiationPlan to instantiate one it planned itself. `gltf` arrives publicly
+    # through `model`, which is why it is not repeated below.
+    PUBLIC_DEPENDS model simulation
+    # The rest of the path; neither appears in this module's header.
+    PRIVATE_DEPENDS serialization)
 
 target_include_directories(sushiengine_model_import
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
@@ -478,6 +480,7 @@ namespace SushiEngine
         SushiEngine::Simulation::EntityId instantiate_plan(
             SushiEngine::Simulation::IWorldEditor& world,
             const SushiEngine::Model::ModelInstantiationPlan& plan,
+            const SushiEngine::Geometry::GLTFSceneDescription& description,
             const std::string& source_path);
 
         /**
@@ -716,11 +719,18 @@ on an implicit one, so the widening is visible where a later reader looks for it
 
 Then the component, by `entity.component`:
 - `None` — `world.set_has_renderer(id, false)`. A pivot is not drawn.
-- `Shape` — `set_has_shape(id, true)`, then `shape_parameters` with `mesh_path = source_path` and
-  `kind` set to whatever `ShapeParameters` uses for an imported mesh. Leave `mesh` at its invalid
-  default: the live handle is re-derived from the path by `resolve_scene_assets`
-  (`scene_serializer.cpp:1509-1530`), and a number written here would name nothing in the session
-  that opens the file.
+- `Shape` — `set_has_shape(id, true)`, then `shape_parameters` with `mesh_path = source_path`,
+  `source_node = entity.source_node` and `primitive = entity.primitive`. Leave `mesh` at its
+  invalid default: the live handle is re-derived by `resolve_scene_assets`, and a number written
+  here would name nothing in the session that opens the file.
+
+  **Both indices, not one.** `IAssetLibrary::load_gltf` returns one mesh per primitive in walk
+  order and bakes each node's world transform into its vertices; using it here would apply the
+  transform twice, since the entity already carries it. `load_gltf_scene`
+  (`asset_library_interface.hpp:155`) is the one to join against — it reports `source_node` and
+  `primitive` per entry and bakes nothing, and its own documentation says why: two parsers
+  agreeing on a walk order today is not a property either promises.
+  `Render::resolve_imported_mesh` wraps that join and both resolvers already call it.
 - `Light` — `set_has_light(id, true)` and copy the description's `lights[entity.light]` into
   `LightParameters`.
 - `Camera` — `set_camera_parameters` from `cameras[entity.camera]`.

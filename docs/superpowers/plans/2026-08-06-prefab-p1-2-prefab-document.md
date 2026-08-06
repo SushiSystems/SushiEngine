@@ -1,4 +1,4 @@
-# Prefab P1 Implementation Plan — part one, the asset and the instance
+# Prefab P1 Implementation Plan — part two, the prefab document
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
