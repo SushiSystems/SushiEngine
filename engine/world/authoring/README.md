@@ -23,6 +23,12 @@ Engine modules, all public because each is spelled in a header this target publi
 - `serialization` — the undo stack captures and applies a scene in the serializer's format.
 - `simulation` — the undo stack snapshots a world through `IWorldEditor`.
 
+And one private engine module:
+
+- `model` — `cook_bake_state.cpp` reads an asset's `<asset>.meta` sidecar to find what that
+  asset says differs from the project's cooking defaults, and folds it in before submitting a
+  cook. Private because no header here names a `ModelImportSettings`.
+
 External: `nlohmann_json::nlohmann_json` publicly, because `command_history.hpp` holds a snapshot
 as a JSON document; `sushiengine_physics_cooking` publicly, because `cook_bake_state.hpp` is
 written against the cooking service and the three cooked asset kinds it produces. The renderer's
@@ -42,7 +48,7 @@ Headers are relative to `include/SushiEngine/authoring/`.
 | `game_view_settings.hpp` | The Game view's aspect presets and orientation. |
 | `gizmo_state.hpp` | The gizmo's mode and axis-frame vocabulary, free of the controller. |
 | `autosave.hpp` | `AutosaveTimer` — the autosave decision as a tickable clock that runs only while a save would be meaningful. |
-| `cook_bake_state.hpp` | What the Bake panel knows, with no interface toolkit near it. |
+| `cook_bake_state.hpp` | What the Bake panel knows, with no interface toolkit near it. Its stored document holds the project's cooking default alone; what one asset says differs lives in that asset's `.meta` sidecar, and `CookingOverrideMigration` reports what one read moved there. |
 | `soft_body_heat.hpp` | What a soft-body debug view means, with no drawing in it. |
 
 `command_history.cpp`, `preferences.cpp` and `cook_bake_state.cpp` are the module's sources; the

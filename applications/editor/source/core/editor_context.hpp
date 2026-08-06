@@ -690,6 +690,35 @@ namespace SushiEngine
         }
 
         /**
+         * @brief Says what reading a project moved out of its cooking document.
+         *
+         * A project written before per-asset cooking overrides lived beside their assets
+         * carries them in the document instead, and reading it moves them once. Silence would
+         * be the wrong outcome for both halves: an artist whose settings changed file needs to
+         * know where they went, and an override whose asset is gone is settings that are lost.
+         *
+         * Takes the two path lists rather than the bake model, so the context header keeps its
+         * forward declaration of `Authoring::CookBakeState` instead of including it.
+         *
+         * @param context  Editor state whose console receives the lines.
+         * @param migrated Asset paths whose `.meta` sidecar now carries the override.
+         * @param dropped  Asset paths the document named that are no longer on disk.
+         */
+        inline void log_cooking_override_migration(EditorContext& context,
+                                                   const std::vector<std::string>& migrated,
+                                                   const std::vector<std::string>& dropped)
+        {
+            if (!migrated.empty())
+                editor_log(context, "Moved " + std::to_string(migrated.size()) +
+                                        " per-asset cooking override(s) into .meta sidecars.");
+            for (const std::string& asset_path : dropped)
+                editor_log(context,
+                           "Dropped the cooking override for '" + asset_path +
+                               "', which no longer exists.",
+                           LogLevel::Warning);
+        }
+
+        /**
          * @brief Whether the scene has unsaved changes.
          *
          * True whenever the undo history has advanced past the revision recorded at the

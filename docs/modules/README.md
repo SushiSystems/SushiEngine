@@ -31,6 +31,7 @@ a `README.md` carries the wrong Doxygen label, or when this table and the module
 | [ui](../../engine/domain/ui/README.md) | `domain` | The retained interface as ECS components, the anchor solver and pointer model over them, and the draw list they flatten into. |
 | [vfx](../../engine/domain/vfx/README.md) | `domain` | A particle effect as authored and as compiled, plus the deterministic host backend that steps the compiled emitter table. |
 | [gltf](../../engine/asset/gltf/README.md) | `asset` | Turning a glTF file into engine data: triangles as a mesh, skins and animations as relocatable blobs. |
+| [model](../../engine/asset/model/README.md) | `asset` | What a model asset says about how it is imported — its `.meta` sidecar — and the decision that turns a node graph into entities. |
 | [render](../../engine/presentation/render/README.md) | `presentation` | Drawing a frame: the render graph, the passes on it, the caches and pools they draw from, and the Vulkan device behind the render hardware interface seam. |
 | [authoring](../../engine/world/authoring/README.md) | `world` | The services an editor is built out of, with no editor in them: undo, preferences, autosave, the cook and bake model, and the soft-body heat scale. |
 | [loop](../../engine/world/loop/README.md) | `world` | The orchestration surface a session is driven through: `Loop::App`, the fixed-timestep clock, the rollback ring and network reconciliation. |

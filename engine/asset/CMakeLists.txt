@@ -4,3 +4,4 @@
 # it ever learns which library read the file.
 
 add_subdirectory(gltf)
+add_subdirectory(model)

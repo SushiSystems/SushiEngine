@@ -614,6 +614,9 @@ namespace SushiEngine
                     context.cook_bake_state->set_profile_storage_path(
                         (std::filesystem::path(new_root) / "cooking_profile.json").string());
                     context.cook_bake_state->load_profiles();
+                    log_cooking_override_migration(
+                        context, context.cook_bake_state->last_migration().migrated,
+                        context.cook_bake_state->last_migration().dropped);
                 }
                 editor_log(context, "Switched project to '" + new_root + "'.");
             }
