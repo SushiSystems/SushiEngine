@@ -146,6 +146,10 @@ add_executable(sushiengine_functional_tests
     # cooking override stays unset, and that a broken sidecar is reported rather than read as
     # "this asset has no settings".
     unit/test_model_import_settings_io.cpp
+    # model_import.md §5's ten rules, which is every decision the import makes: what a node
+    # becomes, when it splits, where a dropped pivot's transform goes, and where the scale
+    # factor lands. The planner takes a description built by hand, so none of it needs a device.
+    unit/test_model_instantiation_plan.cpp
     # T1, the global dynamical core, reachable without a device for the same reason:
     # it is a neutral module, so its transform, its elliptic inversion and its
     # conservation properties are testable against references that are not itself.

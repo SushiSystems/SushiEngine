@@ -34,10 +34,9 @@ Headers are relative to `include/SushiEngine/model/`.
 |---|---|
 | `import_settings.hpp` | `ModelImportSettings` — the scale, root rotation, per-kind toggles and cooking override one asset carries — and its equality. |
 | `import_settings_io.hpp` | `model_import_settings_path`, `load_model_import_settings` and `save_model_import_settings`, plus `migrate_cooking_overrides_to_sidecars` — the one-way move off a project document's path-keyed `overrides` object. |
+| `instantiation_plan.hpp` | `plan_model_instantiation` — the pure decision that turns a node graph plus its settings into a `ModelInstantiationPlan` of `PlannedEntity` rows and a `ModelImportReport`. |
 
-The module's sources are `import_settings_io.cpp` and `instantiation_plan.cpp`. The latter is
-the translation unit `docs/design/model_import.md` §3 reserves for the planner and carries no
-definitions yet.
+The module's sources are `import_settings_io.cpp` and `instantiation_plan.cpp`.
 
 ## Tests
 
@@ -50,7 +49,13 @@ asset is gone, and finds nothing to do on a second run.
 `tests/unit/test_cook_bake_state.cpp` covers the consumer end: an asset's sidecar decides which
 cookers run for it.
 
-The instantiation planner has no coverage because it has no code.
+`tests/unit/test_model_instantiation_plan.cpp` covers `instantiation_plan.hpp` rule by rule
+against descriptions built in the test: what a node with one primitive becomes and what one
+with several splits into, that a parent always precedes its child, the synthetic root a
+multi-root file gains, sibling name disambiguation and the cousins it leaves alone, the
+directional light and the skinned mesh that are counted rather than created, where the scale
+factor and the root rotation land, and that dropping a rotated, scaled pivot composes its
+transform into its child instead of adding it.
 
 ## Further reading
 
