@@ -584,6 +584,11 @@ add_executable(sushiengine_functional_tests
     # apply_scene — undo's path — does not refresh at all.
     integration/test_prefab_instance.cpp
 
+    # prefab_system.md §7: what a model becomes on disk. The hierarchy has to survive into the
+    # file as parent indices, and the revision has to move when the `.meta` moves and stay
+    # still when it does not — otherwise every imported instance rebuilds on every scene open.
+    integration/test_model_prefab_output.cpp
+
     # §5.5's PhysicsJoint, from the Inspector's component down to the solver: a joint
     # holds a body up that a control body identically built does not stay up without,
     # it reports the load it carries (§10.4), it tears out above a threshold and stays
@@ -648,7 +653,8 @@ target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_atmospher
 # stack, the preferences store, the autosave clock and the bake model are covered through the
 # same library the editor links rather than through translation units compiled in by hand.
 target_link_libraries(sushiengine_functional_tests
-    PRIVATE sushiengine_simulation sushiengine_serialization sushiengine_authoring)
+    PRIVATE sushiengine_simulation sushiengine_serialization sushiengine_authoring
+            sushiengine_model_import)
 # The physics sample scene, as the library samples/ declares rather than as a translation unit
 # compiled in from another target's directory.
 target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_physics_sample_scene)

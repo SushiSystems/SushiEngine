@@ -35,6 +35,7 @@ a `README.md` carries the wrong Doxygen label, or when this table and the module
 | [render](../../engine/presentation/render/README.md) | `presentation` | Drawing a frame: the render graph, the passes on it, the caches and pools they draw from, and the Vulkan device behind the render hardware interface seam. |
 | [authoring](../../engine/world/authoring/README.md) | `world` | The services an editor is built out of, with no editor in them: undo, preferences, autosave, the cook and bake model, and the soft-body heat scale. |
 | [loop](../../engine/world/loop/README.md) | `world` | The orchestration surface a session is driven through: `Loop::App`, the fixed-timestep clock, the rollback ring and network reconciliation. |
+| [model_import](../../engine/world/model_import/README.md) | `world` | The path from a glTF file on disk to a `.sushiprefab` beside it: read, plan, build, write. |
 | [serialization](../../engine/world/serialization/README.md) | `world` | The one JSON shape for a scene file, a particle effect asset, and the environment both embed. |
 | [simulation](../../engine/world/simulation/README.md) | `world` | The live world behind the `ISimulation` seam: a runtime, a `World` and a `Schedule`, wired into one stepping simulation and extracted back out. |
 

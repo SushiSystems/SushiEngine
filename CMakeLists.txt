@@ -133,6 +133,8 @@ if(SUSHIENGINE_BUILD_EDITOR OR SUSHIENGINE_BUILD_TESTS OR SUSHIENGINE_BUILD_PLAY
     add_subdirectory(engine/world/simulation)
     add_subdirectory(engine/world/serialization)
     add_subdirectory(engine/world/authoring)
+    # After serialization, which it links privately to write a prefab.
+    add_subdirectory(engine/world/model_import)
 endif()
 
 # The worked examples, on both execution lanes — samples/CMakeLists.txt picks the lane's own
