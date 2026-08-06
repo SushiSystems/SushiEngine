@@ -62,6 +62,16 @@ namespace
     /** @brief What the whole shell weighs, split evenly across its nodes. */
     constexpr Scalar SHELL_MASS = 120;
 
+    /**
+     * @brief The six shell nodes, in asset space.
+     *
+     * At namespace scope because two things need the same numbers: the cook that turns
+     * them into node records, and the test that checks where those nodes ended up. A
+     * second copy would let the two drift and the test would still pass.
+     */
+    const Vector3 HULL[6] = {{-0.8, 0.4, -1.6}, {0.8, 0.4, -1.6}, {0.8, 0.4, 1.6},
+                             {-0.8, 0.4, 1.6},  {0.0, 0.9, -0.8}, {0.0, 0.9, 0.8}};
+
     /** @brief Empties the world, demo seeds included, so a test builds from zero. */
     void clear_world(IWorldEditor& world)
     {
@@ -89,9 +99,7 @@ namespace
     Physics::Cooking::NodeBeamAsset hull_asset()
     {
         Physics::Cooking::NodeBeamAsset asset;
-        const Vector3 hull[6] = {{-0.8, 0.4, -1.6}, {0.8, 0.4, -1.6}, {0.8, 0.4, 1.6},
-                                 {-0.8, 0.4, 1.6},  {0.0, 0.9, -0.8}, {0.0, 0.9, 0.8}};
-        for (const Vector3& position : hull)
+        for (const Vector3& position : HULL)
         {
             Physics::Cooking::NodeBeamNodeRecord node{};
             node.position = position;
@@ -108,7 +116,7 @@ namespace
             Physics::Cooking::NodeBeamBeamRecord beam{};
             beam.a = pair[0];
             beam.b = pair[1];
-            beam.rest_length = length(hull[pair[1]] - hull[pair[0]]);
+            beam.rest_length = length(HULL[pair[1]] - HULL[pair[0]]);
             beam.compliance = Scalar(3e-6);
             beam.damping = 4;
             beam.deform_force = 100;
@@ -125,7 +133,7 @@ namespace
         {
             Physics::Cooking::NodeBeamAttachmentRecord attachment{};
             attachment.node = i;
-            attachment.core_anchor = hull[i];
+            attachment.core_anchor = HULL[i];
             attachment.break_force = 40000;
             asset.attachments.push_back(attachment);
         }
@@ -207,6 +215,30 @@ namespace
         return id;
     }
 
+    /**
+     * @brief A plain dynamic box: the one thing in the scene already known to fall.
+     *
+     * The reference a vehicle is measured against. A constant would measure the tick
+     * length and the substep schedule as much as the field, and both are the runtime's
+     * to change; a body the scene samples through the path that already works measures
+     * only whether the vehicle is sampled the same way.
+     */
+    EntityId make_falling_box(IWorldEditor& world, const std::string& name,
+                              const Vector3& position)
+    {
+        const EntityId id = world.create_box(name);
+        EntityTransform transform = world.transform(id);
+        transform.position = position;
+        transform.scale = Vector3{Scalar(0.5), Scalar(0.5), Scalar(0.5)};
+        world.set_transform(id, transform);
+
+        PhysicsBodyParameters body;
+        body.density = Scalar(1000);
+        world.set_has_physics_body(id, true);
+        world.set_physics_body_parameters(id, body);
+        return id;
+    }
+
     /** @brief Runs @p count fixed steps. */
     void step(ISimulation& simulation, int count)
     {
@@ -263,6 +295,47 @@ TEST(Integration_VehicleComponent, TheEntityFollowsTheVehiclesCore)
     EXPECT_GT(double(start - world.transform(car).position.y), 0.5)
         << "the entity follows its vehicle's rigid core";
     EXPECT_DOUBLE_EQ(double(world.transform(control).position.y), 40.0);
+}
+
+TEST(Integration_VehicleComponent, EveryBodyAVehicleOwnsTakesTheScenesGravityField)
+{
+    ASSERT_FALSE(cooked_vehicle_path().empty());
+
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    // Nothing is under either of them. No entity in this scene carries a Plane collider,
+    // so what is measured is ten ticks of free fall and never a landing.
+    const Vector3 spawn{0, 40, 0};
+    const EntityId car = make_vehicle(world, "Car", spawn, cooked_vehicle_path());
+    const EntityId weight = make_falling_box(world, "Weight", Vector3{10, 40, 0});
+
+    step(*simulation, 10);
+
+    const double reference = double(spawn.y) - double(world.transform(weight).position.y);
+    ASSERT_GT(reference, 0.05) << "the reference body did not fall; the scene has no gravity";
+
+    // The mechanism, not an accumulated distance: a vehicle's core is a rigid body in the
+    // same solver, so over the same ten ticks it must fall exactly as far as one. Falling
+    // a little rather than not at all is the failure this bounds -- the field reaching one
+    // body of the vehicle and not the rest would still move the core some distance.
+    const double core = double(spawn.y) - double(world.transform(car).position.y);
+    EXPECT_NEAR(core, reference, reference * 0.02)
+        << "the vehicle's core does not take the field the scene applies to a rigid body";
+
+    // And the shell falls with it. The attachments would drag the nodes after a core that
+    // fell alone, so this is the assertion that the whole body inventory is enumerated
+    // rather than only its first entry.
+    std::vector<Vector3> nodes;
+    ASSERT_TRUE(world.vehicle_node_positions(car, nodes));
+    ASSERT_EQ(nodes.size(), std::size_t(6));
+    for (std::size_t i = 0; i < nodes.size(); ++i)
+    {
+        const double node = double(spawn.y) + double(HULL[i].y) - double(nodes[i].y);
+        EXPECT_NEAR(node, core, 5e-3) << "shell node " << i << " did not fall with the core";
+    }
 }
 
 TEST(Integration_VehicleComponent, ThrottleReachesTheEngineThroughTheBoundary)

@@ -310,6 +310,40 @@ namespace SushiEngine
                     return index < tyres_.size() ? tyres_[index] : TyreReportT<T>{};
                 }
 
+                /**
+                 * @brief Visits every body this vehicle put in the world, with its surface.
+                 *
+                 * The inventory a scene needs in order to fold a gravity field into a car,
+                 * write it back, and collide it. It lives here because this is the class
+                 * that created the bodies: three scene functions each walking a vehicle's
+                 * internals would be three places to forget a corner.
+                 *
+                 * The order is the order the bodies were added — the core, every node in
+                 * asset order, then each corner's carrier and wheel. Fixed rather than
+                 * incidental, because a caller that numbers anything from this must number
+                 * it the same way on a replay (§0.5).
+                 *
+                 * The radius is the sphere the body collides as, and **zero means the body
+                 * presents no collision surface**: the rigid core's shape is authored
+                 * separately (§11.2), and a carrier is instanced coincident with its wheel,
+                 * so either one would contribute a contact the car does not have.
+                 *
+                 * @param visit Called as `visit(BodyHandle, T radius)` once per body.
+                 */
+                template <typename F>
+                void for_each_body(F&& visit) const
+                {
+                    if (structure_.has_core())
+                        visit(structure_.core(), T(0));
+                    for (std::size_t i = 0; i < structure_.node_count(); ++i)
+                        visit(structure_.node(i), structure_.node_radius(i));
+                    for (const SuspensionUnitT<T>& corner : corners_)
+                    {
+                        visit(corner.carrier(), T(0));
+                        visit(corner.wheel(), corner.setup().wheel_radius);
+                    }
+                }
+
                 /** @brief The deformable half: nodes, beams, the core, the render binding. */
                 NodeBeamStructureT<T>& structure() noexcept { return structure_; }
 

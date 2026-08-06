@@ -2016,7 +2016,14 @@ namespace SushiEngine
                         solver_->read_bodies(0, count, bodies_.data());
                 }
 
-                /** @brief One past the highest body slot this scene has ever used. */
+                /**
+                 * @brief One past the highest body slot this scene has ever used.
+                 *
+                 * Every kind of body the scene owns, vehicles included: this is the count
+                 * `apply_gravity_field` samples over and the count `refresh_bodies` mirrors,
+                 * so a kind left out of it is a kind that receives no gravity and is never
+                 * read back — which is not a partial simulation but no simulation at all.
+                 */
                 std::size_t live_slot_count() const
                 {
                     std::size_t high = 0;
@@ -2025,6 +2032,14 @@ namespace SushiEngine
                     for (const ClothEntry& entry : cloth_)
                         for (const Physics::BodyHandle handle : entry.grid.bodies)
                             high = std::max(high, solver_->body_slot(handle) + 1);
+                    for (const VehicleEntry& entry : vehicles_)
+                    {
+                        if (!entry.instance)
+                            continue;
+                        entry.instance->for_each_body(
+                            [&](const Physics::BodyHandle handle, T)
+                            { high = std::max(high, solver_->body_slot(handle) + 1); });
+                    }
                     return std::min(high, bodies_.size());
                 }
 
@@ -2137,6 +2152,13 @@ namespace SushiEngine
                     for (const ClothEntry& entry : cloth_)
                         for (const Physics::BodyHandle handle : entry.grid.bodies)
                             write_field(handle);
+                    for (const VehicleEntry& entry : vehicles_)
+                    {
+                        if (!entry.instance)
+                            continue;
+                        entry.instance->for_each_body(
+                            [this](const Physics::BodyHandle handle, T) { write_field(handle); });
+                    }
                 }
 
                 /**
@@ -2400,7 +2422,7 @@ namespace SushiEngine
                     // because building one asks the question.
                     collider_of_slot_.clear();
                     material_of_slot_.clear();
-                    cloth_radius_.assign(bodies_.size(), T(0));
+                    particle_radius_.assign(bodies_.size(), T(0));
                     for (const RigidEntry& entry : rigid_)
                     {
                         const std::size_t slot = solver_->body_slot(entry.handle);
@@ -2414,9 +2436,21 @@ namespace SushiEngine
                         for (const Physics::BodyHandle handle : entry.grid.bodies)
                         {
                             const std::size_t slot = solver_->body_slot(handle);
-                            if (slot < cloth_radius_.size())
-                                cloth_radius_[slot] = entry.thickness;
+                            if (slot < particle_radius_.size())
+                                particle_radius_[slot] = entry.thickness;
                         }
+                    for (const VehicleEntry& entry : vehicles_)
+                    {
+                        if (!entry.instance)
+                            continue;
+                        entry.instance->for_each_body(
+                            [&](const Physics::BodyHandle handle, T radius)
+                            {
+                                const std::size_t slot = solver_->body_slot(handle);
+                                if (radius > T(0) && slot < particle_radius_.size())
+                                    particle_radius_[slot] = radius;
+                            });
+                    }
 
                     for (const RigidEntry& entry : rigid_)
                     {
@@ -2458,6 +2492,37 @@ namespace SushiEngine
                             add_contact_proxy(proxy);
                         }
                     }
+                    // §11.2's collision surface: a vehicle's shell nodes and its wheels, the
+                    // two kinds of body a car presents to the world. The core is not one of
+                    // them — its shape is authored separately — and neither is a carrier,
+                    // which sits exactly where its wheel does; `for_each_body` says so by
+                    // handing both a radius of zero.
+                    for (const VehicleEntry& entry : vehicles_)
+                    {
+                        if (!entry.instance)
+                            continue;
+                        entry.instance->for_each_body(
+                            [&](const Physics::BodyHandle handle, T radius)
+                            {
+                                const std::size_t slot = solver_->body_slot(handle);
+                                if (!(radius > T(0)) || slot >= bodies_.size())
+                                    return;
+                                ContactProxy proxy;
+                                proxy.slot = std::uint32_t(slot);
+                                proxy.shape = shape_for_slot(proxy.slot);
+                                // A car does not collide with itself: every pair inside one
+                                // is held by a beam or a joint already, and a contact would
+                                // only fight it. Said by the filter rather than by a test
+                                // in the manifold pass, the way cloth says it.
+                                proxy.filter = Physics::self_excluding_filter(
+                                    Physics::CollisionLayers::vehicle);
+                                proxy.entity = entry.entity;
+                                proxy.flags = bodies_[slot].inv_mass > T(0)
+                                                  ? 0u
+                                                  : Physics::BodyFlags::static_body;
+                                add_contact_proxy(proxy);
+                            });
+                    }
                     for (const Physics::PlaneCollider<T>& plane : planes_)
                     {
                         ContactProxy proxy;
@@ -2478,12 +2543,19 @@ namespace SushiEngine
                     contact_proxies_.push_back(proxy);
                 }
 
-                /** @brief The collision shape body slot @p slot presents this tick. */
+                /**
+                 * @brief The collision shape body slot @p slot presents this tick.
+                 *
+                 * A radius in @ref particle_radius_ wins over an authored `Collider`,
+                 * because the slots that have one — cloth particles, a vehicle's shell
+                 * nodes and wheels — are bodies whose shape is a number and never a
+                 * `Collider` at all.
+                 */
                 Physics::CollisionShape<T> shape_for_slot(std::uint32_t slot) const
                 {
-                    if (slot < cloth_radius_.size() && cloth_radius_[slot] > T(0))
+                    if (slot < particle_radius_.size() && particle_radius_[slot] > T(0))
                         return Physics::make_sphere_shape<T>(bodies_[slot].position,
-                                                             cloth_radius_[slot]);
+                                                             particle_radius_[slot]);
                     const auto it = collider_of_slot_.find(slot);
                     if (it == collider_of_slot_.end())
                         return Physics::make_sphere_shape<T>(bodies_[slot].position, T(0.5));
@@ -2495,8 +2567,9 @@ namespace SushiEngine
                  * @brief The surface @p slot contacts as, or the default for anything else.
                  *
                  * The default rather than a refusal, because the slots without an entry are
-                 * cloth particles, soft-body vertices and the standing plane body — none of
-                 * which is a rigid body an author gave a material to, and all of which have
+                 * cloth particles, soft-body vertices, a vehicle's own bodies and the
+                 * standing plane body — none of which is a rigid body an author gave a
+                 * material to through a `Collider`, and all of which have
                  * to contact *something*. `PhysicsMaterialT`'s own defaults describe an
                  * ordinary solid, so an unauthored surface behaves plausibly rather than
                  * like frictionless glass.
@@ -3018,7 +3091,11 @@ namespace SushiEngine
                 // match against.
                 Physics::BVHBroadphase<T> contact_index_;
                 std::vector<ContactProxy> contact_proxies_;
-                std::vector<T> cloth_radius_;
+                // The sphere a body with no authored collider contacts as, by slot. Cloth
+                // particles and a vehicle's shell nodes and wheels are all bodies whose
+                // shape is a number rather than a `Collider`, and one table answers for
+                // every one of them; zero means the slot presents no surface at all.
+                std::vector<T> particle_radius_;
                 // The scene's vehicles, and the index that finds one by entity. Held behind
                 // pointers because `VehicleInstanceT` is neither copyable nor movable, which
                 // is correct for a type that owns solver handles.
