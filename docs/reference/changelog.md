@@ -84,6 +84,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   the pyramid instead of only persisting.
 
 ### Fixed
+- 2026-08-06 — Fixed a vehicle in a scene receiving neither gravity nor a broadphase proxy: the
+  scene's body inventory never enumerated its vehicles, so a car spawned at altitude fell
+  1.67e-05 m over 90 ticks instead of metres.
+  - Added `VehicleInstanceT::for_each_body`, the one enumeration `live_slot_count`,
+    `write_every_body` and `rebuild_contact_index` now share.
+  - Added `CollisionLayers::vehicle`, so a car's shell nodes and wheels collide with the world
+    at their authored radii and not with each other.
 - 2026-08-04 — Fixed `samples/sandbox` and `samples/physics/pgs_demo` calling
   `SushiRuntime::API::Runtime::create()`. They are the two targets that prove the native lane
   builds, and SushiRuntime is not in that lane's build graph at all.

@@ -183,6 +183,10 @@ Stated rather than discovered:
 - The cooked **render skinning is not drawn**. What you see is the collision surface, which
   is the shape the physics owns end to end; drawing the pretty mesh needs that mesh's own
   index buffer, which lives in the visual asset rather than in the `.sushinodebeam`.
+- A car collides as **a sphere per shell node and per wheel**, at the radii the asset authored,
+  rather than as the surface triangles it is drawn from. Its own bodies are on a collision layer
+  that excludes itself, which is what stops a wheel contacting the hub it is bolted to — so two
+  cars do not collide with each other either.
 - The Structure tab names the node-beam and core-collision assets **by numeric identifier**,
   not by browsing. The panel is the asset layer's front end rather than a second resolver,
   so it hands the identifier on without dereferencing it.

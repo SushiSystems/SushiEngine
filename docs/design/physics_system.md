@@ -3851,7 +3851,7 @@ make one is to throw a single body.
 
 **What P7-E does not do.** Suspension, wheels, and the `VehicleAsset` that names both a
 `.sushinodebeam` and the core's `.sushicollision` are P7-F. The node cloud's collision surface is
-carried in the asset and instanced with it, but nothing generates contacts from it yet — that is the
+carried in the asset and instanced with it, but P7-E generates no contacts from it — that is the
 `physics/scene` wiring, and it belongs with the vehicle the scene can actually drive. Node drag
 areas travel with the nodes and are read by nothing until §11.6's wind coupling in P7-I.
 
