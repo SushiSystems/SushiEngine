@@ -84,6 +84,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   the pyramid instead of only persisting.
 
 ### Fixed
+- 2026-08-06 — Fixed a raycast, sweep or overlap missing a vehicle entirely: the scene's query
+  hierarchy held its rigid bodies and planes but never a car's shell nodes or wheels, and placing a
+  vehicle did not mark the hierarchy stale.
 - 2026-08-06 — Fixed a `.meta` sidecar that fails to parse cooking its asset at the project default
   silently: `CookBakeState::take_unreadable_sidecars` names it and the Bake panel logs one warning
   per asset.

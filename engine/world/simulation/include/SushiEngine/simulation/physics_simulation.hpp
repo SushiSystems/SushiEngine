@@ -712,9 +712,10 @@ namespace SushiEngine
                         vehicles_.push_back(std::move(entry));
                     }
                     // A vehicle is hundreds of bodies, so every proxy index the broadphase
-                    // holds is now stale - the same rebuild a rigid-body change forces.
-                    proxies_dirty_ = true;
-                    bodies_dirty_ = true;
+                    // holds is now stale - the same rebuild a rigid-body change forces, and
+                    // through the same hook, so the query hierarchy and the warm-start keys
+                    // are not left behind by the one membership change that skipped it.
+                    note_membership_changed();
                 }
 
                 /** @copydoc IVehicleService::set_vehicle_input */
@@ -2973,7 +2974,19 @@ namespace SushiEngine
                     return converted;
                 }
 
-                /** @brief Rebuilds the query hierarchy if the world has moved. */
+                /**
+                 * @brief Rebuilds the query hierarchy if the world has moved.
+                 *
+                 * Holds the rigid bodies, the standing planes, and a vehicle's shell nodes
+                 * and wheels — everything a ray can be expected to find, at the same shape
+                 * the contact pass collides it as, so a query and a contact never disagree
+                 * about where a surface is.
+                 *
+                 * Cloth particles are the one kind of body the contact index registers and
+                 * this one does not, and no reason for the difference is recorded anywhere:
+                 * a raycast through a cloth sheet reports whatever is behind it. That is an
+                 * open gap, not a decision.
+                 */
                 void refresh_query_index() const
                 {
                     if (!query_dirty_ || !solver_)
@@ -2996,6 +3009,29 @@ namespace SushiEngine
                                         bodies_[slot].inv_mass > T(0)
                                             ? 0u
                                             : Physics::BodyFlags::static_body);
+                    }
+                    // A vehicle's collision surface, on the same terms `rebuild_contact_index`
+                    // registers it: the sphere each shell node and wheel collides as, and
+                    // nothing for the core or a carrier, whose zero radius says they present
+                    // no surface. A car that is invisible to a raycast is a car nothing can
+                    // aim at, target or spawn on top of.
+                    for (const VehicleEntry& entry : vehicles_)
+                    {
+                        if (!entry.instance)
+                            continue;
+                        entry.instance->for_each_body(
+                            [&](const Physics::BodyHandle handle, T radius)
+                            {
+                                const std::size_t slot = solver_->body_slot(handle);
+                                if (!(radius > T(0)) || slot >= bodies_.size())
+                                    return;
+                                add_query_proxy(
+                                    Physics::make_sphere_shape<T>(bodies_[slot].position, radius),
+                                    entry.entity,
+                                    bodies_[slot].inv_mass > T(0)
+                                        ? 0u
+                                        : Physics::BodyFlags::static_body);
+                            });
                     }
                     for (const Physics::PlaneCollider<T>& plane : planes_)
                         add_query_proxy(Physics::make_plane_shape<T>(plane.normal, plane.offset),

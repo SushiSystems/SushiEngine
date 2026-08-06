@@ -35,6 +35,7 @@
 #include <gtest/gtest.h>
 
 #include <SushiEngine/SushiEngine.hpp>
+#include <SushiEngine/physics/cooking/node_beam_asset.hpp>
 #include <SushiEngine/simulation/physics_simulation.hpp>
 
 #include "test_helpers.hpp"
@@ -98,6 +99,65 @@ namespace
         plane.point = Vector3{0, 0, 0};
         plane.normal = Vector3{0, 1, 0};
         return {plane};
+    }
+
+    /** @brief Where the shell nodes of @ref square_shell_asset sit, in the asset's frame. */
+    const Vector3 SHELL[4] = {{-1, 0, -1}, {1, 0, -1}, {1, 0, 1}, {-1, 0, 1}};
+
+    /** @brief Every shell node's collision radius, in metres. */
+    constexpr Scalar SHELL_NODE_RADIUS = Scalar(0.15);
+
+    /**
+     * @brief Four shell nodes around a rigid core: the smallest thing that is a vehicle.
+     *
+     * Small and flat on purpose. The question here is which bodies reach the query
+     * hierarchy, so the structure only has to place a known surface at a known point and
+     * leave the middle empty — the core sits at the centre of the square with nothing
+     * within a metre of it, which is what makes "the core is not a query proxy" an
+     * assertion about the core rather than about a node that happened to be near it.
+     */
+    Physics::Cooking::NodeBeamAsset square_shell_asset()
+    {
+        Physics::Cooking::NodeBeamAsset asset;
+        for (const Vector3& position : SHELL)
+        {
+            Physics::Cooking::NodeBeamNodeRecord node{};
+            node.position = position;
+            node.mass = Scalar(20);
+            node.radius = SHELL_NODE_RADIUS;
+            node.drag_area = Scalar(0.3);
+            asset.nodes.push_back(node);
+        }
+
+        const std::uint32_t ring[4][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}};
+        for (const std::uint32_t(&pair)[2] : ring)
+        {
+            Physics::Cooking::NodeBeamBeamRecord beam{};
+            beam.a = pair[0];
+            beam.b = pair[1];
+            beam.rest_length = length(SHELL[pair[1]] - SHELL[pair[0]]);
+            beam.compliance = Scalar(3e-6);
+            beam.damping = 4;
+            beam.deform_force = 100;
+            beam.break_force = 60000;
+            beam.plastic_creep = Scalar(0.5);
+            beam.maximum_plastic_strain = Scalar(0.35);
+            asset.beams.push_back(beam);
+        }
+
+        asset.core.mass = Scalar(400);
+        asset.core.principal_inertia = Vector3{300, 400, 300};
+        asset.core.principal_rotation = Quaternion{0, 0, 0, 1};
+        for (std::uint32_t i = 0; i < 4; ++i)
+        {
+            Physics::Cooking::NodeBeamAttachmentRecord attachment{};
+            attachment.node = i;
+            attachment.core_anchor = SHELL[i];
+            attachment.break_force = 40000;
+            asset.attachments.push_back(attachment);
+        }
+        asset.summary.part_count = 1;
+        return asset;
     }
 }
 
@@ -536,4 +596,42 @@ TEST(Integration_PhysicsSimulation, EventsComeInASceneOrderNotATraversalOrder)
     // And by the end every one of them is resting and saying so.
     EXPECT_EQ(of_phase(physics->contact_events(), ContactPhase::Persist).size(),
               std::size_t(5));
+}
+
+TEST(Integration_PhysicsSimulation, AVehiclesShellIsFoundByASceneQuery)
+{
+    // A car is enumerated for gravity and for the broadphase, so it falls and it collides.
+    // A query hierarchy that does not hold it is a car nothing can raycast at: no aiming, no
+    // targeting, no spawning on top of it. Asserted before any step, because placing a
+    // vehicle is a membership change and a query must not have to wait for a tick to see it.
+    std::vector<std::byte> blob;
+    ASSERT_TRUE(Physics::Cooking::build_node_beam_blob(square_shell_asset(), blob));
+
+    auto physics = create_physics_simulation(Harness::shared_context());
+
+    const Vector3 spawn{0, Scalar(3), 0};
+    VehicleDescription vehicle;
+    vehicle.id = 7;
+    vehicle.asset = blob.data();
+    vehicle.asset_size = blob.size();
+    vehicle.position = spawn;
+    physics->set_vehicles({vehicle});
+
+    // Straight down the axis of the first shell node, from well above it.
+    const Vector3 node = spawn + SHELL[0];
+    const SceneRayHit hit = physics->raycast_closest(
+        Vector3{node.x, node.y + Scalar(4), node.z}, Vector3{0, -1, 0}, Scalar(10),
+        SceneQueryFilter{});
+    ASSERT_TRUE(hit.hit) << "a ray down a shell node found nothing";
+    EXPECT_EQ(hit.entity, EntityId(7)) << "the hit must name the entity that owns the vehicle";
+    EXPECT_NEAR(double(hit.point.y), double(node.y + SHELL_NODE_RADIUS), 1e-5)
+        << "the query must see the node at the radius it collides at";
+
+    // And the two bodies that present no surface stay out. The core sits at the centre of
+    // the square, a metre from the nearest node, so a small overlap there can only find a
+    // proxy the core itself contributed -- and a zero-radius sphere would be found by it.
+    SolvedPose core;
+    ASSERT_TRUE(physics->vehicle_core_pose(7, core));
+    EXPECT_TRUE(physics->overlap_sphere(core.position, Scalar(0.05), SceneQueryFilter{}).empty())
+        << "a body with no collision surface must not become a query proxy";
 }
