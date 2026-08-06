@@ -30,14 +30,22 @@
  * glTF's core material *is* the engine's core material — metallic-roughness, normal,
  * occlusion, emissive — so the conversion is close to a copy, and the
  * `KHR_materials_*` extensions map onto the advanced lobes one for one. Each
- * primitive becomes one mesh, baked into its node's world transform so a multi-part
- * asset assembles correctly without a scene graph on the render side. Missing
- * tangents are generated and missing UVs default to zero.
+ * primitive becomes one mesh; missing tangents are generated and missing UVs default
+ * to zero.
+ *
+ * Where a primitive's vertices end up is what separates the entry points.
+ * @ref import_gltf bakes each node's world transform into them, so a multi-part asset
+ * assembles correctly without a scene graph on the render side.
+ * @ref import_gltf_scene_meshes leaves them in the mesh's own space, for a caller that
+ * has built a scene graph and carries the placement on its entities.
+ * @ref import_gltf_skinned_mesh leaves them in the skin's bind space, for the same
+ * reason stated per-primitive rather than per-node.
  */
 
 #include <cstddef>
 
 #include <SushiEngine/material/material.hpp>
+#include <SushiEngine/render/asset_library_interface.hpp>
 
 namespace SushiEngine
 {
@@ -66,6 +74,31 @@ namespace SushiEngine
             std::size_t import_gltf(const char* path, Geometry::MeshRegistry& meshes,
                                     TextureLibrary& textures, MeshId* out_meshes,
                                     Render::Material* out_materials, std::size_t capacity);
+
+            /**
+             * @brief Imports every primitive of a glTF file in mesh-local space, node by node.
+             *
+             * Reads the same attributes @ref import_gltf reads, through the same assembly, and
+             * differs in the two ways a scene-graph import needs: it records which node and
+             * which primitive of that node's mesh each entry came from, and it skips the
+             * node-world-transform bake because the imported entity's own transform carries the
+             * placement. Because the vertices are then the glTF mesh's own, two nodes
+             * referencing one mesh share a single upload rather than each getting theirs.
+             *
+             * Every node in the file is visited, not only the ones in its default scene: missing
+             * a mesh a caller's plan expects would be a silent hole, while an extra entry it
+             * does not use costs nothing beyond the upload.
+             *
+             * @param path     Path to a .gltf or .glb file.
+             * @param meshes   Registry the geometry is uploaded into.
+             * @param textures Library the referenced images are loaded into.
+             * @param out      Receives one entry per imported primitive, in node order.
+             * @param capacity Capacity of @p out.
+             * @return Number of entries written, or 0 if the file could not be read.
+             */
+            std::size_t import_gltf_scene_meshes(const char* path, Geometry::MeshRegistry& meshes,
+                                                 TextureLibrary& textures, ImportedPrimitive* out,
+                                                 std::size_t capacity);
 
             /**
              * @brief Imports every triangle primitive bound to one glTF skin as a skinned mesh.

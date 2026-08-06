@@ -28,6 +28,7 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <cgltf.h>
@@ -237,6 +238,116 @@ namespace SushiEngine
                                                               : MaterialCullMode::Back;
                     return material;
                 }
+
+                /** @brief One primitive's geometry, in the glTF mesh's own space. */
+                struct PrimitiveGeometry
+                {
+                    std::vector<Geometry::MeshVertex> vertices;
+                    std::vector<std::uint32_t> indices;
+
+                    /** @brief Whether the file supplied tangents, or they have to be generated. */
+                    bool has_authored_tangents = false;
+                };
+
+                /**
+                 * @brief Reads one primitive's attributes and indices into engine vertices.
+                 *
+                 * The part every entry point shares: which accessor is which attribute, the
+                 * strided read into @c MeshVertex, the vertex colour that defaults to opaque
+                 * white, and the index buffer. What each entry point does afterwards -- bake a
+                 * transform or not, generate tangents or not -- is deliberately left out, since
+                 * that is the only thing they disagree on.
+                 *
+                 * @param primitive The glTF primitive to read.
+                 * @param out       Receives the vertices, indices and tangent flag; overwritten.
+                 * @return False when the primitive is not an indexed triangle list, or states no
+                 *         positions, in which case @p out is not usable.
+                 */
+                bool read_primitive_geometry(const cgltf_primitive& primitive,
+                                             PrimitiveGeometry& out)
+                {
+                    out = PrimitiveGeometry{};
+                    if (primitive.type != cgltf_primitive_type_triangles ||
+                        primitive.indices == nullptr)
+                        return false;
+
+                    const cgltf_accessor* position_accessor = nullptr;
+                    const cgltf_accessor* normal_accessor = nullptr;
+                    const cgltf_accessor* tangent_accessor = nullptr;
+                    const cgltf_accessor* uv0_accessor = nullptr;
+                    const cgltf_accessor* uv1_accessor = nullptr;
+                    const cgltf_accessor* color_accessor = nullptr;
+                    for (cgltf_size a = 0; a < primitive.attributes_count; ++a)
+                    {
+                        const cgltf_attribute& attribute = primitive.attributes[a];
+                        switch (attribute.type)
+                        {
+                            case cgltf_attribute_type_position:
+                                position_accessor = attribute.data;
+                                break;
+                            case cgltf_attribute_type_normal:
+                                normal_accessor = attribute.data;
+                                break;
+                            case cgltf_attribute_type_tangent:
+                                tangent_accessor = attribute.data;
+                                break;
+                            case cgltf_attribute_type_texcoord:
+                                if (attribute.index == 0)
+                                    uv0_accessor = attribute.data;
+                                else if (attribute.index == 1)
+                                    uv1_accessor = attribute.data;
+                                break;
+                            case cgltf_attribute_type_color:
+                                if (attribute.index == 0)
+                                    color_accessor = attribute.data;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                    if (position_accessor == nullptr)
+                        return false;
+
+                    const std::size_t vertex_count = position_accessor->count;
+                    out.vertices.resize(vertex_count);
+                    for (Geometry::MeshVertex& vertex : out.vertices)
+                        for (int i = 0; i < 4; ++i)
+                            vertex.color[i] = 255;
+
+                    constexpr std::size_t STRIDE = sizeof(Geometry::MeshVertex) / sizeof(float);
+                    float* base = reinterpret_cast<float*>(out.vertices.data());
+                    read_attribute(position_accessor, 3, base, STRIDE, vertex_count);
+                    read_attribute(normal_accessor, 3, base + 3, STRIDE, vertex_count);
+                    read_attribute(tangent_accessor, 4, base + 6, STRIDE, vertex_count);
+                    read_attribute(uv0_accessor, 2, base + 10, STRIDE, vertex_count);
+                    read_attribute(uv1_accessor, 2, base + 12, STRIDE, vertex_count);
+
+                    if (color_accessor != nullptr)
+                        for (std::size_t i = 0; i < vertex_count; ++i)
+                        {
+                            float rgba[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+                            cgltf_accessor_read_float(color_accessor, i, rgba, 4);
+                            for (int c = 0; c < 4; ++c)
+                                out.vertices[i].color[c] = static_cast<std::uint8_t>(
+                                    std::min(std::max(rgba[c], 0.0f), 1.0f) * 255.0f + 0.5f);
+                        }
+
+                    const std::size_t index_count = primitive.indices->count;
+                    out.indices.resize(index_count);
+                    for (std::size_t i = 0; i < index_count; ++i)
+                        out.indices[i] = static_cast<std::uint32_t>(
+                            cgltf_accessor_read_index(primitive.indices, i));
+
+                    out.has_authored_tangents = tangent_accessor != nullptr;
+                    return true;
+                }
+
+                /** @brief One glTF primitive's single upload, reused by every node naming it. */
+                struct SharedUpload
+                {
+                    MeshId mesh = INVALID_MESH;
+                    Render::Material material;
+                };
             } // namespace
 
             std::size_t import_gltf(const char* path, Geometry::MeshRegistry& meshes,
@@ -284,75 +395,13 @@ namespace SushiEngine
                          ++primitive_index)
                     {
                         const cgltf_primitive& primitive = node.mesh->primitives[primitive_index];
-                        if (primitive.type != cgltf_primitive_type_triangles ||
-                            primitive.indices == nullptr)
+                        PrimitiveGeometry geometry;
+                        if (!read_primitive_geometry(primitive, geometry))
                             continue;
-
-                        const cgltf_accessor* position_accessor = nullptr;
-                        const cgltf_accessor* normal_accessor = nullptr;
-                        const cgltf_accessor* tangent_accessor = nullptr;
-                        const cgltf_accessor* uv0_accessor = nullptr;
-                        const cgltf_accessor* uv1_accessor = nullptr;
-                        const cgltf_accessor* color_accessor = nullptr;
-                        for (cgltf_size a = 0; a < primitive.attributes_count; ++a)
-                        {
-                            const cgltf_attribute& attribute = primitive.attributes[a];
-                            switch (attribute.type)
-                            {
-                                case cgltf_attribute_type_position:
-                                    position_accessor = attribute.data;
-                                    break;
-                                case cgltf_attribute_type_normal:
-                                    normal_accessor = attribute.data;
-                                    break;
-                                case cgltf_attribute_type_tangent:
-                                    tangent_accessor = attribute.data;
-                                    break;
-                                case cgltf_attribute_type_texcoord:
-                                    if (attribute.index == 0)
-                                        uv0_accessor = attribute.data;
-                                    else if (attribute.index == 1)
-                                        uv1_accessor = attribute.data;
-                                    break;
-                                case cgltf_attribute_type_color:
-                                    if (attribute.index == 0)
-                                        color_accessor = attribute.data;
-                                    break;
-                                default:
-                                    break;
-                            }
-                        }
-                        if (position_accessor == nullptr)
-                            continue;
-
-                        const std::size_t vertex_count = position_accessor->count;
-                        std::vector<Geometry::MeshVertex> vertices(vertex_count);
-                        for (Geometry::MeshVertex& vertex : vertices)
-                            for (int i = 0; i < 4; ++i)
-                                vertex.color[i] = 255;
-
-                        constexpr std::size_t STRIDE =
-                            sizeof(Geometry::MeshVertex) / sizeof(float);
-                        float* base = reinterpret_cast<float*>(vertices.data());
-                        read_attribute(position_accessor, 3, base, STRIDE, vertex_count);
-                        read_attribute(normal_accessor, 3, base + 3, STRIDE, vertex_count);
-                        read_attribute(tangent_accessor, 4, base + 6, STRIDE, vertex_count);
-                        read_attribute(uv0_accessor, 2, base + 10, STRIDE, vertex_count);
-                        read_attribute(uv1_accessor, 2, base + 12, STRIDE, vertex_count);
-
-                        if (color_accessor != nullptr)
-                            for (std::size_t i = 0; i < vertex_count; ++i)
-                            {
-                                float rgba[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-                                cgltf_accessor_read_float(color_accessor, i, rgba, 4);
-                                for (int c = 0; c < 4; ++c)
-                                    vertices[i].color[c] = static_cast<std::uint8_t>(
-                                        std::min(std::max(rgba[c], 0.0f), 1.0f) * 255.0f + 0.5f);
-                            }
 
                         // Bake the node's world transform: the render side has no scene
                         // graph, so a primitive's placement has to live in its vertices.
-                        for (Geometry::MeshVertex& vertex : vertices)
+                        for (Geometry::MeshVertex& vertex : geometry.vertices)
                         {
                             const float x = vertex.position[0];
                             const float y = vertex.position[1];
@@ -376,18 +425,15 @@ namespace SushiEngine
                             vertex.tangent[2] = m[2] * tx + m[6] * ty + m[10] * tz;
                         }
 
-                        const std::size_t index_count = primitive.indices->count;
-                        std::vector<std::uint32_t> indices(index_count);
-                        for (std::size_t i = 0; i < index_count; ++i)
-                            indices[i] = static_cast<std::uint32_t>(
-                                cgltf_accessor_read_index(primitive.indices, i));
+                        if (!geometry.has_authored_tangents)
+                            Geometry::generate_tangents(geometry.vertices.data(),
+                                                        geometry.vertices.size(),
+                                                        geometry.indices.data(),
+                                                        geometry.indices.size());
 
-                        if (tangent_accessor == nullptr)
-                            Geometry::generate_tangents(vertices.data(), vertices.size(),
-                                                        indices.data(), indices.size());
-
-                        const MeshId mesh = meshes.add_mesh(vertices.data(), vertices.size(),
-                                                            indices.data(), indices.size());
+                        const MeshId mesh =
+                            meshes.add_mesh(geometry.vertices.data(), geometry.vertices.size(),
+                                            geometry.indices.data(), geometry.indices.size());
                         if (mesh == INVALID_MESH)
                             continue;
 
@@ -395,6 +441,81 @@ namespace SushiEngine
                             mesh;
                         out_materials[written] =
                             convert_material(primitive.material, textures, directory);
+                        ++written;
+                    }
+                }
+
+                cgltf_free(data);
+                return written;
+            }
+
+            std::size_t import_gltf_scene_meshes(const char* path, Geometry::MeshRegistry& meshes,
+                                                 TextureLibrary& textures, ImportedPrimitive* out,
+                                                 std::size_t capacity)
+            {
+                if (path == nullptr || out == nullptr || capacity == 0)
+                    return 0;
+
+                cgltf_options options{};
+                cgltf_data* data = nullptr;
+                if (cgltf_parse_file(&options, path, &data) != cgltf_result_success)
+                    return 0;
+                if (cgltf_load_buffers(&options, data, path) != cgltf_result_success)
+                {
+                    cgltf_free(data);
+                    return 0;
+                }
+
+                const std::filesystem::path directory =
+                    std::filesystem::path(path).parent_path();
+
+                // Nothing here is baked into its node, so one glTF primitive is one upload no
+                // matter how many nodes reference it -- which is what lets the opaque pass group
+                // four wheels sharing one mesh into one instanced draw instead of four.
+                std::unordered_map<const cgltf_primitive*, SharedUpload> already_uploaded;
+
+                std::size_t written = 0;
+                for (cgltf_size node_index = 0; node_index < data->nodes_count && written < capacity;
+                     ++node_index)
+                {
+                    const cgltf_node& node = data->nodes[node_index];
+                    if (node.mesh == nullptr)
+                        continue;
+
+                    for (cgltf_size primitive_index = 0;
+                         primitive_index < node.mesh->primitives_count && written < capacity;
+                         ++primitive_index)
+                    {
+                        const cgltf_primitive& primitive = node.mesh->primitives[primitive_index];
+
+                        auto seen = already_uploaded.find(&primitive);
+                        if (seen == already_uploaded.end())
+                        {
+                            PrimitiveGeometry geometry;
+                            if (!read_primitive_geometry(primitive, geometry))
+                                continue;
+
+                            if (!geometry.has_authored_tangents)
+                                Geometry::generate_tangents(geometry.vertices.data(),
+                                                            geometry.vertices.size(),
+                                                            geometry.indices.data(),
+                                                            geometry.indices.size());
+
+                            SharedUpload upload;
+                            upload.mesh =
+                                meshes.add_mesh(geometry.vertices.data(), geometry.vertices.size(),
+                                                geometry.indices.data(), geometry.indices.size());
+                            if (upload.mesh == INVALID_MESH)
+                                continue;
+                            upload.material =
+                                convert_material(primitive.material, textures, directory);
+                            seen = already_uploaded.emplace(&primitive, std::move(upload)).first;
+                        }
+
+                        out[written].source_node = static_cast<std::uint32_t>(node_index);
+                        out[written].primitive = static_cast<std::uint32_t>(primitive_index);
+                        out[written].mesh = seen->second.mesh;
+                        out[written].material = seen->second.material;
                         ++written;
                     }
                 }

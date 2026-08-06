@@ -120,6 +120,31 @@ namespace SushiEngine
                 return imported;
             }
 
+            std::size_t AssetLibrary::load_gltf_scene(const char* path, ImportedPrimitive* out,
+                                                      std::size_t capacity)
+            {
+                if (path == nullptr || out == nullptr || capacity == 0)
+                    return 0;
+
+                const std::string key(path);
+                const auto cached = gltf_scene_cache_.find(key);
+                if (cached != gltf_scene_cache_.end() && cached->second.size() <= capacity)
+                {
+                    std::copy(cached->second.begin(), cached->second.end(), out);
+                    return cached->second.size();
+                }
+
+                const std::size_t imported =
+                    import_gltf_scene_meshes(path, meshes_, textures_, out, capacity);
+                // A call that filled the buffer exactly may have had more to write, and a
+                // truncated entry would answer every later call short. Only a complete one is
+                // worth keeping.
+                if (imported > 0 && imported < capacity)
+                    gltf_scene_cache_[key] =
+                        std::vector<ImportedPrimitive>(out, out + imported);
+                return imported;
+            }
+
             std::size_t AssetLibrary::load_gltf_skinned_mesh(const char* path,
                                                              std::size_t skin_index,
                                                              MeshId* meshes,

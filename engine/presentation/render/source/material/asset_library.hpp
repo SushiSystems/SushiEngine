@@ -103,6 +103,8 @@ namespace SushiEngine
                     std::size_t load_gltf(const char* path, MeshId* meshes,
                                           Render::Material* materials,
                                           std::size_t count) override;
+                    std::size_t load_gltf_scene(const char* path, ImportedPrimitive* out,
+                                                std::size_t capacity) override;
                     std::size_t load_gltf_skinned_mesh(const char* path, std::size_t skin_index,
                                                        MeshId* meshes,
                                                        Render::Material* materials,
@@ -234,6 +236,13 @@ namespace SushiEngine
                     /**
                      * @brief Every path @ref load_gltf has already imported successfully.
                      *
+                     * One map per entry point rather than one map keyed on both, because the
+                     * two produce different vertices for the same path -- @ref load_gltf bakes
+                     * each node's world transform in and @ref load_gltf_scene does not -- and
+                     * their entries do not even have the same shape. A shared key would have to
+                     * carry a discriminator and then hold a variant; two maps say the same thing
+                     * in the type system. @ref gltf_scene_cache_ is the other one.
+                     *
                      * Keyed on the raw path string, unmodified -- the same convention
                      * `TextureLibrary::find` already uses for its own by-path cache, rather than
                      * a content hash: a glTF import has no separate "force re-import" gesture
@@ -255,6 +264,19 @@ namespace SushiEngine
                      * one.
                      */
                     std::unordered_map<std::string, GltfImportCacheEntry> gltf_cache_;
+
+                    /**
+                     * @brief Every path @ref load_gltf_scene has already imported in full.
+                     *
+                     * Same key and the same "not invalidated when the file changes" limitation
+                     * as @ref gltf_cache_. It holds only complete imports: a call whose
+                     * @c capacity was filled exactly may have been truncated, and caching a
+                     * truncated result would answer a later, larger request with a short one.
+                     * Such a call re-imports instead, which re-uploads -- the honest cost of
+                     * a caller that sized its buffer below the file.
+                     */
+                    std::unordered_map<std::string, std::vector<ImportedPrimitive>>
+                        gltf_scene_cache_;
 
                     Vulkan::VulkanDevice& device_;
                     Resources::ShaderLibrary shaders_;
