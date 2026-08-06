@@ -38,6 +38,7 @@ set(SUSHIENGINE_MODULE_LAYERS
     loop            world
     simulation      world
     serialization   world
+    model_import    world
     authoring       world
     editor          application
     player          application)

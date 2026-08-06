@@ -100,7 +100,8 @@ forbids, so the window between Task 5 and Task 8 is the only place an unwired co
 | `applications/editor/source/scene/inspector_panel.cpp` | A Prefab section on an instance root. |
 | `applications/editor/source/core/editor_context.hpp` | The fields the three share while unwired. |
 | `applications/editor/CMakeLists.txt` | Link `sushiengine_serialization` if it is not linked already. |
-| `engine/world/CMakeLists.txt` | Add the `model_import` subdirectory. |
+| `CMakeLists.txt` | Add the `model_import` subdirectory beside the other world modules. |
+| `cmake/EngineLayers.cmake` | Register `model_import world` in `SUSHIENGINE_MODULE_LAYERS`. |
 | `tests/CMakeLists.txt` | Register the new test file. |
 | `docs/reference/changelog.md` | An `Added` bullet. |
 
@@ -413,6 +414,11 @@ belong in different modules because they are different kinds of thing.
   the file the latter writes, not on the function.
 
 - [ ] **Step 1: Create the module**
+
+**Register the name first.** `sushiengine_add_module` rejects a module that is not listed in
+`SUSHIENGINE_MODULE_LAYERS` (`cmake/EngineLayers.cmake:18`), and the failure is a configure-time
+error, not a link error — so a build will not even reach the new source. Add `model_import world`
+to that list beside `serialization`, and only then write the module's own file:
 
 `engine/world/model_import/CMakeLists.txt`:
 
