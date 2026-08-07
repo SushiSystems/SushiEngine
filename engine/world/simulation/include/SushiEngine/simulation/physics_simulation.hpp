@@ -116,6 +116,7 @@
 #include <SushiEngine/physics/vehicle/vehicle_instance.hpp>
 #include <SushiEngine/simulation/collider.hpp>
 #include <SushiEngine/simulation/physics_services.hpp>
+#include <SushiEngine/simulation/physics_snapshot.hpp>
 #include <SushiEngine/simulation/simulation.hpp>
 
 namespace SushiEngine
@@ -1034,6 +1035,241 @@ namespace SushiEngine
                     }
                 }
 
+                // IPhysicsSnapshotService (§12.3).
+
+                /** @copydoc IPhysicsSnapshotService::capture_snapshot */
+                void capture_snapshot(std::vector<std::byte>& out) const override
+                {
+                    SnapshotWriter writer(out);
+                    if (!solver_)
+                    {
+                        writer.write(std::uint64_t(0));
+                        return;
+                    }
+                    refresh_bodies();
+
+                    // The identity section, first and always read: a restore compares it
+                    // before touching anything, so a blob for a different scene is
+                    // refused rather than half-applied.
+                    std::vector<EntityId> owners;
+                    owners.reserve(rigid_.size());
+                    for (const RigidEntry& entry : rigid_)
+                        owners.push_back(entry.entity);
+                    writer.write_vector(owners);
+
+                    const std::size_t live = live_slot_count();
+                    writer.write_array(bodies_.data(), live);
+
+                    std::vector<KinematicTargetRow> targets;
+                    targets.reserve(rigid_.size());
+                    for (const RigidEntry& entry : rigid_)
+                    {
+                        KinematicTargetRow row;
+                        row.pending = entry.kinematic_target.has_value();
+                        if (row.pending)
+                        {
+                            row.position = entry.kinematic_target->first;
+                            row.orientation = entry.kinematic_target->second;
+                        }
+                        targets.push_back(row);
+                    }
+                    writer.write_vector(targets);
+
+                    // Joints carry their multipliers and break state in the solver's own
+                    // descriptor, so the identity and the descriptor are written as two
+                    // arrays of the same length rather than one interleaved row — the
+                    // descriptor is a template type whose size is not this file's to
+                    // assume.
+                    std::vector<JointIdentityRow> joint_ids;
+                    std::vector<Physics::JointConstraintT<T>> joint_state;
+                    joint_ids.reserve(joints_.size());
+                    joint_state.reserve(joints_.size());
+                    for (const JointEntry& joint : joints_)
+                    {
+                        JointIdentityRow row;
+                        row.id = joint.id;
+                        row.a = joint.a;
+                        row.b = joint.b;
+                        row.parked = joint.parked.has_value();
+                        joint_ids.push_back(row);
+                        if (joint.parked.has_value())
+                            joint_state.push_back(*joint.parked);
+                        else
+                        {
+                            Physics::JointConstraintT<T> descriptor{};
+                            solver_->read_joint(joint.handle, descriptor);
+                            joint_state.push_back(descriptor);
+                        }
+                    }
+                    writer.write_vector(joint_ids);
+                    writer.write_vector(joint_state);
+
+                    // The load-bearing pair. Warm starting lives in these records, so a
+                    // snapshot without them restores a simulation that looks identical
+                    // and converges differently on the very next tick (§12.3).
+                    writer.write_vector(current_);
+                    writer.write_vector(previous_);
+
+                    writer.write_vector(islands_.islands);
+                    writer.write_vector(islands_.bodies);
+                    writer.write(islands_.revision);
+
+                    writer.write(event_clock_);
+                    writer.write(std::uint64_t(continuous_escalations_this_tick_));
+                    writer.write(std::uint64_t(continuous_advancement_skipped_this_tick_));
+                    writer.write(next_joint_id_);
+
+                    // Per sink, in registration order. Without these the clock would be
+                    // restored while the tables kept their future timestamps, and every
+                    // listener would go silent until simulated time caught up again.
+                    writer.write(std::uint64_t(sinks_.size()));
+                    for (const SinkEntry& entry : sinks_)
+                    {
+                        std::vector<SinkCooldownRow> rows;
+                        rows.reserve(entry.last_fired.size());
+                        for (const auto& fired : entry.last_fired)
+                            rows.push_back(SinkCooldownRow{fired.first, fired.second});
+                        // Sorted, because an unordered_map's iteration order is not a
+                        // property of the simulation and two byte-equal states must not
+                        // produce two different blobs (§12.1 rule 1).
+                        std::sort(rows.begin(), rows.end(),
+                                  [](const SinkCooldownRow& lhs, const SinkCooldownRow& rhs)
+                                  { return lhs.pair < rhs.pair; });
+                        writer.write_vector(rows);
+                    }
+                }
+
+                /** @copydoc IPhysicsSnapshotService::restore_snapshot */
+                bool restore_snapshot(const std::byte* data, std::size_t size) override
+                {
+                    if (!solver_)
+                        return false;
+                    // Before the size check below, so it is taken against the mirror the
+                    // solver actually has rather than against whatever the last tick
+                    // left sized.
+                    refresh_bodies();
+                    SnapshotReader reader(data, size);
+
+                    std::vector<EntityId> owners;
+                    if (!reader.read_vector(owners) || owners.size() != rigid_.size())
+                        return false;
+                    for (std::size_t i = 0; i < owners.size(); ++i)
+                    {
+                        if (owners[i] != rigid_[i].entity)
+                            return false;
+                    }
+
+                    std::vector<Body> bodies;
+                    std::vector<KinematicTargetRow> targets;
+                    std::vector<JointIdentityRow> joint_ids;
+                    std::vector<Physics::JointConstraintT<T>> joint_state;
+                    std::vector<ContactRecord> current;
+                    std::vector<ContactRecord> previous;
+                    std::vector<Physics::Island> islands;
+                    std::vector<std::uint32_t> island_bodies;
+                    std::uint64_t revision = 0;
+                    T clock = 0;
+                    std::uint64_t escalations = 0;
+                    std::uint64_t skipped = 0;
+                    JointId next_joint = 1;
+                    std::uint64_t sink_count = 0;
+
+                    reader.read_vector(bodies);
+                    reader.read_vector(targets);
+                    reader.read_vector(joint_ids);
+                    reader.read_vector(joint_state);
+                    reader.read_vector(current);
+                    reader.read_vector(previous);
+                    reader.read_vector(islands);
+                    reader.read_vector(island_bodies);
+                    reader.read(revision);
+                    reader.read(clock);
+                    reader.read(escalations);
+                    reader.read(skipped);
+                    reader.read(next_joint);
+                    reader.read(sink_count);
+
+                    std::vector<std::vector<SinkCooldownRow>> cooldowns;
+                    cooldowns.resize(std::size_t(sink_count));
+                    for (std::vector<SinkCooldownRow>& rows : cooldowns)
+                        reader.read_vector(rows);
+
+                    // Checked once, at the end. The reader's failure is sticky, so one
+                    // test here covers every field above — and nothing has been written
+                    // to the scene yet, which is what makes a refusal clean rather than
+                    // a half-applied state.
+                    if (!reader.ok() || targets.size() != rigid_.size() ||
+                        joint_ids.size() != joints_.size() ||
+                        joint_state.size() != joints_.size() ||
+                        bodies.size() != live_slot_count())
+                        return false;
+
+                    for (std::size_t slot = 0; slot < bodies.size(); ++slot)
+                    {
+                        bodies_[slot] = bodies[slot];
+                        const Physics::BodyHandle handle = solver_->body_handle(slot);
+                        if (handle.valid())
+                            solver_->write_body(handle, bodies[slot]);
+                    }
+
+                    for (std::size_t i = 0; i < rigid_.size(); ++i)
+                    {
+                        if (targets[i].pending)
+                        {
+                            rigid_[i].kinematic_target =
+                                std::make_pair(targets[i].position, targets[i].orientation);
+                        }
+                        else
+                        {
+                            rigid_[i].kinematic_target.reset();
+                        }
+                    }
+
+                    for (std::size_t i = 0; i < joints_.size(); ++i)
+                    {
+                        joints_[i].a = joint_ids[i].a;
+                        joints_[i].b = joint_ids[i].b;
+                        if (joint_ids[i].parked)
+                            joints_[i].parked = joint_state[i];
+                        else if (joints_[i].handle.valid())
+                            solver_->write_joint(joints_[i].handle, joint_state[i]);
+                    }
+
+                    current_ = std::move(current);
+                    previous_ = std::move(previous);
+                    islands_.islands = std::move(islands);
+                    islands_.bodies = std::move(island_bodies);
+                    islands_.revision = revision;
+                    event_clock_ = clock;
+                    continuous_escalations_this_tick_ = std::size_t(escalations);
+                    continuous_advancement_skipped_this_tick_ = std::size_t(skipped);
+                    next_joint_id_ = next_joint;
+
+                    // Only when the registration set is the one the blob was taken with.
+                    // Otherwise every table is emptied, which loses a cooldown but never
+                    // leaves one holding a timestamp the restored clock has not reached.
+                    for (SinkEntry& entry : sinks_)
+                        entry.last_fired.clear();
+                    if (cooldowns.size() == sinks_.size())
+                    {
+                        for (std::size_t i = 0; i < sinks_.size(); ++i)
+                        {
+                            for (const SinkCooldownRow& row : cooldowns[i])
+                                sinks_[i].last_fired[row.pair] = row.when;
+                        }
+                    }
+
+                    // Derived state is marked stale rather than restored. Rebuilding it
+                    // from the state just written is what makes it derived; carrying a
+                    // copy would be a second source of truth for it.
+                    bodies_dirty_ = false;
+                    proxies_dirty_ = true;
+                    query_dirty_ = true;
+                    events_.clear();
+                    joint_events_.clear();
+                    return true;
+                }
+
                 // ICollisionQueryService (§7.7).
                 //
                 // Queries run against their own hierarchy rather than against the
@@ -1501,6 +1737,37 @@ namespace SushiEngine
                  * §12.1 forbids for anything gameplay can observe — and a listener
                  * that spawns an effect observes it.
                  */
+                /**
+                 * @brief One entry's kinematic target, flattened for a snapshot.
+                 *
+                 * `std::optional` is not trivially copyable, so the presence bit travels
+                 * beside the value rather than inside it. The pose is written whether or
+                 * not it is pending, which costs a few bytes and removes the branch a
+                 * reader would otherwise need on every row.
+                 */
+                struct KinematicTargetRow
+                {
+                    Vector3T<T> position{};
+                    QuaternionT<T> orientation{};
+                    bool pending = false;
+                };
+
+                /** @brief A joint's identity and whether its state is parked, for a snapshot. */
+                struct JointIdentityRow
+                {
+                    JointId id = NULL_JOINT;
+                    EntityId a = NULL_ENTITY;
+                    EntityId b = NULL_ENTITY;
+                    bool parked = false;
+                };
+
+                /** @brief One sink's cooldown entry: an entity pair and when it last fired. */
+                struct SinkCooldownRow
+                {
+                    std::uint64_t pair = 0;
+                    T when = 0;
+                };
+
                 struct ContactRecord
                 {
                     std::uint64_t key = 0;

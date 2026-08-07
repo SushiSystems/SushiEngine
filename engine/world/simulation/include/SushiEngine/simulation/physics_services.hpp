@@ -684,6 +684,54 @@ namespace SushiEngine
         constexpr PhysicsSinkId NULL_PHYSICS_SINK = 0;
 
         /**
+         * @brief Handing the scene's live state out as bytes, and putting it back.
+         *
+         * Its own service because capturing state and stepping it are different
+         * capabilities: a rollback buffer wants the first and has no business holding
+         * the second, and a gameplay system that steps the world has no business being
+         * able to rewind it.
+         *
+         * What is captured is what the *next tick reads* — body columns, joint state,
+         * the contact records warm starting lives in, the island partition and the
+         * tick's own scalars. What the next tick rebuilds from a dirty flag is not
+         * captured, because a stale derived index that disagrees with the state it came
+         * from fails in a way nothing traces back to a snapshot.
+         */
+        class IPhysicsSnapshotService
+        {
+            public:
+                virtual ~IPhysicsSnapshotService() = default;
+
+                /**
+                 * @brief Writes the scene's live state into @p out, replacing it.
+                 *
+                 * The bytes are an **in-process** snapshot, not a file format: nothing
+                 * writes them to disk and nothing reads one from a different build, so
+                 * two blobs are comparable only within one run. That is exactly what
+                 * the byte-equality proof needs and is deliberately no more than that.
+                 *
+                 * @param out Receives the snapshot.
+                 */
+                virtual void capture_snapshot(std::vector<std::byte>& out) const = 0;
+
+                /**
+                 * @brief Puts the scene back to a state @ref capture_snapshot produced.
+                 *
+                 * **Refuses a blob whose body set differs from the live one.** Rolling
+                 * back across a spawn or a despawn needs the solver's handle table
+                 * rewound as well, and applying a snapshot over a different set would
+                 * leave bodies holding another body's state — a failure that looks like
+                 * a physics bug for as long as it takes to find. Refusing loudly is the
+                 * correct behaviour until that work exists.
+                 *
+                 * @param data The blob.
+                 * @param size Its length in bytes.
+                 * @return Whether the snapshot was accepted and applied.
+                 */
+                virtual bool restore_snapshot(const std::byte* data, std::size_t size) = 0;
+        };
+
+        /**
          * @brief Where a listener signs up to be told.
          *
          * Separate from @ref IContactEventService because reading this tick's events and
@@ -1103,6 +1151,7 @@ namespace SushiEngine
                               public ICharacterService,
                               public IContactEventService,
                               public IPhysicsEventSource,
+                              public IPhysicsSnapshotService,
                               public IPhysicsStepper
         {
             public:
