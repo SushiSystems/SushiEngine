@@ -25,9 +25,13 @@ each is declared in ``ALLOWED`` with the category that says why:
   Repairing such a citation to a live file would invert the sentence it sits in, so the entry is
   what protects the prose from a well-meaning repair.
 
-An ``ALLOWED`` entry whose path *does* resolve is itself a failure. Without that rule the list
-would silently outlive the reason it was added, which is the exact rot this script exists to
-stop.
+An ``ALLOWED`` entry the tree answers is itself a failure. Without that rule the list would
+silently outlive the reason it was added, which is the exact rot this script exists to stop.
+Exact-path resolution alone does not enforce it: 33 of the 54 entries are bare base names,
+including five of the seven ``planned`` ones, and a planned file lands in a subdirectory when it
+is written. Such an entry would never match its path as written, so the rule would never fire for
+exactly the entries it exists to retire. ``answered_by_tree()`` is what the rule tests, and it
+accepts a path ending in the citation as well as the citation itself.
 
 Run it from the repository root; it locates the tree from its own path either way.
 """
@@ -247,6 +251,28 @@ def classify(citation, by_base_name):
     return "unresolved", None
 
 
+def answered_by_tree(citation, by_base_name):
+    """Every tree file a cited path could actually be naming.
+
+    Deliberately stricter than classify()'s third rung. That rung falls back to a bare base-name
+    match so a citation whose *directory* the restructure renamed can still be repaired, which is
+    a repair heuristic and not a statement that the tree carries the cited file.
+    ``sushiblas/src/CMakeLists.txt`` shares its base name with forty-nine files here and is none
+    of them, so that rung must not retire an ALLOWED entry. A path ending in the citation must:
+    for the thirty-three bare base names in ALLOWED that is any file of that name in any
+    directory, which is where a ``planned`` file lands when someone finally writes it.
+
+    :param citation: the cited path, already stripped of any :line suffix.
+    :param by_base_name: the index returned by index_tree().
+    :return: the repository-relative paths answering the citation, empty when none does.
+    """
+    if (REPOSITORY_ROOT / citation).exists():
+        return [citation]
+
+    base_name = citation.rsplit("/", 1)[-1]
+    return [c for c in by_base_name.get(base_name, []) if c.endswith("/" + citation)]
+
+
 def collect(paths):
     """Every citation in every markdown file under the given paths, with where it was cited.
 
@@ -303,10 +329,16 @@ def main():
 
         if citation in ALLOWED:
             category, reason = ALLOWED[citation]
-            if verdict == "alive":
+            # The entry retires the moment the tree answers it, whether the citation resolves as
+            # written or a path ending in it appeared. Testing only the first would exempt every
+            # bare base name in the list, which is most of it.
+            answers = answered_by_tree(citation, by_base_name)
+            if answers:
+                found = (f"the tree now carries {answers[0]}" if len(answers) == 1
+                         else f"{len(answers)} tree paths now end with it: {', '.join(answers)}")
                 failures.append(
-                    f"{citation}: allowed as '{category}' ({reason}) but the file now exists. "
-                    "Remove the ALLOWED entry.")
+                    f"{citation}: allowed as '{category}' ({reason}) but {found}. Remove the "
+                    "ALLOWED entry, and cite the real path if the sentence still needs one.")
             tally[f"allowed:{category}"] += 1
             lines.append(f"  allowed:{category:17} {citation}")
             continue
