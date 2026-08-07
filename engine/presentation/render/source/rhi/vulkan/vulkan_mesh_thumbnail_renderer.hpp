@@ -35,6 +35,18 @@
  * directly with vkCreateGraphicsPipelines rather than through GraphicsPipelineFactory --
  * that class exists to amortize work across many pipelines over a session, which does not
  * apply to a renderer that only ever builds the one pipeline it needs, once.
+ *
+ * Known constraint -- unbounded GPU residency: this renderer's isolated MeshRegistry and
+ * TextureLibrary never release what they load. There is no removal API on MeshRegistry today
+ * (adding one is a real engineering project of its own, out of scope here), so every
+ * render_thumbnail() call that succeeds adds permanently-resident GPU memory -- including a
+ * volumetric SDF bake per mesh primitive, on top of the mesh and texture data itself -- with
+ * no eviction policy of its own. A caller that renders many distinct models over one
+ * VulkanMeshThumbnailRenderer's lifetime will grow its resident GPU memory unboundedly.
+ * Bounding this is the responsibility of whatever calls this class (an LRU-style cache holding
+ * a bounded number of VulkanMeshThumbnailRenderer instances, the same way ThumbnailCache's
+ * image pipeline already bounds its own decoded-image memory, or a future MeshRegistry
+ * removal API), not something this class does on its own.
  */
 
 #include <cstdint>

@@ -56,6 +56,17 @@ namespace SushiEngine
                 , meshes_(device)
                 , textures_(device, heap_, samplers_, TEXTURE_BUDGET_BYTES)
             {
+                // This renderer's whole purpose depends on its bindless texture heap actually
+                // working -- mesh_thumbnail.frag unconditionally declares and samples
+                // bindless_textures[] -- so fail loudly and honestly here rather than let
+                // create_pipeline() below build a spec-violating pipeline layout (a
+                // VK_NULL_HANDLE set layout in pSetLayouts) on a device that lacks descriptor
+                // indexing support.
+                if (!heap_.available())
+                    throw std::runtime_error(
+                        "SushiEngine: VulkanMeshThumbnailRenderer requires descriptor indexing "
+                        "support, which this device lacks");
+
                 VkCommandPoolCreateInfo pool_info{};
                 pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
                 pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
@@ -124,7 +135,12 @@ namespace SushiEngine
 
                 VkPipelineLayoutCreateInfo layout_info{};
                 layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-                layout_info.setLayoutCount = 2;
+                // Matches scene_layout.cpp's heap_.available() ? 2 : 1 convention: Vulkan only
+                // reads the first setLayoutCount entries of pSetLayouts, so this is sufficient
+                // even though the array itself still has 2 elements. The constructor above
+                // already throws when the heap is unavailable, so this is defense in depth
+                // rather than a path this renderer expects to take.
+                layout_info.setLayoutCount = heap_.available() ? 2 : 1;
                 layout_info.pSetLayouts = set_layouts;
                 layout_info.pushConstantRangeCount = 1;
                 layout_info.pPushConstantRanges = &push_range;
@@ -184,7 +200,16 @@ namespace SushiEngine
                 rasterization.sType =
                     VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
                 rasterization.polygonMode = VK_POLYGON_MODE_FILL;
-                rasterization.cullMode = VK_CULL_MODE_BACK_BIT;
+                // VK_CULL_MODE_NONE, matching every other pipeline in this module: this
+                // engine's perspective() flips Y for Vulkan's clip space, which negates the
+                // signed framebuffer-space area Vulkan uses to classify triangle facing and so
+                // reverses the apparent winding of every triangle relative to what the vertex
+                // data's actual (glTF CCW-front) winding intends. Culling BACK here would cull
+                // what should be front-facing and render every closed model inside-out. Not
+                // culling is also robust to a glTF node with a mirrored (negative-determinant)
+                // transform, which import_gltf bakes into vertices without correcting winding
+                // order -- a case flipping frontFace instead would not fix.
+                rasterization.cullMode = VK_CULL_MODE_NONE;
                 rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
                 rasterization.lineWidth = 1.0f;
 
@@ -371,12 +396,22 @@ namespace SushiEngine
                 // is no per-draw model matrix to carry (see the vertex shader's own comment).
                 Matrix4 view_projection = mul(camera.projection, camera.view);
 
+                // render_thumbnail's documented contract (mesh_thumbnail_renderer.hpp) is to
+                // return false on any load or render failure, including a Vulkan error -- never
+                // to throw. Every Vulkan::check() below this point can throw, so the whole
+                // render/readback sequence is wrapped in a try/catch that converts any such
+                // throw into a false return, cleaning up whatever of these was already created.
+                VkCommandBuffer command = VK_NULL_HANDLE;
+                VkBuffer readback_buffer = VK_NULL_HANDLE;
+                VmaAllocation readback_allocation = VK_NULL_HANDLE;
+                VkFence fence = VK_NULL_HANDLE;
+                try
+                {
                 VkCommandBufferAllocateInfo command_alloc{};
                 command_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
                 command_alloc.commandPool = command_pool_;
                 command_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
                 command_alloc.commandBufferCount = 1;
-                VkCommandBuffer command = VK_NULL_HANDLE;
                 Vulkan::check(
                     vkAllocateCommandBuffers(device_.device(), &command_alloc, &command),
                     "vkAllocateCommandBuffers(mesh thumbnail)");
@@ -510,8 +545,6 @@ namespace SushiEngine
                 readback_alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
                 readback_alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
                                             VMA_ALLOCATION_CREATE_MAPPED_BIT;
-                VkBuffer readback_buffer = VK_NULL_HANDLE;
-                VmaAllocation readback_allocation = VK_NULL_HANDLE;
                 VmaAllocationInfo readback_mapped{};
                 Vulkan::check(vmaCreateBuffer(device_.allocator(), &readback_info,
                                               &readback_alloc_info, &readback_buffer,
@@ -530,7 +563,6 @@ namespace SushiEngine
 
                 VkFenceCreateInfo fence_info{};
                 fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-                VkFence fence = VK_NULL_HANDLE;
                 Vulkan::check(vkCreateFence(device_.device(), &fence_info, nullptr, &fence),
                               "vkCreateFence(mesh thumbnail)");
 
@@ -558,6 +590,20 @@ namespace SushiEngine
                 vkFreeCommandBuffers(device_.device(), command_pool_, 1, &command);
                 vmaDestroyBuffer(device_.allocator(), readback_buffer, readback_allocation);
                 return true;
+                }
+                catch (const std::exception&)
+                {
+                    // Clean up whatever of the command buffer / readback buffer / fence was
+                    // successfully created before the throw point, mirroring the defensive
+                    // cleanup pattern create_pipeline() already uses for its own throw paths.
+                    if (fence != VK_NULL_HANDLE)
+                        vkDestroyFence(device_.device(), fence, nullptr);
+                    if (readback_buffer != VK_NULL_HANDLE)
+                        vmaDestroyBuffer(device_.allocator(), readback_buffer, readback_allocation);
+                    if (command != VK_NULL_HANDLE)
+                        vkFreeCommandBuffers(device_.device(), command_pool_, 1, &command);
+                    return false;
+                }
             }
         } // namespace Vulkan
     } // namespace Render

@@ -62,6 +62,13 @@ namespace SushiEngine
                  * box; shading is flat headlight-plus-ambient sampling each primitive's
                  * base-color texture. @p out_image is left untouched on failure.
                  *
+                 * This method submits to the same graphics queue the main renderer uses for its
+                 * own frame submission. A @c VkQueue is externally synchronized in Vulkan, so
+                 * calling this concurrently with the main renderer's own frame submission from a
+                 * different thread, without external synchronization between the two, is
+                 * undefined behavior. It also blocks the calling thread synchronously until the
+                 * GPU finishes rendering and the readback completes.
+                 *
                  * @param path   A `.gltf`/`.glb` file path.
                  * @param width  Output image width in pixels.
                  * @param height Output image height in pixels.
