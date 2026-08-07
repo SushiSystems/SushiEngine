@@ -659,7 +659,15 @@ namespace SushiEngine
                     entry["physics_body"] =
                         json{{"inv_mass", parameters.inv_mass},
                              {"inv_inertia", vec3_to_json(parameters.inv_inertia)},
-                             {"drag_coefficient", parameters.drag_coefficient}};
+                             {"drag_coefficient", parameters.drag_coefficient},
+                             // Both of these override the two numbers above rather
+                             // than sitting beside them, so a file that carried the
+                             // numbers alone would reload as a body whose mass was
+                             // right and whose *authoring* was gone: the density box
+                             // empty, the kinematic box unticked, and the derived
+                             // figures presented as if somebody had typed them.
+                             {"density", parameters.density},
+                             {"kinematic", parameters.kinematic}};
                 }
 
                 // Not mutually exclusive with any of the above, so it is its own field
@@ -990,6 +998,8 @@ namespace SushiEngine
                             parameters.inv_inertia = vec3_from_json(p["inv_inertia"]);
                         parameters.drag_coefficient =
                             p.value("drag_coefficient", parameters.drag_coefficient);
+                        parameters.density = p.value("density", parameters.density);
+                        parameters.kinematic = p.value("kinematic", parameters.kinematic);
                         world.set_physics_body_parameters(id, parameters);
                     }
                 }
