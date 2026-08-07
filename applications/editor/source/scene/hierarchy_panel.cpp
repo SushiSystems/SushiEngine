@@ -141,7 +141,13 @@ namespace SushiEngine
                 if (is_selected(context, id))
                     flags |= ImGuiTreeNodeFlags_Selected;
 
+                const bool row_disabled = !world->enabled_in_hierarchy(id);
+                if (row_disabled)
+                    ImGui::PushStyleColor(ImGuiCol_Text,
+                                          ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
                 const bool open = ImGui::TreeNodeEx(entity_name.c_str(), flags);
+                if (row_disabled)
+                    ImGui::PopStyleColor();
                 if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
                 {
                     const ImGuiIO& io = ImGui::GetIO();

@@ -280,6 +280,22 @@ namespace SushiEngine
                     (world->*setter)(target, value);
             };
 
+            bool enabled = world->enabled(id);
+            const bool enabled_mixed = selection_mixed(
+                targets, [&](EntityId e) { return world->enabled(e); }, enabled);
+            if (enabled_mixed)
+                ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
+            const bool enabled_changed = ImGui::Checkbox("##enabled", &enabled);
+            if (enabled_mixed)
+                ImGui::PopItemFlag();
+            if (enabled_changed)
+            {
+                context.history.record(*world);
+                for (const EntityId target : targets)
+                    world->set_enabled(target, enabled);
+            }
+            ImGui::SameLine();
+
             bool visible = world->visible(id);
             const bool visible_mixed = selection_mixed(
                 targets, [&](EntityId e) { return world->visible(e); }, visible);
