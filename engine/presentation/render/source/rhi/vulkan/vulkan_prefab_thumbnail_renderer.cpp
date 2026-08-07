@@ -23,6 +23,8 @@
 
 #include "vulkan_prefab_thumbnail_renderer.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <stdexcept>
 
@@ -45,6 +47,52 @@ namespace SushiEngine
                 {
                     for (int i = 0; i < 16; ++i)
                         destination[i] = static_cast<float>(source.m[i]);
+                }
+
+                /** @brief Length of the model matrix's largest 3x3 column: its peak scale.
+                 *  Scaling a mesh's local bounding radius by this stays a valid world-space
+                 *  bound under any non-uniform scale (same reasoning as
+                 *  engine/presentation/render/source/scene/instance_system.cpp's own
+                 *  largest_column, adapted here to take a Matrix4 directly). */
+                float largest_column(const Matrix4& model) noexcept
+                {
+                    const auto column_length = [&model](int column) {
+                        const double x = model.m[column * 4 + 0];
+                        const double y = model.m[column * 4 + 1];
+                        const double z = model.m[column * 4 + 2];
+                        return std::sqrt(x * x + y * y + z * z);
+                    };
+                    return static_cast<float>(
+                        std::max({column_length(0), column_length(1), column_length(2)}));
+                }
+
+                /** @brief Writes the fixed world-space headlight direction, transformed into
+                 *  @p model's object space, into a push-constant vec4 (w unused).
+                 *
+                 * Shading needs dot(world_normal, world_light), where world_normal =
+                 * mat3(model) * object_normal. Since dot(A*v, w) == dot(v, transpose(A)*w) for
+                 * any matrix A, computing transpose(model)'s 3x3 part times the world light
+                 * direction here lets the shader dot it directly against the untransformed
+                 * object-space normal instead -- avoiding ever forming a world-space normal or
+                 * sending the model matrix itself to the GPU. Exactly equal to the old
+                 * world-space computation for a rigid or uniformly-scaled transform (rotation
+                 * matrices are their own transpose-inverse), and no worse an approximation
+                 * than the old one was under non-uniform scale. */
+                void write_light_object(const Matrix4& model, float destination[4])
+                {
+                    constexpr float light_x = 1.0f;
+                    constexpr float light_y = 0.8f;
+                    constexpr float light_z = 1.0f;
+                    destination[0] = static_cast<float>(model.m[0]) * light_x +
+                                     static_cast<float>(model.m[1]) * light_y +
+                                     static_cast<float>(model.m[2]) * light_z;
+                    destination[1] = static_cast<float>(model.m[4]) * light_x +
+                                     static_cast<float>(model.m[5]) * light_y +
+                                     static_cast<float>(model.m[6]) * light_z;
+                    destination[2] = static_cast<float>(model.m[8]) * light_x +
+                                     static_cast<float>(model.m[9]) * light_y +
+                                     static_cast<float>(model.m[10]) * light_z;
+                    destination[3] = 0.0f;
                 }
             } // namespace
 
@@ -352,16 +400,15 @@ namespace SushiEngine
 
             bool VulkanPrefabThumbnailRenderer::render_thumbnail(
                 const PrefabThumbnailDraw* draws, std::size_t count,
-                const SushiEngine::Geometry::AABB3& bounds, std::uint32_t width,
-                std::uint32_t height, FrameImage& out_image)
+                std::uint32_t width, std::uint32_t height, FrameImage& out_image)
             {
                 // This class trusts its input: the caller (a world-tier-aware orchestrator --
                 // see this class's own header for why that orchestration cannot live here) has
-                // already resolved every entity's mesh/material and composed its model matrix,
-                // and already unioned every entity's bounds into @p bounds. There is no
-                // "unresolved" or "skip this one" case left to handle here beyond the fixed
+                // already resolved every entity's mesh/material and composed its model matrix.
+                // A draw whose mesh is INVALID_MESH is silently skipped (an empty transparent
+                // contribution, not a failure) -- the only hard failure case is the fixed
                 // capacity check below.
-                if (count == 0 || count > MAX_PRIMITIVES)
+                if (draws == nullptr || count == 0 || count > MAX_PRIMITIVES)
                     return false;
 
                 // render_thumbnail's documented contract (prefab_thumbnail_renderer.hpp) is to
@@ -382,6 +429,21 @@ namespace SushiEngine
                 try
                 {
                 ensure_targets(width, height);
+
+                SushiEngine::Geometry::AABB3 bounds{};
+                for (std::size_t i = 0; i < count; ++i)
+                {
+                    const PrefabThumbnailDraw& draw = draws[i];
+                    if (draw.mesh == INVALID_MESH)
+                        continue;
+
+                    const Geometry::Mesh& mesh = assets_.meshes().mesh(draw.mesh);
+                    const SushiEngine::Vector3 center{draw.model.m[12], draw.model.m[13],
+                                                      draw.model.m[14]};
+                    const double world_radius = static_cast<double>(mesh.radius) *
+                                                static_cast<double>(largest_column(draw.model));
+                    SushiEngine::Geometry::expand_aabb_sphere(bounds, center, world_radius);
+                }
 
                 const SushiEngine::Geometry::ThumbnailCamera camera =
                     SushiEngine::Geometry::three_quarter_camera_for_bounds(
@@ -477,8 +539,8 @@ namespace SushiEngine
                     const Geometry::Mesh& mesh = assets_.meshes().mesh(draw.mesh);
 
                     Push push{};
-                    write_matrix(draw.model, push.model);
-                    write_matrix(view_projection, push.view_projection);
+                    write_matrix(mul(view_projection, draw.model), push.mvp);
+                    write_light_object(draw.model, push.light_object);
                     push.albedo[0] = static_cast<float>(draw.material.albedo.x);
                     push.albedo[1] = static_cast<float>(draw.material.albedo.y);
                     push.albedo[2] = static_cast<float>(draw.material.albedo.z);
@@ -560,11 +622,12 @@ namespace SushiEngine
 
                 vmaInvalidateAllocation(device_.allocator(), readback_allocation, 0,
                                         readback_size);
+                std::vector<std::uint8_t> pixels(static_cast<std::size_t>(readback_size));
+                std::memcpy(pixels.data(), readback_mapped.pMappedData,
+                           static_cast<std::size_t>(readback_size));
                 out_image.width = width;
                 out_image.height = height;
-                out_image.rgba.resize(static_cast<std::size_t>(readback_size));
-                std::memcpy(out_image.rgba.data(), readback_mapped.pMappedData,
-                           static_cast<std::size_t>(readback_size));
+                out_image.rgba = std::move(pixels);
 
                 vkDestroyFence(device_.device(), fence, nullptr);
                 vkFreeCommandBuffers(device_.device(), command_pool_, 1, &command);

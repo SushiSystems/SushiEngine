@@ -28,7 +28,8 @@
  * @brief The Vulkan implementation of IPrefabThumbnailRenderer.
  *
  * Draws exactly the caller-resolved array of (mesh, material, model matrix) triples it is
- * given, framed by the caller-supplied bounds. This class knows nothing about prefabs, JSON,
+ * given, framing the camera itself from the union of every draw's mesh bounding sphere. This
+ * class knows nothing about prefabs, JSON,
  * or `ISimulation`/`IWorldEditor` -- that orchestration belongs to whatever calls it (Phase
  * 4b's editor-tier `PrefabThumbnailCache`), since `engine/presentation/render` is forbidden
  * from depending on the `world` tier (`engine/world/simulation`/`engine/world/serialization`);
@@ -79,13 +80,7 @@ namespace SushiEngine
 
                     IAssetLibrary& asset_library() noexcept override { return assets_; }
 
-                    // Fully qualified: SushiEngine::Geometry (domain geometry module) is a
-                    // sibling of, and genuinely distinct from, this file's own enclosing
-                    // SushiEngine::Render::Geometry (owns MeshRegistry/Mesh). Unqualified
-                    // `Geometry::` here would resolve to the nearer Render::Geometry and fail
-                    // to find AABB3, which it does not declare.
                     bool render_thumbnail(const PrefabThumbnailDraw* draws, std::size_t count,
-                                          const SushiEngine::Geometry::AABB3& bounds,
                                           std::uint32_t width, std::uint32_t height,
                                           FrameImage& out_image) override;
 
@@ -94,11 +89,14 @@ namespace SushiEngine
                     static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
                     static constexpr VkFormat DEPTH_FORMAT = VK_FORMAT_D32_SFLOAT;
 
-                    /** @brief One draw call's worth of per-entity push-constant data. */
+                    /** @brief One draw call's worth of per-entity push-constant data (100 bytes total —
+                     *  comfortably under Vulkan's guaranteed 128-byte minimum, this repo's own "house budget"
+                     *  for push constants; see the .cpp's render_thumbnail for how @c mvp and @c light_object
+                     *  are derived). */
                     struct Push
                     {
-                        float model[16];
-                        float view_projection[16];
+                        float mvp[16];
+                        float light_object[4];
                         float albedo[4];
                         std::int32_t albedo_texture_index;
                     };

@@ -32,7 +32,9 @@
  * source files (see docs/superpowers/specs/2026-08-07-project-panel-prefab-thumbnails-design.md).
  * @c IMeshThumbnailRenderer's single-glTF-file contract cannot represent that, so this is a
  * separate, parallel interface: draw a caller-resolved array of entities, each with its own
- * real model matrix, framed by a caller-supplied bounds.
+ * real model matrix; this renderer computes its own framing camera from the union of every
+ * draw's mesh bounding sphere, scaled by that draw's model matrix, so the caller never has to
+ * reach into this renderer's private mesh data to produce one.
  *
  * This class is deliberately ignorant of prefabs, JSON, and `ISimulation`/`IWorldEditor` --
  * `engine/presentation/render` (the `presentation` tier) is forbidden from depending on
@@ -50,7 +52,6 @@
 #include <cstddef>
 #include <cstdint>
 
-#include <SushiEngine/geometry/mesh_thumbnail_camera.hpp>
 #include <SushiEngine/material/material.hpp>
 
 #include "asset_library_interface.hpp"
@@ -94,32 +95,30 @@ namespace SushiEngine
                  * @brief Renders exactly the given resolved draws into a width x height RGBA8 image.
                  *
                  * Shading is flat headlight-plus-ambient sampling each draw's base-color
-                 * texture. @p out_image is left untouched on failure. This method submits to
-                 * the same graphics queue the main renderer uses for its own frame submission
-                 * (externally synchronized in Vulkan) and blocks the calling thread
-                 * synchronously until the GPU finishes rendering and the readback completes.
+                 * texture. The framing camera is computed internally from the union of every
+                 * draw's mesh bounding sphere, scaled by that draw's model matrix -- the caller
+                 * supplies no bounds of its own. @p out_image is left untouched on failure.
+                 * This method submits to the same graphics queue the main renderer uses for its
+                 * own frame submission (externally synchronized in Vulkan) and blocks the
+                 * calling thread synchronously until the GPU finishes rendering and the readback
+                 * completes.
                  *
                  * @param draws  The entities to draw, already resolved to live mesh/material
-                 *   handles in this renderer's own asset_library().
+                 *   handles in this renderer's own asset_library(). Must not be null when
+                 *   @p count is greater than zero; a null pointer with a nonzero count is a
+                 *   defined @c false return, not undefined behavior.
                  * @param count  Number of entries in @p draws. Must not exceed a fixed
                  *   implementation capacity (a caller exceeding it should treat that as a
-                 *   load failure before ever calling this method).
-                 * @param bounds The world-space bounds (already unioned across every draw by
-                 *   the caller) to frame the camera around.
+                 *   load failure before ever calling this method). Zero is a defined @c false
+                 *   return: an empty prefab is a load failure, not a silently valid thumbnail.
                  * @param width  Output image width in pixels.
                  * @param height Output image height in pixels.
                  * @param out_image Receives the rendered result on success.
                  * @return @c true on success; @c false on any render failure (a Vulkan error,
-                 *   or more draws than this renderer's fixed capacity).
+                 *   a null @p draws with nonzero @p count, a zero @p count, or more draws than
+                 *   this renderer's fixed capacity).
                  */
-                // Fully qualified SushiEngine::Geometry::AABB3: an implementation of this
-                // interface (e.g. Vulkan::VulkanPrefabThumbnailRenderer) typically also owns a
-                // nested Render::Geometry namespace (mesh/material geometry, distinct from the
-                // domain module's SushiEngine::Geometry this type actually lives in) visible in
-                // the same translation unit, so an unqualified `Geometry::` here would risk
-                // resolving to the wrong one depending on include order.
                 virtual bool render_thumbnail(const PrefabThumbnailDraw* draws, std::size_t count,
-                                              const SushiEngine::Geometry::AABB3& bounds,
                                               std::uint32_t width, std::uint32_t height,
                                               FrameImage& out_image) = 0;
         };
