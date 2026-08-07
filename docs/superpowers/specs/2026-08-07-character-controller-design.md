@@ -121,9 +121,21 @@ Unit, against hand-written sweeps:
 Integration, against the live physics:
 
 7. A character walks up a real stair in a real scene.
-8. A steep ramp stops it.
-9. It rides a kinematic platform.
-10. It pushes a dynamic crate — the clause that makes the kinematic-body choice pay.
+8. A wall stops it, and `remaining` says so.
+9. It stops at a dynamic crate rather than walking through it.
+10. It crosses flat ground at all — which fails if the sweep does not exclude its own body.
+
+**Clauses 9 and 10 as first written were wrong, corrected 2026-08-07 during implementation.**
+They read "it rides a kinematic platform" and "it pushes a dynamic crate", and neither is what
+this design produces. Both bodies of a character-on-platform pair are kinematic, so both have zero
+inverse mass and the contact between them resolves to nothing. And the controller's own sweep stops
+the capsule a skin width short of a crate, so no overlap exists for the contact projection to
+spend. Unity's `CharacterController` and PhysX's `PxController` behave identically and both make
+each an explicit opt-in the caller wires up.
+
+Both are now integration tests that pin the *absence*, each carrying an instruction to rewrite
+rather than loosen it, so closing either gap fails a test deliberately instead of quietly starting
+to pass. They are recorded as follow-ups in `docs/design/remaining_work.md`.
 
 Every one runs on the CPU backend. **P9-B needs no GPU.**
 
