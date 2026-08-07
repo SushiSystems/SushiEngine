@@ -41,7 +41,6 @@ are repaired, and what remains becomes one consolidated backlog.
 
 **Files:**
 - Create: `tools/documentation/check_design_citations.py`
-- Modify: `.github/workflows/ci.yml:223-243` (the `structure` job)
 - Test: no Python test suite exists in this repository. The three existing checkers are
   validated by running them over the real tree plus a deliberate negative fixture; this one
   follows that convention.
@@ -301,7 +300,7 @@ Expected: exit 1, three failures printed, no traceback.
 - [ ] **Step 6: Run the checker over the real corpus and record the baseline**
 
 ```bash
-python3 tools/documentation/check_design_citations.py --report > "$SCRATCH/citations-baseline.txt"
+python3 tools/documentation/check_design_citations.py --report > "$WORKSPACE/citations-baseline.txt"
 ```
 
 Expected: the totals reproduce the Global Constraints baseline — 836 cited paths, 116 alive.
@@ -311,28 +310,12 @@ produced the baseline), but a total that differs by more than a few is a bug in 
 
 Keep this file. Tasks 5 and 6 read it.
 
-- [ ] **Step 7: Wire the check into continuous integration**
+The check is **not** wired into continuous integration in this task. It would fail from the
+moment it landed until Task 6 repairs the paths, and a knowingly-red check in the default
+branch is a defect however well justified. Task 6 wires it in the same commit that makes it
+pass.
 
-In `.github/workflows/ci.yml`, in the `structure` job, add a fourth step after the existing
-documentation length check:
-
-```yaml
-      - name: Check that a design document's cited paths resolve
-        # docs/design/ states that a claim is a file:line rather than a description. Nothing
-        # measured that, and the restructure left 720 of 836 cited paths resolving to nothing.
-        run: python3 tools/documentation/check_design_citations.py
-```
-
-Then correct the job's own comment, which says "three Python scripts over the tree":
-
-```
-    # Cheap and dependency-free on purpose: four Python scripts over the tree, no toolchain
-```
-
-This step will fail continuous integration until Task 6 lands. That is intended and is why
-Task 6 exists; do not weaken the check to make it pass early.
-
-- [ ] **Step 8: Verify the documentation checks still pass**
+- [ ] **Step 7: Verify the documentation checks still pass**
 
 Run: `python3 tools/documentation/check_documentation_length.py`
 Expected: `documentation ceilings hold across N files`, with only the four pre-existing
@@ -341,10 +324,10 @@ changelog bullet warnings.
 Run: `python3 tools/documentation/check_module_documentation.py`
 Expected: exit 0.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add tools/documentation/check_design_citations.py .github/workflows/ci.yml
+git add tools/documentation/check_design_citations.py
 git commit -m "feat(documentation): check that a design document's cited paths resolve"
 ```
 
@@ -354,7 +337,6 @@ Body:
 - Added a checker that classifies every backticked path in docs/design/ against the tree.
 - Added an ALLOWED list that separates an external reference from a run-time artifact and
   from a file a plan has not produced yet, and fails when an allowed path starts resolving.
-- Wired the check into the CI structure job.
 ```
 
 ---
@@ -362,12 +344,12 @@ Body:
 ## Task 2: Audit the six documents that claim to be shipped
 
 **Files:**
-- Create: `$SCRATCH/verdicts.md` (working notes, never committed)
+- Create: `$WORKSPACE/verdicts.md` (working notes, never committed)
 - Read: `docs/design/animation_system.md`, `audio_system.md`, `SUSHILOOP.md`,
   `project_selection.md`, `static_mesh_authoring.md`, `editor_ux_overhaul.md`
 
 **Interfaces:**
-- Produces: `$SCRATCH/verdicts.md`, one section per document, one row per phase:
+- Produces: `$WORKSPACE/verdicts.md`, one section per document, one row per phase:
   `| phase | verdict | evidence |` where verdict is `CONFIRMED`, `OVERSTATED`, `STALE` or
   `UNVERIFIABLE-HERE` and evidence is a real path in the tree or the search that found nothing.
   Tasks 3, 4, 5 and 7 read this file.
@@ -380,7 +362,7 @@ first: an overstatement here is the most misleading, and the cheapest to falsify
 Each document's opening status line names the section that records progress —
 `animation_system.md` names §12, `audio_system.md` its roadmap, `SUSHILOOP.md` its milestone
 list. Read that section, not the prose above it. Write every phase and its claimed state into
-`$SCRATCH/verdicts.md` before verifying anything, so the verification cannot quietly skip a
+`$WORKSPACE/verdicts.md` before verifying anything, so the verification cannot quietly skip a
 phase it fails to find.
 
 - [ ] **Step 2: Verify each phase against the tree**
@@ -426,7 +408,7 @@ Expected: only Task 1's already-committed files, and nothing new.
 ## Task 3: Audit the five documents that claim to be in progress
 
 **Files:**
-- Modify: `$SCRATCH/verdicts.md` (append five sections)
+- Modify: `$WORKSPACE/verdicts.md` (append five sections)
 - Read: `docs/design/physics_system.md` §16, `render_pipeline_refactor.md` §3,
   `atmosphere_system.md` §11, `vfx_particle_system.md` §12, `repository_restructure.md`
 
@@ -507,7 +489,7 @@ Expected: nothing new. This task produces judgement, not edits.
 ## Task 4: Audit the five designed documents and the superseded one
 
 **Files:**
-- Modify: `$SCRATCH/verdicts.md` (append six sections)
+- Modify: `$WORKSPACE/verdicts.md` (append six sections)
 - Read: `docs/design/model_import.md`, `prefab_system.md`, `solar_system_overhaul.md`,
   `cross_platform_engineering_plan.md`, `unified_hazard_model.md`,
   `editor_feature_sync_gaps.md`
@@ -572,7 +554,7 @@ Expected: nothing new.
   `docs/architecture/roadmap.md`, `docs/reference/changelog.md`
 
 **Interfaces:**
-- Consumes: `$SCRATCH/verdicts.md` from Tasks 2, 3 and 4.
+- Consumes: `$WORKSPACE/verdicts.md` from Tasks 2, 3 and 4.
 
 This is the semantic commit. It is deliberately separate from Task 6's path repair so that
 every judgement it records stays legible in `git blame` instead of being buried under several
@@ -638,9 +620,10 @@ git commit -m "docs: correct the design corpus's status lines and roadmap marker
 **Files:**
 - Modify: every file under `docs/design/` carrying an unresolved citation
 - Modify: `tools/documentation/check_design_citations.py` (the `ALLOWED` dictionary)
+- Modify: `.github/workflows/ci.yml` (the `structure` job, deferred here from Task 1)
 
 **Interfaces:**
-- Consumes: `$SCRATCH/citations-baseline.txt` from Task 1, and the `ALLOWED` shape
+- Consumes: `$WORKSPACE/citations-baseline.txt` from Task 1, and the `ALLOWED` shape
   `{path: (category, reason)}` defined there.
 
 - [ ] **Step 1: Rewrite the unambiguous citations**
@@ -691,10 +674,28 @@ Expected: no new warnings. Repaired paths are longer than the ones they replace 
 `physics/xpbd.hpp` becomes `engine/domain/physics/include/SushiEngine/physics/xpbd.hpp` — so
 this step will find lines that now overflow. Rewrap them.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Wire the check into continuous integration**
+
+The check now passes, so it can be enforced. In `.github/workflows/ci.yml`, in the `structure`
+job, add a fourth step after the existing documentation length check:
+
+```yaml
+      - name: Check that a design document's cited paths resolve
+        # docs/design/ states that a claim is a file:line rather than a description. Nothing
+        # measured that, and the restructure left 720 of 836 cited paths resolving to nothing.
+        run: python3 tools/documentation/check_design_citations.py
+```
+
+Then correct the job's own comment, which says "three Python scripts over the tree":
+
+```
+    # Cheap and dependency-free on purpose: four Python scripts over the tree, no toolchain
+```
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add docs/design tools/documentation/check_design_citations.py
+git add docs/design tools/documentation/check_design_citations.py .github/workflows/ci.yml
 git commit -m "docs: repair the design corpus's paths after the repository restructure"
 ```
 
@@ -707,7 +708,7 @@ git commit -m "docs: repair the design corpus's paths after the repository restr
 - Modify: `docs/design/README.md` (one index row)
 
 **Interfaces:**
-- Consumes: `$SCRATCH/verdicts.md` from Tasks 2, 3 and 4.
+- Consumes: `$WORKSPACE/verdicts.md` from Tasks 2, 3 and 4.
 
 The corpus records what each subsystem plans. Nothing records what the *project* has left,
 because that answer only exists by reading eighteen roadmap sections at once. This file is that
