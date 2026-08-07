@@ -924,55 +924,61 @@ namespace SushiEngine
                 {
                     set_presence(&IWorldEditor::set_has_character, false);
                 }
-                else if (section.open)
+                else
                 {
-                    // UNLINKED — review state. The values are shared locals rather than
-                    // this entity's, so what is on show is the placement, the order and
-                    // the wording. Replaced by a ComponentEditor over CharacterParameters
-                    // once the layout is approved; must not be merged in this state, per
-                    // `docs/design/editor_ux_overhaul.md`'s wire-or-remove rule.
-                    static float radius = 0.4f;
-                    static float height = 1.8f;
-                    static float step_height = 0.4f;
-                    static float max_slope = 45.0f;
-                    static float skin_width = 0.02f;
-                    static float ground_snap = 0.1f;
+                    const ComponentAccess<SushiEngine::Simulation::CharacterParameters> access{
+                        &IWorldEditor::has_character, &IWorldEditor::character_parameters,
+                        &IWorldEditor::set_character_parameters};
+                    ComponentEditor<SushiEngine::Simulation::CharacterParameters> editor(
+                        context, *world, access, id);
+                    apply_component_section(context, section, "Character Controller", editor);
+                    if (section.open)
+                    {
+                        // Shape first, limits second, and the separator between them is
+                        // the point: the top two say how big the character is and the
+                        // rest say what it can get over. Authors reach for them at
+                        // different times — one while building it, the other while
+                        // finding out where it catches.
+                        editor.number("Radius", &decltype(editor)::Values::radius, 0.01f, 0.05f,
+                                      5.0f, "%.2f m",
+                                      "How wide a gap the character needs to pass through. Not "
+                                      "the collider it is hit as — that is authored separately, "
+                                      "to match the art.");
+                        editor.number("Height", &decltype(editor)::Values::height, 0.01f, 0.1f,
+                                      10.0f, "%.2f m", "Total standing height, caps included.");
 
-                    // Shape first, limits second, and the separator between them is the
-                    // point: the top two say how big the character is and the rest say
-                    // what it can get over. Authors reach for them at different times.
-                    ImGui::DragFloat("Radius", &radius, 0.01f, 0.05f, 5.0f, "%.2f m");
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("How wide a gap the character needs to pass through. "
-                                          "Not the collider it is hit as — that is authored "
-                                          "separately, to match the art.");
-                    ImGui::DragFloat("Height", &height, 0.01f, 0.1f, 10.0f, "%.2f m");
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Total standing height, caps included.");
+                        ImGui::SeparatorText("Movement limits");
+                        editor.number("Step Height", &decltype(editor)::Values::step_height,
+                                      0.01f, 0.0f, 5.0f, "%.2f m",
+                                      "The tallest lip it climbs without jumping. Zero means "
+                                      "every kerb is a wall.");
+                        editor.number("Max Slope",
+                                      &decltype(editor)::Values::max_slope_degrees, 0.5f, 0.0f,
+                                      89.0f, "%.0f deg",
+                                      "Steeper than this is a wall, not a hill — and a "
+                                      "character standing on it is not grounded, so it cannot "
+                                      "jump off one.");
+                        editor.number("Skin Width", &decltype(editor)::Values::skin_width, 0.001f,
+                                      0.0f, 0.5f, "%.3f m",
+                                      "Clearance kept from every surface. The first dial to "
+                                      "reach for when a character catches on geometry: too "
+                                      "small and it sticks, too large and it floats.");
+                        editor.number("Ground Snap", &decltype(editor)::Values::ground_snap,
+                                      0.01f, 0.0f, 2.0f, "%.2f m",
+                                      "How far below to look for ground. What keeps it on a "
+                                      "downward ramp instead of leaving the floor at every lip.");
 
-                    ImGui::SeparatorText("Movement limits");
-                    ImGui::DragFloat("Step Height", &step_height, 0.01f, 0.0f, 5.0f, "%.2f m");
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("The tallest lip it climbs without jumping. Zero "
-                                          "means every kerb is a wall.");
-                    ImGui::DragFloat("Max Slope", &max_slope, 0.5f, 0.0f, 89.0f, "%.0f deg");
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Steeper than this is a wall, not a hill — and a "
-                                          "character standing on it is not grounded, so it "
-                                          "cannot jump off one.");
-                    ImGui::DragFloat("Skin Width", &skin_width, 0.001f, 0.0f, 0.5f, "%.3f m");
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Clearance kept from every surface. The first dial to "
-                                          "reach for when a character catches on geometry: too "
-                                          "small and it sticks, too large and it floats.");
-                    ImGui::DragFloat("Ground Snap", &ground_snap, 0.01f, 0.0f, 2.0f, "%.2f m");
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("How far below to look for ground. What keeps it on a "
-                                          "downward ramp instead of leaving the floor at every "
-                                          "lip.");
-
-                    if (!world->has_physics_body(id))
-                        ImGui::TextDisabled("Needs a Rigid Body with Kinematic ticked.");
+                        // Stated rather than enforced. A character with no body is a
+                        // half-authored entity and not an error — the two are attached
+                        // separately on purpose — but `move_character` refuses a body
+                        // that is not kinematic, and an author who is never told that
+                        // finds out by watching the character do nothing.
+                        if (!world->has_physics_body(id))
+                            ImGui::TextDisabled("Needs a Rigid Body with Kinematic ticked.");
+                        else if (!world->physics_body_parameters(id).kinematic)
+                            ImGui::TextDisabled("The Rigid Body above is not Kinematic, so this "
+                                                "character will not move.");
+                    }
                 }
             }
 
