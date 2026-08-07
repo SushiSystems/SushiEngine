@@ -7,6 +7,11 @@ plan outlives any one commit. Everything else under `docs/` describes what is bu
 document opens with a status line, and the roadmap section that line names is the single place its
 per-phase progress is recorded.
 
+One file here is neither a plan nor an audit. [remaining_work.md](remaining_work.md) is a derived
+view: it collects what every roadmap section above has left, holds no facts of its own, and changes
+whenever one of those sections does. Where it and an owning document disagree, the owning document
+is right.
+
 | Document | Status | Covers |
 | --- | --- | --- |
 | [animation_system.md](animation_system.md) | shipped | Skeletal animation: clip assets and compression, an Animator controller with layered state machines and blend trees, the IK and pose-modifier stack, and GPU skinning. |

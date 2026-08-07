@@ -432,6 +432,21 @@ Two checks the plan did not ask for, added because phase 4 surfaced the gaps:
   coupling by a route the configure-time check cannot see. Three world modules use it
   legally today; nothing would have caught a fourth that pointed up.
 
+A third check followed, and with it the citation repair this document's own evidence standard
+demands:
+
+- `tools/documentation/check_design_citations.py` resolves every backticked path a design
+  document cites as evidence and fails on one that names nothing. Its first run found 617 of
+  680 cited paths resolving to nothing — phase 1 moved every engine module and no citation
+  followed. The repair rewrote 1,074 citation sites across seventeen documents, and the check
+  now runs in continuous integration. Four categories of path legitimately do not resolve and
+  are declared in the script rather than repaired: external, run-time artifact, planned, and
+  deleted, the last for a path a document names in order to say it is gone. Three classes of
+  defect survive the repair and are recorded in [remaining_work.md](remaining_work.md): the
+  repaired sites were never swept for whether the file a path resolves to is the file its
+  sentence means, the citations that already resolved carry line numbers no pass verified, and
+  a bare line-number continuation beside an anchor is invisible to a check that matches paths.
+
 ## 11. Verification
 
 Phase 1 is verified when `se build`, `se editor --no-run`, `se build --player` and
