@@ -30,6 +30,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -1113,6 +1114,182 @@ namespace
         description.collider = unit_box_collider();
         return description;
     }
+}
+
+// The physics snapshot (P9-D, §16.49). What is being proved is not a feature anyone
+// sees: capture at K, run on to N, restore K, replay to N, and the state at N must be
+// byte-identical to the state the uninterrupted run reached.
+//
+// The control comes first and is not a formality. Nothing in this codebase has ever
+// asserted byte equality of physics state — the conformance suite compares host and
+// device at 1e-9 — so without a run-to-run comparison a failing rollback test cannot
+// distinguish a lossy snapshot from a simulation that was never deterministic.
+
+namespace
+{
+    /** @brief A four-box stack over a ground plane: contacts that persist and settle. */
+    std::vector<RigidBodyDescription> stack_scene()
+    {
+        std::vector<RigidBodyDescription> bodies;
+        for (int i = 0; i < 4; ++i)
+        {
+            RigidBodyDescription description;
+            description.id = EntityId(i + 1);
+            description.position = Vector3{0, Scalar(0.5) + Scalar(i) * Scalar(1.02), 0};
+            description.inv_mass = Scalar(1);
+            description.inv_inertia = Vector3{Scalar(6), Scalar(6), Scalar(6)};
+            description.collider = unit_box_collider();
+            bodies.push_back(description);
+        }
+        return bodies;
+    }
+
+    /** @brief A scene with the stack already installed, ready to step. */
+    std::unique_ptr<IPhysicsScene> stacked_physics()
+    {
+        auto physics = create_physics_simulation(Harness::shared_context());
+        physics->set_rigid_bodies(stack_scene(), ITERATIONS, SUBSTEP_DT);
+        physics->set_static_planes(ground());
+        return physics;
+    }
+
+    /** @brief Runs @p count ticks. */
+    void run(IPhysicsScene& physics, int count)
+    {
+        for (int tick = 0; tick < count; ++tick)
+            physics.step(earth_gravity(), still_air(), SUBSTEPS);
+    }
+}
+
+TEST(Integration_PhysicsSimulation, TwoIdenticalScenesStayByteIdentical)
+{
+    // The control. If this fails, every rollback assertion below is meaningless and the
+    // finding is a determinism defect in the solve, not in the snapshot.
+    auto first = stacked_physics();
+    auto second = stacked_physics();
+
+    std::vector<std::byte> a;
+    std::vector<std::byte> b;
+    for (int tick = 0; tick < 200; ++tick)
+    {
+        first->step(earth_gravity(), still_air(), SUBSTEPS);
+        second->step(earth_gravity(), still_air(), SUBSTEPS);
+        first->capture_snapshot(a);
+        second->capture_snapshot(b);
+        ASSERT_EQ(a, b) << "two identical scenes diverged at tick " << tick;
+    }
+    EXPECT_FALSE(a.empty()) << "the snapshot is empty; nothing was captured at all";
+}
+
+TEST(Integration_PhysicsSimulation, ARestoredSceneReplaysToTheSameBytes)
+{
+    // The claim itself, over a stack that is still settling at the rollback point — so
+    // the contact records the snapshot carries are doing work rather than sitting empty.
+    auto physics = stacked_physics();
+    run(*physics, 40);
+
+    std::vector<std::byte> at_rollback;
+    physics->capture_snapshot(at_rollback);
+
+    run(*physics, 60);
+    std::vector<std::byte> uninterrupted;
+    physics->capture_snapshot(uninterrupted);
+
+    ASSERT_TRUE(physics->restore_snapshot(at_rollback.data(), at_rollback.size()))
+        << "the scene refused its own snapshot";
+    run(*physics, 60);
+    std::vector<std::byte> replayed;
+    physics->capture_snapshot(replayed);
+
+    EXPECT_EQ(uninterrupted, replayed)
+        << "the replay diverged; some state the next tick reads was not captured";
+}
+
+TEST(Integration_PhysicsSimulation, ARestoredSceneReplaysThroughASettledStack)
+{
+    // The same claim after the stack has gone to sleep, which exercises the half the
+    // test above cannot: sleep timers, the island partition, and the flags that decide
+    // whether a body is integrated at all.
+    auto physics = stacked_physics();
+    run(*physics, 400);
+    ASSERT_GT(physics->statistics().sleeping_bodies, 0u) << "the stack never settled";
+
+    std::vector<std::byte> at_rollback;
+    physics->capture_snapshot(at_rollback);
+    run(*physics, 120);
+    std::vector<std::byte> uninterrupted;
+    physics->capture_snapshot(uninterrupted);
+
+    ASSERT_TRUE(physics->restore_snapshot(at_rollback.data(), at_rollback.size()));
+    run(*physics, 120);
+    std::vector<std::byte> replayed;
+    physics->capture_snapshot(replayed);
+
+    EXPECT_EQ(uninterrupted, replayed) << "a settled island did not survive the round trip";
+}
+
+TEST(Integration_PhysicsSimulation, ASnapshotFromADifferentBodySetIsRefused)
+{
+    // Refused, not misapplied. Applying a blob over a different set would leave bodies
+    // holding another body's state, which looks like a physics bug for as long as it
+    // takes to find.
+    auto four = stacked_physics();
+    run(*four, 20);
+    std::vector<std::byte> blob;
+    four->capture_snapshot(blob);
+
+    auto one = create_physics_simulation(Harness::shared_context());
+    one->set_rigid_bodies({stack_scene().front()}, ITERATIONS, SUBSTEP_DT);
+    one->set_static_planes(ground());
+    run(*one, 20);
+
+    // Captured before the attempt, so the comparison after it is against what the scene
+    // actually was rather than against a second reading of whatever it became.
+    std::vector<std::byte> before;
+    one->capture_snapshot(before);
+
+    EXPECT_FALSE(one->restore_snapshot(blob.data(), blob.size()))
+        << "a snapshot for four bodies was applied to a scene holding one";
+
+    std::vector<std::byte> after;
+    one->capture_snapshot(after);
+    EXPECT_EQ(before, after) << "the refused restore still changed the scene on its way out";
+}
+
+TEST(Integration_PhysicsSimulation, AMalformedSnapshotIsRefused)
+{
+    auto physics = stacked_physics();
+    run(*physics, 20);
+    std::vector<std::byte> blob;
+    physics->capture_snapshot(blob);
+
+    EXPECT_FALSE(physics->restore_snapshot(nullptr, 0)) << "an empty blob was accepted";
+    // Truncated halfway: the header still reads, and everything after it must not.
+    EXPECT_FALSE(physics->restore_snapshot(blob.data(), blob.size() / 2))
+        << "a truncated blob was read past its end";
+}
+
+TEST(Integration_PhysicsSimulation, TenThousandTicksReplayToTheSameBytes)
+{
+    // The row's own number. Long enough that anything accumulating a divergence — a
+    // sleep timer, a warm-start impulse, an island revision — has ten thousand chances
+    // to show it.
+    auto physics = stacked_physics();
+    run(*physics, 500);
+
+    std::vector<std::byte> at_rollback;
+    physics->capture_snapshot(at_rollback);
+
+    run(*physics, 10000);
+    std::vector<std::byte> uninterrupted;
+    physics->capture_snapshot(uninterrupted);
+
+    ASSERT_TRUE(physics->restore_snapshot(at_rollback.data(), at_rollback.size()));
+    run(*physics, 10000);
+    std::vector<std::byte> replayed;
+    physics->capture_snapshot(replayed);
+
+    EXPECT_EQ(uninterrupted, replayed) << "ten thousand ticks of replay diverged";
 }
 
 TEST(Integration_PhysicsSimulation, AnEventSinkHearsABeginAndNothingElse)

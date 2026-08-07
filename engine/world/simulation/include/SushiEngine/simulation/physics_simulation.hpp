@@ -1064,7 +1064,7 @@ namespace SushiEngine
                     targets.reserve(rigid_.size());
                     for (const RigidEntry& entry : rigid_)
                     {
-                        KinematicTargetRow row;
+                        KinematicTargetRow row{};
                         row.pending = entry.kinematic_target.has_value();
                         if (row.pending)
                         {
@@ -1086,7 +1086,7 @@ namespace SushiEngine
                     joint_state.reserve(joints_.size());
                     for (const JointEntry& joint : joints_)
                     {
-                        JointIdentityRow row;
+                        JointIdentityRow row{};
                         row.id = joint.id;
                         row.a = joint.a;
                         row.b = joint.b;
@@ -3263,7 +3263,12 @@ namespace SushiEngine
                         if (lhs.slot == Physics::null_contact_body)
                             continue; // two pieces of static geometry; nothing to move
 
-                        ContactRecord record;
+                        // Value-initialized, which matters for more than tidiness: these
+                        // records are memcpy'd wholesale into a snapshot, and a struct
+                        // with indeterminate padding produces two different blobs for
+                        // one logical state. §12.3's byte equality is a claim about the
+                        // bytes, so the bytes have to be a function of the simulation.
+                        ContactRecord record{};
                         record.key = pair_key(flip ? second : first, flip ? first : second);
                         record.a_slot = lhs.slot;
                         record.b_slot = rhs.slot;

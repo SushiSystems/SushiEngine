@@ -238,7 +238,11 @@ namespace SushiEngine
                         if (slot_of_key_[key] == 0xFFFFFFFFu)
                         {
                             slot_of_key_[key] = static_cast<std::uint32_t>(out.islands.size());
-                            Island island;
+                            // Value-initialized: an `Island` is memcpy'd into a physics
+                            // snapshot, and a struct whose padding is indeterminate
+                            // yields two different blobs for one logical state — which
+                            // §12.3's byte equality is precisely a claim against.
+                            Island island{};
                             island.key = key;
                             island.sleeping = true;
                             out.islands.push_back(island);
