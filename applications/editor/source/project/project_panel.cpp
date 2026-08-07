@@ -27,6 +27,7 @@
 #include <SushiEngine/model/import_settings_io.hpp>
 
 #include "prefab_serializer.hpp"
+#include "thumbnail_cache.hpp"
 
 #include "../animation/animated_mesh_preview.hpp"
 #include "../scene/scene_commands.hpp"
@@ -599,9 +600,32 @@ namespace SushiEngine
                                 origin, ImVec2(origin.x + tile_size, origin.y + tile_size),
                                 ImGui::GetColorU32(selected ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered),
                                 3.0f);
-                        draw_entry_icon(draw_list, ImVec2(origin.x + (tile_size - icon_size) * 0.5f, origin.y),
-                                       icon_size, entry_category(entry.path(), is_dir),
-                                       ImGui::GetColorU32(ImGuiCol_Text));
+
+                        const EntryCategory category = entry_category(entry.path(), is_dir);
+                        std::optional<ImTextureID> thumbnail_texture;
+                        if (category == EntryCategory::Image && context.thumbnail_cache != nullptr &&
+                            ImGui::IsRectVisible(origin, ImVec2(origin.x + tile_size, origin.y + tile_size)))
+                        {
+                            // IsRectVisible tests the tile's screen rect against the grid child
+                            // window's current clip rect, so a tile scrolled out of view never
+                            // requests a decode — a folder full of images scrolled past should
+                            // never front-load every one of them.
+                            thumbnail_texture = context.thumbnail_cache->texture_for(entry.path());
+                        }
+
+                        if (thumbnail_texture.has_value())
+                        {
+                            draw_list->AddImage(*thumbnail_texture,
+                                                ImVec2(origin.x + (tile_size - icon_size) * 0.5f, origin.y),
+                                                ImVec2(origin.x + (tile_size - icon_size) * 0.5f + icon_size,
+                                                       origin.y + icon_size));
+                        }
+                        else
+                        {
+                            draw_entry_icon(draw_list,
+                                           ImVec2(origin.x + (tile_size - icon_size) * 0.5f, origin.y),
+                                           icon_size, category, ImGui::GetColorU32(ImGuiCol_Text));
+                        }
                         const float glyph_width = ImGui::CalcTextSize("M").x;
                         const std::size_t max_chars = glyph_width > 0.0f
                             ? std::max<std::size_t>(3, static_cast<std::size_t>(tile_size / glyph_width))
