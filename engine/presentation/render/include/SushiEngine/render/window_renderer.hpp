@@ -40,6 +40,7 @@
 #include <memory>
 
 #include <SushiEngine/render/asset_library_interface.hpp>
+#include <SushiEngine/render/mesh_thumbnail_renderer.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/render/rhi/device.hpp>
 #include <SushiEngine/render/scene_view.hpp>
@@ -164,6 +165,20 @@ namespace SushiEngine
                  * @return An owning handle to the new scene view.
                  */
                 virtual std::unique_ptr<ISceneView> create_scene_view() = 0;
+
+                /**
+                 * @brief Creates an offscreen mesh-thumbnail renderer on this renderer's device.
+                 *
+                 * Unlike create_scene_view(), which stands up the full production scene pipeline
+                 * (lighting, environment, TAA, picking), this is a small, purpose-built renderer for
+                 * the Project panel's model thumbnails: one mesh, one flat/unlit draw, one readback.
+                 * It owns an isolated asset stack (its own descriptor heap, sampler cache, mesh
+                 * registry, texture library) so loading or evicting a thumbnail never touches this
+                 * renderer's own live scene assets.
+                 *
+                 * @return An owning handle to the new mesh-thumbnail renderer.
+                 */
+                virtual std::unique_ptr<IMeshThumbnailRenderer> create_mesh_thumbnail_renderer() = 0;
 
                 /**
                  * @brief Blits a scene view's finished slot directly onto the window frame.
