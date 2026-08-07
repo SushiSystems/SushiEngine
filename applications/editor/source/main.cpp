@@ -711,7 +711,11 @@ int main(int argc, char** argv)
             std::vector<SushiEngine::Simulation::EntityId> ui_ids;
             for (const SushiEngine::Simulation::EntityId id : world.entities())
             {
-                if (!world.has_ui(id) || !world.visible(id))
+                // `enabled_in_hierarchy` beside the local `visible` flag, the same pair every
+                // other render path gates on: a disabled entity is off in every system that
+                // touches it, and its UI element painting over the viewport would be the one
+                // thing a switched-off subtree still put on screen.
+                if (!world.has_ui(id) || !world.visible(id) || !world.enabled_in_hierarchy(id))
                     continue;
                 SushiEngine::Editor::UIOverlayElement element;
                 element.id = static_cast<std::uint32_t>(id);

@@ -162,7 +162,10 @@ namespace SushiEngine
             std::int32_t best_priority = 0;
             for (Simulation::EntityId id : ids)
             {
-                if (!world.has_reverb_zone(id))
+                // Same gate as the emitter loop below: a disabled entity is off in every
+                // system that touches it, and a zone that still coloured the mix would be
+                // the one audible trace of a subtree the author switched off.
+                if (!world.has_reverb_zone(id) || !world.enabled_in_hierarchy(id))
                     continue;
                 const Simulation::ReverbZoneParameters z = world.reverb_zone_parameters(id);
                 const Vector3 c = world.world_transform(id).position;

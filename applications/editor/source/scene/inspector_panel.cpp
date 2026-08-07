@@ -288,6 +288,12 @@ namespace SushiEngine
             const bool enabled_changed = ImGui::Checkbox("##enabled", &enabled);
             if (enabled_mixed)
                 ImGui::PopItemFlag();
+            // Two unlabelled checkboxes sit side by side here (the header has no room for
+            // captions and Unity's does not label its own), so the tooltip is the only thing
+            // that tells them apart.
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Enabled (activeSelf) — stops physics, audio and render for "
+                                  "this entity and its children when off.");
             if (enabled_changed)
             {
                 context.history.record(*world);
@@ -304,6 +310,9 @@ namespace SushiEngine
             const bool visible_changed = ImGui::Checkbox("##visible", &visible);
             if (visible_mixed)
                 ImGui::PopItemFlag();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Visible — hides only this entity's own rendering. Physics "
+                                  "and audio keep running.");
             if (visible_changed)
             {
                 context.history.record(*world);
