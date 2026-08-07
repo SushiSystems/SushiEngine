@@ -47,6 +47,7 @@ the map. Headers are relative to `include/SushiEngine/physics/`.
 | `vehicle/` | `vehicle_asset.hpp`, `vehicle_instance.hpp`, `node_beam_structure.hpp`, `powertrain.hpp`, `suspension.hpp`, `tyre*.hpp` | The vehicle asset and its instance, the node-beam structure, and the drivetrain, suspension and tyre models. |
 | `cooking/` | `cooker_interface.hpp`, `cooking_parameters.hpp`, `cooking_report.hpp`, `cooking_service.hpp`, `cooked_asset_store.hpp`, `collision_*.hpp`, `soft_body_*.hpp`, `node_beam_*.hpp`, `convex_decomposition.hpp`, `tetrahedral_mesh.hpp`, `mesh_post_processor.hpp`, `import_profile.hpp` | The offline pipeline: the fidelity dial, the report and its refusal thresholds, the cooker seams, the content-hash store, and the three cookers that produce collision, soft-body and node-beam assets. |
 | `aero/` | `wind.hpp` | The wind field a body is pushed by. |
+| `character/` | `character_mover.hpp` | Collide-and-slide for a character capsule: sliding, stepping, the slope rule, and the ground probe. Answers what the world permits, and holds no gravity or jump state of its own. |
 
 `SushiEngine.hpp` pulls in the common entry points — the body, shape, broadphase, contact,
 constraint, solver, cloth, soft-body and world headers — for a consumer that wants the usual set.
