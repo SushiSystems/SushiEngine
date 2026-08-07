@@ -117,8 +117,8 @@ the one that means "this object is not active", not to the one that means "do no
 consequence is stated here rather than left to be discovered — a scene authored with a
 `visible=false` parent will draw the children that the old cascade hid, and an author who wanted the
 subtree gone wants `enabled` on that parent instead. What does not change is a `visible=false`
-entity's own rendering, which is off before and after. `enabled` is new and defaults to `true`, so no
-scene-file migration is required; a record written before the key existed reads back as enabled.
+entity's own rendering, which is off before and after. `enabled` is new and defaults to `true`, so
+no scene-file migration is required; a record written before the key existed reads back as enabled.
 
 A new private helper, `enabled_in_hierarchy(const Record*)`, is added beside
 `visible_in_hierarchy` (`runtime_simulation.cpp:2721-2733`), identical in shape: walks the ancestor

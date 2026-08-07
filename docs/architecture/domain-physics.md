@@ -392,14 +392,15 @@ shared entry point — plus the editor's live audio poll in `AudioEditorSystem::
 `IWorldEditor` seam, both its emitters and its reverb zones. A character controller needs no gate of
 its own: it is `has_character` plus a kinematic rigid body, so it is gathered by
 `gather_rigid_descriptions()` and is already covered by the one on `physics_source_entities()`.
-`set_enabled()` and `set_parent()` both mark all four physics dirty flags (`physics_dirty_`/`soft_dirty_`/
-`cloth_dirty_`/`vehicles_dirty_`) on a real change, unconditionally, so a toggle on an entity with
-no physics component of its own still invalidates a descendant's gathered state — and so does
-reparenting a body into or out of a disabled subtree, which changes gather membership without
-touching a single flag on the body itself. `enabled` serializes beside `visible` in
-`write_entity_record`/`read_entity_record` and travels in `ClipboardEntity`, so it survives
-Save/Load, Undo/Redo, Play→Stop, prefab capture/apply and copy/paste alike. A disabled entity's
-rigid body is removed from the physics world the same way `set_rigid_bodies`' existing diff already
-removes a genuinely-destroyed one, and comes back at rest on re-enable — there is no velocity field
-to preserve across the gap, and preserving one was deliberately scoped out (see [the entity lifecycle
-design](../design/entity_lifecycle_system.md) §4.2 for the full audit).
+`set_enabled()` and `set_parent()` both mark all four physics dirty flags
+(`physics_dirty_`/`soft_dirty_`/`cloth_dirty_`/`vehicles_dirty_`) on a real change,
+unconditionally, so a toggle on an entity with no physics component of its own still invalidates
+a descendant's gathered state — and so does reparenting a body into or out of a disabled subtree,
+which changes gather membership without touching a single flag on the body itself. `enabled`
+serializes beside `visible` in `write_entity_record`/`read_entity_record` and travels in
+`ClipboardEntity`, so it survives Save/Load, Undo/Redo, Play→Stop, prefab capture/apply and
+copy/paste alike. A disabled entity's rigid body is removed from the physics world the same way
+`set_rigid_bodies`' existing diff already removes a genuinely-destroyed one, and comes back at rest
+on re-enable — there is no velocity field to preserve across the gap, and preserving one was
+deliberately scoped out (see [the entity lifecycle design](../design/entity_lifecycle_system.md)
+§4.2 for the full audit).
