@@ -595,6 +595,55 @@ namespace SushiEngine
                 }
             }
 
+            // Unity's List View: one compact row per entry, a small fixed-size glyph before
+            // the name, unaffected by the grid's zoom (Unity's own list rows are a fixed size).
+            void draw_project_list_view(EditorContext& context,
+                                        const std::vector<fs::directory_entry>& entries,
+                                        const fs::path& current, fs::path& delete_target)
+            {
+                constexpr float ROW_ICON_SIZE = 16.0f;
+                for (const fs::directory_entry& entry : entries)
+                {
+                    const bool is_dir = entry.is_directory();
+                    const std::string path_string = entry.path().string();
+                    const std::string name = entry.path().filename().string();
+
+                    ImGui::PushID(path_string.c_str());
+
+                    if (context.renaming_project_path == path_string)
+                    {
+                        std::string entered;
+                        if (inline_rename_field(context, path_string, name, -FLT_MIN, entered))
+                        {
+                            std::error_code rename_ec;
+                            const fs::path renamed = entry.path().parent_path() / entered;
+                            if (!entered.empty() && renamed != entry.path())
+                                fs::rename(entry.path(), renamed, rename_ec);
+                            context.renaming_project_path.clear();
+                        }
+                    }
+                    else
+                    {
+                        const bool selected = context.selected_project_path == path_string;
+                        const ImVec2 origin = ImGui::GetCursorScreenPos();
+                        // Reserve room for the icon; the label is drawn by Selectable itself,
+                        // indented past the icon column.
+                        ImGui::Dummy(ImVec2(ROW_ICON_SIZE + 4.0f, 0.0f));
+                        ImGui::SameLine();
+                        if (ImGui::Selectable((name + "##row").c_str(), selected))
+                            context.selected_project_path = path_string;
+                        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                        draw_entry_icon(draw_list, origin, ROW_ICON_SIZE,
+                                       entry_category(entry.path(), is_dir),
+                                       ImGui::GetColorU32(ImGuiCol_Text));
+
+                        draw_project_entry_interactions(context, entry, is_dir, current, delete_target);
+                    }
+
+                    ImGui::PopID();
+                }
+            }
+
         } // namespace
 
         // Load a file into an open Document, or focus it if already open. Files that
@@ -691,6 +740,14 @@ namespace SushiEngine
                     MIN_TILE_SIZE, MAX_TILE_SIZE);
             }
 
+            using Authoring::ProjectBrowserViewMode;
+            bool is_grid = context.preferences.project_view_mode == ProjectBrowserViewMode::Grid;
+            if (ImGui::RadioButton("Grid", is_grid))
+                context.preferences.project_view_mode = ProjectBrowserViewMode::Grid;
+            ImGui::SameLine();
+            if (ImGui::RadioButton("List", !is_grid))
+                context.preferences.project_view_mode = ProjectBrowserViewMode::List;
+
             ImGui::SetNextItemWidth(-FLT_MIN);
             ImGui::InputTextWithHint("##project_filter", "Search...", &context.project_filter);
             const std::string lower_filter = to_lower(context.project_filter);
@@ -735,7 +792,10 @@ namespace SushiEngine
             // The delete target is deferred out of the loop so the directory listing is
             // never mutated (and filesystem-iterated again next frame) mid-walk.
             fs::path delete_target;
-            draw_project_grid_view(context, entries, current, delete_target);
+            if (context.preferences.project_view_mode == ProjectBrowserViewMode::Grid)
+                draw_project_grid_view(context, entries, current, delete_target);
+            else
+                draw_project_list_view(context, entries, current, delete_target);
 
             // Right-click on empty grid space: create new items in the current folder.
             if (ImGui::BeginPopupContextWindow("project_grid_context", ImGuiPopupFlags_MouseButtonRight |
