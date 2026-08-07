@@ -287,7 +287,33 @@ by the whole roadmap rather than only by its first phase.
 
 ## §11 Roadmap
 
-P1 — §3 to §9 — **in progress.**
+P1 — §3 to §9 — **in progress.**  P2 — override resolution — **landed 2026-08-08.**
+
+**P2, as built.** Overrides are **component-level**, because there is no component reflection in
+this engine and building one is its own project — so overriding a member position pins its whole
+`Transform`, and a later prefab change to its scale will not reach that instance. And they are
+**computed rather than stored**, which came out of asking how a stored list would ever be filled:
+something would have to record the override at the moment of the edit, so every component setter
+would have to know prefabs exist, and a component added later whose author forgets that hook would
+lose overrides with nothing failing. A refresh instead serializes each live member, matches it to
+the prefab record sharing its identity, and patches the differing component keys into the document
+*before* instantiating from it — which is also why no reader that applies a record to an existing
+entity was needed. `parent` is excluded from the diff, because it is an index and the two records
+number their entities differently.
+
+`prefab_entity_id` is now preserved rather than reminted, so an id survives a re-author; §4.4's
+positional scheme retargeted every override the moment an artist inserted an entity. The revision
+is as stable as it was: its hash moves when ids are generated afresh per capture, not when they are
+kept.
+
+A member the prefab no longer claims **survives, unlinked and reparented to the rebuilt root** —
+which also rescues the entity an author added to an instance by hand, destroyed silently by every
+refresh until now. The trade: cleaning an entity out of a prefab no longer cleans it out of the
+instances.
+
+Still open from P2: the Inspector affordances that show a component as overridden and revert it.
+The diff that would drive them is what a refresh already computes; presenting it is editor-only
+work and gets its own review.
 
 What P1 has delivered: §3's `.sushiprefab` asset with its `revision` and `prefab_entity_id`; §4's
 `PrefabInstanceParameters` and its accessor triple; §5's `refresh_prefab_instances`, called from
