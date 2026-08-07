@@ -872,6 +872,27 @@ namespace SushiEngine
                     apply_component_section(context, section, "Rigid Body", editor);
                     if (section.open)
                     {
+                        // UNLINKED — review state, not wired to the component yet. The
+                        // local flag is deliberately not per entity: what is being
+                        // shown is the placement, the wording and what the tick does
+                        // to the rows below it, and a shared bool answers all three.
+                        // Replaced by `editor.toggle(...)` on the real field once the
+                        // layout is approved; must not be merged in this state, per
+                        // `docs/design/editor_ux_overhaul.md`'s wire-or-remove rule.
+                        static bool kinematic_preview = false;
+                        ImGui::Checkbox("Kinematic", &kinematic_preview);
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                "Moved by the game, never by the simulation. It pushes what it "
+                                "meets and nothing pushes back: a lift, a platform, a door on "
+                                "an animation. Drive it by writing this entity's transform "
+                                "each tick.");
+
+                        // First, because ticking it makes every number below it moot: a
+                        // kinematic body's mass is not a small quantity or a large one,
+                        // it is not a quantity. Reading them greyed out under the reason
+                        // is how the panel says so without an error.
+                        ImGui::BeginDisabled(kinematic_preview);
                         editor.number("Density", &decltype(editor)::Values::density, 1.0f, 0.0f,
                                       25000.0f, "%.0f kg/m3",
                                       "Above zero, the mass and inertia below are derived from "
@@ -895,6 +916,10 @@ namespace SushiEngine
                                       100.0f, "%.4f 1/m",
                                       "Quadratic drag k: acceleration -k|v|v per metre. Zero "
                                       "disables it; higher means a lower terminal speed.");
+                        ImGui::EndDisabled();
+                        if (kinematic_preview)
+                            ImGui::TextDisabled("A kinematic body has no mass and takes no "
+                                                "gravity or drag.");
                     }
                 }
             }
