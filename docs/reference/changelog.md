@@ -191,8 +191,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   with their widgets and serialization: no renderer or shader read them.
 
 ### Changed
-- 2026-08-08 — Changed the Statistics panel's Frame/FPS line and the status bar to the engine's own
-  frame measurement; the Profiler panel's Frame and CPU sections now show live per-channel times.
 - 2026-08-06 — Changed per-asset cooking overrides to live in a `<asset>.meta` sidecar rather than
   a path-keyed object in the project document, so moving an asset no longer orphans its settings.
   - Migrated an older project's overrides once, when its cooking document is read, reporting both
