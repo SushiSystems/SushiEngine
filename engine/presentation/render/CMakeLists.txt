@@ -306,6 +306,7 @@ sushiengine_add_module(NAME render LAYER presentation
         source/rhi/vulkan/vma_impl.cpp
         source/rhi/vulkan/vulkan_mesh_thumbnail_renderer.cpp
         source/rhi/vulkan/prefab_thumbnail_asset_library.cpp
+        source/rhi/vulkan/vulkan_prefab_thumbnail_renderer.cpp
         source/material/stb_impl.cpp
         # Planetary terrain: set 2 and the height slot pool. The bookkeeping these wrap --
         # selection, residency, the inheritance rectangle -- is neutral header code in the
