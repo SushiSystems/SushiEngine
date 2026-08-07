@@ -63,6 +63,7 @@
 #include "render/lighting_panel.hpp"
 #include "project/project_panel.hpp"
 #include "project/thumbnail_cache.hpp"
+#include "project/model_thumbnail_cache.hpp"
 #include "project/project_picker.hpp"
 #include "render/render_settings_panels.hpp"
 #include "core/preferences_window.hpp"
@@ -355,6 +356,14 @@ int main(int argc, char** argv)
                                                              context.console);
         context.thumbnail_cache = &thumbnail_cache;
 
+        // The Project panel's model-thumbnail pipeline, for the same reason and with the same
+        // destruction-order requirement as thumbnail_cache above: it holds a live
+        // IMeshThumbnailRenderer and its own resident Vulkan textures, both built against
+        // *renderer, so it must be destroyed before renderer is.
+        SushiEngine::Editor::ModelThumbnailCache model_thumbnail_cache(*renderer, imgui,
+                                                                       context.console);
+        context.model_thumbnail_cache = &model_thumbnail_cache;
+
         // The vehicle under authoring (§11). A document rather than a selected
         // entity's component, because there is no `Vehicle` component in the ECS
         // yet -- a vehicle reaches a scene through `VehicleInstanceT` against a
@@ -574,6 +583,7 @@ int main(int argc, char** argv)
             imgui.new_frame();
 
             context.thumbnail_cache->update();
+            context.model_thumbnail_cache->update();
 
             // Global undo/redo/save shortcuts, resolved through the EditorGlobal input
             // context (rebindable, persisted). The mapper's capture gate already suppresses
