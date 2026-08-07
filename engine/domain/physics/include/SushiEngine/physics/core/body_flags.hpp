@@ -105,6 +105,29 @@ namespace SushiEngine
         }
 
         /**
+         * @brief Whether a body with @p flags is moved by the game rather than by forces.
+         *
+         * Deliberately *not* folded into @ref is_simulated. A kinematic body is
+         * integrated and projected like any other — it is only the input to the
+         * integration that differs, a commanded velocity instead of a force — so the
+         * question "does this body take part in the solve" still answers yes. Twenty
+         * call sites ask that one; narrowing it would drop a kinematic body out of the
+         * contact list, the statistics and the wake logic in a single edit.
+         *
+         * The invariant that makes the rest of the solver need no kinematic case is
+         * established at the boundary rather than here: a kinematic body arrives with
+         * `inv_mass` and `inv_inertia` at zero, so every projection's own
+         * inverse-mass weighting already gives it no share of any correction.
+         *
+         * @param flags The body's flag word.
+         * @return True when the body's pose is the game's to command.
+         */
+        inline bool is_kinematic(std::uint32_t flags) noexcept
+        {
+            return has_any_flag(flags, BodyFlags::kinematic);
+        }
+
+        /**
          * @brief A body's collision layer and the layers it responds to.
          *
          * Two bodies interact when each one's layer is in the other's mask. Requiring

@@ -442,6 +442,12 @@ namespace SushiEngine
          * flagged static or sleeping is skipped entirely, which is the difference
          * between "infinitely heavy" and "not simulated".
          *
+         * A kinematic body is the third case, and it sits between those two: its pose
+         * advances, but from the velocity the game commanded rather than from any
+         * force. That is why it needs a branch of its own instead of a wider condition
+         * on either of the ones below — it must *skip* the acceleration and still
+         * *perform* the integration, and no single `inv_mass` test can say both.
+         *
          * @tparam T The scalar element type.
          * @param body                 The body to predict; updated in place.
          * @param linear_acceleration  External acceleration for this sub-step (e.g. gravity).
@@ -459,6 +465,20 @@ namespace SushiEngine
 
             body.previous_position = body.position;
             body.previous_orientation = body.orientation;
+
+            // Integrated from the command, and from nothing else: no gravity, no
+            // per-body field, no drag. A lift does not sag under its own load and a
+            // platform does not reach terminal velocity. Both integrations are done
+            // here rather than left to the tests below, because a kinematic body's
+            // `inv_mass` and `inv_inertia` are zero by the invariant the extract
+            // establishes — both of those tests would refuse it.
+            if (is_kinematic(body.flags))
+            {
+                body.position = body.position + body.velocity * h;
+                body.orientation =
+                    integrate_orientation(body.orientation, body.angular_velocity, h);
+                return;
+            }
 
             if (body.inv_mass > T(0))
             {
@@ -498,13 +518,19 @@ namespace SushiEngine
          * A static or sleeping body is skipped, matching @ref predict: it was never
          * integrated, so there is no pose delta to read a velocity out of.
          *
+         * A kinematic body is skipped for the opposite reason — its velocity is the
+         * input, not the output. Reading it back would return the same number for the
+         * linear term and a slightly smaller one for the angular term, because the
+         * logarithmic map below is a small-angle approximation; a commanded spin would
+         * bleed away a little every sub-step against a command that never changed.
+         *
          * @param body The body whose pose was just solved; velocities updated in place.
          * @param h    Sub-step duration, in seconds (> 0).
          */
         template <typename T>
         inline void update_velocity(RigidBodyT<T>& body, T h) noexcept
         {
-            if (h <= T(0) || !is_simulated(body.flags))
+            if (h <= T(0) || !is_simulated(body.flags) || is_kinematic(body.flags))
                 return;
 
             body.velocity = (body.position - body.previous_position) * (T(1) / h);
