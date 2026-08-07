@@ -209,11 +209,17 @@ there is no setter.
 
 Per `docs/CONTRIBUTING.md` §5, the same PR updates:
 
-- `docs/architecture/world.md` — a new subsection documenting `enabled`/`visible` as as-built,
-  including which systems gate on which (this closes an existing documentation gap: the file does not
-  mention `visible` today despite it being live behavior in the module it describes).
+- `docs/architecture/domain-physics.md` §1.5 ("Editor authoring") — a new bulleted entry
+  documenting `enabled`/`visible` as as-built, in the same style as that section's existing
+  "Cloth as an object"/"UI"/"Custom (script) components" entries, including which systems gate on
+  which. (`docs/architecture/world.md`, this document's first guess at the right file, turned out to
+  cover an unrelated subsystem — SushiLoop's rollback/net layers under `engine/world/loop/` — not
+  `RuntimeSimulation`; `domain-physics.md` is where `IWorldEditor`/`Record`-level authoring
+  semantics are actually documented today, imperfect a fit as a physics-titled file is for a
+  cross-cutting concern. This is itself the gap: no architecture doc owns the scene-object model as
+  its own subject. Fixing that categorization is out of scope for this phase.)
 - `engine/world/simulation/README.md` — the module's owned-behavior list gains `enabled`.
-- `docs/design/README.md` — gains a row for this document.
+- `docs/design/README.md` — gains a row for this document (done: see the corpus index).
 
 ---
 
