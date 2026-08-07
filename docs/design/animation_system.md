@@ -132,9 +132,10 @@ The system is done when every one of these holds. They are contractual, not aspi
 8. **Docs land with code.** Every phase ships its changelog entry, its architecture
    chapter, and its editor surface in the same PR. **Met** — the changelog and
    `docs/architecture/domain-animation.md` are current, and the editor surfaces that were
-   missing (mask editor, IK gizmos) shipped 2026-07-25 (§12.1). The sibling standard is **not** met:
-   `docs/CONTRIBUTING.md` §3.2 requires a test with new behavior, and the animation stack has
-   one test file (§12.5 item 7).
+   missing (mask editor, IK gizmos) shipped 2026-07-25 (§12.1). The sibling standard —
+   `docs/CONTRIBUTING.md` §3.2's requirement that new behavior ships with a test — is met as of
+   2026-07-30: `tests/CMakeLists.txt` registers ten animation suites, 125 cases, leaving
+   `DeviceBatchEvaluator`'s host/device agreement as the one uncovered piece (§12.5 item 7).
 
 ---
 
@@ -182,8 +183,9 @@ motion matching, full-body IK, Unity muscle-space retargeting, runtime retargeti
 Playables-style user graph API, bones as entities (permanently rejected), vertex-shader
 skinning fallback (permanently rejected — one skinning path, tiers scale inputs not
 implementations), draw-time morph target textures (permanently rejected — morphs run
-in the compute pre-skin dispatch, see §12.1 for the fact that this integration itself
-is still unbuilt).
+in the compute pre-skin dispatch, which §12.1 records closed on 2026-07-25 and
+unconfirmed on hardware: `engine/presentation/render/shaders/skinning.comp` binds the
+delta buffer and accumulates every active target into the base position).
 
 ---
 
@@ -273,7 +275,7 @@ maps joints to the canonical avatar and retargets by bind-pose delta **at import
 model mid-game" case import- time retargeting cannot cover. Cooked artifacts: `.sushiskel`,
 `.sushianim`, `.sushictrl`.
 
-### 4.5 Fixed capacities (documented, asserted, tier-scaled where marked)
+### 4.5 Fixed capacities (documented and asserted; none tier-scaled today — §6.6)
 
 | Cap | Value | Where |
 |---|---|---|
@@ -281,9 +283,9 @@ model mid-game" case import- time retargeting cannot cover. Cooked artifacts: `.
 | `MAX_LAYERS` per controller | 4 | controller compile |
 | `MAX_PARAMETERS` | 32 | `AnimatorParameterBlock` column |
 | `MAX_EVENTS_PER_TICK` | 8 per entity | `AnimatorEventQueue` column |
-| Influences per vertex | 4 (8 on Ultra, tier knob) | skinning stream |
+| Influences per vertex | 4 | `SKIN_INFLUENCES` in `engine/domain/animation/include/SushiEngine/animation/skin_vertex.hpp`, a compile-time constant. Not tier-scaled — §6.6 asks for 8 on Ultra and nothing resolves it |
 | `MAX_POSE_MODIFIERS` per Animator | 8 | modifier stack |
-| Morph targets per mesh | 64 active (tier knob) | skinning dispatch (cap defined; GPU application not wired, §12.1) |
+| Morph targets per mesh | 64 active | `MAX_MORPH_TARGETS` in `engine/domain/animation/include/SushiEngine/animation/morph.hpp`; the skinning dispatch applies them (§12.1). Not tier-scaled — §6.6's ladder resolves nowhere |
 | Blend-tree children per node | 16 | controller compile |
 
 ---
