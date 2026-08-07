@@ -248,17 +248,45 @@ namespace SushiEngine
     #endif
             }
 
-            // A tile's icon fill colour by kind: folders, code, and everything else.
-            ImU32 tile_color(const fs::path& path, bool is_dir)
+            // The Project browser's asset kinds, one glyph and one meaning per entry. Checked
+            // in order of specificity: an extension that is also handled by has_text_extension
+            // (e.g. a shader) must not be reclassified as plain Text before Code/Scene/etc. get
+            // a look, so Folder/Scene/Prefab/Model/Image/Audio/Code are all decided first.
+            enum class EntryCategory
+            {
+                Folder,
+                Scene,
+                Prefab,
+                Model,
+                Image,
+                Audio,
+                Code,
+                Text,
+                Unknown
+            };
+
+            EntryCategory entry_category(const fs::path& path, bool is_dir)
             {
                 if (is_dir)
-                    return IM_COL32(210, 180, 90, 255);
-                std::string ext = to_lower(path.extension().string());
+                    return EntryCategory::Folder;
+
+                const std::string ext = to_lower(path.extension().string());
+                if (ext == ".sushiscene")
+                    return EntryCategory::Scene;
+                if (ext == ".sushiprefab")
+                    return EntryCategory::Prefab;
+                if (ext == ".gltf" || ext == ".glb" || ext == ".fbx" || ext == ".obj")
+                    return EntryCategory::Model;
+                if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" ||
+                    ext == ".bmp" || ext == ".hdr" || ext == ".exr")
+                    return EntryCategory::Image;
+                if (ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac")
+                    return EntryCategory::Audio;
                 if (ext == ".cpp" || ext == ".cc" || ext == ".hpp" || ext == ".h" || ext == ".inl")
-                    return IM_COL32(90, 150, 220, 255);
+                    return EntryCategory::Code;
                 if (has_text_extension(path))
-                    return IM_COL32(150, 150, 150, 255);
-                return IM_COL32(90, 90, 90, 255);
+                    return EntryCategory::Text;
+                return EntryCategory::Unknown;
             }
 
             // Recursively draws one folder node of the Project panel's tree pane; clicking
@@ -484,7 +512,7 @@ namespace SushiEngine
                 }
                 else
                 {
-                    const ImU32 color = tile_color(entry.path(), is_dir);
+                    const ImU32 color = IM_COL32(90, 90, 90, 255); // replaced by draw_entry_icon in Task 4
                     ImGui::PushStyleColor(ImGuiCol_Button, color);
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, color);
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive, color);
