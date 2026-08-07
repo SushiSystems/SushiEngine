@@ -182,7 +182,7 @@ namespace SushiEngine
 
             for (Simulation::EntityId id : ids)
             {
-                if (!world.has_audio_emitter(id))
+                if (!world.has_audio_emitter(id) || !world.enabled_in_hierarchy(id))
                     continue;
                 const Simulation::AudioEmitterParameters e = world.audio_emitter_parameters(id);
                 const Vector3 pos = world.world_transform(id).position;
