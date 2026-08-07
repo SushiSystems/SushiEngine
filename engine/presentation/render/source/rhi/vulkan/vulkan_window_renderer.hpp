@@ -45,6 +45,7 @@
 #include <SushiEngine/render/window_renderer.hpp>
 
 #include "vulkan_device.hpp"
+#include "vulkan_mesh_thumbnail_renderer.hpp"
 
 namespace SushiEngine
 {
@@ -101,6 +102,7 @@ namespace SushiEngine
                     void wait_idle() override;
                     void set_present_mode(PresentMode mode) override;
                     std::unique_ptr<ISceneView> create_scene_view() override;
+                    std::unique_ptr<IMeshThumbnailRenderer> create_mesh_thumbnail_renderer() override;
                     IAssetLibrary& assets() noexcept override;
                     void present_scene_view(ISceneView& view, std::uint32_t slot,
                                             std::uint32_t width, std::uint32_t height) override;

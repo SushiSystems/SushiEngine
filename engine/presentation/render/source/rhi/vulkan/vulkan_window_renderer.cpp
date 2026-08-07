@@ -28,6 +28,7 @@
 
 #include "material/asset_library.hpp"
 #include "vulkan_scene_view.hpp"
+#include "vulkan_mesh_thumbnail_renderer.hpp"
 
 namespace SushiEngine
 {
@@ -466,6 +467,11 @@ namespace SushiEngine
             std::unique_ptr<ISceneView> VulkanWindowRenderer::create_scene_view()
             {
                 return std::unique_ptr<ISceneView>(new VulkanSceneView(device_, *assets_));
+            }
+
+            std::unique_ptr<IMeshThumbnailRenderer> VulkanWindowRenderer::create_mesh_thumbnail_renderer()
+            {
+                return std::unique_ptr<IMeshThumbnailRenderer>(new VulkanMeshThumbnailRenderer(device_));
             }
         } // namespace Vulkan
 
