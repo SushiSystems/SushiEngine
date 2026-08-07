@@ -1084,6 +1084,130 @@ TEST(Integration_PhysicsSimulation, ACharacterStopsAtADynamicCrateAndDoesNotPush
            "rewrite this test rather than loosening it";
 }
 
+// The physics event sink (P9-C, §16.48). The filter is declared at registration and
+// evaluated by the scene, so what these check is that the scene honours it — a listener
+// that filtered for itself would pass every one of them while still being woken 540
+// times a second by a stack that is not moving.
+
+namespace
+{
+    /** @brief A sink that remembers what it was told, and nothing else. */
+    class CountingSink final : public IPhysicsEventSink
+    {
+        public:
+            std::vector<ContactEvent> contacts;
+
+            void on_contact(const ContactEvent& event) override
+            {
+                contacts.push_back(event);
+            }
+    };
+
+    /** @brief A one-kilogramme crate dropped a metre above the ground. */
+    RigidBodyDescription falling_crate(EntityId id)
+    {
+        RigidBodyDescription description;
+        description.id = id;
+        description.position = Vector3{0, Scalar(1.5), 0};
+        description.inv_mass = Scalar(1);
+        description.collider = unit_box_collider();
+        return description;
+    }
+}
+
+TEST(Integration_PhysicsSimulation, AnEventSinkHearsABeginAndNothingElse)
+{
+    // `persist` is off by default, which is the decision the whole design turns on: a
+    // settled body is still generating contacts every tick, and a listener that heard
+    // them would be woken forever by a scene that has stopped moving.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies({falling_crate(1)}, ITERATIONS, SUBSTEP_DT);
+    physics->set_static_planes(ground());
+
+    CountingSink sink;
+    ASSERT_NE(physics->add_event_sink(&sink, PhysicsEventFilter{}), NULL_PHYSICS_SINK);
+
+    for (int tick = 0; tick < 240; ++tick)
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
+
+    ASSERT_FALSE(sink.contacts.empty()) << "the crate landed and the sink was never called";
+    for (const ContactEvent& event : sink.contacts)
+        EXPECT_EQ(event.phase, ContactPhase::Begin) << "a phase the filter did not ask for";
+    // Four seconds of simulation, of which the crate spends nearly all at rest. A
+    // handful of begins from the landing and its settle is expected; hundreds would
+    // mean `persist` leaked through.
+    EXPECT_LT(sink.contacts.size(), 20u) << "the sink was woken by a body that had settled";
+}
+
+TEST(Integration_PhysicsSimulation, AnEventSinkBelowItsImpulseThresholdIsNotCalled)
+{
+    // The same landing, twice, differing only in the number. A crate of one kilogramme
+    // falling a metre arrives with a few newton-seconds; a thousand is a wall it cannot
+    // reach, so the second sink must hear nothing at all.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies({falling_crate(1)}, ITERATIONS, SUBSTEP_DT);
+    physics->set_static_planes(ground());
+
+    CountingSink audible;
+    CountingSink deaf;
+    PhysicsEventFilter loud;
+    loud.minimum_impulse = Scalar(1000);
+    physics->add_event_sink(&audible, PhysicsEventFilter{});
+    physics->add_event_sink(&deaf, loud);
+
+    for (int tick = 0; tick < 240; ++tick)
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
+
+    EXPECT_FALSE(audible.contacts.empty()) << "the control sink heard nothing either";
+    EXPECT_TRUE(deaf.contacts.empty()) << "an impulse threshold nothing could reach let a hit past";
+}
+
+TEST(Integration_PhysicsSimulation, APairCooldownSuppressesTheSecondHit)
+{
+    // A crate landing does not produce one Begin. It touches, separates by a fraction of
+    // a millimetre, and touches again — which is one impact to a listener and several
+    // events to the solver. The cooldown is what makes those the same number.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies({falling_crate(1)}, ITERATIONS, SUBSTEP_DT);
+    physics->set_static_planes(ground());
+
+    CountingSink every;
+    CountingSink spaced;
+    PhysicsEventFilter slow;
+    // Longer than the whole run, so at most one event can ever get through.
+    slow.pair_cooldown = Scalar(10);
+    physics->add_event_sink(&every, PhysicsEventFilter{});
+    physics->add_event_sink(&spaced, slow);
+
+    for (int tick = 0; tick < 240; ++tick)
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
+
+    ASSERT_FALSE(every.contacts.empty()) << "the control sink heard nothing either";
+    EXPECT_LE(spaced.contacts.size(), 1u) << "the cooldown let a second hit through its window";
+}
+
+TEST(Integration_PhysicsSimulation, ARemovedEventSinkStopsBeingCalled)
+{
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies({falling_crate(1)}, ITERATIONS, SUBSTEP_DT);
+    physics->set_static_planes(ground());
+
+    CountingSink sink;
+    const PhysicsSinkId id = physics->add_event_sink(&sink, PhysicsEventFilter{});
+    for (int tick = 0; tick < 240; ++tick)
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
+    const std::size_t before = sink.contacts.size();
+    ASSERT_GT(before, 0u) << "the sink was never called while it was registered";
+
+    physics->remove_event_sink(id);
+    // Lift it and drop it again, so there is a fresh landing to miss.
+    physics->set_rigid_pose(1, Vector3{0, Scalar(3), 0}, Quaternion{0, 0, 0, 1});
+    for (int tick = 0; tick < 240; ++tick)
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
+
+    EXPECT_EQ(sink.contacts.size(), before) << "a removed sink was still being called";
+}
+
 TEST(Integration_PhysicsSimulation, ACharacterOnAMovingPlatformIsNotCarriedByIt)
 {
     // Pinning a limitation, not celebrating one. Both bodies are kinematic, so both have
