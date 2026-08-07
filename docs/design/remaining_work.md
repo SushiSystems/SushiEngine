@@ -3,8 +3,8 @@
 **Status:** living — derived from the other documents in this directory, and rewritten whenever any
 of them changes.
 
-Seventeen design documents each record what their own subsystem plans, and no one of them records
-what the project has left, because that answer only exists by reading seventeen roadmap sections at
+Eighteen design documents each record what their own subsystem plans, and no one of them records
+what the project has left, because that answer only exists by reading eighteen roadmap sections at
 once. This file is that reading. It holds no facts of its own: every row names the document that
 owns the phase, and a reader who wants the detail goes there. Where a row and its owning document
 disagree, the owning document wins and this file is the one that is wrong.
@@ -59,6 +59,7 @@ they are tracked.
 | P2 | [prefab_system.md](prefab_system.md) | open | Override resolution. `prefab_entity_id` is written by P1 and has no consumer anywhere; giving it one is the next design-and-build task in this line. |
 | P3 | [prefab_system.md](prefab_system.md) | open | Nested prefabs and a prefab edit mode. Designed only as far as their boundary. |
 | P4 | [prefab_system.md](prefab_system.md) | open | A runtime instantiation API. Prefab instantiation is editor-only today; nothing in the deterministic loop references it. |
+| PROF0–PROF4 | [profiling_system.md](profiling_system.md) | open | The whole document: the mock-first Profiler panel, the `engine/foundation/profiling` module and instrumented editor loop, renderer counters and memory budgets behind defaulted `ISceneView` accessors, the editor-owned system metrics provider, and the polish pass. Nothing is built. |
 | 4 | [render_pipeline_refactor.md](render_pipeline_refactor.md) | open | Area and IES lights, projected normal-map decals, shadow caching, screen-coverage quadtree tiles, and adaptive per-light percentage-closer soft shadows. The clustered core is shipped; these are the tier-scalable remainder. |
 | 5 | [render_pipeline_refactor.md](render_pipeline_refactor.md) | open | Local reflection probes (§5.4), deferred pending the editor's scene-capture visual loop. |
 | 6 | [render_pipeline_refactor.md](render_pipeline_refactor.md) | open | Multiple cascades, emissive injection, toroidal amortization, and the Tier B ray-query tracer, the last of which needs ray-tracing hardware. |

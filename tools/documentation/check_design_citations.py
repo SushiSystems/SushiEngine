@@ -153,6 +153,9 @@ ALLOWED = {
         "P7 (material synthesis), which has not started"),
     "terrain_tile_compile.comp": (
         "planned", "solar_system_overhaul.md §6.3's tile compile, in a phase that has not started"),
+    "profiler_panel.cpp": (
+        "planned", "profiling_system.md §7's Profiler panel translation unit, gated on PROF0, "
+        "which has not started"),
 
     # -- deleted --------------------------------------------------------------------------------
     "test_weather_determinism.cpp": (
