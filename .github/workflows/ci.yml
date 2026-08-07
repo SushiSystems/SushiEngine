@@ -222,7 +222,7 @@ jobs:
   structure:
     name: Structure and documentation rules
     runs-on: ubuntu-latest
-    # Cheap and dependency-free on purpose: three Python scripts over the tree, no toolchain
+    # Cheap and dependency-free on purpose: four Python scripts over the tree, no toolchain
     # and no checkout of the runtime sibling. The rules they enforce — a module has a README, a
     # changelog bullet is a bullet, a link resolves — have existed in prose since the project
     # started and were ignored the whole time, because nothing measured them.
@@ -240,6 +240,11 @@ jobs:
 
       - name: Check the documentation length and link ceilings
         run: python3 tools/documentation/check_documentation_length.py
+
+      - name: Check that a design document's cited paths resolve
+        # docs/design/ states that a claim is a file:line rather than a description. Nothing
+        # measured that, and the restructure left 617 of 680 cited paths resolving to nothing.
+        run: python3 tools/documentation/check_design_citations.py
 
   docs:
     name: API docs site
