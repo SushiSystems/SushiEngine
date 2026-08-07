@@ -64,6 +64,42 @@ TEST(Unit_MeshThumbnailCamera, ExpandAabbGrowsToEncloseNewPoints)
     EXPECT_DOUBLE_EQ(bounds.max.z, 1.0);
 }
 
+TEST(Unit_MeshThumbnailCamera, ExpandAabbSphereGrowsToEncloseTheWholeSphere)
+{
+    AABB3 bounds;
+    // A sphere centered at (5, 0, 0) with radius 2 must expand the box to
+    // exactly [3, -2, -2] .. [7, 2, 2] -- not just the center point.
+    expand_aabb_sphere(bounds, SushiEngine::Vector3{5.0, 0.0, 0.0}, 2.0);
+    EXPECT_TRUE(bounds.initialized);
+    EXPECT_DOUBLE_EQ(bounds.min.x, 3.0);
+    EXPECT_DOUBLE_EQ(bounds.min.y, -2.0);
+    EXPECT_DOUBLE_EQ(bounds.min.z, -2.0);
+    EXPECT_DOUBLE_EQ(bounds.max.x, 7.0);
+    EXPECT_DOUBLE_EQ(bounds.max.y, 2.0);
+    EXPECT_DOUBLE_EQ(bounds.max.z, 2.0);
+}
+
+TEST(Unit_MeshThumbnailCamera, ExpandAabbSphereUnionsMultipleSpheresCorrectly)
+{
+    AABB3 bounds;
+    expand_aabb_sphere(bounds, SushiEngine::Vector3{-10.0, 0.0, 0.0}, 1.0);
+    expand_aabb_sphere(bounds, SushiEngine::Vector3{10.0, 0.0, 0.0}, 1.0);
+    // The union must span both spheres' extremes, not just their centers or
+    // just the most-recently-added sphere.
+    EXPECT_DOUBLE_EQ(bounds.min.x, -11.0);
+    EXPECT_DOUBLE_EQ(bounds.max.x, 11.0);
+}
+
+TEST(Unit_MeshThumbnailCamera, ExpandAabbSphereWithZeroRadiusBehavesLikeAPoint)
+{
+    AABB3 bounds;
+    expand_aabb_sphere(bounds, SushiEngine::Vector3{1.0, 2.0, 3.0}, 0.0);
+    EXPECT_DOUBLE_EQ(bounds.min.x, 1.0);
+    EXPECT_DOUBLE_EQ(bounds.max.x, 1.0);
+    EXPECT_DOUBLE_EQ(bounds.min.y, 2.0);
+    EXPECT_DOUBLE_EQ(bounds.max.z, 3.0);
+}
+
 TEST(Unit_MeshThumbnailCamera, LargerBoundsProduceAFartherEyeThanSmallerBounds)
 {
     AABB3 small_bounds;

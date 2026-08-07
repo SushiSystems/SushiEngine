@@ -78,6 +78,12 @@ namespace SushiEngine
             bounds.max.z = std::max(bounds.max.z, point.z);
         }
 
+        void expand_aabb_sphere(AABB3& bounds, const Vector3& center, double radius)
+        {
+            expand_aabb(bounds, Vector3{center.x - radius, center.y - radius, center.z - radius});
+            expand_aabb(bounds, Vector3{center.x + radius, center.y + radius, center.z + radius});
+        }
+
         ThumbnailCamera three_quarter_camera_for_bounds(const AABB3& bounds, float aspect_ratio)
         {
             const Vector3 center{

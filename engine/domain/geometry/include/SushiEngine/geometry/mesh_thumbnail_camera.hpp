@@ -61,6 +61,21 @@ namespace SushiEngine
          */
         void expand_aabb(AABB3& bounds, const Vector3& point);
 
+        /**
+         * @brief Grows @p bounds to include an entire sphere, not just its center.
+         *
+         * For unioning several entities' world-space bounding spheres (each entity's mesh
+         * carries a local bounding radius scaled by that entity's own world transform) into
+         * one box a camera can frame — the sphere-union case a prefab thumbnail needs, where
+         * @ref expand_aabb alone (point-only) would only ever include each entity's origin
+         * and silently clip away everything beyond it.
+         * @param bounds The box to grow; read and written in place.
+         * @param center The sphere's world-space center.
+         * @param radius The sphere's radius. A zero radius degenerates to a single point,
+         *   matching @ref expand_aabb's own point behavior exactly.
+         */
+        void expand_aabb_sphere(AABB3& bounds, const Vector3& center, double radius);
+
         /** @brief A camera's view and projection matrices, ready for @c CameraView. */
         struct ThumbnailCamera
         {
