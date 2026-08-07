@@ -33,6 +33,7 @@
 #include "../ui/panel_widgets.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <fstream>
 #include <optional>
@@ -287,6 +288,104 @@ namespace SushiEngine
                 if (has_text_extension(path))
                     return EntryCategory::Text;
                 return EntryCategory::Unknown;
+            }
+
+            // One flat vector glyph per EntryCategory, in the same drawn-not-fonted spirit as
+            // draw_toolbar_icon (panel_widgets.cpp): no bitmap or font asset to ship, and a
+            // vector shape stays crisp at every zoom level Task 5 allows. `size` is the tile's
+            // full icon box; every glyph is drawn centred inside it with a margin so it never
+            // touches the box edge.
+            void draw_entry_icon(ImDrawList* list, ImVec2 origin, float size,
+                                 EntryCategory category, ImU32 color)
+            {
+                const float margin = size * 0.15f;
+                const ImVec2 c{origin.x + size * 0.5f, origin.y + size * 0.5f};
+                const float r = size * 0.5f - margin;
+                const float thickness = std::max(1.5f, size * 0.03f);
+
+                switch (category)
+                {
+                    case EntryCategory::Folder:
+                    {
+                        // A tabbed folder: a small tab rect atop a wider body rect.
+                        const ImVec2 body_min{c.x - r, c.y - r * 0.5f};
+                        const ImVec2 body_max{c.x + r, c.y + r};
+                        list->AddRectFilled(ImVec2(c.x - r, c.y - r), ImVec2(c.x - r * 0.2f, c.y - r * 0.5f), color, 1.0f);
+                        list->AddRectFilled(body_min, body_max, color, 2.0f);
+                        break;
+                    }
+                    case EntryCategory::Scene:
+                    {
+                        // A page with a folded corner and a small play-triangle mark.
+                        list->AddRect(ImVec2(c.x - r * 0.7f, c.y - r), ImVec2(c.x + r * 0.7f, c.y + r), color, 1.0f, ImDrawFlags_None, thickness);
+                        list->AddTriangleFilled(ImVec2(c.x - r * 0.25f, c.y - r * 0.35f), ImVec2(c.x - r * 0.25f, c.y + r * 0.35f), ImVec2(c.x + r * 0.35f, c.y), color);
+                        break;
+                    }
+                    case EntryCategory::Prefab:
+                    {
+                        // A hexagon — Unity's own prefab convention, distinct from every other glyph here.
+                        ImVec2 points[6];
+                        for (int i = 0; i < 6; ++i)
+                        {
+                            const float angle = static_cast<float>(i) / 6.0f * 6.28318530718f - 1.5707963f;
+                            points[i] = ImVec2(c.x + r * std::cos(angle), c.y + r * std::sin(angle));
+                        }
+                        list->AddConvexPolyFilled(points, 6, color);
+                        break;
+                    }
+                    case EntryCategory::Model:
+                    {
+                        // A wireframe cube: a front square, a back square offset up-right, four connectors.
+                        const float o = r * 0.4f;
+                        const ImVec2 f0{c.x - r * 0.7f, c.y - r * 0.4f}, f1{c.x + r * 0.2f, c.y - r * 0.4f};
+                        const ImVec2 f2{c.x + r * 0.2f, c.y + r * 0.85f}, f3{c.x - r * 0.7f, c.y + r * 0.85f};
+                        const ImVec2 b0{f0.x + o, f0.y - o}, b1{f1.x + o, f1.y - o};
+                        const ImVec2 b2{f2.x + o, f2.y - o}, b3{f3.x + o, f3.y - o};
+                        list->AddQuad(f0, f1, f2, f3, color, thickness);
+                        list->AddQuad(b0, b1, b2, b3, color, thickness);
+                        list->AddLine(f0, b0, color, thickness);
+                        list->AddLine(f1, b1, color, thickness);
+                        list->AddLine(f2, b2, color, thickness);
+                        list->AddLine(f3, b3, color, thickness);
+                        break;
+                    }
+                    case EntryCategory::Image:
+                    {
+                        // A picture frame with a corner sun and a mountain fold — the classic
+                        // "image" glyph, and the placeholder a future real thumbnail replaces.
+                        list->AddRect(ImVec2(c.x - r, c.y - r * 0.75f), ImVec2(c.x + r, c.y + r * 0.75f), color, 1.0f, ImDrawFlags_None, thickness);
+                        list->AddCircleFilled(ImVec2(c.x - r * 0.5f, c.y - r * 0.3f), r * 0.18f, color);
+                        list->AddTriangleFilled(ImVec2(c.x - r * 0.7f, c.y + r * 0.6f), ImVec2(c.x - r * 0.1f, c.y - r * 0.1f), ImVec2(c.x + r * 0.4f, c.y + r * 0.6f), color);
+                        list->AddTriangleFilled(ImVec2(c.x + r * 0.1f, c.y + r * 0.6f), ImVec2(c.x + r * 0.5f, c.y + r * 0.1f), ImVec2(c.x + r * 0.85f, c.y + r * 0.6f), color);
+                        break;
+                    }
+                    case EntryCategory::Audio:
+                    {
+                        // A speaker body plus two arcs of increasing radius: a waveform mark.
+                        list->AddTriangleFilled(ImVec2(c.x - r * 0.85f, c.y - r * 0.3f), ImVec2(c.x - r * 0.85f, c.y + r * 0.3f), ImVec2(c.x - r * 0.35f, c.y + r * 0.3f), color);
+                        list->AddRectFilled(ImVec2(c.x - r * 0.95f, c.y - r * 0.3f), ImVec2(c.x - r * 0.55f, c.y + r * 0.3f), color, 1.0f);
+                        list->PathArcTo(ImVec2(c.x - r * 0.35f, c.y), r * 0.5f, -0.6f, 0.6f, 12);
+                        list->PathStroke(color, ImDrawFlags_None, thickness);
+                        list->PathArcTo(ImVec2(c.x - r * 0.35f, c.y), r * 0.85f, -0.6f, 0.6f, 12);
+                        list->PathStroke(color, ImDrawFlags_None, thickness);
+                        break;
+                    }
+                    case EntryCategory::Code:
+                    {
+                        // A page with a "</>" mark.
+                        list->AddRect(ImVec2(c.x - r * 0.7f, c.y - r), ImVec2(c.x + r * 0.7f, c.y + r), color, 1.0f, ImDrawFlags_None, thickness);
+                        list->AddLine(ImVec2(c.x - r * 0.4f, c.y - r * 0.15f), ImVec2(c.x - r * 0.6f, c.y + r * 0.15f), color, thickness);
+                        list->AddLine(ImVec2(c.x - r * 0.6f, c.y + r * 0.15f), ImVec2(c.x - r * 0.4f, c.y + r * 0.4f), color, thickness);
+                        list->AddLine(ImVec2(c.x + r * 0.4f, c.y - r * 0.15f), ImVec2(c.x + r * 0.6f, c.y + r * 0.15f), color, thickness);
+                        list->AddLine(ImVec2(c.x + r * 0.6f, c.y + r * 0.15f), ImVec2(c.x + r * 0.4f, c.y + r * 0.4f), color, thickness);
+                        break;
+                    }
+                    case EntryCategory::Text:
+                    case EntryCategory::Unknown:
+                        // A plain page; Unknown adds no decoration, Text stops here too by design.
+                        list->AddRect(ImVec2(c.x - r * 0.7f, c.y - r), ImVec2(c.x + r * 0.7f, c.y + r), color, 1.0f, ImDrawFlags_None, thickness);
+                        break;
+                }
             }
 
             // Recursively draws one folder node of the Project panel's tree pane; clicking
