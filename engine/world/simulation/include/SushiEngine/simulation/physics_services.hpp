@@ -69,6 +69,18 @@ namespace SushiEngine
             Scalar drag_coefficient = Scalar(0); /**< Quadratic drag: acceleration -k|v|v, m⁻¹; 0 disables. */
 
             /**
+             * @brief Moved by the game, never by the solve (`BodyFlags::kinematic`).
+             *
+             * When set, the extract has already zeroed @ref inv_mass and
+             * @ref inv_inertia above — including over a density that would otherwise
+             * have derived them — so the scene admits the body without a second
+             * opinion about what a kinematic body weighs. That invariant is the
+             * reason no projection in the solver carries a kinematic case: every one
+             * of them already scales its correction by an inverse mass that is zero.
+             */
+            bool kinematic = false;
+
+            /**
              * @brief What this body collides as: the full collider, scaled (§5.5).
              *
              * The collider is the only shape record here: no `radius`, `box` flag or

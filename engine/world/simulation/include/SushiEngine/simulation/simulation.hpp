@@ -315,6 +315,26 @@ namespace SushiEngine
              * Steel is about 7800, oak about 700, water 1000.
              */
             Scalar density = Scalar(0);
+
+            /**
+             * @brief Moved by the game rather than by forces; pushes, is never pushed.
+             *
+             * A lift, a moving platform, a door driven by an animation clip. The body
+             * takes no gravity and no constraint ever moves it, but everything it
+             * meets is moved by it — a crate on a rising platform rides up.
+             *
+             * A boolean rather than an inverse mass of zero, and the difference is
+             * the whole point: zero inverse mass already means *pinned*, and a pinned
+             * body that never moves cannot push anything. The two states are not the
+             * same and cannot share a field.
+             *
+             * Setting this overrides @ref inv_mass, @ref inv_inertia and @ref density
+             * — a kinematic body's inverse mass is zero by definition, and the
+             * extract writes it rather than trusting whatever was authored. Move one
+             * with `ISimulation::move_physics_body`; `set_physics_body_pose` still
+             * teleports it.
+             */
+            bool kinematic = false;
         };
 
         /**

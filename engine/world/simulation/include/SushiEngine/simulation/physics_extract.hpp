@@ -232,6 +232,21 @@ namespace SushiEngine
                     description.inv_mass = Physics::inverse_mass(mass.mass);
                     description.inv_inertia = Physics::to_inverse(mass.inertia);
                 }
+
+                // Last, so it wins over both the authored numbers and the density
+                // derivation above. A kinematic body's inverse mass is zero by
+                // definition rather than by authoring, and this is the one place that
+                // is decided: establishing it here means every projection in the
+                // solver — each of which already weights its correction by inverse
+                // mass — needs no kinematic case at all. An author who set a density
+                // and then ticked the box gets the box, which is the only reading
+                // that makes the checkbox mean anything.
+                description.kinematic = entity.physics_parameters.kinematic;
+                if (description.kinematic)
+                {
+                    description.inv_mass = Scalar(0);
+                    description.inv_inertia = Vector3{};
+                }
                 descriptions.push_back(description);
             }
             return descriptions;

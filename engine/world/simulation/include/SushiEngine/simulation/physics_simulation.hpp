@@ -201,6 +201,7 @@ namespace SushiEngine
                         body.inv_mass = T(description.inv_mass);
                         body.inv_inertia = to_vector(description.inv_inertia);
                         body.drag_coefficient = T(description.drag_coefficient);
+                        apply_kinematic(body, description.kinematic);
                         entry.handle = solver_->add_body(body);
                         if (!entry.handle.valid())
                             continue;
@@ -1554,6 +1555,39 @@ namespace SushiEngine
                 }
 
                 /** @brief Applies a description to a body that already exists. */
+                /**
+                 * @brief Writes a description's kinematic choice onto a body's flags.
+                 *
+                 * Shared by the admit path and the update path because those two are
+                 * the same decision made twice, and a flag set in one but not the
+                 * other produces a body that is kinematic until something edits it.
+                 *
+                 * A body *becoming* kinematic has its velocity cleared. It would
+                 * otherwise carry whatever it was doing when the box was ticked
+                 * straight into `predict`, which now integrates that velocity with
+                 * nothing to damp it — a crate mid-fall would become a platform
+                 * sailing downward forever. Turning the box off does not clear
+                 * anything: a body handed back to the solver keeps its momentum,
+                 * which is what dropping a moving lift should look like.
+                 *
+                 * @param body      The body to update, in place.
+                 * @param kinematic What the description asked for.
+                 */
+                static void apply_kinematic(Body& body, bool kinematic) noexcept
+                {
+                    if (kinematic)
+                    {
+                        if (!Physics::is_kinematic(body.flags))
+                        {
+                            body.velocity = Vector3T<T>{T(0), T(0), T(0)};
+                            body.angular_velocity = Vector3T<T>{T(0), T(0), T(0)};
+                        }
+                        body.flags |= Physics::BodyFlags::kinematic;
+                        return;
+                    }
+                    body.flags &= ~Physics::BodyFlags::kinematic;
+                }
+
                 void update_rigid_entry(RigidEntry& entry, const RigidBodyDescription& description)
                 {
                     entry.collider = description.collider;
@@ -1565,6 +1599,7 @@ namespace SushiEngine
                     body.inv_mass = T(description.inv_mass);
                     body.inv_inertia = to_vector(description.inv_inertia);
                     body.drag_coefficient = T(description.drag_coefficient);
+                    apply_kinematic(body, description.kinematic);
                     solver_->write_body(entry.handle, body);
                     bodies_dirty_ = true;
                 }
