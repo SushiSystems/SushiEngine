@@ -66,6 +66,7 @@ add_executable(sushiengine_editor
     source/project/project_panel.cpp
     source/project/project_picker.cpp
     source/project/thumbnail_cache.cpp
+    source/project/model_thumbnail_cache.cpp
     source/scene/scene_commands.cpp
     source/scene/hierarchy_panel.cpp
     source/scene/inspector_panel.cpp

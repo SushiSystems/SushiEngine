@@ -112,6 +112,17 @@ namespace SushiEngine
                 return;
             }
 
+            // render_thumbnail succeeding already loaded this model's mesh/material data into
+            // the mesh renderer's isolated, no-removal-API asset stack -- the unbounded-growth
+            // resource this counter exists to bound -- regardless of whether the GPU-texture
+            // upload below (this class's own small resident texture) then succeeds or fails.
+            // Advance and check the recreation threshold here, not after the upload, so a run
+            // of upload failures under memory/descriptor-pool pressure still counts toward
+            // recreation instead of silently disabling it.
+            ++models_rendered_since_recreation_;
+            if (models_rendered_since_recreation_ >= MODELS_PER_RENDERER_LIFETIME)
+                recreate_mesh_renderer();
+
             ResidentThumbnail thumbnail;
             VkImage vk_image = VK_NULL_HANDLE;
             VmaAllocation allocation = VK_NULL_HANDLE;
@@ -309,10 +320,6 @@ namespace SushiEngine
             if (evicted.has_value())
                 pending_evictions_.push_back(
                     PendingEviction{std::move(evicted->second), frame_counter_});
-
-            ++models_rendered_since_recreation_;
-            if (models_rendered_since_recreation_ >= MODELS_PER_RENDERER_LIFETIME)
-                recreate_mesh_renderer();
         }
 
         void ModelThumbnailCache::recreate_mesh_renderer()
@@ -320,6 +327,11 @@ namespace SushiEngine
             // Safe with no extra GPU synchronization: render_thumbnail already blocked until
             // its own GPU work completed before returning (see class docs), so nothing tied to
             // the old instance is still in flight by the time this runs.
+            //
+            // Release the old renderer (and everything its isolated asset stack owns) before
+            // constructing the new one, so the two are never resident at once -- at exactly the
+            // moment memory pressure from the old one is highest.
+            mesh_renderer_.reset();
             mesh_renderer_ = renderer_.create_mesh_thumbnail_renderer();
             models_rendered_since_recreation_ = 0;
         }

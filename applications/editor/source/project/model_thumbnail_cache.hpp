@@ -45,6 +45,7 @@
  * See docs/superpowers/specs/2026-08-07-project-panel-model-thumbnails-design.md.
  */
 
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
@@ -85,8 +86,9 @@ namespace SushiEngine
                  *   against.
                  * @param backend The ImGui Vulkan backend thumbnails are registered with.
                  * @param console Where an upload failure is logged (see class docs).
-                 * @throws std::runtime_error if the first mesh renderer or this cache's own
-                 *   Vulkan command pool cannot be created.
+                 * @throws std::runtime_error if the first mesh renderer cannot be created (e.g. this
+                 *   device lacks the descriptor-indexing support it needs, or its pipeline
+                 *   fails to build).
                  */
                 ModelThumbnailCache(SushiEngine::Render::IWindowRenderer& renderer,
                                     ImGuiBackend& backend, Console& console);
@@ -139,7 +141,7 @@ namespace SushiEngine
                 void recreate_mesh_renderer();
 
                 static constexpr std::uint32_t THUMBNAIL_SIZE = 128;
-                static constexpr std::size_t RESIDENT_CAPACITY = 32;
+                static constexpr std::size_t RESIDENT_CAPACITY = 128;
                 static constexpr int EVICTION_DELAY_FRAMES = 4;
                 // After this many successful renders through one IMeshThumbnailRenderer, it is
                 // destroyed and replaced to reclaim its unbounded-growth isolated asset stack
