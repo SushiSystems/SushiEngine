@@ -42,6 +42,10 @@ sushiengine_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh_thumbn
     mesh_thumbnail_vert_spv MESH_THUMBNAIL_VERT_HEADER)
 sushiengine_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh_thumbnail.frag"
     mesh_thumbnail_frag_spv MESH_THUMBNAIL_FRAG_HEADER)
+sushiengine_compile_shader(vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/prefab_thumbnail.vert"
+    prefab_thumbnail_vert_spv PREFAB_THUMBNAIL_VERT_HEADER)
+sushiengine_compile_shader(frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/prefab_thumbnail.frag"
+    prefab_thumbnail_frag_spv PREFAB_THUMBNAIL_FRAG_HEADER)
 sushiengine_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/skinning.comp"
     skinning_comp_spv SKINNING_COMP_HEADER)
 sushiengine_compile_shader(comp "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle_emit.comp"
@@ -342,6 +346,8 @@ target_sources(sushiengine_render PRIVATE
     "${MESH_SKINNED_VERT_HEADER}"
     "${MESH_THUMBNAIL_VERT_HEADER}"
     "${MESH_THUMBNAIL_FRAG_HEADER}"
+    "${PREFAB_THUMBNAIL_VERT_HEADER}"
+    "${PREFAB_THUMBNAIL_FRAG_HEADER}"
     "${SKINNING_COMP_HEADER}"
     "${PARTICLE_EMIT_COMP_HEADER}"
     "${PARTICLE_SIMULATE_COMP_HEADER}"
