@@ -64,6 +64,10 @@ namespace SushiEngine
             if (worker_.joinable())
                 worker_.join();
 
+            for (PendingEviction& pending : pending_evictions_)
+                destroy_thumbnail(pending.thumbnail);
+            pending_evictions_.clear();
+
             for (auto& entry : resident_.drain())
                 destroy_thumbnail(entry.second);
 
@@ -75,6 +79,12 @@ namespace SushiEngine
             const std::string key = path.string();
             if (ResidentThumbnail* found = resident_.touch(key))
                 return found->texture;
+
+            // An upload failure is permanent for this path (see class docs' failure-handling
+            // note): never re-enqueue it, which would otherwise decode and re-attempt the
+            // upload, and re-log a warning, on every single frame the tile stays visible.
+            if (failed_uploads_.find(key) != failed_uploads_.end())
+                return std::nullopt;
 
             if (in_flight_.find(key) == in_flight_.end())
             {
@@ -90,6 +100,19 @@ namespace SushiEngine
 
         void ThumbnailCache::update()
         {
+            ++frame_counter_;
+
+            // Actually free an evicted thumbnail's Vulkan resources only once enough frames
+            // have elapsed since its eviction that no command buffer from a prior frame can
+            // still be sampling it (see EVICTION_DELAY_FRAMES' doc comment).
+            while (!pending_evictions_.empty() &&
+                   frame_counter_ - pending_evictions_.front().evicted_at_frame >=
+                       static_cast<std::uint64_t>(EVICTION_DELAY_FRAMES))
+            {
+                destroy_thumbnail(pending_evictions_.front().thumbnail);
+                pending_evictions_.pop_front();
+            }
+
             for (int i = 0; i < UPLOADS_PER_FRAME; ++i)
             {
                 DecodedImage decoded;
@@ -212,6 +235,12 @@ namespace SushiEngine
                     throw std::runtime_error("vmaCreateBuffer(thumbnail staging) failed");
                 std::memcpy(staging_mapped.pMappedData, decoded.pixels.data(),
                            static_cast<std::size_t>(byte_size));
+                // VMA is free to back a HOST_ACCESS_SEQUENTIAL_WRITE allocation with
+                // non-coherent host-visible memory (nothing here requests HOST_COHERENT), so the
+                // GPU copy below is not guaranteed to see the bytes just written without an
+                // explicit flush. A documented no-op when the memory turns out to be coherent,
+                // so this is always safe to call unconditionally.
+                vmaFlushAllocation(allocator_, staging_allocation, 0, VK_WHOLE_SIZE);
 
                 VkCommandBufferAllocateInfo command_alloc{};
                 command_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -314,13 +343,35 @@ namespace SushiEngine
                     vkDestroyImageView(device_, view, nullptr);
                 if (image != VK_NULL_HANDLE)
                     vmaDestroyImage(allocator_, image, allocation);
+                // Permanent: texture_for() must stop re-enqueueing this path (see its own
+                // comment and the class docs' failure-handling note).
+                failed_uploads_.insert(decoded.path);
+                return;
+            }
+
+            // ImGui_ImplVulkan_AddTexture (called through register_texture) allocates its
+            // descriptor set from ImGuiBackend's pool without going through this class's own
+            // try/catch: a pool-exhaustion vkAllocateDescriptorSets failure is swallowed by
+            // ImGui's own CheckVkResultFn (which ImGuiBackend never sets), and the call simply
+            // returns a null descriptor set rather than throwing. Treat that the same as any
+            // other upload failure: log, clean up the resources already created, and never
+            // retry this path.
+            if (thumbnail.texture == static_cast<ImTextureID>(0))
+            {
+                console_.append(LogLevel::Warning,
+                                 "Thumbnail upload failed for '" + decoded.path +
+                                     "': ImGui returned a null texture id (likely descriptor "
+                                     "pool exhaustion)");
+                destroy_thumbnail(thumbnail);
+                failed_uploads_.insert(decoded.path);
                 return;
             }
 
             std::optional<std::pair<std::string, ResidentThumbnail>> evicted =
                 resident_.insert(decoded.path, thumbnail);
             if (evicted.has_value())
-                destroy_thumbnail(evicted->second);
+                pending_evictions_.push_back(
+                    PendingEviction{std::move(evicted->second), frame_counter_});
         }
 
         void ThumbnailCache::destroy_thumbnail(ResidentThumbnail& thumbnail)

@@ -40,17 +40,34 @@ namespace SushiEngine
     {
         namespace
         {
-            /** @brief A generous descriptor pool ImGui allocates its font/image sets from. */
+            /**
+             * @brief A generous descriptor pool ImGui allocates its font/image sets from.
+             *
+             * This vendored ImGui's `ImGui_ImplVulkan_AddTexture(VkImageView, VkImageLayout)`
+             * (backends/imgui_impl_vulkan.cpp) allocates one `VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE`
+             * set per call against `DescriptorSetLayoutTexture` — not a single combined
+             * image+sampler set, despite the three-argument overload's name; that overload just
+             * forwards to the two-argument one and drops the sampler on the floor
+             * (`IM_UNUSED(sampler)`). Every texture the editor registers — the font atlas, every
+             * `ViewportPanel` render target, and now every resident Project panel thumbnail
+             * (`ThumbnailCache::RESIDENT_CAPACITY` = 256) — allocates one such set from this
+             * pool. Separately, `ImGui_ImplVulkan_CreateDeviceObjects` allocates exactly two
+             * fixed `VK_DESCRIPTOR_TYPE_SAMPLER` sets once (its shared linear/nearest samplers),
+             * also from this same pool. Sized well past the 256-thumbnail ceiling plus the font
+             * atlas and viewport panels' existing consumption, with headroom.
+             */
             VkDescriptorPool create_descriptor_pool(VkDevice device)
             {
+                constexpr std::uint32_t max_sets = 384;
                 const VkDescriptorPoolSize sizes[] = {
-                    {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64},
+                    {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 376},
+                    {VK_DESCRIPTOR_TYPE_SAMPLER, 8},
                 };
                 VkDescriptorPoolCreateInfo info{};
                 info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
                 info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-                info.maxSets = 64;
-                info.poolSizeCount = 1;
+                info.maxSets = max_sets;
+                info.poolSizeCount = 2;
                 info.pPoolSizes = sizes;
 
                 VkDescriptorPool pool = VK_NULL_HANDLE;

@@ -45,6 +45,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <imgui.h>
@@ -125,6 +126,16 @@ namespace SushiEngine
                     ImTextureID texture = static_cast<ImTextureID>(0);
                 };
 
+                /**
+                 * @brief An evicted thumbnail's resources, held until the GPU is guaranteed to
+                 *   be done sampling it.
+                 */
+                struct PendingEviction
+                {
+                    ResidentThumbnail thumbnail;
+                    std::uint64_t evicted_at_frame = 0;
+                };
+
                 void worker_main();
                 void upload_one(const DecodedImage& decoded);
                 void destroy_thumbnail(ResidentThumbnail& thumbnail);
@@ -132,6 +143,11 @@ namespace SushiEngine
                 static constexpr std::uint32_t THUMBNAIL_SIZE = 128;
                 static constexpr std::size_t RESIDENT_CAPACITY = 256;
                 static constexpr int UPLOADS_PER_FRAME = 2;
+                // Frames to hold an evicted thumbnail's Vulkan resources before actually
+                // destroying them. The renderer's real frames-in-flight count is not threaded
+                // through to this class, so this is a conservative fixed upper bound (typical
+                // renderers of this kind run 2-3 frames in flight) rather than the exact value.
+                static constexpr int EVICTION_DELAY_FRAMES = 4;
 
                 VkDevice device_ = VK_NULL_HANDLE;
                 VmaAllocator allocator_ = VK_NULL_HANDLE;
@@ -153,6 +169,12 @@ namespace SushiEngine
                 SushiEngine::Imaging::LruCache<std::string, ResidentThumbnail> resident_{
                     RESIDENT_CAPACITY};
                 std::unordered_map<std::string, bool> in_flight_;
+                // Paths whose upload permanently failed (as opposed to a decode failure, which
+                // never leaves in_flight_ once stbi_load fails on the worker thread). Checked by
+                // texture_for() so a permanently-failed path is never re-enqueued every frame.
+                std::unordered_set<std::string> failed_uploads_;
+                std::uint64_t frame_counter_ = 0;
+                std::deque<PendingEviction> pending_evictions_;
         };
     } // namespace Editor
 } // namespace SushiEngine
