@@ -252,6 +252,7 @@ namespace SushiEngine
                 entry.transform = world->transform(id);
                 entry.color = world->color(id);
                 entry.visible = world->visible(id);
+                entry.enabled = world->enabled(id);
                 entry.has_renderer = world->has_renderer(id);
                 entry.material = world->material(id);
                 entry.material_texture_paths = world->material_texture_paths(id);
@@ -343,6 +344,7 @@ namespace SushiEngine
                 world->set_transform(id, entry.transform);
                 world->set_color(id, entry.color);
                 world->set_visible(id, entry.visible);
+                world->set_enabled(id, entry.enabled);
                 world->set_has_renderer(id, entry.has_renderer);
                 world->set_material(id, entry.material);
                 world->set_material_texture_paths(id, entry.material_texture_paths);

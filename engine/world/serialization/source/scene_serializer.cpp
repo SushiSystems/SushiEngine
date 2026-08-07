@@ -604,6 +604,13 @@ namespace SushiEngine
                 if (!prefab_entity.empty())
                     entry["prefab_entity_id"] = prefab_entity;
                 entry["visible"] = world.visible(id);
+                // Unity's `activeSelf`. Written beside `visible` because it is the same
+                // kind of thing — a per-entity authoring flag — but a different one:
+                // `enabled` gates physics, audio and render for the whole subtree, and a
+                // capture that forgot it would reset every disabled entity in the scene to
+                // enabled on every undo, not only on load (`capture_scene`/`apply_scene`
+                // back Save/Load, Undo/Redo, Play->Stop and the prefab path alike).
+                entry["enabled"] = world.enabled(id);
                 const EntityId parent_id = world.parent(id);
                 // A parent outside the document is written as no parent at all, which is what
                 // makes a subtree's root a root: `capture_scene` puts every entity in the map,
@@ -991,6 +998,10 @@ namespace SushiEngine
 
                 world.set_transform(id, transform_from_record(entry));
                 world.set_visible(id, entry.value("visible", true));
+                // `true` for a record written before the key existed: every scene already
+                // on disk was authored when every entity was implicitly enabled, so a
+                // missing key has to read as the state that reproduces it.
+                world.set_enabled(id, entry.value("enabled", true));
                 world.set_prefab_entity_id(
                     id, entry.value("prefab_entity_id", std::string{}));
 

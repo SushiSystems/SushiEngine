@@ -137,6 +137,14 @@ namespace SushiEngine
             SushiEngine::Simulation::EntityTransform transform;
             SushiEngine::Vector3 color{};
             bool visible = true;
+            /**
+             * @brief Unity's `activeSelf`, carried like @ref visible beside it.
+             *
+             * A duplicate of a disabled entity is a disabled entity: pasting it back
+             * enabled would silently restart the physics, audio and rendering the author
+             * switched off, and would do it on Ctrl+D, where nothing on screen says why.
+             */
+            bool enabled = true;
             bool has_renderer = false;
             SushiEngine::Render::Material material;
             SushiEngine::Simulation::MaterialTexturePaths material_texture_paths;

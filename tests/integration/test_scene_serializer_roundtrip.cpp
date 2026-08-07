@@ -27,6 +27,9 @@
 // These tests pin the components that were once missing (lights, decals,
 // materials and their texture paths) through the real simulation, plus the
 // Authoring::CommandHistory path that turns the same snapshots into undo steps.
+// The same applies to a plain flag: `enabled` shipped gating physics, audio and
+// render before anything wrote it, so an undo of an unrelated edit re-enabled
+// every disabled entity in the scene.
 //
 // The soft-body cases at the end also pin the *shape* the capture takes, which is
 // the one place this format is not uniform: a cooked asset is megabytes, so a
@@ -1114,4 +1117,68 @@ TEST(Integration_SceneSerializer, AShapeWrittenBeforeTheseKeysExistedReadsAsTheF
     ASSERT_NE(restored, NULL_ENTITY);
     EXPECT_EQ(world.shape_parameters(restored).source_node, 0u);
     EXPECT_EQ(world.shape_parameters(restored).primitive, 0u);
+}
+
+TEST(Integration_SceneSerializer, ADisabledEntitySurvivesCaptureApply)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    // `enabled` (Unity's `activeSelf`) shipped gating physics, audio and render without
+    // anything persisting it. Losing it on save would be bad enough; Undo/Redo rides this
+    // same round trip, so the real consequence was that undoing *any* edit anywhere
+    // re-enabled every disabled entity in the scene — restarting the physics and audio the
+    // author had switched off, with no edit of theirs to blame it on.
+    const EntityId rig = world.create("Rig");
+    const EntityId part = world.create_box("Part");
+    world.set_parent(part, rig);
+    world.set_enabled(rig, false);
+    world.set_visible(part, false);
+
+    const nlohmann::json snapshot = Scene::capture_scene(world);
+    ASSERT_TRUE(snapshot.contains("entities"));
+    ASSERT_EQ(snapshot["entities"].size(), 2u);
+
+    clear_world(world);
+    Scene::apply_scene(world, snapshot);
+
+    const EntityId restored_rig = find_by_name(world, "Rig");
+    const EntityId restored_part = find_by_name(world, "Part");
+    ASSERT_NE(restored_rig, NULL_ENTITY);
+    ASSERT_NE(restored_part, NULL_ENTITY);
+    EXPECT_FALSE(world.enabled(restored_rig));
+
+    // The child's own flag was never authored off, and `activeInHierarchy` is derived from
+    // the restored parent chain rather than stored — both have to come back that way, or a
+    // reloaded scene would either adopt the parent's state onto the child or lose the
+    // cascade entirely.
+    EXPECT_TRUE(world.enabled(restored_part));
+    EXPECT_FALSE(world.enabled_in_hierarchy(restored_part));
+
+    // The other flag on the same record, to pin that the two travel independently.
+    EXPECT_TRUE(world.visible(restored_rig));
+    EXPECT_FALSE(world.visible(restored_part));
+}
+
+TEST(Integration_SceneSerializer, AnEntityWrittenBeforeEnabledExistedReadsAsEnabled)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+    world.create("Old");
+
+    // Every scene on disk, and every undo step captured before this key existed, was written
+    // when every entity was implicitly enabled. A missing key that read as anything but
+    // `true` would switch off content nobody touched.
+    nlohmann::json snapshot = Scene::capture_scene(world);
+    ASSERT_EQ(snapshot["entities"].size(), 1u);
+    snapshot["entities"][0].erase("enabled");
+
+    Scene::apply_scene(world, snapshot);
+    const EntityId restored = find_by_name(world, "Old");
+    ASSERT_NE(restored, NULL_ENTITY);
+    EXPECT_TRUE(world.enabled(restored));
 }
