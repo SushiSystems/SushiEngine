@@ -61,6 +61,7 @@
 #include <SushiEngine/simulation/physics_extract.hpp>
 #include <SushiEngine/simulation/climatology_asset.hpp>
 #include <SushiEngine/simulation/components.hpp>
+#include <SushiEngine/simulation/impact_response.hpp>
 #include <SushiEngine/simulation/physics_simulation.hpp>
 #include <SushiEngine/simulation/seeded_weather.hpp>
 #include <SushiEngine/simulation/simulation.hpp>
@@ -118,8 +119,18 @@ namespace SushiEngine
                           schedule_(execution_),
                           clock_(FIXED_TICK_DT_SECONDS),
                           physics_(create_physics_simulation(execution_)),
+                          impacts_(*this),
                           crowd_evaluator_(execution_)
                     {
+                        // Registered for the life of the simulation. The listener holds a
+                        // reference to this object and this object owns the physics that
+                        // calls it, so the two cannot outlive each other — which is what
+                        // makes a lifetime this simple correct rather than lucky.
+                        if (physics_ != nullptr)
+                        {
+                            physics_->add_event_sink(&impacts_,
+                                                     ImpactResponseListener::filter());
+                        }
                         // Reserve every archetype up front so neither the seed, the
                         // editor's first create, nor a later Add/Remove Component
                         // toggle allocates a chunk mid-run. Transform + Orientation are
@@ -861,6 +872,34 @@ namespace SushiEngine
                         if (record == nullptr)
                             return;
                         record->has_character = value;
+                    }
+
+                    bool has_impact_response(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_impact_response;
+                    }
+
+                    ImpactResponse impact_response(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->impact_response : ImpactResponse{};
+                    }
+
+                    void set_impact_response(EntityId id, const ImpactResponse& response) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->impact_response = response;
+                    }
+
+                    void set_has_impact_response(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->has_impact_response = value;
                     }
 
                     bool has_cloth(EntityId id) const noexcept override
@@ -2032,6 +2071,11 @@ namespace SushiEngine
                         // otherwise — so unlike cloth an edit here dirties nothing.
                         bool has_character = false;
                         CharacterParameters character_parameters{};
+                        // What this entity does when it is hit. Read by the engine's own
+                        // physics listener and by nothing else, so like the character's
+                        // numbers an edit here builds nothing and dirties nothing.
+                        bool has_impact_response = false;
+                        ImpactResponse impact_response{};
                         // Whether a cloth grid is tracked by the physics simulation (see
                         // set_has_cloth). Same plain-host-bookkeeping treatment as
                         // has_physics_body: cloth needs no ECS component migration.
@@ -3235,6 +3279,11 @@ namespace SushiEngine
                         physics_->set_static_planes(gather_static_planes());
                         physics_->step(make_gravity_sampler(), make_wind_sampler(),
                                        PHYSICS_SUBSTEPS_PER_TICK);
+                        // After the step, because that is when its sinks were called:
+                        // this advances the cooldowns those calls set and ends any burst
+                        // whose time is up — which has to happen on a tick where nothing
+                        // was hit, exactly the tick a sink is not called on.
+                        impacts_.update(Scalar(clock_.fixed_dt()));
                         collect_broken_joints();
                         // The vehicle's pose follows the solve, like every rigid body's — its
                         // core is one, it simply is not an entity's own body.
@@ -4512,6 +4561,10 @@ namespace SushiEngine
                     // The physics solve, behind a seam. It owns the rigid and cloth
                     // PhysicsWorlds; this class only marshals entity poses to and from it.
                     std::unique_ptr<IPhysicsScene> physics_;
+                    // Declared after `physics_` so it is destroyed before it, which is
+                    // the order that matters: the scene holds a raw pointer to this and
+                    // calls it inside the tick.
+                    ImpactResponseListener impacts_;
                     bool physics_dirty_ = false;
                     bool cloth_dirty_ = false;
                     bool soft_dirty_ = false;

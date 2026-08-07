@@ -420,6 +420,52 @@ namespace SushiEngine
         }
 
         /**
+         * @brief What an entity does when something hits it hard enough.
+         *
+         * The data half of the engine's own physics listener: an author gets an impact
+         * sound and a burst of particles by filling this in, with no C++ anywhere. The
+         * contact stream underneath it has existed since P1 and had no reader outside
+         * the test suite until this.
+         *
+         * The two thresholds are a ramp rather than a curve. A curve needs an editor of
+         * its own, and the difference an author actually hears is between a tap and a
+         * crash — which two numbers and a straight line already give.
+         */
+        struct ImpactResponse
+        {
+            /** @brief Newton-seconds below which nothing happens at all. */
+            Scalar minimum_impulse = Scalar(0.5);
+
+            /** @brief At or above this, the response plays at full strength. */
+            Scalar full_impulse = Scalar(20);
+
+            /**
+             * @brief Seconds before this entity may respond again.
+             *
+             * Per entity, and separate from the filter the listener registers with,
+             * because that one is per *pair*: a crate bouncing between two walls would
+             * pass a pair cooldown twice over and sound like two crates.
+             */
+            Scalar cooldown_seconds = Scalar(0.15);
+
+            /** @brief Retrigger this entity's audio emitter, scaling its gain by the ramp. */
+            bool plays_audio = true;
+
+            /** @brief Run this entity's particle emitter for @ref particle_seconds. */
+            bool emits_particles = false;
+
+            /**
+             * @brief How long the particle emitter runs after an impact.
+             *
+             * A burst expressed as a timed stop, because `ParticleEmitterParameters`
+             * carries only `seed` and `playing` — there is no burst in the emitter
+             * model to ask for. That is the right place for one, and this is the
+             * interim shape until it exists; see `docs/design/remaining_work.md`.
+             */
+            Scalar particle_seconds = Scalar(0.15);
+        };
+
+        /**
          * @brief The authorable parameters of a "Cloth" entity.
          *
          * Mirrors `Physics::build_cloth_grid`'s arguments, minus `origin` (the
@@ -1571,6 +1617,19 @@ namespace SushiEngine
                  * @param value Whether it should be a character after this call.
                  */
                 virtual void set_has_character(EntityId id, bool value) = 0;
+
+                /** @brief Whether @p id responds to being hit. */
+                virtual bool has_impact_response(EntityId id) const noexcept = 0;
+
+                /** @brief The entity's authored impact response, or defaults. */
+                virtual ImpactResponse impact_response(EntityId id) const = 0;
+
+                /** @brief Writes an entity's impact response; applied immediately. */
+                virtual void set_impact_response(EntityId id,
+                                                 const ImpactResponse& response) = 0;
+
+                /** @brief Attaches or detaches an impact response on an existing entity. */
+                virtual void set_has_impact_response(EntityId id, bool value) = 0;
 
                 /**
                  * @brief Whether @p id owns a simulated cloth grid.

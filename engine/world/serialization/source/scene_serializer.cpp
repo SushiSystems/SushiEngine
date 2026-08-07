@@ -683,6 +683,20 @@ namespace SushiEngine
                                               {"ground_snap", c.ground_snap}};
                 }
 
+                const bool has_impact = world.has_impact_response(id);
+                entry["has_impact_response"] = has_impact;
+                if (has_impact)
+                {
+                    const auto r = world.impact_response(id);
+                    entry["impact_response"] =
+                        json{{"minimum_impulse", r.minimum_impulse},
+                             {"full_impulse", r.full_impulse},
+                             {"cooldown_seconds", r.cooldown_seconds},
+                             {"plays_audio", r.plays_audio},
+                             {"emits_particles", r.emits_particles},
+                             {"particle_seconds", r.particle_seconds}};
+                }
+
                 // Not mutually exclusive with any of the above, so it is its own field
                 // pair too.
                 const bool has_cloth = world.has_cloth(id);
@@ -1032,6 +1046,27 @@ namespace SushiEngine
                         parameters.skin_width = c.value("skin_width", parameters.skin_width);
                         parameters.ground_snap = c.value("ground_snap", parameters.ground_snap);
                         world.set_character_parameters(id, parameters);
+                    }
+                }
+
+                if (entry.value("has_impact_response", false))
+                {
+                    world.set_has_impact_response(id, true);
+                    if (entry.contains("impact_response"))
+                    {
+                        const json& r = entry["impact_response"];
+                        SushiEngine::Simulation::ImpactResponse response;
+                        response.minimum_impulse =
+                            r.value("minimum_impulse", response.minimum_impulse);
+                        response.full_impulse = r.value("full_impulse", response.full_impulse);
+                        response.cooldown_seconds =
+                            r.value("cooldown_seconds", response.cooldown_seconds);
+                        response.plays_audio = r.value("plays_audio", response.plays_audio);
+                        response.emits_particles =
+                            r.value("emits_particles", response.emits_particles);
+                        response.particle_seconds =
+                            r.value("particle_seconds", response.particle_seconds);
+                        world.set_impact_response(id, response);
                     }
                 }
 
