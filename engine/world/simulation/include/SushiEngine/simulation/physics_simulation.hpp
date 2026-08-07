@@ -968,6 +968,12 @@ namespace SushiEngine
                     // reports where the contact ended up and what impulse it took —
                     // not where it was predicted to be before anything was resolved.
                     build_contact_events();
+                    // Delivered where they are produced. A listener scheduled outside
+                    // the tick would have to know where the tick sits in the frame,
+                    // because `contact_events()` is only valid until the next step —
+                    // which makes the physics' position in the schedule every
+                    // listener's problem instead of nobody's.
+                    dispatch_events(delta_time);
                     stage_timings_.total_ms = timer.total();
                     refresh_statistics();
                     // Everything moved; the next query rebuilds before it answers.
@@ -998,6 +1004,34 @@ namespace SushiEngine
                 const std::vector<ContactEvent>& contact_events() const noexcept override
                 {
                     return events_;
+                }
+
+                // IPhysicsEventSource.
+
+                /** @copydoc IPhysicsEventSource::add_event_sink */
+                PhysicsSinkId add_event_sink(IPhysicsEventSink* sink,
+                                             const PhysicsEventFilter& filter) override
+                {
+                    if (sink == nullptr)
+                        return NULL_PHYSICS_SINK;
+                    SinkEntry entry;
+                    entry.id = ++next_sink_id_;
+                    entry.sink = sink;
+                    entry.filter = filter;
+                    sinks_.push_back(std::move(entry));
+                    return sinks_.back().id;
+                }
+
+                /** @copydoc IPhysicsEventSource::remove_event_sink */
+                void remove_event_sink(PhysicsSinkId id) override
+                {
+                    for (std::size_t i = 0; i < sinks_.size(); ++i)
+                    {
+                        if (sinks_[i].id != id)
+                            continue;
+                        sinks_.erase(sinks_.begin() + std::ptrdiff_t(i));
+                        return;
+                    }
                 }
 
                 // ICollisionQueryService (§7.7).
@@ -3162,6 +3196,98 @@ namespace SushiEngine
                  * — *are* begin, persist and end, and deriving them any other way
                  * means deciding twice what "still touching" means.
                  */
+                /**
+                 * @brief One registered listener and what it asked to hear.
+                 *
+                 * The cooldown clock is per sink rather than shared, because two
+                 * listeners can reasonably want different rates from the same pair —
+                 * a sound every quarter second and a damage tick every two — and a
+                 * shared table would make whichever fired first silence the other.
+                 */
+                struct SinkEntry
+                {
+                    PhysicsSinkId id = NULL_PHYSICS_SINK;
+                    IPhysicsEventSink* sink = nullptr;
+                    PhysicsEventFilter filter;
+
+                    /** @brief When each entity pair last fired, on the scene clock. */
+                    std::unordered_map<std::uint64_t, T> last_fired;
+                };
+
+                /**
+                 * @brief A stable key for an unordered pair of entities.
+                 *
+                 * Sorted before packing, so the pair (a, b) and the pair (b, a) share
+                 * one cooldown. They are the same collision, and a broadphase free to
+                 * report either order would otherwise let one impact fire twice.
+                 */
+                static std::uint64_t pair_key(EntityId a, EntityId b) noexcept
+                {
+                    const std::uint64_t low = std::uint64_t(a < b ? a : b);
+                    const std::uint64_t high = std::uint64_t(a < b ? b : a);
+                    return (high << 32) | (low & 0xFFFFFFFFull);
+                }
+
+                /**
+                 * @brief Whether @p event passes @p entry's filter, and charges the cooldown.
+                 *
+                 * The cooldown is charged here rather than by the caller so that an
+                 * event which fails any earlier test does not consume the pair's
+                 * window — a scrape below the impulse threshold must not be what
+                 * silences the crash a moment later.
+                 */
+                bool accepts(SinkEntry& entry, const ContactEvent& event)
+                {
+                    const bool phase_wanted =
+                        (event.phase == ContactPhase::Begin && entry.filter.begin) ||
+                        (event.phase == ContactPhase::Persist && entry.filter.persist) ||
+                        (event.phase == ContactPhase::End && entry.filter.end);
+                    if (!phase_wanted)
+                        return false;
+                    if (event.impulse < T(entry.filter.minimum_impulse))
+                        return false;
+                    if (!(entry.filter.pair_cooldown > Scalar(0)))
+                        return true;
+
+                    const std::uint64_t key = pair_key(event.a, event.b);
+                    const auto it = entry.last_fired.find(key);
+                    if (it != entry.last_fired.end() &&
+                        event_clock_ - it->second < T(entry.filter.pair_cooldown))
+                        return false;
+                    entry.last_fired[key] = event_clock_;
+                    return true;
+                }
+
+                /**
+                 * @brief Calls every registered sink for the events it asked for.
+                 *
+                 * Runs after `build_contact_events`, on the poses the tick settled on,
+                 * so a listener spawning an effect places it where the contact ended up
+                 * rather than where it was predicted before anything was resolved.
+                 *
+                 * @param delta_time The tick's duration, which advances the cooldown clock.
+                 */
+                void dispatch_events(T delta_time)
+                {
+                    event_clock_ += delta_time;
+                    if (sinks_.empty())
+                        return;
+                    for (SinkEntry& entry : sinks_)
+                    {
+                        if (entry.sink == nullptr)
+                            continue;
+                        for (const ContactEvent& event : events_)
+                        {
+                            if (accepts(entry, event))
+                                entry.sink->on_contact(event);
+                        }
+                        if (!entry.filter.joint_breaks)
+                            continue;
+                        for (const JointBrokenEvent& event : joint_events_)
+                            entry.sink->on_joint_broken(event);
+                    }
+                }
+
                 void build_contact_events()
                 {
                     events_.clear();
@@ -3504,6 +3630,17 @@ namespace SushiEngine
                 std::vector<ContactRecord> previous_;
                 std::vector<ContactEvent> events_;
                 bool proxies_dirty_ = true;
+
+                std::vector<SinkEntry> sinks_;
+                // Starts at zero and pre-incremented, for the same reason
+                // `next_joint_id_` starts at one: `NULL_PHYSICS_SINK` is zero, and an
+                // identity that could equal it would be one a caller cannot test.
+                PhysicsSinkId next_sink_id_ = NULL_PHYSICS_SINK;
+                // Seconds of simulated time, advanced by the tick and read only by the
+                // cooldowns. Simulated rather than wall clock: a replay that steps the
+                // same ticks must suppress the same events, or the effects a listener
+                // spawns stop being a function of the simulation (§12.1).
+                T event_clock_ = 0;
 
                 std::vector<JointEntry> joints_;
                 std::vector<JointBrokenEvent> joint_events_;

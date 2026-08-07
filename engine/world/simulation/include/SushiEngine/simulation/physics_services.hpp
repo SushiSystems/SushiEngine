@@ -553,6 +553,7 @@ namespace SushiEngine
                 virtual const std::vector<ContactEvent>& contact_events() const noexcept = 0;
         };
 
+
         /**
          * @brief A joint to create between two entities that already own rigid bodies.
          *
@@ -591,6 +592,129 @@ namespace SushiEngine
             Scalar force = 0;
             /** @brief The peak torque magnitude that broke it, in newton-metres. */
             Scalar torque = 0;
+        };
+
+        /**
+         * @brief What a listener is willing to be woken for.
+         *
+         * Declared at registration rather than applied inside the listener, and the
+         * reason is arithmetic: a settled stack of ten crates emits nine `Persist`
+         * events every tick without moving, which at 60 Hz is 540 calls a second — and
+         * a listener that filters them itself pays that cost once per listener. The
+         * scene evaluates this once per event and simply does not make the call.
+         *
+         * The defaults are what an impact effect wants: the moment something starts
+         * touching, at any strength, with nothing suppressed.
+         */
+        struct PhysicsEventFilter
+        {
+            /** @brief The phase that means "this just happened". */
+            bool begin = true;
+
+            /** @brief Every tick a pair stays in contact. Off by default; see above. */
+            bool persist = false;
+
+            /** @brief The tick a pair stops touching. */
+            bool end = false;
+
+            /**
+             * @brief Newton-seconds below which a contact is not worth reporting.
+             *
+             * Reads `ContactEvent::impulse`, which exists for this: its own
+             * documentation calls it what separates a scrape from a crash, and names
+             * it as the reason solved manifolds are read back off the device at all.
+             */
+            Scalar minimum_impulse = 0;
+
+            /**
+             * @brief Seconds before the same pair of entities may fire again.
+             *
+             * A crate landing on a floor produces a `Begin`, bounces a millimetre, and
+             * produces another. One impact, several sounds — unless something says how
+             * close together two of them can be.
+             */
+            Scalar pair_cooldown = 0;
+
+            /** @brief Whether joint breaks reach this listener at all. */
+            bool joint_breaks = true;
+        };
+
+        /**
+         * @brief Something told about physics events as they happen.
+         *
+         * The push half of @ref IContactEventService, and it exists because the pull
+         * half cannot serve a listener that must not miss a tick: `contact_events()` is
+         * valid only until the next step, so anything reading it has to be scheduled
+         * between the two — which makes the physics tick's position in the frame every
+         * listener's problem.
+         *
+         * Both handlers are non-pure so a listener implements only the kind it cares
+         * about. That is deliberate laxity: a sink that wants impacts should not have
+         * to write an empty joint-break override to compile, and the alternative is two
+         * interfaces to register separately.
+         */
+        class IPhysicsEventSink
+        {
+            public:
+                virtual ~IPhysicsEventSink() = default;
+
+                /**
+                 * @brief A contact that passed this sink's filter.
+                 * @param event The contact, in the ordering §12.1 guarantees.
+                 */
+                virtual void on_contact(const ContactEvent& event)
+                {
+                    (void)event;
+                }
+
+                /**
+                 * @brief A joint that broke this tick.
+                 * @param event The joint and the two entities it held.
+                 */
+                virtual void on_joint_broken(const JointBrokenEvent& event)
+                {
+                    (void)event;
+                }
+        };
+
+        /** @brief A registered sink's handle; zero is never valid. */
+        using PhysicsSinkId = std::uint32_t;
+
+        /** @brief The value @ref PhysicsSinkId takes when there is no sink. */
+        constexpr PhysicsSinkId NULL_PHYSICS_SINK = 0;
+
+        /**
+         * @brief Where a listener signs up to be told.
+         *
+         * Separate from @ref IContactEventService because reading this tick's events and
+         * being called for them are different capabilities: a debug panel wants the
+         * former and has no business holding the latter, which can run arbitrary code
+         * inside the tick.
+         */
+        class IPhysicsEventSource
+        {
+            public:
+                virtual ~IPhysicsEventSource() = default;
+
+                /**
+                 * @brief Registers @p sink until it is removed.
+                 *
+                 * The scene does not own @p sink and never deletes it. A sink that
+                 * outlives its registration is a dangling call inside the tick, so a
+                 * listener destroys itself only after removing itself.
+                 *
+                 * @param sink   The listener; ignored when null.
+                 * @param filter What it is willing to be woken for.
+                 * @return Its handle, or @ref NULL_PHYSICS_SINK when @p sink was null.
+                 */
+                virtual PhysicsSinkId add_event_sink(IPhysicsEventSink* sink,
+                                                     const PhysicsEventFilter& filter) = 0;
+
+                /**
+                 * @brief Stops calling a sink; a no-op for a handle already removed.
+                 * @param id The handle from @ref add_event_sink.
+                 */
+                virtual void remove_event_sink(PhysicsSinkId id) = 0;
         };
 
         /**
@@ -978,6 +1102,7 @@ namespace SushiEngine
                               public ICollisionQueryService,
                               public ICharacterService,
                               public IContactEventService,
+                              public IPhysicsEventSource,
                               public IPhysicsStepper
         {
             public:
