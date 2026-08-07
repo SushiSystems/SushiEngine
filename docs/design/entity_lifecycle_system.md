@@ -107,11 +107,18 @@ before its own implementation starts, in a later revision of this same document.
 
 ### §4.1 Data model
 
-`Record` gains one field: `bool enabled = true;` — Unity's `activeSelf`. `Record::visible` keeps its
-current meaning unchanged: a local (non-hierarchical), render-only flag. Because `enabled` is new and
-defaults to `true`, every existing scene's behavior is unchanged after this ships — an entity authored
-with `visible=false` today continues to be render-hidden only, exactly as it is now. No scene-file
-migration is required.
+`Record` gains one field: `bool enabled = true;` — Unity's `activeSelf`. `Record::visible` is
+redefined by the same change: it becomes a purely local (non-hierarchical), render-only flag, where
+today it cascades — `visible_in_hierarchy` (§1) walks the ancestor chain over it, so a hidden parent
+currently hides its descendants too. After this phase only `enabled` cascades. That is a real
+behavior change to a flag every scene on disk already carries, and it is deliberate rather than
+incidental: two flags that both cascade are two answers to one question, and the cascade belongs to
+the one that means "this object is not active", not to the one that means "do not draw this". The
+consequence is stated here rather than left to be discovered — a scene authored with a
+`visible=false` parent will draw the children that the old cascade hid, and an author who wanted the
+subtree gone wants `enabled` on that parent instead. What does not change is a `visible=false`
+entity's own rendering, which is off before and after. `enabled` is new and defaults to `true`, so no
+scene-file migration is required; a record written before the key existed reads back as enabled.
 
 A new private helper, `enabled_in_hierarchy(const Record*)`, is added beside
 `visible_in_hierarchy` (`runtime_simulation.cpp:2721-2733`), identical in shape: walks the ancestor
@@ -122,6 +129,15 @@ chain, returns `false` if any node (including the record itself) has `enabled ==
 `!enabled_in_hierarchy(record) || !record->visible` — hierarchy gates existence, the local flag gates
 this entity's own render contribution on top of that, matching how a disabled parent's inactive
 children never reach a child's own `visible` check in Unity either.
+
+`enabled` persists everywhere `visible` already does, and for the same reason: it is authored state.
+That is `write_entity_record`/`read_entity_record` in
+`engine/world/serialization/source/scene_serializer.cpp` — one pair of functions carrying Save/Load,
+Undo/Redo, the Play→Stop restore and prefab capture/apply, since `capture_scene`/`apply_scene` and
+`capture_prefab`/`apply_prefab` all route through them — plus `ClipboardEntity`
+(`applications/editor/source/core/editor_context.hpp`) for copy/paste and duplicate. A flag the
+capture forgets is not merely unsaved: undoing any unrelated edit would re-enable every disabled
+entity in the scene.
 
 ### §4.2 Physics integration
 

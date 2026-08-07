@@ -377,8 +377,11 @@ and script components serialize with the scene and travel through the copy/paste
 alongside the other optional components.
 
 **Enabled/disabled lifecycle.** `RuntimeSimulation::Record::enabled` (default `true`) is Unity's
-`activeSelf`: a real, hierarchical on/off switch, distinct from `visible`, which keeps its
-original meaning as a local, non-cascading, render-only flag (Unity's `Renderer.enabled`).
+`activeSelf`: a real, hierarchical on/off switch. `visible` was narrowed by the same change and is
+now a local, non-cascading, render-only flag (Unity's `Renderer.enabled`) — it used to cascade
+through `visible_in_hierarchy`, and no longer does; `enabled` is the only flag that cascades.
+A scene authored with a `visible=false` parent therefore draws the children that cascade used to
+hide, which is the one behavior change to existing content this carries.
 `enabled_in_hierarchy` walks an entity's ancestor chain the same way `visible_in_hierarchy`
 used to, over the new flag instead. Everything that gates on it uses that one walk: `extract()`'s
 mesh/cloth/soft-body/vehicle-shell/particle/light/decal/crowd instancing loops (combined with
@@ -386,9 +389,16 @@ the local `visible` check), and four independent physics gather points — `phys
 (feeding `gather_rigid_descriptions`/`gather_static_planes`), `gather_vehicle_descriptions()`,
 `gather_soft_body_descriptions()`, and `gather_cloth_descriptions()`, none routing through a
 shared entry point — plus the editor's live audio poll in `AudioEditorSystem::update` through the
-`IWorldEditor` seam. `set_enabled()` marks all four physics dirty flags (`physics_dirty_`/`soft_dirty_`/
+`IWorldEditor` seam, both its emitters and its reverb zones. A character controller needs no gate of
+its own: it is `has_character` plus a kinematic rigid body, so it is gathered by
+`gather_rigid_descriptions()` and is already covered by the one on `physics_source_entities()`.
+`set_enabled()` and `set_parent()` both mark all four physics dirty flags (`physics_dirty_`/`soft_dirty_`/
 `cloth_dirty_`/`vehicles_dirty_`) on a real change, unconditionally, so a toggle on an entity with
-no physics component of its own still invalidates a descendant's gathered state. A disabled entity's
+no physics component of its own still invalidates a descendant's gathered state — and so does
+reparenting a body into or out of a disabled subtree, which changes gather membership without
+touching a single flag on the body itself. `enabled` serializes beside `visible` in
+`write_entity_record`/`read_entity_record` and travels in `ClipboardEntity`, so it survives
+Save/Load, Undo/Redo, Play→Stop, prefab capture/apply and copy/paste alike. A disabled entity's
 rigid body is removed from the physics world the same way `set_rigid_bodies`' existing diff already
 removes a genuinely-destroyed one, and comes back at rest on re-enable — there is no velocity field
 to preserve across the gap, and preserving one was deliberately scoped out (see [the entity lifecycle

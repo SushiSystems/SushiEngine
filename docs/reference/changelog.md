@@ -11,11 +11,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 
 ### Added
 - 2026-08-08 — Added a real `enabled`/`activeInHierarchy` flag: a disabled entity now stops
-  physics, audio and render for its whole subtree, not just render. The existing `visible` flag
-  keeps its old meaning as a local, non-cascading, render-only toggle. See
+  physics, audio and render for its whole subtree, not just render. `visible` is narrowed to a
+  local, render-only toggle by the same change, and no longer cascades (see Changed below). See
   `docs/design/entity_lifecycle_system.md`.
   - Added the Inspector header's second ("Visible") checkbox and Hierarchy panel dimming for
-    disabled rows.
+    disabled rows. Both checkboxes carry a tooltip, since neither has room for a label.
+  - Added `enabled` to scene serialization and the copy/paste clipboard, so it survives Save/Load,
+    Undo/Redo, Play→Stop, prefab capture/apply and duplicate.
 - 2026-08-08 — Added the Profiler panel: frame history, CPU/GPU breakdowns, renderer, memory
   and system sections (mock-first per `docs/design/profiling_system.md` PROF0).
 - 2026-08-07 — Added `tools/documentation/check_design_citations.py`: it resolves every backticked
@@ -191,6 +193,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   with their widgets and serialization: no renderer or shader read them.
 
 ### Changed
+- 2026-08-08 — Changed `visible` to stop cascading through the hierarchy: only `enabled` cascades
+  now. A scene with a `visible=false` parent will render children that the old cascade hid; an
+  author who wanted the whole subtree gone wants `enabled` off on that parent instead.
 - 2026-08-06 — Changed per-asset cooking overrides to live in a `<asset>.meta` sidecar rather than
   a path-keyed object in the project document, so moving an asset no longer orphans its settings.
   - Migrated an older project's overrides once, when its cooking document is read, reporting both
