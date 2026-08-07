@@ -1991,9 +1991,21 @@ namespace SushiEngine
                     void set_enabled(EntityId id, bool value) override
                     {
                         Record* record = find(id);
-                        if (record != nullptr)
+                        if (record != nullptr && record->enabled != value)
                         {
                             record->enabled = value;
+                            // enabled_in_hierarchy() cascades: toggling this record can
+                            // change the effective enabled state of any descendant, not
+                            // just this entity's own components. Unlike destroy() — which
+                            // only ever affects the one entity's own physics/soft/cloth/
+                            // vehicle flags — we cannot cheaply know which descendants
+                            // carry which physics-adjacent components without walking the
+                            // subtree, so all four gathers are marked dirty unconditionally.
+                            // The O(1) flag-set is dwarfed by the O(n) gather it triggers.
+                            physics_dirty_ = true;
+                            soft_dirty_ = true;
+                            cloth_dirty_ = true;
+                            vehicles_dirty_ = true;
                             extract();
                         }
                     }
