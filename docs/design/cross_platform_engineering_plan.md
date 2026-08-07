@@ -1,6 +1,8 @@
 # Cross-Platform Engineering Plan — Windows / Linux / Android / macOS / iOS / PS5 / PS4
 
-**Status:** designed, research complete and no implementation started; re-verified 2026-08-01.
+**Status:** in progress — research complete, and three phases are closed: `RUNTIME-PORT0` (§4),
+`RHI0` (§5.6) and `PLATFORM0` (§6.7). `RHI1`–`RHI11`, `RUNTIME-PORT1`–`8` and `PLATFORM1`–`9` are
+unbuilt. Research re-verified 2026-08-01.
 
 Platform priority: **Windows + Linux first**, then **Android**, then **macOS + iOS**, then **PS5/PS4
 last** — see §0.0.

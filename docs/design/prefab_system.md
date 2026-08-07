@@ -1,6 +1,7 @@
 # Prefab System — an authored entity subtree as an asset (`SushiEngine::Scene`)
 
-**Status:** designed, 2026-08-06 (§11).
+**Status:** in progress — P1's asset, instance component, refresh on load, authoring drop and model
+import link are built; §8's error-reporting surface is open (§11).
 
 A scene is the only place an entity composite can live. Building a street light out of a post, a
 lamp, a light and a collider means building it once per placement, and changing it means changing
@@ -282,9 +283,21 @@ by the whole roadmap rather than only by its first phase.
 
 ## §11 Roadmap
 
-P1 — §3 to §9 — **designed, not started.**
+P1 — §3 to §9 — **in progress.**
 
-What P1 delivers: a subtree authored as an asset, instances placed from it, instances refreshed when
-the asset changes, and model import producing prefabs rather than loose entities. What it does not
-deliver, stated so it is not mistaken for an oversight: no overrides, no nesting, no prefab edit
-mode, no runtime API, and edits made inside an instance do not survive a rebuild.
+What P1 has delivered: §3's `.sushiprefab` asset with its `revision` and `prefab_entity_id`; §4's
+`PrefabInstanceParameters` and its accessor triple; §5's `refresh_prefab_instances`, called from
+`load_scene` and deliberately not from `apply_scene`; §6's Hierarchy-to-Project-panel drop through
+`write_entity_as_prefab`; §7's `place_model_instance`, which imports through `write_model_prefab`
+when the prefab does not exist yet; and §9's three test suites.
+
+What P1 still owes is §8's error-reporting surface. The safe mechanics are there —
+`refresh_prefab_instances` leaves an instance's entities in place when its prefab is missing or
+unreadable, and returns the failing paths — but nothing built on top tells the artist.
+`PrefabInstanceParameters` carries no field to mark a root unlinked, no editor call site reads the
+returned list, no control states an entity count before a rebuild runs, and `write_entity_as_prefab`
+neither detects nor reports a flattened nested instance.
+
+What P1 does not deliver at all, stated so it is not mistaken for an oversight: no overrides, no
+nesting, no prefab edit mode, no runtime API, and edits made inside an instance do not survive a
+rebuild.

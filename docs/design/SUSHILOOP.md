@@ -1,6 +1,8 @@
 # SushiLoop — Design
 
-**Status:** shipped — M0 through M5 landed.
+**Status:** shipped — M0 through M5 landed, three of their clauses narrower than the plan wrote
+them: continuous integration builds Linux only, rollback records whole chunks rather than deltas,
+and the network layer is loopback-only. See the Build plan.
 
 SushiLoop is the deterministic, network-ready game loop for SushiEngine. It is the
 foundation for building actual games on the engine, and eventually for "sushiverse",
@@ -86,7 +88,10 @@ every tick. This fits the engine's existing model cleanly: the ECS already track
 structural change through `structure_version` and works chunk by chunk. We add a
 per-chunk dirty/version stamp and snapshot just the dirty chunks. When a late input
 arrives from the server, we roll the affected chunks back to the earliest touched tick,
-replay the intervening inputs, and reconcile.
+replay the intervening inputs, and reconcile. The delta half of this decision is still
+owed: `RollbackBuffer::capture()` in
+`engine/world/loop/include/SushiEngine/loop/rollback.hpp` copies every live chunk's
+columns in full every tick, and no per-chunk dirty stamp exists.
 
 **Threading: separate sim, render, and net threads, communicating by snapshot.** The
 simulation runs on its own thread at a fixed tick rate; that thread is the isolated
@@ -178,10 +183,15 @@ Each milestone compiles and can be validated on its own.
   existing PGS demo to XPBD and confirm it matches.
 - **M3 — Delta snapshots and single-machine rollback.** Chunk-delta recording, rewind
   and replay, and a test for the key invariant: a rollback-and-replay produces exactly
-  the same result as an uninterrupted simulation.
+  the same result as an uninterrupted simulation. Rewind, replay and the invariant test
+  landed. The recording did not: `RollbackBuffer::capture()` copies every live chunk's
+  columns in full every tick, so chunk-delta recording is still owed.
 - **M4 — Network layer.** Server-authoritative transport with client prediction and
-  reconciliation. Loopback first, then real sockets.
+  reconciliation. Loopback first, then real sockets. Only the loopback transport landed:
+  `engine/world/loop/include/SushiEngine/loop/net.hpp` carries no sockets, no threads and
+  no serialization.
 - **M5 — Soft bodies and cloth** on top of XPBD, plus stress-testing the floating
   origin with large coordinates.
 
-Linux is kept building on both platforms in CI from M1 onward.
+Continuous integration builds Linux only. `.github/workflows/ci.yml` defines
+`ubuntu-latest` jobs and no Windows job, so Windows is a local build.

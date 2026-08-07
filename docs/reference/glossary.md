@@ -12,28 +12,36 @@ comment or a changelog entry can be resolved without guessing.
 | `M0`–`M5` | [SUSHILOOP.md](../design/SUSHILOOP.md) | Milestones of the deterministic, network-ready game loop: fixed-step core, snapshots, rollback, loopback reconciliation, cloth. |
 | `P0`–`P9`, `PX` | [physics_system.md](../design/physics_system.md) | Phases of the unified XPBD solver and the cooking pipeline. `PX` is the editor-exposure stream that runs alongside them. Sub-phases are lettered: `P7-C`. |
 | `P0`–`P11` | [solar_system_overhaul.md](../design/solar_system_overhaul.md) | Phases of planetary terrain. **These collide with the physics family** — see below. |
+| `P0` | [model_import.md](../design/model_import.md) | The single phase that turns a glTF node graph into an entity hierarchy. **Collides with the physics family** — see below. |
+| `P1`–`P4` | [prefab_system.md](../design/prefab_system.md) | Phases of the prefab system. `P1` is the asset, the instance and refresh on load; `P2`–`P4` are override resolution, nesting and the runtime API, designed only as boundaries. **Collides with the physics family** — see below. |
+| `P0` | [static_mesh_authoring.md](../design/static_mesh_authoring.md) | The single phase that places an imported glTF as a plain visual prop. **Collides with the physics family** — see below. |
+| `P0` | [project_selection.md](../design/project_selection.md) | The single phase that adds New/Load Project to the editor's File menu. **Collides with the physics family** — see below. |
 | `A0`–`A9` | [animation_system.md](../design/animation_system.md) | Phases of the skeletal animation stack, from clip assets to retargeting. |
 | `S0`–`S10` | [audio_system.md](../design/audio_system.md) | Phases of the from-scratch audio engine, from the device seam to the authoring surface. |
-| `PLATFORM0`, `S1`–`S6` | [cross_platform_engineering_plan.md](../design/cross_platform_engineering_plan.md) | Stages of the port to Linux, Android, macOS, iOS and PlayStation. **`S` collides with the audio family** — see below. |
-| `RHI0`–`RHI9` | [cross_platform_engineering_plan.md](../design/cross_platform_engineering_plan.md) | Steps of the render hardware interface extraction: the golden harness, the neutral vocabulary, the command list, the backend split. |
+| `PLATFORM0`–`PLATFORM9`, `S1`–`S6` | [cross_platform_engineering_plan.md](../design/cross_platform_engineering_plan.md) | Stages of the port to Linux, Android, macOS, iOS and PlayStation. `S1`–`S6` are `PLATFORM0`'s own sub-stages, the editor/runtime split. **`S` collides with the audio family** — see below. |
+| `RHI0`–`RHI11` | [cross_platform_engineering_plan.md](../design/cross_platform_engineering_plan.md) | Steps of the render hardware interface extraction: the golden harness, the neutral vocabulary, the command list, the backend split. |
+| `RUNTIME-PORT0`–`RUNTIME-PORT8` | [cross_platform_engineering_plan.md](../design/cross_platform_engineering_plan.md) | Steps of the execution-seam port: extracting `SushiEngine::Execution`, the native backend, and each platform's dispatch bring-up. |
 | `BB-1`–`BB-8` | [cross_platform_engineering_plan.md](../design/cross_platform_engineering_plan.md) | Requests against SushiRuntime's backbone, tracked in that repository's `ENGINE_BACKBONE_REFACTOR.md`. `BB-1` is the interop import half the renderer's export half waits on. |
 | `R1`–`R9` | [cross_platform_engineering_plan.md](../design/cross_platform_engineering_plan.md) | Real-time capability requests against SushiRuntime, tracked in its `PHYSICS_SUBSTRATE_REQUIREMENTS.md`. |
 | `T1`, `T2`, phases `A`–`F` | [atmosphere_system.md](../design/atmosphere_system.md) | `T1` is the global dynamical core, `T2` the regional nest over it. The lettered phases are the build order. |
 | `W0`–`W6` | retired | The weather and cloud roadmap. Its document was removed in 2026-07; `atmosphere_system.md` §1 records why. A `W` code survives only as a historical reference. |
-| `VFX1`–`VFX6` | [vfx_particle_system.md](../design/vfx_particle_system.md) | Phases of the particle system, from the authoring model to the effect timeline. Sub-phases are lettered: `VFX2c`. |
+| `VFX1`–`VFX7` | [vfx_particle_system.md](../design/vfx_particle_system.md) | Phases of the particle system, from the authoring model to the effect timeline and the particle material. Sub-phases are lettered: `VFX2c`. |
 | `UX0`–`UX6` | [editor_ux_overhaul.md](../design/editor_ux_overhaul.md) | Phases of the editor overhaul. All shipped as of 2026-07-30. |
-| `UHM` | [unified_hazard_model.md](../design/unified_hazard_model.md) | The one execution vocabulary shared by simulation, compute and render. Its own sections are cited as `UHM §4`. |
+| `UHM0`–`UHM5` | [unified_hazard_model.md](../design/unified_hazard_model.md) | Milestones of the one execution vocabulary shared by simulation, compute and render. Its own sections are cited as `UHM §4`. |
 | `RESTRUCTURE0` | [repository_restructure.md](../design/repository_restructure.md) | The four-phase reorganization of this repository. |
 
 ## The two collisions
 
-Two families reuse the same letters, and neither can be renamed without invalidating the
-commit messages and source comments that already cite them:
+Two letters are reused across families, and none of the claimants can be renamed without
+invalidating the commit messages and source comments that already cite them:
 
-- **`P<n>` is ambiguous.** `P0`–`P9` belong to physics; `P0`–`P11` belong to planetary terrain.
-  A bare `P2` is unresolvable. Cite the document with the code — `physics_system.md` §P2 or
-  `solar_system_overhaul.md` §P2 — whenever the surrounding sentence does not already fix which
-  subsystem is meant.
+- **`P<n>` is ambiguous, six ways.** `P0`–`P9` belong to physics, `P0`–`P11` to planetary
+  terrain, `P0` to model import, `P1`–`P4` to the prefab system, `P0` to static mesh authoring
+  and `P0` to project selection. A bare `P2` is unresolvable. Cite the document with the code —
+  `physics_system.md` §P2 or `solar_system_overhaul.md` §P2 — whenever the surrounding sentence
+  does not already fix which subsystem is meant. Three of the six mint a single `P0` covering
+  their whole scope, so a bare `P0` in a commit message names one of five things and is always
+  worth expanding rather than guessing at.
 - **`S<n>` is ambiguous.** `S0`–`S10` belong to audio; `S1`–`S6` belong to the cross-platform
   plan, where they are always written under the `PLATFORM0` umbrella. Write `PLATFORM0 S4` for
   the porting stage and a bare `S4` for the audio phase.

@@ -722,7 +722,9 @@ reason.
 
 ### UX4 — Monolith decomposition + widget library  *(velocity for everything after)*
 
-**Status: shipped (2026-07-30).** `editor_panels.cpp`: **7,157 → 725 lines**. Every
+**Status: shipped (2026-07-30).** The fourteen units mapped below came out of
+`editor_panels.cpp`, which stands at **1,064 lines** today against the 7,157 it carried
+before the split — the one place this document states that count. Every
 step landed; deviations from the letter of the plan, and why:
 
 - **The table below is superseded by what actually shipped** — the line ranges were
@@ -933,7 +935,7 @@ panels move once. UX5/UX6 last.
 
 | Unit | Holds |
 |---|---|
-| `ui/editor_panels.cpp` (1,013) | Menu bar, toolbar strip (drawn icons), Console, Statistics, status bar, the theme's metric/accent pass, `build_default_layout` |
+| `ui/editor_panels.cpp` | Menu bar, toolbar strip (drawn icons), Console, Statistics, status bar, the theme's metric/accent pass, `build_default_layout` |
 | `ui/panel_widgets.{hpp,cpp}` | The shared vocabulary: `track_item_undo`, `push_if_changed`, `inline_rename_field`, `vector3_field`/`scalar_field`, `component_header`, `icon_button`, `shortcut_for_action`, `to_lower`, `world_of`, `to_float`/`to_scalar`, quaternion↔Euler, `commit_environment_edit`/`finish_environment_edit` |
 | `ui/component_editor.hpp` | `ComponentAccess`/`ComponentEditor`: pointer-to-member component fields that detect a mixed selection and fan an edit out to all of it, plus the value clipboard behind the header menus |
 | `ui/modals.{hpp,cpp}` | Save-As, close-confirm, replace-scene-confirm |

@@ -1,6 +1,7 @@
 # Solar System Overhaul — real planetary terrain, from a metre to orbit
 
-**Status:** designed, 2026-08-01; unbuilt.
+**Status:** in progress — P0, P1 and P2a landed 2026-08-01; P2b draws a frame but does not meet its
+exit criterion, and §20.1's punch list is P2c; P3 to P11 are unbuilt (§20).
 
 This document specifies the terrain and surface regime for every body in the solar system: where the
 elevation comes from, how it reaches the GPU, how it is drawn seamlessly from human scale to orbital

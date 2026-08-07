@@ -299,6 +299,16 @@ already spells `UIButton`/`UIText`/`UIDrawList` correctly.
 
 ## 9. Phase 3 — unlinked inventory
 
+**This inventory is a pre-phase-3 snapshot, not a to-do list.** It records what phase 3 found
+before it ran; phase 3 is complete, and the items below were either wired or removed under the
+policy stated in the next paragraph. Two examples, so a reader does not chase a closed item:
+`VFX::BeamModule` now has both an Alignment combo entry and a round-trip-tested serializer field,
+and Post Process's Bloom Threshold and Knee are read by
+`engine/presentation/render/source/passes/bloom_pass.cpp` and pushed into
+`engine/presentation/render/shaders/bloom_down.comp`'s soft-knee constant. The section is kept as
+written because it is the record of what the phase found, which is worth more than a list edited
+down to nothing.
+
 Build wiring itself is clean: every `.cpp` on disk appears in an explicit
 (non-glob) source list, no orphan translation units exist, every shader is compiled
 and catalogued, and every `PanelVisibility` flag has both a menu item and a draw

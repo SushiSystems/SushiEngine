@@ -3,7 +3,7 @@
 **Status:** in progress, phases 0 to 11 shipped in core form; tier-scalable refinements remain.
 
 A living design document. Phases 0, 1, 2 and 5 are **shipped and verified against source** (see §3 —
-Completed). **Phase 3 is shipped:** items 3.1 (the tier contract / `QualityParams`), 3.2
+Completed). **Phase 3 is shipped:** items 3.1 (the tier contract / `QualityParameters`), 3.2
 (`VulkanSceneView` → `ViewResources` extraction), 3.3 (background PSO optimizer), 3.4 (Vulkan 1.4
 floor), 3.5 (descriptor-writer seam), and 3.7 (IBL diffuse → SH-9) are **shipped**; 3.6 (the Slang
 decision) is now **decided — deferred with recorded rationale** (GLSL stays; revisit at Phase 6).
@@ -48,8 +48,8 @@ occlusion pyramid, the conservative twin of the Phase 5 hi-Z, reprojected from l
 writes one indirect draw per bucket, and `mesh_gpu.vert` draws them from a set-2 instance descriptor
 set — a two-path design (GPU-driven when the tier permits, the heap is present, and nothing is
 selected; classic CPU per-instance draw otherwise), authored by a **GPU Culling** editor panel;
-cloth triangulation moved to a compute pass (`cloth.comp`/`ClothPass`, the host uploading only
-particle positions), and a `VK_EXT_mesh_shader` meshlet path (task + mesh shaders, per-meshlet
+cloth triangulation moved to a compute pass (`deformable.comp`/`DeformablePass`, the host uploading
+only particle positions), and a `VK_EXT_mesh_shader` meshlet path (task + mesh shaders, per-meshlet
 frustum cull, device+Ultra gated with classic fallback) added on top, leaving only sparse virtual
 texturing deferred with recorded rationale. **Phase 11 delivery is shipped (core):** the render
 graph learned queues — a pass may ask for the async compute queue, and the compiler splits the
@@ -319,8 +319,8 @@ camera-relative / reverse-Z invariants.
 Pays §1.2's debt before new systems multiply it, and locks the platform baseline.
 
 1. **Enforce the tier contract.** ✓ **Shipped.** A single
-   resolver `resolve_quality(authored) → {effective RenderSettings, QualityParams}`
-   in one file (`render/frame/quality.cpp`); `QualityParams` and the resolver live in
+   resolver `resolve_quality(authored) → {effective RenderSettings, QualityParameters}`
+   in one file (`render/frame/quality.cpp`); `QualityParameters` and the resolver live in
    the *public* header `include/SushiEngine/render/quality_params.hpp` rather than
    under `render/frame/`, because the editor's resolved-params readout must see them
    and `render/frame/` is a private include dir (SRP: tier policy still lives in one
@@ -694,7 +694,7 @@ at once. The performance-first mandate's flagship. **Shipped:** the full LUT sta
    froxel gathering the sun — phase-weighted, attenuated by the transmittance LUT — plus a
    constant ambient fill, its in-scatter (sun radiance folded in) and transmittance folded
    over **every** pixel in the composite. Authored through `Environment::fog` and a Fog
-   editor section; tier-gated off on Low (`QualityParams::volumetric_fog`); a no-op when
+   editor section; tier-gated off on Low (`QualityParameters::volumetric_fog`); a no-op when
    disabled. **Remaining:** CSM-shadowed god-ray shafts and punctual-light in-scatter —
    the increment that turns the single column-march into a jittered inject/integrate pair
    consuming the Phase 4 cluster grid and the shadow atlas.
@@ -837,9 +837,9 @@ Culling** panel authors `RenderSettings::gpu_culling`.
    runtime), a task shader (`meshlet.task`) frustum-culls each mesh's clusters and a mesh shader
    (`meshlet.mesh`) emits the survivors camera-relative into the shared `pbr.frag` — used in
    **both** the depth prepass and the opaque pass so culling stays consistent. The pipeline factory
-   gained a `create_mesh` path (task+mesh+fragment, no vertex input) and `QualityParams` gained an
-   Ultra-only `meshlets` flag. It is purely additive and device-gated: where mesh shaders are
-   absent, the tier is below Ultra, or an object is selected, the same geometry falls back through
+   gained a `create_mesh` path (task+mesh+fragment, no vertex input) and `QualityParameters`
+   gained an Ultra-only `meshlets` flag. It is purely additive and device-gated: where mesh
+   shaders are absent, the tier is below Ultra, or an object is selected, the geometry falls back
    the GPU-driven MDI or classic path (the layering is meshlets → GPU-driven MDI → classic), so no
    hardware is left unable to render. The task shader currently does per-meshlet **frustum** culling
    only; per-meshlet hierarchical-Z (HZB) occlusion culling plus normal-cone back-face culling (the
@@ -852,8 +852,8 @@ Culling** panel authors `RenderSettings::gpu_culling`.
    a page cache, and async transfer-queue uploads), out of this increment's scope.
 6. **Cloth on GPU**: ✓ **Shipped** as compute-driven soft-body triangulation. The host uploads only
    particle positions (in a strand-local frame with a per-strand camera-relative origin so
-   planet-scale precision survives); `cloth.comp`, driven by a new `ClothPass`, computes the
-   area-weighted vertex normals — reproducing the exact CPU triangle winding — and writes the
+   planet-scale precision survives); `deformable.comp`, driven by a new `DeformablePass`, computes
+   the area-weighted vertex normals — reproducing the exact CPU triangle winding — and writes the
    drawable `MeshVertex` and index buffers the opaque pass then draws. `ClothBuffers` was reworked
    into a host-visible positions buffer plus device-local compute-written vertex/index buffers, with
    a `prepare()` that packs positions and lays out per-strand ranges; no per-vertex float work
@@ -906,7 +906,7 @@ repository, recorded below rather than stubbed.
    *other* queue that produced what it consumes or consumed what it overwrites. Same-queue
    dependencies need nothing (submission order), and because a queue's timeline values rise
    with its submissions, one wait covers every earlier one. The same walk marks which
-   resources both queues touch (`TextureDesc::cross_queue`), and *only those* are allocated
+   resources both queues touch (`TextureDescription::cross_queue`), and *only those* are allocated
    concurrent: the graph cannot transfer queue-family ownership, and paying for concurrent
    sharing on every transient would cost attachment compression for nothing. Barrier
    emission became queue-aware — a resource last touched by the other queue has its source
@@ -943,7 +943,7 @@ repository, recorded below rather than stubbed.
    allocate a device-local buffer whose memory another API can import by OS handle: a
    *dedicated*, exportable allocation (the handle names the whole allocation, so a
    suballocated block cannot be exported), created concurrent across both queue families,
-   and stamped with the device UUID that `RenderDeviceDesc::required_uuid` already selects
+   and stamped with the device UUID that `RenderDeviceDescription::required_uuid` already selects
    the graphics device by. The public header carries no Vulkan, SYCL, or platform type — the
    one translation unit that pulls in the Win32 Vulkan header is the implementation, which is
    also why `VulkanDevice` exposes only `supports_external_memory()` and not the handle

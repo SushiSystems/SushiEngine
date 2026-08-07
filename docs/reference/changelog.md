@@ -91,6 +91,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   the pyramid instead of only persisting.
 
 ### Fixed
+- 2026-08-07 — Corrected eleven design documents' status lines against the tree and withdrew four
+  claims it does not carry: SushiLoop's Windows continuous integration, chunk-delta recording and
+  real sockets, plus model import's colliders.
+- 2026-08-07 — Corrected the design corpus's understated phases: physics PX, VFX beams and SDF
+  collision are complete, and model import, the prefab system, planetary terrain and the
+  cross-platform plan are in progress rather than designed.
+- 2026-08-07 — Fixed physics `P1`, `P2`, `P6` and `P7` reading as accepted: their §13.1 numbers are
+  timed against a desktop GPU that no development machine here has, so each now reads as built and
+  unmeasured.
+- 2026-08-07 — Fixed a malformed row in `docs/design/physics_system.md`'s phase table: seven
+  pipe-separated fields where every other row carries six, splitting `P4`'s status across cells
+  reading "In progress." and "Complete".
+- 2026-08-07 — Registered four missing phase-code families in `docs/reference/glossary.md` — model
+  import, prefabs, static mesh authoring, project selection — and corrected the `VFX`, `RHI`,
+  `PLATFORM` and `UHM` ranges.
 - 2026-08-07 — Fixed hiding an entity leaving its children drawing: every render extract gated on
   its own `visible` flag, so hiding a model's root hid only the root. They now ask the whole
   ancestor chain, as `activeInHierarchy` does.

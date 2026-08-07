@@ -1,6 +1,7 @@
 # VFX Particle System — authoring, two simulation backends, render integration (`SushiEngine::VFX`)
 
-**Status:** in progress, VFX1 to VFX7 done as of 2026-07-25; beams and SDF collision open (§12).
+**Status:** in progress — VFX1 to VFX7 done, and §12 carries no open work item; what remains is
+§13's GPU visual check.
 
 This document is the **umbrella** for SushiEngine's AAA VFX particle system: the product vision (a
 Niagara/VFX-Graph-class effect authoring pipeline feeding both a GPU-cosmetic simulator and a
@@ -724,7 +725,7 @@ No mocks — everything runs against the real runtime, per house style.
 
 ---
 
-## §12 Roadmap (✅ done · ◐ partial · ☐ to do — status 2026-07-24)
+## §12 Roadmap (✅ done · ◐ partial · ☐ to do — status 2026-08-07)
 
 - ✅ **VFX1 — Vertical slice.** Blend-state prerequisite; the `vfx/` authoring model +
   curves/gradients + compiler; `ParticleEmitter` component; extract seam; `GpuParticleSystem` +
@@ -738,7 +739,8 @@ No mocks — everything runs against the real runtime, per house style.
   `RenderScene::particle_billboards`; a new `Render::ParticleBillboard` extract channel draws them
   (host-uploaded `GpuParticle` buffer); built-in Fire/Sparks/Smoke library; editor GameObject ▸
   Particle Emitter + Add-Component + Inspector (effect/seed/playing) + `.sushiscene` persistence.
-- ◐ **VFX2 — Transparency & lit particles.**
+- ✅ **VFX2 — Transparency & lit particles.** Every sub-item below is built; the GPU visual check
+  VFX2c and VFX2d await is tracked in §13, the same as VFX7's.
   - ✅ Per-blend bucketing (additive/premultiplied vs true-alpha) with two draws + a premultiplied
     "over" alpha pipeline.
   - ✅ GPU **bitonic back-to-front depth-sort** of the alpha bucket (`ParticleSortPass` +
@@ -767,8 +769,14 @@ No mocks — everything runs against the real runtime, per house style.
     written by the simulate step, a third indirect draw bucket, and `particle_ribbon.vert` expanding
     each particle into a tapered strip. See §7.10. Built green. Limits: the ribbon bucket is
     emissive, "over"-blended, and unsorted whatever the emitter authored.
-  - ☐ **Beams.** A ribbon between two authored endpoints rather than through a particle's own
-    history; the strip expansion is already there, only the sample source differs.
+  - ✅ **Beams.** A ribbon between two authored endpoints rather than through a particle's own
+    history; the strip expansion was already there, only the sample source differs.
+    `RenderAlignment::Beam` and `BeamModule` in `modules.hpp`, `compile_beam()` in the emitter
+    compiler, `particle_beam_sample()` in `particle_common.glsl` consumed by
+    `particle_ribbon.vert`, world-space placement in
+    `engine/presentation/render/source/scene/particle_system.cpp`, the Alignment combo entry and
+    endpoint widgets in the editor's particle panel, and a round-trip case in
+    `tests/unit/test_vfx_effect_serializer.cpp`.
 - ✅ **VFX4 — Mesh particles.** `RenderAlignment::Mesh` + a `ParticleMeshPass` drawing solid,
   depth-tested instances with the opaque geometry, one indexed indirect draw per mesh-aligned
   emitter. See §7.11. Built green. **Not** wired onto the GPU-driven instance path as originally
@@ -780,8 +788,10 @@ No mocks — everything runs against the real runtime, per house style.
   - ✅ **VFX5b depth collision** — a `CollisionModule` bounces cosmetic particles off last frame's
     Hi-Z pyramid, which is still readable at sim time because the pyramid is pass-owned rather than
     a graph transient. See §7.13. Built green. Cosmetic path only, by construction.
-  - ☐ **SDF collision** against the existing `sdf_clipmap`, for particles that must collide off
-    screen.
+  - ✅ **SDF collision** against the existing `sdf_clipmap`, for particles that must collide off
+    screen. `particle_sdf_collide()` in `particle_common.glsl`, called from
+    `particle_simulate.comp`, with the clipmap sampler and its configuration bound on that
+    shader and supplied by `ParticleSimPass` from the global-illumination clipmap.
 - ✅ **VFX6 — Editor polish.**
   - ✅ **`.sushieffect` asset files** — a descriptor-tree JSON serializer with defaulting reads.
   - ✅ **Effect library browser** — list, load, and save into `assets/effects`.
@@ -819,8 +829,8 @@ No mocks — everything runs against the real runtime, per house style.
   3. Also flip an emitter to **Velocity Stretched** in the particle editor (VFX3a, §7.9) and raise
      the Stretch slider — fast particles should draw as streaks aimed along their motion, and slow
      ones should stay round.
-  4. **Only after all three read right**, drop the "awaits a GPU visual check" notes from §12 and
-     move VFX2 from ◐ to ✅ — VFX3b (ribbons) is then the next increment.
+  4. **Only after all three read right**, drop the "awaits a GPU visual check" notes from §12.
+     Those notes are the last thing §12 is waiting on; every phase in it is otherwise built.
 - **▶ Particle material (VFX7) — the GPU visual check.** Code-complete and built green, shaders
   compiled to SPIR-V, but none of it is visible at compile time. On a Fire or Smoke emitter's
   Particle System component, under **Material**:

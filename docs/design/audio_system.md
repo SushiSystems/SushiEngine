@@ -20,8 +20,9 @@ mixer/profiler/inspector UI), and S10 procedural SFX + convolution reverb + the 
 DSP accelerator (device seam + silent block loop; DSP core base; voice manager + mixer bus DAG +
 RTPC; propagation/Doppler/air-absorption; ambisonic scene bus + binaural spatializer with
 head-tracking; Jot FDN reverb on a per-zone aux bus; ECS emitter/listener/reverb-zone components +
-wall-clock snapshot extract — see §14). In the tree: the header-only seams and the `sushi_audio`
-SDL2 backend; the `App::runtime()` accessor; the portable DSP core (`audio/dsp/`:
+wall-clock snapshot extract — see §14). In the tree: the header-only seams and the
+`sushiengine_audio_backend` SDL2 backend; the `App::runtime()` accessor; the portable DSP core
+(`audio/dsp/`:
 `ScopedNoDenormals`, `SpscRing`, SIMD kernels, one-pole/biquad/TPT-SVF filters, the topo-sorted
 block graph with one-block feedback, built-in nodes); and the header-only action layer (`audio/`:
 `SmoothedValue`/`Rtpc`, voices + sources, the stereo mixer bus DAG with inserts/aux-sends/topo
@@ -42,7 +43,7 @@ control-plane bridge + `IEmitterSourceFactory` seam; `sim/audio_extract.hpp`: th
 wall-clock snapshot extract that reads those columns into a listener-local snapshot and reconciles
 it against the voice pool). Slices
 `audio_demo`/`audio_dsp_demo`/`audio_mixer_demo`/`audio_propagation_demo`/`audio_spatial_demo`/`audio_reverb_demo`/`audio_scene_demo`/`audio_occlusion_demo`;
-`Unit_Audio` + `Integration_AudioEcs` tests. On top of that, S9's editor authoring and S10's
+`Unit_Audio` + `Integration_AudioECS` tests. On top of that, S9's editor authoring and S10's
 procedural SFX, convolution reverb and SYCL accelerator have landed too; §14 records what each one
 shipped.
 
@@ -60,9 +61,9 @@ survives only as an optional in-engine feature (phase S10), never as a product.
 > **Verification record (2026-07-30).** Until this date the suite had been *written and reviewed but
 > never executed* — no compiler was on PATH in the sessions that authored S5 onward. It has now been
 > run. Every `include/SushiEngine/audio/**` header is host-only except `accelerator_sycl.hpp`, and
-> no audio unit test includes anything beyond the standard library and GoogleTest, so all thirteen
+> no audio unit test includes anything beyond the standard library and GoogleTest, so all fifteen
 > `test_audio_*.cpp` files compile into one binary and run without the project build: **`Unit_Audio`
-> 110/110**, compiled with `-Wall -Wextra` and warning-free, in ~1.3 s. **`Integration_AudioEcs`
+> 110/110**, compiled with `-Wall -Wextra` and warning-free, in ~1.3 s. **`Integration_AudioECS`
 > 4/4** against the real ECS world. `accelerator_sycl.hpp` passes `-fsycl -fsyntax-only`. No defects
 > surfaced.
 >
@@ -85,7 +86,7 @@ editor (`se_editor`) hosts the live audio UI. **The audio roadmap is complete.**
 
 | Phase | Status | Delivered | Key files | Demo · verifying tests |
 |---|---|---|---|---|
-| **S0** | ✅ done | Device seam + silent block loop; `App::runtime()`; `SE_BUILD_AUDIO`; `sushi_audio` SDL2 lib | `audio/device.hpp`, `audio/accelerator.hpp`, `audio/sdl/sdl_audio_device.*` | `audio_demo` |
+| **S0** | ✅ done | Device seam + silent block loop; `App::runtime()`; `SUSHIENGINE_BUILD_AUDIO`; `sushiengine_audio_backend` SDL2 lib | `audio/device.hpp`, `audio/accelerator.hpp`, `audio/sdl/sdl_audio_device.*` | `audio_demo` |
 | **S1** | ✅ done | DSP core: denormal guard, SPSC ring, SIMD kernels, one-pole/biquad/TPT-SVF, topo-sorted block graph (one-block feedback) + nodes | `audio/dsp/*` (`denormals`, `spsc_ring`, `simd`, `filters/*`, `graph`, `nodes`) | `audio_dsp_demo` · `test_audio_dsp.cpp` |
 | **S2** | ✅ done | RTPC/smoothing, voices+sources, stereo mixer bus DAG (inserts/aux/topo), voice manager (virtual/real cap, audibility sort), `AudioEngine` | `audio/parameter.hpp`, `voice.hpp`, `mixer.hpp`, `voice_manager.hpp`, `engine.hpp` | `audio_mixer_demo` · `test_audio_mixer.cpp` |
 | **S3** | ✅ done | Propagation: Farrow fractional delay, ISO 9613-1 air absorption, distance models, `SourcePropagation` (delay-line Doppler, slew/teleport-snap) | `audio/dsp/fractional_delay.hpp`, `dsp/air_absorption.hpp`, `audio/propagation.hpp` | `audio_propagation_demo` · `test_audio_propagation.cpp` |
@@ -176,8 +177,8 @@ maps `sound` ids to distinct looping tones; the S8 bank plugs in behind the same
 `editor/audio/audio_panels` draws the Audio Mixer (faders + `ImDrawList` meters), the Audio Profiler
 (voice counts, meters, scope), and the emitter (params + attenuation-curve plot + Play), reverb-zone
 (I3DL2 + presets), and listener Inspector sections — wired into the Add Component / Window menus and
-the `.sushiscene` serializer. The editor links `sushi_audio` (root CMake forces `SE_BUILD_AUDIO`
-when the editor is on). See §11.
+the `.sushiscene` serializer. The editor links `sushiengine_audio_backend` (root CMake forces
+`SUSHIENGINE_BUILD_AUDIO` when the editor is on). See §11.
 
 **S10 delivered (procedural SFX + convolution reverb + GPU accelerator) — the roadmap is complete.**
 Procedural SFX: `dsp/modal.hpp` modal resonator bank + `audio/procedural.hpp` `ModalImpactSource`
@@ -215,7 +216,7 @@ have since been closed against the real runtime and real data:
   and Gardner **NUPC** non-uniform partitioned convolution (bit-exact vs direct).
 
 **AAA gap-closing (batch 5) — the remaining gaps closed.** Every item previously listed here as
-still-open is now implemented and verified (114 `Unit_Audio` tests; codec/SOFA-gated pieces via
+still-open is now implemented and verified (110 `Unit_Audio` tests; codec/SOFA-gated pieces via
 demos):
 - **Vorbis + streaming compressed codecs** — ✅ `VorbisCodec` (`vorbis_codec.hpp`) joins Opus behind
   a codec-factory *registry*; both stream from an `IDataSource` through `StreamingDecoder` (fixed a
@@ -236,8 +237,8 @@ acoustics running live per-frame on the GPU (today it is an offline/level-load b
 Ambisonics above 3rd; and a full timeline/mixing-console DAW beyond the container-graph authoring
 panel.
 
-**Build & run the audio subsystem.** `SE_BUILD_AUDIO` gates the compiled backend and the demos
-(`se audio` builds+runs `audio_demo`; the other demos build under the same flag). Tests are
+**Build & run the audio subsystem.** `SUSHIENGINE_BUILD_AUDIO` gates the compiled backend and the
+demos (`se audio` builds+runs `audio_demo`; the other demos build under the same flag). Tests are
 `Unit_Audio` in the functional suite (`se build` then `se test`, or filter
 `--gtest_filter='Unit_Audio.*'`). Coordinate frame across the spatial code: **x = front, y = left, z
 = up** (right-handed); audio sample buffers are `float`, coefficients computed in `double`. **Always
@@ -322,7 +323,7 @@ Internal engine module — **not** a separate repo. Three tiers plus optional ac
         │   components · snapshot extract · voice manager · bus/mixer DAG
         │   RTPC/State/Switch · event system · bank loading
         ▲
-   audio/  → sushi_audio (STATIC lib)  ── compiled backend: SDL2 device I/O, codec decode
+   audio/  → sushiengine_audio_backend (STATIC lib)  ── compiled backend: SDL2 device I/O, codec decode
 ```
 
 Mirrors `input/` exactly: a plain `STATIC` library that links **SDL2 and nothing else** (no SYCL, no
@@ -331,8 +332,9 @@ SushiEngine→SushiRuntime layering. The header-only action layer above it is pi
 SushiEngine INTERFACE target. The `dsp/` core is header-mostly portable C++17; the accelerator is
 the only optional SushiRuntime seam.
 
-Build: `SE_BUILD_AUDIO` option (mirror `SE_BUILD_INPUT`), `audio/CMakeLists.txt` → `sushi_audio`,
-examples via `add_sushi_sycl_executable`, tests `TEST(Unit_Audio, …)`. Build with the `se` CLI.
+Build: `SUSHIENGINE_BUILD_AUDIO` option (mirror `SUSHIENGINE_BUILD_INPUT`), `audio/CMakeLists.txt`
+→ `sushiengine_audio_backend`, examples via `add_sushi_sycl_executable`, tests
+`TEST(Unit_Audio, …)`. Build with the `se` CLI.
 
 ---
 
@@ -568,8 +570,9 @@ hot-reload — no programmer in the loop.
 
 **§12.1 Device backend — SDL2 (decided).** SDL2 is already in the stack (input + window), so the
 audio device layer adds **zero new dependency** and gives one Windows/Linux/macOS path.
-`sushi_audio` opens an `SDL_AudioStream` / audio device and drives the render callback; this is
-*only* the device I/O + buffer plumbing — the entire DSP is our from-scratch core. The seam is
+`sushiengine_audio_backend` opens an `SDL_AudioStream` / audio device and drives the render
+callback; this is *only* the device I/O + buffer plumbing — the entire DSP is our from-scratch
+core. The seam is
 `IAudioDevice` (open/close, callback registration, sample-rate/block negotiation) so the backend is
 swappable (miniaudio / raw WASAPI-PipeWire) without touching the mix.
 
@@ -601,13 +604,13 @@ Prefix **S**. S0–S4 are the critical path. Each phase builds with the `se` CLI
 
 | Phase | Deliverable |
 |---|---|
-| **S0** ✅ | Prerequisite `App::runtime()` accessor; `sushi_audio` STATIC lib + `SE_BUILD_AUDIO`; `IAudioDevice` (SDL2) + `IDspAccelerator` (empty) seams; silent block-producing device loop (`audio_demo`, `se audio`). |
+| **S0** ✅ | Prerequisite `App::runtime()` accessor; `sushiengine_audio_backend` STATIC lib + `SUSHIENGINE_BUILD_AUDIO`; `IAudioDevice` (SDL2) + `IDspAccelerator` (empty) seams; silent block-producing device loop (`audio_demo`, `se audio`). |
 | **S1** ✅ | DSP core base: SPSC ring, `ScopedNoDenormals`, block graph (topo-sort schedule + one-block feedback), SIMD gain/pan/mix, biquad + TPT-SVF + one-pole. Play/filter/mix a sine (`audio_dsp_demo`, `Unit_Audio`). |
 | **S2** ✅ | Voice manager (virtual/real, audibility sort) + bus/mixer DAG + insert/aux-send + RTPC ramping. Multi-source prioritized mix (`audio_mixer_demo`, `Unit_Audio`). |
 | **S3** ✅ | Propagation: Farrow fractional delay (Doppler + delay), distance-model gain, ISO 9613-1 air-absorption LPF, slew/teleport-snap. Flyby Doppler (`audio_propagation_demo`, `Unit_Audio`). |
 | **S4** ✅ | Spatializer: ambisonic encode (ACN/SN3D) → head-relative rotation → virtual-speaker binaural decode, analytic-HRTF (Woodworth ITD + head-shadow) **or measured SOFA/HDF5 HRIR** (`set_hrtf_database`, verified vs MIT KEMAR). Binaural 3D + head-track (`audio_spatial_demo`, `audio_sofa_demo`, `Unit_Audio`). *(MagLS decode = further refinement behind the same seam.)* |
 | **S5** ✅ | Reverb: order-16 Jot FDN (Householder/Hadamard lossless mix, coprime prime delays, per-line damping, allpass diffusion, predelay, delay modulation) behind the `IReverb` seam + I3DL2 API + per-zone aux-bus adapter; Sabine/Eyring room RT60. Bounded/decaying tail + tracked RT60 (`audio_reverb_demo`, `Unit_Audio`). |
-| **S6** ✅ | ECS integration: `AudioListener`/`AudioEmitter`/`ReverbZone` components + `AudioScene` control-plane bridge (`IEmitterSourceFactory` seam) + read-only wall-clock snapshot extract (`sim/audio_extract.hpp`), listener-local from double `WorldVector3`. `Room`/`Portal` + early reflections deferred to S7 (`audio_scene_demo`, `Unit_Audio` + `Integration_AudioEcs`). |
+| **S6** ✅ | ECS integration: `AudioListener`/`AudioEmitter`/`ReverbZone` components + `AudioScene` control-plane bridge (`IEmitterSourceFactory` seam) + read-only wall-clock snapshot extract (`sim/audio_extract.hpp`), listener-local from double `WorldVector3`. `Room`/`Portal` + early reflections deferred to S7 (`audio_scene_demo`, `Unit_Audio` + `Integration_AudioECS`). |
 | **S7** ✅ | Occlusion/obstruction: acoustic BVH (static BLAS + dynamic TLAS refit), three-band material transmission, soft multi-ray occlusion, obstruction→dry / occlusion→dry+wet DSP (edge-diffraction slew), rooms+portals doorway propagation (+ `Room`/`Portal` components), image-source early reflections. Occluded flyby + doorway coupling (`audio_occlusion_demo`, `Unit_Audio`). |
 | **S8** ✅ | Asset pipeline: `IAudioCodec` seam + from-scratch PCM/IMA-ADPCM **and Opus** (`opus_codec.hpp`, via the external codec-factory hook, ≈31:1, verified); versioned bank binary (media + baked events + blob); event/container model (Sound/Random/Sequence/Blend/Switch); bank-backed `IEmitterSourceFactory`; streaming decoder/worker/source over the SPSC ring. Bank round-trip + event resolution + streamed playback (`audio_bank_demo`, `audio_opus_demo`, `Unit_Audio`). |
 | **S9** ✅ | Editor authoring. **Telemetry:** audio→GUI seqlock snapshot (voice counts, per-bus + master meters, output scope) + mixer metering + engine gather (`audio_profiler_demo`, `Unit_Audio`). **Editor UI:** sim-seam audio authoring accessors (host-side on the entity record), a live `AudioEditorSystem` (AudioEngine + SDL device projected from the world with the Scene camera as listener), Audio Mixer + Audio Profiler windows, emitter/reverb-zone/listener Inspector sections (attenuation-curve plot, I3DL2 presets, Play audition), and `.sushiscene` persistence (`se_editor`). |

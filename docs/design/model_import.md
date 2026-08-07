@@ -1,6 +1,7 @@
 # Model Import — a glTF file as an entity hierarchy (`SushiEngine::Asset`)
 
-**Status:** designed, 2026-08-06 (§13).
+**Status:** in progress — P0's module layout, instantiation plan, render seam, editor wiring and
+import report are built; §9's naming correction and collider generation on import are open (§13).
 
 A glTF file reaches the engine today through three doors, and every one of them throws the file's
 structure away. The cooking pipeline merges the whole file into a single `Geometry::TriangleMesh`.
@@ -497,11 +498,22 @@ rather than when something falls through the floor.
 
 ## §13 Roadmap
 
-P0 — §3 to §10, with §4.3 withdrawn — **designed, not started.** The implementation plan is written
+P0 — §3 to §10, with §4.3 withdrawn — **in progress.** The implementation plan is written
 separately, per the precedent of `docs/superpowers/plans/2026-08-05-static-mesh-authoring.md`.
 
-The scope P0 delivers: a glTF file's node graph as an entity hierarchy, per-asset settings in a
-`.meta` sidecar with the one-way migration off the path-keyed store, drag-and-drop instantiation,
-collider generation on import, and §9's naming correction. The scope P0 does not deliver, stated so
-it is not mistaken for an oversight: no link from a placed subtree back to its asset and therefore
-no reimport (§4.3), no rigged models inside a hierarchy (§2), and no asset inspector (§12).
+What P0 has delivered: a glTF file's node graph as an entity hierarchy (§3 to §5's
+`plan_model_instantiation`, unit-tested); per-asset settings in a `.meta` sidecar with the one-way
+migration off the path-keyed store (`Model::migrate_cooking_overrides_to_sidecars`); §6's
+`load_gltf_scene` render seam and the load path that resolves it; §7's drag-and-drop
+instantiation through `place_model_instance`, one undo step per placement; and §8's
+`ModelImportReport`.
+
+What P0 still owes. Collider generation on import is **not** delivered: `generate_collider` is
+computed per planned entity, but `instantiate_plan`'s switch handles only `Shape`, `Light`,
+`Camera` and `None` and never reads it, so no collider component is ever created. §9's naming
+correction is not made either — `has_character_extension` and `open_character_in_preview` still
+route every glTF and GLB to the animated-character preview whether or not the file carries a skin.
+
+The scope P0 does not deliver at all, stated so it is not mistaken for an oversight: no link from a
+placed subtree back to its asset and therefore no reimport (§4.3), no rigged models inside a
+hierarchy (§2), and no asset inspector (§12).
