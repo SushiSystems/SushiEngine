@@ -149,10 +149,9 @@ looks, and only then is wired. Each later phase replaces one mock section with r
 - **Statistics** keeps its current sections. Its Frame line becomes the real measurement, and it
   gains one summary line — draw calls, visible triangles, video memory used — so the glance
   panel answers the first question without opening the Profiler.
-- **Profiler** is a new free-function panel in its own translation unit, `profiler_panel.cpp`
-  beside the existing panels under `applications/editor/source/ui/`, with a
-  `ProfilerPanelState` owned by `main()`: pause, section collapse state, and nothing the
-  profiler already stores. Sections:
+- **Profiler** is a new free-function panel in its own translation unit,
+  `applications/editor/source/ui/profiler_panel.cpp`, with a `ProfilerPanelState` owned by
+  `main()`: pause, section collapse state, and nothing the profiler already stores. Sections:
   - **Frame** — CPU and GPU frame-time history plotted from the profiler's ring, with the
     current, average and worst-of-ring values printed beside it.
   - **CPU** — the channel table, plus the physics stage timings the physics statistics already

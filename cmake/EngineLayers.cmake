@@ -19,6 +19,7 @@ set(SUSHIENGINE_MODULE_LAYERS
     core            foundation
     ecs             foundation
     execution       foundation
+    profiling       foundation
     platform        foundation
     geometry        domain
     imaging         domain

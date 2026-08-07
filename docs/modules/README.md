@@ -18,6 +18,7 @@ a `README.md` carries the wrong Doxygen label, or when this table and the module
 | [ecs](../../engine/foundation/ecs/README.md) | `foundation` | Entities, archetype-chunk storage of structure-of-arrays columns, and the schedule that turns declared reads and writes into execution nodes. |
 | [execution](../../engine/foundation/execution/README.md) | `foundation` | The `Context`/`Graph`/`Buffer` seam every subsystem allocates and schedules through, its normative hazard semantic, and the two backends that satisfy it. |
 | [platform](../../engine/foundation/platform/README.md) | `foundation` | The window and operating-system lifecycle seam, and its SDL2 implementation. |
+| [profiling](../../engine/foundation/profiling/README.md) | `foundation` | CPU frame timing: named channels, RAII scopes, and a fixed history ring, with an injectable clock. |
 | [animation](../../engine/domain/animation/README.md) | `domain` | Skeletons and clips, the animator state machine and blend trees, the inverse-kinematics and pose-modifier stack, and the evaluators that produce a skinning palette. |
 | [astro](../../engine/domain/astro/README.md) | `domain` | Where the sun, moon, planets and stars are: astronomical time, orbital elements, the ephemeris, gravity, and the observer's reference frames. |
 | [atmosphere](../../engine/domain/atmosphere/README.md) | `domain` | The global dynamical core — two-layer moist quasi-geostrophic flow — its baked mean climatology, and the transform its elliptic inversion is built on. |

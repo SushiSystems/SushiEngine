@@ -5,6 +5,7 @@
 add_subdirectory(core)
 add_subdirectory(ecs)
 add_subdirectory(execution)
+add_subdirectory(profiling)
 
 # platform/ is added by the root CMakeLists.txt instead, because whether it is built at
 # all depends on options that file settles further down.

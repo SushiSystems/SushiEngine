@@ -629,6 +629,7 @@ add_executable(sushiengine_functional_tests
     # The refusals carry the file — a blob that half-decodes is worse than one that does
     # not decode at all.
     unit/test_byte_encoding.cpp
+    unit/test_frame_profiler.cpp
     unit/test_preferences_roundtrip.cpp
     # The player shell's launch path: the `boot.json` a shipped build is configured by and
     # the command line a developer overrides it with. Both are read before a window or a
@@ -659,6 +660,9 @@ target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_physics_c
 # The global dynamical core and its Fourier transform are the two compiled units in
 # the neutral atmosphere module.
 target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_atmosphere)
+# The CPU frame profiler: FrameProfiler/ScopedTimer are the only compiled unit in the
+# neutral profiling module.
+target_link_libraries(sushiengine_functional_tests PRIVATE sushiengine_profiling)
 # The scene-serializer round-trip drives the real simulation behind IWorldEditor; the undo
 # stack, the preferences store, the autosave clock and the bake model are covered through the
 # same library the editor links rather than through translation units compiled in by hand.
