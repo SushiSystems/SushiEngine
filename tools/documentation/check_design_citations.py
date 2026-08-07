@@ -2,8 +2,8 @@
 
 ``docs/design/`` states its own evidence standard — ``static_mesh_authoring.md`` §1 writes it
 as "a claim is a file:line, not a description" — and ``docs/documentation-style-guide.md``
-repeats it as "a path in prose is a real path". Nothing checked either, and the repository
-restructure left 720 of 836 cited paths pointing at nothing.
+repeats it as "a path in prose is a real path". Nothing checked either, and this script
+measures 617 of 680 cited paths pointing at nothing.
 
 ``check_documentation_length.py`` already resolves markdown *links*. A design document does not
 cite evidence as a link; it cites it as a backticked path, which nothing looked at until this
@@ -39,9 +39,14 @@ DESIGN_DIRECTORY = REPOSITORY_ROOT / "docs" / "design"
 
 # Directories that hold no citable source: build trees, generated output, vendored code, and
 # the cooked asset cache. Walking them would make a stale build directory answer for the tree.
+# ``docs`` is NOT among them. A design document cites other documents, the pattern below
+# matches ``.md``, and the two renames the reorganization performed — ``docs/glossary.md`` to
+# ``docs/reference/glossary.md`` and its neighbours — are only repairable if those files are
+# indexed. Only the generated reference under ``docs/api`` and ``docs/api-site`` is skipped,
+# the same exclusion ``check_documentation_length.py`` makes.
 SKIPPED_DIRECTORIES = {
-    ".git", ".venv", "__pycache__", "build", "build-editor", "build-player", "cooked",
-    "docs", "third_party",
+    ".git", ".venv", "__pycache__", "api", "api-site", "build", "build-editor", "build-player",
+    "cooked", "third_party",
 }
 
 # A citation is a backticked token that names a file: it carries an extension this tree
@@ -49,7 +54,7 @@ SKIPPED_DIRECTORIES = {
 # one line, one range, or a comma-separated run of either (design docs cite "cpp:47,73,86" to
 # point at three call sites in one file, not three files).
 #
-# The extension list is source code and shader/config formats, plus the asset formats the
+# The extension list is source code and shader/configuration formats, plus the asset formats the
 # design corpus cites by concrete example rather than by extension alone: glTF/GLB import
 # sources (``gltf``), their Unity-parity sidecar (``meta``), editor layout state (``ini``), CI
 # workflow files (``yml``) and this project's own prefab format (``sushiprefab``, first landed
@@ -63,22 +68,20 @@ ALLOWED = {}
 
 
 def index_tree():
-    """Every citable file in the repository, as repository-relative posix paths.
+    """Every citable file in the repository, keyed by file name.
 
-    :return: a (all_paths, by_base_name) pair, the second keyed by file name so a citation
-             whose directory was renamed can still be resolved.
+    :return: a dictionary mapping a file name to every repository-relative posix path that
+             carries it, so a citation whose directory was renamed can still be resolved.
     """
-    all_paths = []
     by_base_name = defaultdict(list)
 
     for directory, subdirectories, file_names in os.walk(REPOSITORY_ROOT):
         subdirectories[:] = [d for d in subdirectories if d not in SKIPPED_DIRECTORIES]
         for file_name in file_names:
             relative = (Path(directory) / file_name).relative_to(REPOSITORY_ROOT).as_posix()
-            all_paths.append(relative)
             by_base_name[file_name].append(relative)
 
-    return all_paths, by_base_name
+    return by_base_name
 
 
 def classify(citation, by_base_name):
@@ -158,7 +161,7 @@ def main():
             print(f"{target}: No such file or directory", file=sys.stderr)
             sys.exit(1)
 
-    _, by_base_name = index_tree()
+    by_base_name = index_tree()
     citations = collect(targets)
 
     tally = defaultdict(int)
