@@ -44,6 +44,7 @@
 
 #include <cstddef>
 
+#include <SushiEngine/geometry/mesh_thumbnail_camera.hpp>
 #include <SushiEngine/material/material.hpp>
 #include <SushiEngine/render/asset_library_interface.hpp>
 
@@ -54,6 +55,16 @@ namespace SushiEngine
         namespace Geometry
         {
             class MeshRegistry;
+
+            // Brought in here, alongside the module's own MeshRegistry, so this header's
+            // declarations and the .cpp's definitions can name them as plain `Geometry::AABB3`
+            // / `Geometry::expand_aabb` the same way they already name `Geometry::MeshRegistry`
+            // — both are owned by the domain geometry module (SushiEngine::Geometry), not this
+            // one, and without these using-declarations an unqualified `Geometry::` lookup
+            // inside `Render::Assets` would resolve to this nested `Render::Geometry` namespace
+            // instead and fail to find them.
+            using SushiEngine::Geometry::AABB3;
+            using SushiEngine::Geometry::expand_aabb;
         }
 
         namespace Assets
@@ -69,11 +80,16 @@ namespace SushiEngine
              * @param out_meshes    Receives one mesh id per imported primitive.
              * @param out_materials Receives the material for each entry in @p out_meshes.
              * @param capacity      Capacity of @p out_meshes and @p out_materials.
+             * @param out_bounds    If non-null, accumulates the world-space bounding box of
+             *                      every vertex written across all imported primitives; left
+             *                      untouched (still @c initialized == false) if the file could
+             *                      not be read.
              * @return Number of primitives written, or 0 if the file could not be read.
              */
             std::size_t import_gltf(const char* path, Geometry::MeshRegistry& meshes,
                                     TextureLibrary& textures, MeshId* out_meshes,
-                                    Render::Material* out_materials, std::size_t capacity);
+                                    Render::Material* out_materials, std::size_t capacity,
+                                    Geometry::AABB3* out_bounds = nullptr);
 
             /**
              * @brief Imports every primitive of a glTF file in mesh-local space, node by node.

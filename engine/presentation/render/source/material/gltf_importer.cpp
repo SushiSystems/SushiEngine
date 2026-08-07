@@ -352,7 +352,8 @@ namespace SushiEngine
 
             std::size_t import_gltf(const char* path, Geometry::MeshRegistry& meshes,
                                     TextureLibrary& textures, MeshId* out_meshes,
-                                    Render::Material* out_materials, std::size_t capacity)
+                                    Render::Material* out_materials, std::size_t capacity,
+                                    Geometry::AABB3* out_bounds)
             {
                 if (path == nullptr || out_meshes == nullptr || out_materials == nullptr ||
                     capacity == 0)
@@ -409,6 +410,15 @@ namespace SushiEngine
                             vertex.position[0] = m[0] * x + m[4] * y + m[8] * z + m[12];
                             vertex.position[1] = m[1] * x + m[5] * y + m[9] * z + m[13];
                             vertex.position[2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+
+                            if (out_bounds != nullptr)
+                            {
+                                Geometry::expand_aabb(
+                                    *out_bounds,
+                                    Vector3{static_cast<double>(vertex.position[0]),
+                                           static_cast<double>(vertex.position[1]),
+                                           static_cast<double>(vertex.position[2])});
+                            }
 
                             const float nx = vertex.normal[0];
                             const float ny = vertex.normal[1];
