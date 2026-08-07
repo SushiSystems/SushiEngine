@@ -670,13 +670,18 @@ namespace SushiEngine
             ImGui::EndChild();
 
             ImGui::SameLine();
-            ImGui::BeginChild("project_grid", ImVec2(0.0f, 0.0f), true);
+            // Read Ctrl before BeginChild: NoScrollWithMouse must be a BeginChild argument, and
+            // it is only wanted while Ctrl is held — otherwise plain scrolling must still work.
+            const bool zoom_gate_ctrl_held = ImGui::GetIO().KeyCtrl;
+            ImGui::BeginChild("project_grid", ImVec2(0.0f, 0.0f), true,
+                              zoom_gate_ctrl_held ? ImGuiWindowFlags_NoScrollWithMouse : 0);
 
-            // Ctrl+scroll zooms the icon grid, Unity-style; consuming the wheel value here
-            // (zeroing it) stops ImGui's own child-scroll logic from also scrolling the list
-            // on the same wheel event later this frame.
+            // Ctrl+scroll zooms the icon grid, Unity-style. ImGuiWindowFlags_NoScrollWithMouse
+            // above (applied only while Ctrl is held) is what actually stops the window's own
+            // wheel-scroll: ImGui applies mouse wheel to the hovered window during NewFrame(),
+            // before this code runs, so zeroing io.MouseWheel here could never have prevented it.
             if (context.preferences.project_view_mode == Authoring::ProjectBrowserViewMode::Grid &&
-                ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl && ImGui::GetIO().MouseWheel != 0.0f)
+                ImGui::IsWindowHovered() && zoom_gate_ctrl_held && ImGui::GetIO().MouseWheel != 0.0f)
             {
                 constexpr float MIN_TILE_SIZE = 48.0f;
                 constexpr float MAX_TILE_SIZE = 160.0f;
@@ -684,7 +689,6 @@ namespace SushiEngine
                 context.preferences.project_tile_size = std::clamp(
                     context.preferences.project_tile_size + ImGui::GetIO().MouseWheel * ZOOM_STEP,
                     MIN_TILE_SIZE, MAX_TILE_SIZE);
-                ImGui::GetIO().MouseWheel = 0.0f;
             }
 
             ImGui::SetNextItemWidth(-FLT_MIN);
