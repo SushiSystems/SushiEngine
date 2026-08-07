@@ -89,6 +89,21 @@ namespace SushiEngine
                 context.selected_entity = id;
             }
 
+            // The entities one drag actually moves: the whole multi-selection when the row
+            // under the cursor is part of one, or just that row otherwise — Unity's own drag
+            // convention. The payload only ever carries the one id under the cursor (ImGui's
+            // payload is a fixed-size blob set once at drag start), so this is what makes a
+            // drag started from a Ctrl/Shift-selected row carry the rest of the selection with
+            // it instead of only the row the mouse happened to grab.
+            std::vector<EntityId> drag_targets(const EditorContext& context, EntityId dragged)
+            {
+                if (context.selected_entities.size() > 1 &&
+                    std::find(context.selected_entities.begin(), context.selected_entities.end(),
+                             dragged) != context.selected_entities.end())
+                    return context.selected_entities;
+                return {dragged};
+            }
+
             // One Hierarchy row: rename field or selectable label, drag-reparent source
             // and target, context menu, and (when not renaming) a recursive draw of its
             // children so parenting nests visually the way Unity's hierarchy does.
@@ -134,11 +149,25 @@ namespace SushiEngine
                         select_range(context, order, id);
                     else if (io.KeyCtrl)
                         toggle_selected(context, id);
-                    else
+                    else if (!is_selected(context, id))
                         select_only(context, id);
+                    // An unmodified press on a row that is already part of a multi-selection
+                    // is deliberately left alone here rather than collapsed to just this row:
+                    // collapsing on press would erase the rest of the selection before a drag
+                    // starting from this row ever got a chance to carry it. The deactivation
+                    // check below collapses it instead, but only once the press turns out to
+                    // have been a plain click rather than a drag.
                     if (!io.KeyShift && !io.KeyCtrl &&
                         ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                         context.frame_selected_requested = true;
+                }
+                if (ImGui::IsItemDeactivated())
+                {
+                    const ImGuiIO& io = ImGui::GetIO();
+                    const float threshold = io.MouseDragThreshold;
+                    if (!io.KeyShift && !io.KeyCtrl && is_selected(context, id) &&
+                        io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < threshold * threshold)
+                        select_only(context, id);
                 }
 
                 if (ImGui::BeginDragDropSource())
@@ -164,19 +193,29 @@ namespace SushiEngine
                         if (payload->IsDelivery())
                         {
                             context.history.record(*world);
-                            if (drop_before)
+                            for (const EntityId entity : drag_targets(context, dragged))
                             {
-                                world->set_parent(dragged, world->parent(id));
-                                world->move_entity(dragged, id, false);
-                            }
-                            else if (drop_after)
-                            {
-                                world->set_parent(dragged, world->parent(id));
-                                world->move_entity(dragged, id, true);
-                            }
-                            else
-                            {
-                                world->set_parent(dragged, id);
+                                // A selection member dropped onto another member of the same
+                                // selection has no well-defined move (it cannot become its own
+                                // sibling/parent); set_parent's own child==new_parent guard would
+                                // catch the "onto itself" case anyway, but skipping here also
+                                // avoids a meaningless move_entity reorder against itself.
+                                if (entity == id)
+                                    continue;
+                                if (drop_before)
+                                {
+                                    world->set_parent(entity, world->parent(id));
+                                    world->move_entity(entity, id, false);
+                                }
+                                else if (drop_after)
+                                {
+                                    world->set_parent(entity, world->parent(id));
+                                    world->move_entity(entity, id, true);
+                                }
+                                else
+                                {
+                                    world->set_parent(entity, id);
+                                }
                             }
                         }
                         else
@@ -356,7 +395,8 @@ namespace SushiEngine
                         {
                             const EntityId dragged = *static_cast<const EntityId*>(payload->Data);
                             context.history.record(*world);
-                            world->set_parent(dragged, NULL_ENTITY);
+                            for (const EntityId entity : drag_targets(context, dragged))
+                                world->set_parent(entity, NULL_ENTITY);
                         }
                         // An asset dropped here is placed as a root. Parked rather than
                         // placed on the spot: creating entities in the middle of the walk
