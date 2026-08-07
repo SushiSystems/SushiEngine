@@ -9,13 +9,13 @@ last** — see §0.0.
 
 Ground-truth findings verified against the source tree on 2026-07-25; **re-verified 2026-08-01** —
 the counts and characterizations corrected below are marked "(re-verified 2026-08-01)". The §3.1
-shared-vocabulary design pass has since landed: see `unified_hazard_model.md` (UHM). PS3 is
-explicitly out of scope (EOL hardware, no active toolchain, no serious studio still targets it).
+shared-vocabulary design pass has since landed: see `docs/design/unified_hazard_model.md` (UHM). PS3
+is explicitly out of scope (EOL hardware, no active toolchain, no serious studio still targets it).
 PS5/PS4 sections are written entirely from public knowledge — this project has no PlayStation
 Partners registration or devkit access as of this writing, so nothing NDA'd is claimed or guessed at
 anywhere in this document.
 
-This document is the multi-platform analogue of `render_pipeline_refactor.md`: a living,
+This document is the multi-platform analogue of `docs/design/render_pipeline_refactor.md`: a living,
 phase-tracked plan. Update phase status in place as work lands, the same way that document does.
 
 ### 0.0 Platform priority (supersedes any conflicting sequencing implied elsewhere in this document)
@@ -65,7 +65,7 @@ Read in this order:
 
 | # | Wall | The problem | The fix | Owning section |
 |---|---|---|---|---|
-| 1 | **SushiRuntime / SYCL execution wall** | The ECS's `World`/`Schedule`/`Chunk` types are typed directly against `SushiRuntime::API::{Runtime,Graph,Buffer}`. SushiRuntime's SYCL toolchains (intel-llvm, AdaptiveCpp, oneAPI DPC++) have **zero path** to macOS, iOS, Android, or PlayStation — no code, no docs, no CI. (Re-verified 2026-08-01: the runtime's `ENGINE_BACKBONE_REFACTOR.md` §12/BB-8 now *states* the gap and records "no Metal/Vulkan-compute backend" as a non-goal — a plan, not yet a published support matrix.) Any TU that includes `World`/`Schedule` cannot currently be compiled for 5 of 7 target platforms. | Introduce a **compile-time execution-backend seam** (`SushiEngine::Execution`) inside SushiEngine, with the existing SushiRuntime path as one implementation and a new native thread-pool/DAG implementation as the other. This is smaller than it sounds: the actual SYCL surface in `include/SushiEngine/` is **11 symbol usages across 4 files** (re-verified 2026-08-01; the previously counted 12th/5th was an example TU) — the system bodies themselves are already plain C++. One new deep coupling site has appeared since the original survey: `physics/solver/runtime_graph_builder.hpp` (42 `SushiRuntime::` usages) — see §4.4. | §4 |
+| 1 | **SushiRuntime / SYCL execution wall** | The ECS's `World`/`Schedule`/`Chunk` types are typed directly against `SushiRuntime::API::{Runtime,Graph,Buffer}`. SushiRuntime's SYCL toolchains (intel-llvm, AdaptiveCpp, oneAPI DPC++) have **zero path** to macOS, iOS, Android, or PlayStation — no code, no docs, no CI. (Re-verified 2026-08-01: the runtime's `ENGINE_BACKBONE_REFACTOR.md` §12/BB-8 now *states* the gap and records "no Metal/Vulkan-compute backend" as a non-goal — a plan, not yet a published support matrix.) Any TU that includes `World`/`Schedule` cannot currently be compiled for 5 of 7 target platforms. | Introduce a **compile-time execution-backend seam** (`SushiEngine::Execution`) inside SushiEngine, with the existing SushiRuntime path as one implementation and a new native thread-pool/DAG implementation as the other. This is smaller than it sounds: the actual SYCL surface in `include/SushiEngine/` is **11 symbol usages across 4 files** (re-verified 2026-08-01; the previously counted 12th/5th was an example TU) — the system bodies themselves are already plain C++. One new deep coupling site has appeared since the original survey: `engine/domain/physics/include/SushiEngine/physics/solver/runtime_graph_builder.hpp` (42 `SushiRuntime::` usages) — see §4.4. | §4 |
 | 2 | **Vulkan-hardcoded RHI wall** | The renderer's outer seam (`IRenderDevice`, `IWindowRenderer`, `ISceneView`) is genuinely backend-neutral, but everything beneath it — the render graph, all 44 passes (re-verified 2026-08-01; was 39), the lighting/scene/resource systems — is typed directly against `Vk*`/`VmaAllocation`. 81 files include `<vulkan/vulkan.h>`; 34 include `<vk_mem_alloc.h>` (re-verified 2026-08-01; was 69/26). No second backend exists anywhere. | A layered `Rhi::{types, handles, ICommandList, IDevice}` abstraction, introduced behind a golden-image + command-trace regression harness (there are currently **zero render tests** — a two-pixel probe is the entire safety net for a ~48,700-line C++ refactor, 64,061 LOC with shaders; re-verified 2026-08-01). Metal is the real second backend; MoltenVK is a bring-up crutch and permanent differential oracle, not the shipping answer. | §5 |
 | 3 | **No shippable non-editor target** | The only executable that draws a full scene to a screen is `se_editor` (SDL2 + ImGui + Vulkan desktop app). There is no player/runtime target, no scene→swapchain present path outside ImGui, no asset-mounting abstraction, and CMake has essentially zero platform-conditional logic beyond Windows-vs-POSIX. | Extract `sushi_platform` and `sushi_scene` libraries out of `editor/`, build a lean `se_player` executable driven by a `PlayerApp::frame()` callback (not a `while` loop — mandatory for iOS), and grow the build system (`cmake/Platform.cmake`, toolchain files, CI matrix) to support cross-compilation. | §6 |
 
@@ -74,9 +74,9 @@ Read in this order:
 Every research agent independently found the codebase in noticeably better shape for portability
 than the brief assumed:
 
-- SushiEngine's ECS **system bodies contain no SYCL at all** — `sandbox/main.cpp` (the canonical
-  reference) has zero `sycl::` usages. The coupling is at the type level (three API types), not the
-  semantic level.
+- SushiEngine's ECS **system bodies contain no SYCL at all** — `samples/sandbox/main.cpp` (the
+  canonical reference) has zero `sycl::` usages. The coupling is at the type level (three API
+  types), not the semantic level.
 - **Touch input is already fully implemented** (`SdlInputTranslator`, `VirtualControlSource`,
   `GestureRecognizer`, unit-tested) — it is simply never wired to any host. This is a wiring task,
   not a build task.
@@ -98,9 +98,9 @@ than the brief assumed:
 ### 1.3 What's worse than a casual read would suggest
 
 - The renderer hard-requires **Vulkan 1.4** with `maintenance5`/`maintenance6`/`pushDescriptor` as
-  *mandatory* device features (`vulkan_device.cpp`). No shipping Android device and no MoltenVK
-  build offers Vulkan 1.4. This must be walked back to a 1.3 floor before Android or
-  Apple-via-MoltenVK is even possible.
+  *mandatory* device features (`engine/presentation/render/source/rhi/vulkan/vulkan_device.cpp`). No
+  shipping Android device and no MoltenVK build offers Vulkan 1.4. This must be walked back to a 1.3
+  floor before Android or Apple-via-MoltenVK is even possible.
 - There is **no scene→swapchain present path that isn't ImGui**. `IWindowRenderer::begin_frame()`
   returns a raw command buffer that today only the ImGui backend records into. A player that fills
   the screen with a rendered scene cannot be built without a new renderer entry point.
@@ -131,27 +131,30 @@ list.
   `examples/` (~35 standalone SYCL-TU demos); `cli/` (the `se`/`ss` Python developer CLI).
 - **Zero `if(APPLE)`, `if(ANDROID)`, `if(IOS)`, or `CMAKE_SYSTEM_NAME` checks exist anywhere in the
   CMake tree.** The only non-Windows CMake branches are two `if(NOT WIN32)` blocks
-  (`cmake/Vcpkg.cmake`, `audio/CMakeLists.txt`) written as "else of Windows," not per-OS handling.
+  (`cmake/Vcpkg.cmake`, `engine/domain/audio/CMakeLists.txt`) written as "else of Windows," not
+  per-OS handling.
 - `cmake/Vcpkg.cmake` is a no-op off Windows entirely (`if(NOT WIN32) return()`).
 - No `vcpkg.json` manifest exists in either repo. Dependency provisioning is a custom `ss` CLI
   reading `cli/sushistack.deps.toml` fragments with only `linux_apt`/`windows_vcpkg` fields — **no
   macOS/Android/iOS field exists in the schema at all.**
-- Exactly two working POSIX code paths exist **inside `editor/`** (`editor/core/preferences.cpp:53`,
-  `editor/main.cpp:100`); two functions are explicitly Windows-only with a no-op stub and an in-code
-  comment: *"Windows-only for now; the project targets Windows first."* (Re-verified 2026-08-01:
-  tree-wide, three more real POSIX branches exist outside the editor —
-  `render/material/font_atlas.cpp:51` font paths, `render/rhi/vulkan/vulkan_device.cpp:310`
-  `VK_KHR_external_memory_fd`, and the Win32-handle-vs-fd split throughout
-  `render/interop/vulkan_interop_buffer.cpp` — so the "Windows-only codebase" framing is
-  editor-scoped, not global.)
+- Exactly two working POSIX code paths exist **inside `editor/`**
+  (`engine/world/authoring/source/preferences.cpp`, `applications/editor/source/main.cpp`); two
+  functions are explicitly Windows-only with a no-op stub and an in-code comment: *"Windows-only for
+  now; the project targets Windows first."* (Re-verified 2026-08-01: tree-wide, three more real
+  POSIX branches exist outside the editor —
+  `engine/presentation/render/source/material/font_atlas.cpp` font paths,
+  `engine/presentation/render/source/rhi/vulkan/vulkan_device.cpp` `VK_KHR_external_memory_fd`, and
+  the Win32-handle-vs-fd split throughout
+  `engine/presentation/render/source/interop/vulkan_interop_buffer.cpp` — so the "Windows-only
+  codebase" framing is editor-scoped, not global.)
 - No `__APPLE__`, `__ANDROID__`, `TARGET_OS_IOS`, or any engine-defined `SE_PLATFORM_*` macro exists
   anywhere.
 - CI (`.github/workflows/ci.yml`) has exactly 3 jobs (`functional`, `editor`, `docs`), **all
   `runs-on: ubuntu-latest`.** No Windows or macOS runner exists today despite Windows being the
   primary dev platform. No packaging/installer infrastructure exists anywhere (no CPack, NSIS,
   app-bundle/codesign, `.apk`/`.ipa`).
-- The project has **never cut a tagged release** — the entire `CHANGELOG.md` sits under
-  `## [Unreleased]`.
+- The project has **never cut a tagged release** — the entire `docs/reference/changelog.md` sits
+  under `## [Unreleased]`.
 
 ### 2.2 Renderer / RHI
 
@@ -168,23 +171,25 @@ list.
   `IRenderDevice`/`IWindowRenderer`/`ISceneView` carry no Vulkan types in their public signatures
   (by design, documented as a dependency-inversion boundary). Everything beneath — `render/graph`,
   all 39 `render/passes`, `render/lighting`, `render/scene`, `render/resources` — is hardcoded to
-  `Vk*` types. **Only one RHI backend exists anywhere in the tree**, and `render/CMakeLists.txt`
-  hard-requires Vulkan/VMA/vk-bootstrap/glslang at configure time.
+  `Vk*` types. **Only one RHI backend exists anywhere in the tree**, and
+  `engine/presentation/render/CMakeLists.txt` hard-requires Vulkan/VMA/vk-bootstrap/glslang at
+  configure time.
 - Shader pipeline is GLSL-only, compiled offline to SPIR-V via a glslang host tool that emits C++
   headers with embedded SPIR-V words. Zero cross-compilation exists. This was an **explicit,
   deliberate, previously-deferred decision** (`docs/design/render_pipeline_refactor.md` Phase 3.6),
   with a stated revisit trigger: *"when a non-SPIR-V backend is required."* That trigger has now
   fired.
 - GPU data binding uses four simultaneous strategies (re-verified 2026-08-01): a 32-binding
-  push-descriptor set 0 (**already documented as full** — `scene_layout.cpp:199` static-asserts the
-  32-entry floor; bindings 0 and 7–31 are all named frame-globals, 1–6 are the only pass-local
-  slots), a bindless `update-after-bind` heap (set 1), a plain per-frame instance set (set 2,
-  `INSTANCE_SET` — GPU-driven instance/compacted buffers, not in the original survey), and 128-byte
-  push constants. All Vulkan-typed, no abstraction.
-- `vulkan_device.cpp` mandates Vulkan **1.4** plus `maintenance5`/`maintenance6`/`pushDescriptor` as
-  required (not optional) features.
-- No render tests exist anywhere in `tests/`. The only harness is `render/probe/main.cpp` (82 lines,
-  checks two pixels).
+  push-descriptor set 0 (**already documented as full** —
+  `engine/presentation/render/source/scene/scene_layout.cpp` static-asserts the 32-entry floor;
+  bindings 0 and 7–31 are all named frame-globals, 1–6 are the only pass-local slots), a bindless
+  `update-after-bind` heap (set 1), a plain per-frame instance set (set 2, `INSTANCE_SET` —
+  GPU-driven instance/compacted buffers, not in the original survey), and 128-byte push constants.
+  All Vulkan-typed, no abstraction.
+- `engine/presentation/render/source/rhi/vulkan/vulkan_device.cpp` mandates Vulkan **1.4** plus
+  `maintenance5`/`maintenance6`/`pushDescriptor` as required (not optional) features.
+- No render tests exist anywhere in `tests/`. The only harness is `tools/probes/render/main.cpp` (82
+  lines, checks two pixels).
 
 ### 2.3 SushiRuntime (the sibling "battery" repo)
 
@@ -201,8 +206,8 @@ list.
   with a second wave on top (`cb894ff`: BB-3 determinism flags, BB-2 co-tenancy `RuntimeSettings`,
   BB-4 packaging). Two consequences for this plan: the engine-side adoption work (BB-0's engine
   half) is unblocked now, and the co-tenancy wave **flipped the rebalancer default to off** — the
-  engine's `test_runtime_graph_builder.cpp:266-277`, which asserts the old default, will fail
-  against runtime HEAD and must be inverted as part of adoption (the BB plan predicted exactly
+  engine's `tests/integration/test_runtime_graph_builder.cpp`, which asserts the old default, will
+  fail against runtime HEAD and must be inverted as part of adoption (the BB plan predicted exactly
   this).
 - Three supported SYCL toolchains (intel-llvm, AdaptiveCpp, Intel oneAPI DPC++), all
   LLVM/Intel-lineage. GPU backend selection covers CUDA, ROCm, Intel Level Zero, and a CPU/OpenCL
@@ -228,13 +233,14 @@ list.
   (`Graph::emit_dynamic_per_element`, reached transitively via `Graph::add` — the engine never names
   it). SushiEngine's own SYCL usage in `include/SushiEngine/` is 11 symbol usages across 4 files
   (re-verified 2026-08-01; the old 12/5 count included an example TU), one of which
-  (`audio/accelerator_sycl.hpp`, 5 of the 11) is already correctly isolated behind an
-  `IDspAccelerator` interface. **The file-count blast radius, by contrast, grew**: 66 files now
-  mention SushiRuntime (was 52), and the physics work added
-  `physics/solver/runtime_graph_builder.hpp` — self-described as "the one file in the physics layer
-  that names SushiRuntime", 42 usages, consuming a far wider API surface (`ElementRange`, `when()`
-  predicated nodes, `sized()`, `Residency`/`DeviceIndex`) than the ECS does. The `Execution`
-  vocabulary must cover those constructs or physics cannot retarget — UHM §4.5 assigns each a home.
+  (`engine/domain/audio/include/SushiEngine/audio/accelerator_sycl.hpp`, 5 of the 11) is already
+  correctly isolated behind an `IDspAccelerator` interface. **The file-count blast radius, by
+  contrast, grew**: 66 files now mention SushiRuntime (was 52), and the physics work added
+  `engine/domain/physics/include/SushiEngine/physics/solver/runtime_graph_builder.hpp` —
+  self-described as "the one file in the physics layer that names SushiRuntime", 42 usages,
+  consuming a far wider API surface (`ElementRange`, `when()` predicated nodes, `sized()`,
+  `Residency`/`DeviceIndex`) than the ECS does. The `Execution` vocabulary must cover those
+  constructs or physics cannot retarget — UHM §4.5 assigns each a home.
 
 ---
 
@@ -243,17 +249,17 @@ list.
 These three walls can be worked **independently and mostly in parallel** by different engineers,
 with exactly two hard coupling points:
 
-1. **The allocator/interop seam.** *(Characterization corrected 2026-08-01.)* `render/interop.hpp`
-   is not a USM-column pass-through: it is the renderer's **export half** — the renderer allocates
-   external-memory buffers (UUID-matched, Win32-handle/fd) for the *runtime* to import, and today it
-   has **zero callers** because the runtime's import half (BB-1a) and completion export (BB-1b) are
-   planned but unbuilt; the shipping sim→render path is still a host round-trip (value-snapshot
-   `RenderScene` extract). The requirement the original wording gestured at is real and stands,
-   tier-shaped: on desktop, zero-copy = renderer-exports/runtime-imports (BB-1a/1b); on UMA
-   platforms with no SushiRuntime, the native `Execution` backend's allocator must accept an
-   RHI-supplied allocator so columns *are* graphics-visible. Both tiers, the direction asymmetry,
-   and the injectable-allocator hook are now designed once in **UHM §6** — do not re-derive them per
-   wall.
+1. **The allocator/interop seam.** *(Characterization corrected 2026-08-01.)*
+   `engine/presentation/render/include/SushiEngine/render/interop.hpp` is not a USM-column
+   pass-through: it is the renderer's **export half** — the renderer allocates external-memory
+   buffers (UUID-matched, Win32-handle/fd) for the *runtime* to import, and today it has **zero
+   callers** because the runtime's import half (BB-1a) and completion export (BB-1b) are planned but
+   unbuilt; the shipping sim→render path is still a host round-trip (value-snapshot `RenderScene`
+   extract). The requirement the original wording gestured at is real and stands, tier-shaped: on
+   desktop, zero-copy = renderer-exports/runtime-imports (BB-1a/1b); on UMA platforms with no
+   SushiRuntime, the native `Execution` backend's allocator must accept an RHI-supplied allocator so
+   columns *are* graphics-visible. Both tiers, the direction asymmetry, and the injectable-allocator
+   hook are now designed once in **UHM §6** — do not re-derive them per wall.
 2. **Android and iOS bring-up require all three walls to have landed their platform-specific
    milestone before a scene can render on-device.** Desktop (Windows/Linux) requires none of this —
    it works today. macOS needs Walls 1 and 2 (native Execution backend + Metal-or-MoltenVK) but not
@@ -265,8 +271,8 @@ before any mobile or console hardware is involved.
 
 ### 3.1 A fourth coupling point — the shared sim+render hazard vocabulary (design deferred)
 
-**Status: DESIGNED (2026-08-01) — see `unified_hazard_model.md` (UHM).** The dedicated design pass
-this subsection deferred has landed: UHM defines the vocabulary types (`AccessIntent`,
+**Status: DESIGNED (2026-08-01) — see `docs/design/unified_hazard_model.md` (UHM).** The dedicated
+design pass this subsection deferred has landed: UHM defines the vocabulary types (`AccessIntent`,
 `BufferInterval`/`TextureInterval`, `DeterminismClass`, `NodeDescriptor`), the tracker contract
 (safety floor + determinism floor + engine-core quality target), the ownership boundary
 (engine-owned `include/SushiEngine/execution/`; SushiRuntime remains a backend behind a member-wise
@@ -293,12 +299,13 @@ Known open constraints for whoever designs this (surfaced in discussion, not yet
   shader/attachment access. This is a real design task, not a rename.
 - **Cadence mismatch.** `Execution::Graph` compiles once and replays once per simulation tick,
   including during SushiLoop's rollback re-simulation (full-snapshot restore + replay — the "delta
-  rollback" phrasing used elsewhere is aspirational; `loop/rollback.hpp` captures full column copies
-  and records per-write dirty tracking as a follow-on); a render graph runs once per presented
-  frame, at a different, variable rate, and must never re-record during rollback replay. "Unified"
-  should be read as *one shared hazard/resource model and interop contract at the domain boundary*,
-  not one literal DAG object recompiled at a single rate — the sim graph and render graph most
-  likely stay two schedule domains sharing one tracker/vocabulary, not one collapsed graph object.
+  rollback" phrasing used elsewhere is aspirational;
+  `engine/world/loop/include/SushiEngine/loop/rollback.hpp` captures full column copies and records
+  per-write dirty tracking as a follow-on); a render graph runs once per presented frame, at a
+  different, variable rate, and must never re-record during rollback replay. "Unified" should be
+  read as *one shared hazard/resource model and interop contract at the domain boundary*, not one
+  literal DAG object recompiled at a single rate — the sim graph and render graph most likely stay
+  two schedule domains sharing one tracker/vocabulary, not one collapsed graph object.
 - **Cross-device sync.** Where SushiRuntime GPU compute (SYCL/Level Zero/CUDA/ROCm) and RHI GPU
   rendering (Vulkan/Metal) are live in the same process on the same or different physical devices,
   the two APIs do not natively share a submission queue or fence. This needs explicit, narrow
@@ -311,8 +318,9 @@ Known open constraints for whoever designs this (surfaced in discussion, not yet
 
 **Governance risk — RESOLVED 2026-08-01**: the shared design now exists (UHM), so the gate question
 dissolves: `RUNTIME-PORT0` proceeds immediately and mints its vocabulary as UHM §4 (UHM0); `RHI0`
-was never vocabulary-bound; `RHI1` re-keys `resource_state.cpp` on the shared `AccessIntent` (UHM2)
-as part of work it was already scoped to do. No dual migration remains possible because neither wall
+was never vocabulary-bound; `RHI1` re-keys
+`engine/presentation/render/source/graph/resource_state.cpp` on the shared `AccessIntent` (UHM2) as
+part of work it was already scoped to do. No dual migration remains possible because neither wall
 ships a private vocabulary first. See the §9 risk-register entry, now closed.
 
 **`SR_DISTRIBUTED` / SushiAI.** SushiRuntime's cluster/distributed-offload capability
@@ -330,11 +338,11 @@ Ground truth as of 2026-08-01: SushiAI today is built entirely on raw CUDA + cuB
 its current code. It is planned for a large refactor (confirmed by the user, 2026-08-01): SushiAI's
 tensor operations will be rebound onto **SushiBLAS** (`D:\Projects\sushiblas`, sibling repo,
 "mathematics layer for SushiStack"), with training run through SushiBLAS, and SushiAI formally
-onboarded as a SushiStack module (`ss link` + its own `sushistack.deps.toml` — neither exists yet;
-SushiBLAS isn't onboarded either). SushiBLAS is **already** deeply, source-level coupled to
+onboarded as a SushiStack module (`ss link` + its own `cli/sushistack.deps.toml` — neither exists
+yet; SushiBLAS isn't onboarded either). SushiBLAS is **already** deeply, source-level coupled to
 SushiRuntime — every BLAS kernel (`src/engine/blas/level1/*.cpp`) includes
 `<SushiRuntime/graph/task_types.hpp>` and submits via
-`SushiRuntime::Graph::TaskMetadata`/`TaskType::MATH_OP`, and `src/CMakeLists.txt` links
+`SushiRuntime::Graph::TaskMetadata`/`TaskType::MATH_OP`, and `sushiblas/src/CMakeLists.txt` links
 `sushiruntime` directly. This resolves the integration-shape question cleanly: the stack becomes
 **SushiAI → SushiBLAS → SushiRuntime**, three layers sharing one portability ceiling (Windows/Linux,
 GPU-compute-capable) — SushiAI never touches SYCL/CUDA directly once refactored, only SushiBLAS's
@@ -397,7 +405,7 @@ SushiRuntime provides three separable services with completely different portabi
 | Service | What it is | Who needs it | Portable natively? |
 |---|---|---|---|
 | **A — Task graph / scheduling** | CPU-side DAG: node registration by (reads, writes, capacity, live-count), compiled once, replayed per frame, RAW/WAR/WAW ordering, parallel execution of disjoint nodes | `Schedule`, `ConstraintSolver`, `XpbdSolver`, `DeviceBatchEvaluator`, `PhysicsWorld` | **Yes — mandatory on all 7 platforms, and arguably a better fit than SYCL for this workload.** The ECS emits one node per chunk (default capacity 1024) — well below GPU dispatch-saturation size; a CPU work-stealing pool executing whole-node ranges per worker, drawing parallelism from thousands of disjoint nodes, is a natural fit, not a downgrade. |
-| **B — Genuine GPU compute** | Device-side kernels: PGS/XPBD solvers, batch animation, particle sim, **PINN-physics forward evaluator, RL-agent forward evaluator (both via SushiBLAS, added 2026-08-01)** | 2 physics solvers + 1 animation evaluator (audio's SYCL accelerator is already optional-by-default) + the PINN/RL evaluators | No — this is the fidelity tier. Batch animation already has a CPU twin (`animation/batch_evaluator.hpp`). **The PINN and RL evaluators have no CPU/portable twin planned — Windows/Linux-only by deliberate choice, not an oversight (§3.1).** |
+| **B — Genuine GPU compute** | Device-side kernels: PGS/XPBD solvers, batch animation, particle sim, **PINN-physics forward evaluator, RL-agent forward evaluator (both via SushiBLAS, added 2026-08-01)** | 2 physics solvers + 1 animation evaluator (audio's SYCL accelerator is already optional-by-default) + the PINN/RL evaluators | No — this is the fidelity tier. Batch animation already has a CPU twin (`engine/domain/animation/include/SushiEngine/animation/batch_evaluator.hpp`). **The PINN and RL evaluators have no CPU/portable twin planned — Windows/Linux-only by deliberate choice, not an oversight (§3.1).** |
 | **C — USM allocator** | Host+device-visible shared memory for every ECS component column | `Chunk::Column::data` | Degenerates cleanly to plain aligned heap allocation with no GPU compute backend present — **except** for render interop, where unified-memory platforms (mobile, console) can recover the zero-copy property by having the *RHI* hand the allocator graphics-visible memory instead. |
 
 ### 4.3 The seam design
@@ -428,7 +436,7 @@ implement the same surface without a common base for the templated methods), `Ex
 must accept an *injectable external allocator* so the RHI can supply `HOST_VISIBLE | DEVICE_LOCAL`
 memory on unified-memory platforms — without this hook, every frame's simulation output silently
 becomes a staging upload on mobile/console, invisibly regressing the zero-copy property
-`render/interop.hpp` exists to provide.
+`engine/presentation/render/include/SushiEngine/render/interop.hpp` exists to provide.
 
 **Native backend internals** (ships as a compiled `sushi_exec_native` static library, not
 header-only — a thread pool doesn't belong in headers): DAG compilation to **UHM §5's contract**
@@ -445,17 +453,23 @@ contract is bit-determinism *within* a backend, tolerance-comparison *across* ba
 
 ### 4.4 Concrete call-site changes
 
-`ecs/schedule.hpp` (`System::emit` retypes from `SushiRuntime::API::Graph&` to `Execution::Graph&`;
-the `graph.add(...)` call becomes `graph.add_parallel(NodeDescriptor{...}, kernel)` with the kernel
-lambda itself unchanged), `ecs/chunk.hpp` (`Column::data` becomes `Execution::Buffer<std::byte>`),
-`ecs/world.hpp` and `ecs/archetype.hpp` (constructor/member retype to `Execution::Context&`),
-`loop/app.hpp` (owns backend construction), `core/types.hpp` (gains a `Math::{sqrt,fmod,floor}` shim
-resolving to `sycl::*` under SYCL builds and `std::*` otherwise — this is already the file's
-documented job as "the single alias point"). Four `sycl::id<1>` kernel signatures convert to
-`std::size_t`. `audio/accelerator_sycl.hpp` needs **no change** — already correctly isolated.
+`engine/foundation/ecs/include/SushiEngine/ecs/schedule.hpp` (`System::emit` retypes from
+`SushiRuntime::API::Graph&` to `Execution::Graph&`; the `graph.add(...)` call becomes
+`graph.add_parallel(NodeDescriptor{...}, kernel)` with the kernel lambda itself unchanged),
+`engine/foundation/ecs/include/SushiEngine/ecs/chunk.hpp` (`Column::data` becomes
+`Execution::Buffer<std::byte>`), `engine/foundation/ecs/include/SushiEngine/ecs/world.hpp` and
+`engine/foundation/ecs/include/SushiEngine/ecs/archetype.hpp` (constructor/member retype to
+`Execution::Context&`), `engine/world/loop/include/SushiEngine/loop/app.hpp` (owns backend
+construction), `engine/foundation/core/include/SushiEngine/core/types.hpp` (gains a
+`Math::{sqrt,fmod,floor}` shim resolving to `sycl::*` under SYCL builds and `std::*` otherwise —
+this is already the file's documented job as "the single alias point"). Four `sycl::id<1>` kernel
+signatures convert to `std::size_t`.
+`engine/domain/audio/include/SushiEngine/audio/accelerator_sycl.hpp` needs **no change** — already
+correctly isolated.
 
-**(Added 2026-08-01; retargeted 2026-08-01)** `physics/solver/runtime_graph_builder.hpp` joins this
-list as the fourth deep retarget site (it did not exist at the original survey): its `ElementRange`
+**(Added 2026-08-01; retargeted 2026-08-01)**
+`engine/domain/physics/include/SushiEngine/physics/solver/runtime_graph_builder.hpp` joins this list
+as the fourth deep retarget site (it did not exist at the original survey): its `ElementRange`
 accesses map to `BufferInterval` offsets, `when()` to the enabled provider, `sized()`/`based_at*` to
 count/base providers, and its hand-built two-node reduction is deleted outright in favour of the
 `Reduce` node kind (which the RuntimeBackend lowers to the runtime's now-merged `add_reduce`).
@@ -463,9 +477,10 @@ count/base providers, and its hand-built two-node reduction is deleted outright 
 **Net effect: SushiRuntime's blast radius across the engine collapses from 66 files touching it
 (re-verified 2026-08-01; was 52) to roughly 4 — the three ECS headers' replacement plus the physics
 graph builder's emission layer.** *(Realized 2026-08-01: three files outside tests and examples,
-plus `sim/runtime_simulation.cpp` which owns a runtime for the same reason `loop/app.hpp` does.)*
-This alone discharges the standing project guidance that "SushiRuntime API is unstable — keep call
-sites thin/isolated," independent of any platform work.
+plus `engine/world/simulation/source/runtime_simulation.cpp` which owns a runtime for the same
+reason `engine/world/loop/include/SushiEngine/loop/app.hpp` does.)* This alone discharges the
+standing project guidance that "SushiRuntime API is unstable — keep call sites thin/isolated,"
+independent of any platform work.
 
 ### 4.5 Milestones
 
@@ -483,14 +498,16 @@ sites thin/isolated," independent of any platform work.
 
 ### 4.6 Critical-path statement
 
-`ecs/world.hpp` and `ecs/schedule.hpp` both `#include <SushiRuntime/SushiRuntime.h>`, which requires
-a SYCL toolchain. **Today, no translation unit that touches the ECS can be compiled at all for
-macOS, iOS, Android, PS4, or PS5** — not the game, not a test, not a "hello triangle" spike that
-happens to construct a `World`. This is stronger than "the simulation is slow on mobile": a perfect
-Metal renderer on iOS would have nothing to draw, because nothing that owns entities can currently
-be compiled alongside it. **RUNTIME-PORT0 and RUNTIME-PORT1/2 gate all non-desktop bring-up across
-every other wall.** Start RUNTIME-PORT0 immediately, in isolation — it has a clean pass/fail oracle
-(`sandbox`), ships no behavior change, and nothing downstream needs anything else to be done first.
+`engine/foundation/ecs/include/SushiEngine/ecs/world.hpp` and
+`engine/foundation/ecs/include/SushiEngine/ecs/schedule.hpp` both
+`#include <SushiRuntime/SushiRuntime.h>`, which requires a SYCL toolchain. **Today, no translation
+unit that touches the ECS can be compiled at all for macOS, iOS, Android, PS4, or PS5** — not the
+game, not a test, not a "hello triangle" spike that happens to construct a `World`. This is stronger
+than "the simulation is slow on mobile": a perfect Metal renderer on iOS would have nothing to draw,
+because nothing that owns entities can currently be compiled alongside it. **RUNTIME-PORT0 and
+RUNTIME-PORT1/2 gate all non-desktop bring-up across every other wall.** Start RUNTIME-PORT0
+immediately, in isolation — it has a clean pass/fail oracle (`sandbox`), ships no behavior change,
+and nothing downstream needs anything else to be done first.
 
 ---
 
@@ -525,8 +542,8 @@ rendering scope with manual barriers, which is exactly the invariant that makes 
 encoder mapping possible. Enforce it as a debug-build assertion going forward, don't just rely on it
 holding by convention. (One notable outlier discovered in re-verification: the atmosphere nest runs
 *outside* the render graph entirely, synchronized by its own timeline semaphore that the frame's
-submissions wait on — `vulkan_scene_view.cpp:829-850`. UHM §6 adopts this as the precedent for its
-T2 completion tokens.)
+submissions wait on — `engine/presentation/render/source/rhi/vulkan/vulkan_scene_view.cpp`. UHM §6
+adopts this as the precedent for its T2 completion tokens.)
 
 ### 5.3 The barrier design — the single highest-leverage decision
 
@@ -544,14 +561,15 @@ struct TextureBarrier
 };
 ```
 
-This costs **nothing** on the shipping Vulkan backend — `render/graph/resource_state.cpp` already
-implements the forward mapping (`TextureAccess → {stage, access, layout}`) as a total function; the
-Vulkan backend's `barrier()` is just that existing table relocated. But it is the difference between
-a Metal/console backend being *possible* and being a reverse-engineering exercise: Metal has no
-image layouts at all (synchronization is `MTLFence`/`memoryBarrierWithScope:`), and a
-`(stage, access, layout)`-shaped barrier cannot be translated into that model without inferring
-intent backward. `TextureState`/`BufferState` collapse from three Vulkan-typed fields to
-`{access, queue}` as a direct consequence — a simplification, not just a rename.
+This costs **nothing** on the shipping Vulkan backend —
+`engine/presentation/render/source/graph/resource_state.cpp` already implements the forward mapping
+(`TextureAccess → {stage, access, layout}`) as a total function; the Vulkan backend's `barrier()` is
+just that existing table relocated. But it is the difference between a Metal/console backend being
+*possible* and being a reverse-engineering exercise: Metal has no image layouts at all
+(synchronization is `MTLFence`/`memoryBarrierWithScope:`), and a `(stage, access, layout)`-shaped
+barrier cannot be translated into that model without inferring intent backward.
+`TextureState`/`BufferState` collapse from three Vulkan-typed fields to `{access, queue}` as a
+direct consequence — a simplification, not just a rename.
 
 ### 5.4 The binding-model split
 
@@ -641,7 +659,7 @@ RHI1 touches a line.
 
 #### What landed, and what RHI0 still owes (2026-08-01)
 
-`render/probe/golden_main.cpp` + `render/probe/goldens/`. Two cases so far, both the
+`tools/probes/render_golden/main.cpp` + `render/probe/goldens/`. Two cases so far, both the
 mesh-shading half of the frame at 512×288 over 12 frames: `opaque_lit` and
 `opaque_unshadowed`, the second existing only so a shadow regression is distinguishable
 from a shading one instead of reddening a single case. Sky and cloud are switched off
@@ -653,15 +671,15 @@ headless-capable and only the readback was missing. `ISceneView::read_output` is
 readback, a capability with a `false` default rather than an obligation, on the
 precedent `cull_statistics` already set.
 
-**Per-pass hashes landed the same day** (`render/graph/pass_capture.cpp`), closing the
-debt the paragraph above originally recorded. The obstacle it named was real — pass
-outputs are transient graph textures, not owned images — and the answer was to put the
-capture *inside* the graph rather than beside it. `RenderGraph::capture_pass` runs after
-each pass's timer closes, transitions every texture that pass wrote to `TRANSFER_SRC`,
-copies it into a per-slot staging buffer, and hashes it on the host once the submit has
-completed. `PassCapture` is deliberately shaped exactly like `GpuProfiler` — one store
-per frame slot, `begin_frame(slot)`, `resolve(slot)` — because it has the same lifecycle
-for the same reason.
+**Per-pass hashes landed the same day**
+(`engine/presentation/render/source/graph/pass_capture.cpp`), closing the debt the paragraph above
+originally recorded. The obstacle it named was real — pass outputs are transient graph textures, not
+owned images — and the answer was to put the capture *inside* the graph rather than beside it.
+`RenderGraph::capture_pass` runs after each pass's timer closes, transitions every texture that pass
+wrote to `TRANSFER_SRC`, copies it into a per-slot staging buffer, and hashes it on the host once
+the submit has completed. `PassCapture` is deliberately shaped exactly like `GpuProfiler` — one
+store per frame slot, `begin_frame(slot)`, `resolve(slot)` — because it has the same lifecycle for
+the same reason.
 
 Being inside the graph is what makes it cheap to get right. `ViewResources::read_output`
 has to *restore* the resolve image's layout by hand, because the graph tracks that image
@@ -669,7 +687,7 @@ across frames and would otherwise derive a transition that never happened. The i
 capture instead just **records** where the copy left the image, and the next pass's
 barrier is derived correctly with no restore at all.
 
-Three things are true about it and are written down in `probe/goldens/README.md` rather
+Three things are true about it and are written down in `tests/goldens/render/README.md` rather
 than left to be discovered:
 
 - It covers **mip 0, the depth aspect of depth/stencil targets, and formats the capture
@@ -721,7 +739,7 @@ what lets per-pass capture reach the tail.
 
 **The instrument was unreachable from the project's own CLI.** `se render --probe`
 knew `render` and `atmosphere` and not the target this milestone added, so the only way
-to run it was a raw path into the build tree — which is exactly what `docs/CLAUDE.md`
+to run it was a raw path into the build tree — which is exactly what `CLAUDE.md`
 forbids. `se render --probe golden` now exists.
 
 #### RHI0 closed (2026-08-03)
@@ -731,18 +749,18 @@ forbids. `se render --probe golden` now exists.
    reproduced both bit-for-bit (`RESULT: OK (0 recorded, 0 failed)`) — the harness's
    reference survives the run immediately after recording it, on the same machine
    (`NVIDIA GeForce GTX 1060 6GB`). Checked in under `render/probe/goldens/`.
-2. **The recorded pass list was read, deliberately.** The post-processing tail
-   (`tonemap`) and the TAA resolve (`temporal_resolve`) both appear, as expected once the
-   usage fixes above landed. `depth_prepass` **also now appears** (`opaque_lit`: 15 of 20
-   captured outputs kept, `0 un-copyable`) — the guess two paragraphs above this one, that
-   it was absent because the opaque pass writes depth itself, was never checked and was
-   wrong. The actual cause, found and fixed earlier this session: `pass_capture.cpp`'s
-   format table had no case for `VK_FORMAT_D32_SFLOAT_S8_UINT` (`Frame::DEPTH_FORMAT`),
-   so every depth-writing output silently fell into `dropped_by_format` rather than being
-   hashed. `fxaa` does not appear, which is correct rather than a gap: the golden scene's
-   configured anti-aliasing mode is temporal, and `declare_targets()` only routes the
-   display transform through an FXAA intermediate when `AntiAliasingMode::Fxaa` is
-   selected — the two modes are mutually exclusive by construction, not a coverage hole.
+2. **The recorded pass list was read, deliberately.** The post-processing tail (`tonemap`) and the
+   TAA resolve (`temporal_resolve`) both appear, as expected once the usage fixes above landed.
+   `depth_prepass` **also now appears** (`opaque_lit`: 15 of 20 captured outputs kept,
+   `0 un-copyable`) — the guess two paragraphs above this one, that it was absent because the opaque
+   pass writes depth itself, was never checked and was wrong. The actual cause, found and fixed
+   earlier this session: `engine/presentation/render/source/graph/pass_capture.cpp`'s format table
+   had no case for `VK_FORMAT_D32_SFLOAT_S8_UINT` (`Frame::DEPTH_FORMAT`), so every depth-writing
+   output silently fell into `dropped_by_format` rather than being hashed. `fxaa` does not appear,
+   which is correct rather than a gap: the golden scene's configured anti-aliasing mode is temporal,
+   and `declare_targets()` only routes the display transform through an FXAA intermediate when
+   `AntiAliasingMode::Fxaa` is selected — the two modes are mutually exclusive by construction, not
+   a coverage hole.
 3. **Sky, cloud, and terrain cases remain future work, not owed by RHI0's own exit
    criterion.** Sky/cloud is blocked on the cloudscape rewrite (unchanged from the
    original assessment); terrain needs `golden_main.cpp::build_scene()` to actually stand
@@ -815,9 +833,10 @@ debugged with a real debugger instead of on a device with an hour-per-iteration 
 1. **There is no path from a rendered scene to the swapchain except through ImGui.** `ISceneView`
    renders offscreen and only exposes a *sampled* texture; `IWindowRenderer::begin_frame()` hands
    back a raw command buffer that today only `ImGuiBackend::render()` records into.
-   `vulkan_window_renderer.cpp` contains no blit/copy/composite path. **A player cannot draw a
-   full-screen scene without a new renderer entry point** (`IWindowRenderer::present_scene_view()`)
-   — this is the highest-risk item in the first milestone.
+   `engine/presentation/render/source/rhi/vulkan/vulkan_window_renderer.cpp` contains no
+   blit/copy/composite path. **A player cannot draw a full-screen scene without a new renderer entry
+   point** (`IWindowRenderer::present_scene_view()`) — this is the highest-risk item in the first
+   milestone.
 2. **The renderer bakes a developer build-tree path into the shipped library.**
    `SUSHI_PIPELINE_CACHE_DIR` defaults to `${CMAKE_BINARY_DIR}` and is consumed unconditionally — a
    shipped player would try to write its driver pipeline cache into the *developer's* build
@@ -892,7 +911,8 @@ a vendor-specific `IAudioDevice` implementation — structurally identical in sh
 - **`cmake/Vcpkg.cmake`** needs to stop being a Windows-only no-op and instead chainload correctly
   for cross-compiles (`VCPKG_CHAINLOAD_TOOLCHAIN_FILE` pointing at the NDK/iOS toolchain) — this is
   vcpkg's documented cross-compilation mechanism. Add a root `vcpkg.json` manifest (none exists
-  today) to stop the CI job's hand-rolled package list from drifting against `sushistack.deps.toml`.
+  today) to stop the CI job's hand-rolled package list from drifting against
+  `cli/sushistack.deps.toml`.
 - **`.deps.toml` schema evolves additively** (`schema = 2`, new `[pkg.platforms.<os>]` tables) so
   the existing `linux_apt`/`windows_vcpkg` fields — and the external `ss` CLI that reads them —
   never break.
@@ -901,14 +921,15 @@ a vendor-specific `IAudioDevice` implementation — structurally identical in sh
   package) into one macro name — keep them as two orthogonal, composable layers (`add_sushi_app()`
   for artifact shape, `sushi_apply_sycl()` for the compute axis).
 - **`show_in_explorer`/`open_with_default_app`** (corrected 2026-08-01: both live in
-  `editor/project/project_panel.cpp`, not `editor_panels.cpp`, and only *one* of the two is
-  hazardous — `open_with_default_app` already uses `ShellExecuteW` with no shell round-trip, its own
-  comment saying why) are the representative case for the whole "Windows-only for now" pattern:
-  replace `show_in_explorer`'s `std::system()` call (`project_panel.cpp:147` — the
-  command-injection/quoting hazard is real, and confined to that one function) with `SDL_OpenURL()`
-  where "open" semantics suffice and `posix_spawn`-based platform branches for "reveal in file
-  manager" (no cross-platform primitive exists for this one). The same fix collapses the scattered
-  `#ifdef _WIN32` path-resolution forks onto `SDL_GetPrefPath()`.
+  `applications/editor/source/project/project_panel.cpp`, not
+  `applications/editor/source/ui/editor_panels.cpp`, and only *one* of the two is hazardous —
+  `open_with_default_app` already uses `ShellExecuteW` with no shell round-trip, its own comment
+  saying why) are the representative case for the whole "Windows-only for now" pattern: replace
+  `show_in_explorer`'s `std::system()` call (`applications/editor/source/project/project_panel.cpp`
+  — the command-injection/quoting hazard is real, and confined to that one function) with
+  `SDL_OpenURL()` where "open" semantics suffice and `posix_spawn`-based platform branches for
+  "reveal in file manager" (no cross-platform primitive exists for this one). The same fix collapses
+  the scattered `#ifdef _WIN32` path-resolution forks onto `SDL_GetPrefPath()`.
 
 ### 6.6 CI matrix expansion
 
@@ -1129,7 +1150,7 @@ PS5/PS4.
 | O(N²) DAG compile stalls the native Execution backend at scale | 1 | High | Last-writer/reader-set linear construction (mirrors SushiRuntime's own tracker design) |
 | Android/PLATFORM4 silently assumes RUNTIME-PORT4 is done when it isn't (or vice versa) | 1+3 | High | Make the stub-sim-vs-full-Execution decision explicit at PLATFORM4 kickoff, in writing, not by default |
 | USM→native-heap silently loses render zero-copy on unified-memory platforms | 1+2 | Medium | Injectable allocator hook designed once, explicitly, before any mobile/console RHI work (§3, §4.3) |
-| ~~Wall 1 and Wall 2 hazard vocabularies diverge before a shared sim+render model is designed~~ **CLOSED 2026-08-01** | 1+2 | — | The shared design landed (`unified_hazard_model.md`); RUNTIME-PORT0 mints UHM's vocabulary (UHM0), RHI1 re-keys `resource_state` on it (UHM2). No gate, no dual migration. |
+| ~~Wall 1 and Wall 2 hazard vocabularies diverge before a shared sim+render model is designed~~ **CLOSED 2026-08-01** | 1+2 | — | The shared design landed (`docs/design/unified_hazard_model.md`); RUNTIME-PORT0 mints UHM's vocabulary (UHM0), RHI1 re-keys `resource_state` on it (UHM2). No gate, no dual migration. |
 | `.deps.toml` schema break against the external `ss` CLI | 3 | Medium | Additive-only schema evolution (`schema=2`, new nested tables, existing fields untouched) |
 | Seam ossifies into lowest-common-denominator, blocking SushiRuntime-only features (distributed offload, `State<T>`) | 1 | Medium | `BackendCapabilities` flags, feature-query pattern already used by `IDspAccelerator::available()` |
 | `component_id<T>()`'s static-local-counter registration order breaks when a new compiled library (`sushi_exec_native`) is introduced | 1 | Medium | Keep `component_id` header-inline; add a debug-build id-agreement check at `World` construction |
@@ -1145,8 +1166,8 @@ already make:
 
 1. **`RUNTIME-PORT0`** — *code complete 2026-08-01; the remaining exit criterion is running the
    suite, not writing code.* Extract the `Execution` seam behind the existing SYCL path, zero
-   behavior change, **minting the vocabulary defined in `unified_hazard_model.md` §4 (milestone
-   UHM0)**. Self-contained, has a pass/fail oracle (`sandbox`), and immediately collapses
+   behavior change, **minting the vocabulary defined in `docs/design/unified_hazard_model.md` §4
+   (milestone UHM0)**. Self-contained, has a pass/fail oracle (`sandbox`), and immediately collapses
    SushiRuntime's engine-wide blast radius from 66 files to ~4. The runtime-side R1–R7 merge
    (2026-08-01) also unblocks the engine's adoption pass (delete the hand reduction,
    `sized_from_device` chains, region-per-island) — route that adoption *through* the new seam

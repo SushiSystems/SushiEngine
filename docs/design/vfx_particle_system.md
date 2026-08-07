@@ -10,10 +10,11 @@ single seam, the render-graph integration, and the editor authoring surface. The
 math lives in compute shaders (`render/shaders/particle_*.comp`) and in the deterministic CPU
 integrator; this doc specifies the **architecture and the seams**, not the shader source.
 
-Companion docs: `animation_system.md` (the structural template — trivially-copyable state column +
-snapshot extract + a compute subsystem wired end to end), `audio_system.md` (the sibling wall-clock
-snapshot consumer that also lives *outside* the deterministic island), and the renderer's
-`docs/architecture/` (the render graph the draw passes plug into).
+Companion docs: `docs/design/animation_system.md` (the structural template — trivially-copyable
+state column + snapshot extract + a compute subsystem wired end to end),
+`docs/design/audio_system.md` (the sibling wall-clock snapshot consumer that also lives *outside*
+the deterministic island), and the renderer's `docs/architecture/` (the render graph the draw passes
+plug into).
 
 **VFX1 + the deterministic-ECS connection + all of VFX2 are implemented** (`se editor --no-run`
 green each increment; the two newest steps await a GPU visual check). Done: the whole VFX1 vertical
@@ -27,13 +28,14 @@ bucket — the camera-relative hazard sidestepped); and **VFX2c clustered-punctu
 the froxel version: the lit (true-alpha) bucket now maps each sprite to a cluster and shades it with
 the scene's punctual lights + the environment SH ambient, in the same camera-relative space the
 meshes use. The froxel primitives were refactored into a binding-free
-`clustered_lighting_common.glsl` shared with `pbr.frag` (§7.7), and the camera-relative hazard was
-met by carrying `centre − eye` down from the vertex stage and reading the view-depth from
-`gl_Position.w`; the one accepted limitation is that this camera-relative subtraction is in float,
-so it inherits the cosmetic pool's float32 position precision (a near-camera envelope, documented in
-§13). VFX2c also brought **shadow receive**: the same carried centre projects into the sun's cascade
-atlas through a cheap particle-specific four-tap sampler, so a puff standing in a mesh's shadow
-darkens (§7.8). The roadmap in §12 marks each item's state.
+`engine/presentation/render/shaders/clustered_lighting_common.glsl` shared with
+`engine/presentation/render/shaders/pbr.frag` (§7.7), and the camera-relative hazard was met by
+carrying `centre − eye` down from the vertex stage and reading the view-depth from `gl_Position.w`;
+the one accepted limitation is that this camera-relative subtraction is in float, so it inherits the
+cosmetic pool's float32 position precision (a near-camera envelope, documented in §13). VFX2c also
+brought **shadow receive**: the same carried centre projects into the sun's cascade atlas through a
+cheap particle-specific four-tap sampler, so a puff standing in a mesh's shadow darkens (§7.8). The
+roadmap in §12 marks each item's state.
 
 ---
 
@@ -78,14 +80,15 @@ is a fixed-size, pointer-free, integer-seeded column, exactly like `Animation::A
 1. **Greenfield.** No `include/SushiEngine/vfx/`, no particle component, no particle pass, no
    shader.
 2. **No blend state in the pipeline factory.** `Render::Resources::GraphicsPipelineDesc`
-   (`render/resources/pipeline_cache.hpp`) and `fill_color_blend()` (`pipeline_cache.cpp`) hard-set
+   (`engine/presentation/render/source/resources/pipeline_cache.hpp`) and `fill_color_blend()`
+   (`engine/presentation/render/source/resources/pipeline_cache.cpp`) hard-set
    `blendEnable = VK_FALSE`; additive/alpha billboards are impossible until the desc gains
    per-attachment blend fields **and** those fields join the byte-comparable fragment-output
    pipeline-library cache key. This is phase VFX1's first task (§7.5).
-3. **No extract channel for emitters.** `Render::ISceneView::render(...)` (`scene_view.hpp:253`)
-   takes POD instance arrays (`MeshInstance`, `SkinnedInstance`, `ClothStrandView`, lights, decals)
-   but no emitter channel — a trailing `emitters`/`emitter_count` pair is added exactly like
-   `skinned` was.
+3. **No extract channel for emitters.** `Render::ISceneView::render(...)`
+   (`engine/presentation/render/include/SushiEngine/render/scene_view.hpp`) takes POD instance
+   arrays (`MeshInstance`, `SkinnedInstance`, `ClothStrandView`, lights, decals) but no emitter
+   channel — a trailing `emitters`/`emitter_count` pair is added exactly like `skinned` was.
 4. **No effect asset registry.** Animation has `AnimationDatabase`; VFX needs the sibling
    `VFX::EffectDatabase`.
 
@@ -143,7 +146,7 @@ components must stay trivially copyable). A module is a **tagged POD descriptor*
 is an enum, and behaviour lives in three places that a new module extends without touching existing
 ones: (1) a descriptor struct, (2) an `EmitterCompiler` handler that bakes it into `CompiledEffect`,
 (3) a branch in the sim shader / CPU integrator keyed on the compiled flag. Header:
-`include/SushiEngine/vfx/modules.hpp`.
+`engine/domain/vfx/include/SushiEngine/vfx/modules.hpp`.
 
 | Stage | Modules (VFX1 slice) | Later |
 |---|---|---|
@@ -160,39 +163,40 @@ Per-particle **attributes** (the working set both backends carry): `position`, `
 
 ### 4.2 Curves & gradients
 
-- `include/SushiEngine/vfx/curve.hpp` — `AnimationCurve`: keyframed (time, value, in/out tangent),
-  evaluatable on the CPU, and **bakeable** to a fixed-width `float` LUT (default 64 samples)
-  uploaded as a 1-D texture / SSBO row the sim shader samples by normalized age.
-- `include/SushiEngine/vfx/gradient.hpp` — `ColorGradient`: separate color keys + alpha keys,
-  bakeable
-  to an RGBA8 (or RGBA16F) LUT row. Color-over-life samples it by normalized age.
+- `engine/domain/vfx/include/SushiEngine/vfx/curve.hpp` — `AnimationCurve`: keyframed (time, value,
+  in/out tangent), evaluatable on the CPU, and **bakeable** to a fixed-width `float` LUT (default 64
+  samples) uploaded as a 1-D texture / SSBO row the sim shader samples by normalized age.
+- `engine/domain/vfx/include/SushiEngine/vfx/gradient.hpp` — `ColorGradient`: separate color keys +
+  alpha keys, bakeable to an RGBA8 (or RGBA16F) LUT row. Color-over-life samples it by normalized
+  age.
 
 Both are authoring types (heap-backed key vectors); neither crosses into a component or the GPU —
 only their **baked LUT bytes** do, inside `CompiledEffect`.
 
 ### 4.3 CompiledEffect — the POD boundary
 
-`include/SushiEngine/vfx/compiled_emitter.hpp` — `EmitterCompiler` flattens one `EmitterDescriptor`
-into a `CompiledEmitter` POD: packed spawn params, shape enum + params, init ranges, a bitfield of
-enabled update modules + their scalar params, render flags (blend mode, sort, lit), texture/atlas
-ids, capacity, and **offsets into a shared LUT atlas** for its baked curves/gradients.
-`CompiledEffect` = a span of `CompiledEmitter` + the LUT atlas bytes. This is the single artifact
-both backends and the GPU consume — the equivalent of `resolve_quality()` turning authored
-`RenderSettings` into a POD `QualityParams`.
+`engine/domain/vfx/include/SushiEngine/vfx/compiled_emitter.hpp` — `EmitterCompiler` flattens one
+`EmitterDescriptor` into a `CompiledEmitter` POD: packed spawn params, shape enum + params, init
+ranges, a bitfield of enabled update modules + their scalar params, render flags (blend mode, sort,
+lit), texture/atlas ids, capacity, and **offsets into a shared LUT atlas** for its baked
+curves/gradients. `CompiledEffect` = a span of `CompiledEmitter` + the LUT atlas bytes. This is the
+single artifact both backends and the GPU consume — the equivalent of `resolve_quality()` turning
+authored `RenderSettings` into a POD `QualityParams`.
 
 ### 4.4 The asset & its registry
 
-- `include/SushiEngine/vfx/particle_effect.hpp` — `ParticleEffect` =
+- `engine/domain/vfx/include/SushiEngine/vfx/particle_effect.hpp` — `ParticleEffect` =
   `std::vector<EmitterDescriptor>` + metadata (name, bounds, default domain). The artist's document;
   serialized as `.sushieffect` (JSON via `nlohmann_json`, the format the scene serializer already
   uses).
-- `include/SushiEngine/vfx/effect_database.hpp` — `EffectDatabase`: `AssetId → ParticleEffect` +
-  lazily-built `CompiledEffect`, mirroring `Animation::AnimationDatabase`. Owns compilation caching.
+- `engine/domain/vfx/include/SushiEngine/vfx/effect_database.hpp` — `EffectDatabase`:
+  `AssetId → ParticleEffect` + lazily-built `CompiledEffect`, mirroring
+  `Animation::AnimationDatabase`. Owns compilation caching.
 
 ### 4.5 ECS component
 
-`sim/components.hpp` gains `ParticleEmitter` (the central "one home so ids stay stable across TUs"
-file):
+`engine/world/simulation/include/SushiEngine/simulation/components.hpp` gains `ParticleEmitter` (the
+central "one home so ids stay stable across TUs" file):
 
 ```
 struct ParticleEmitter                 // trivially copyable, byte-snapshottable
@@ -211,7 +215,8 @@ same columns the renderer and audio read.
 
 ### 4.6 Extract POD
 
-`render/scene_view.hpp` gains, alongside `SkinnedInstance`:
+`engine/presentation/render/include/SushiEngine/render/scene_view.hpp` gains, alongside
+`SkinnedInstance`:
 
 ```
 struct ParticleEmitterView             // the render-side extract seam
@@ -229,16 +234,15 @@ struct ParticleEmitterView             // the render-side extract seam
 ```
 
 Added as a trailing `emitters`/`emitter_count` pair on `ISceneView::render(...)` and to
-`Frame::SceneDrawList` in `render/frame/frame_context.hpp`, copied in `VulkanSceneView::render`
-exactly
-where `skinned` is copied.
+`Frame::SceneDrawList` in `engine/presentation/render/source/frame/frame_context.hpp`, copied in
+`VulkanSceneView::render` exactly where `skinned` is copied.
 
 ---
 
 ## §5 GPU-cosmetic backend
 
-`render/scene/particle_system.cpp` — modeled feature-for-feature on `SkinningSystem`
-(`Allocation`/`grow()`/`destroy()`, one buffer set per frame slot). It owns:
+`engine/presentation/render/source/scene/particle_system.cpp` — modeled feature-for-feature on
+`SkinningSystem` (`Allocation`/`grow()`/`destroy()`, one buffer set per frame slot). It owns:
 
 ### 5.1 Persistent, system-owned pools (per emitter, ping-pong, grown on demand)
 
@@ -267,14 +271,14 @@ barrier, and the exact pattern cull→opaque already uses.
 
 ### 5.3 The compute pipeline (per emitter, per frame)
 
-1. **Emit** (`particle_emit.comp`): read `spawn_count`, pop indices from the dead-list, initialize
-   each new particle from the shape + init modules (seeded by `seed` + particle index), push to the
-   alive-list.
-2. **Simulate** (`particle_simulate.comp`): per alive particle apply the enabled update modules —
-   forces (gravity/drag/curl-noise), integrate position/velocity, advance age, sample the size curve
-   / color gradient LUTs by normalized age, advance flipbook. Retire (`age >= lifetime`) → push
-   index back to the dead-list; survive → append to the compacted draw-instance buffer and
-   `atomicAdd` the indirect vertex/instance count.
+1. **Emit** (`engine/presentation/render/shaders/particle_emit.comp`): read `spawn_count`, pop
+   indices from the dead-list, initialize each new particle from the shape + init modules (seeded by
+   `seed` + particle index), push to the alive-list.
+2. **Simulate** (`engine/presentation/render/shaders/particle_simulate.comp`): per alive particle
+   apply the enabled update modules — forces (gravity/drag/curl-noise), integrate position/velocity,
+   advance age, sample the size curve / color gradient LUTs by normalized age, advance flipbook.
+   Retire (`age >= lifetime`) → push index back to the dead-list; survive → append to the compacted
+   draw-instance buffer and `atomicAdd` the indirect vertex/instance count.
 
 `ParticleSimPass : IRenderPass` mirrors `SkinningPass`: owns its compute pipeline
 (`pipelines_.create_compute(layout, shaders_.module("particle_simulate.comp"))`), per-frame
@@ -288,7 +292,7 @@ Registered in `passes_` **immediately after `skinning_pass_`** (compute batch, b
 verts/particle
 from `gl_VertexIndex` and pulls the particle from the draw-instance storage buffer (the
 fullscreen-pass
-precedent, `cloud_composite_pass.cpp:105`). It:
+precedent, `engine/presentation/render/source/passes/cloud_composite_pass.cpp`). It:
 
 - declares `color_attachment(0, frame.targets.scene_final, Load)` and **does not attach depth**;
 - declares `read(frame.targets.depth, SampledFragment)` and samples it in the fragment shader for
@@ -335,7 +339,7 @@ because it is authoritative sim state.
 The determinism test (`Integration_ParticleDeterminism`) asserts (a) two independent runs of the
 same seed + tick stream produce byte-identical pool state, and (b) a snapshot → advance → restore →
 replay reproduces the captured state byte-for-byte (`std::memcmp == 0`) — exactly as
-`animator_demo.cpp` proves for `AnimatorInstance`.
+`samples/animation/animator_demo.cpp` proves for `AnimatorInstance`.
 
 ---
 
@@ -343,15 +347,15 @@ replay reproduces the captured state byte-for-byte (`std::memcmp == 0`) — exac
 
 | Concern | Decision (with the seam) |
 |---|---|
-| **Sim pass slot** | after `skinning_pass_`, before `depth_prepass_` (`vulkan_scene_view.cpp:125-156`) |
+| **Sim pass slot** | after `skinning_pass_`, before `depth_prepass_` (`engine/presentation/render/source/rhi/vulkan/vulkan_scene_view.cpp:125-156`) |
 | **Draw pass slot** | between `ssr_pass_` and `taa_pass_`, writes `frame.targets.scene_final` |
-| **Persistent state** | system-owned VMA, `grow()/destroy()/Allocation` (`skinning_system.cpp:52-83`) |
+| **Persistent state** | system-owned VMA, `grow()/destroy()/Allocation` (`engine/presentation/render/source/scene/skinning_system.cpp`) |
 | **Sim→draw handoff** | graph transients in `view_resources.cpp declare_targets()` (`STORAGE\|INDIRECT`, like `draw_commands` `:772-786`) |
 | **Depth for soft particles** | sample only (`SampledFragment`), never attach; soft-fade + occlusion in FS |
 | **Queue** | graphics (no async) for the slice |
 | **Billboards** | `vertex_stride = 0`, expand from `gl_VertexIndex`, pull from storage buffer |
 | **Extract wiring** | `ParticleEmitterView` + `emitters/emitter_count` on `render()` + `SceneDrawList` + copy in `VulkanSceneView::render` |
-| **Build** | shaders via `sushi_compile_shader` + `${…_HEADER}` in `render/CMakeLists.txt` + catalogue in `shader_catalogue.cpp`; sources into `add_library(sushi_render …)` |
+| **Build** | shaders via `sushi_compile_shader` + `${…_HEADER}` in `engine/presentation/render/CMakeLists.txt` + catalogue in `engine/presentation/render/source/shader_catalogue.cpp`; sources into `add_library(sushi_render …)` |
 
 ### 7.5 Blend-state prerequisite (do first)
 
@@ -363,9 +367,10 @@ every existing pass is untouched. Without this, "transparent" particles draw opa
 
 ### 7.6 Quality tiers
 
-`render/quality_params.hpp` gains `bool gpu_particles`, `std::uint32_t max_particles`,
-`std::uint32_t particle_sim_substeps`, `std::uint32_t particle_lod_bias`; `render/frame/quality.cpp`
-scales them per tier (Low disables `gpu_particles`, Ultra raises `max_particles`), mirroring the
+`engine/presentation/render/include/SushiEngine/render/quality_params.hpp` gains
+`bool gpu_particles`, `std::uint32_t max_particles`, `std::uint32_t particle_sim_substeps`,
+`std::uint32_t particle_lod_bias`; `engine/presentation/render/source/frame/quality.cpp` scales them
+per tier (Low disables `gpu_particles`, Ultra raises `max_particles`), mirroring the
 `max_skinned_instances` precedent. Passes early-out when `!frame.quality.gpu_particles`.
 
 ### 7.7 Clustered lighting for the lit bucket (VFX2c)
@@ -376,13 +381,14 @@ shadow. Three decisions kept it correct **and** device-agnostic:
 
 - **One copy of the froxel math.** The pure primitives — the grid `#define`s, the `PunctualLight`
   struct, `cluster_index(frag, view_z, depth, screen)`, and `punctual_attenuation(...)` — moved to a
-  binding-free `render/shaders/clustered_lighting_common.glsl`. `clustered_lighting.glsl` now
-  includes it and keeps only its own `set 0` bindings 14–22 and the shading that reads them (its
-  `cluster_index_for` became a one-line wrapper, behaviour-identical for `pbr.frag`);
-  `particle.frag` includes the same header and declares a **smaller subset** of those buffers on the
-  pass's own set (bindings 3–7), so the two consumers share the math but bind on different sets.
-  This is the header's Open/Closed seam — a new consumer adds a binding block, not another copy of
-  `cluster_index`.
+  binding-free `engine/presentation/render/shaders/clustered_lighting_common.glsl`.
+  `engine/presentation/render/shaders/clustered_lighting.glsl` now includes it and keeps only its
+  own `set 0` bindings 14–22 and the shading that reads them (its `cluster_index_for` became a
+  one-line wrapper, behaviour-identical for `engine/presentation/render/shaders/pbr.frag`);
+  `engine/presentation/render/shaders/particle.frag` includes the same header and declares a
+  **smaller subset** of those buffers on the pass's own set (bindings 3–7), so the two consumers
+  share the math but bind on different sets. This is the header's Open/Closed seam — a new consumer
+  adds a binding block, not another copy of `cluster_index`.
 - **Camera-relative without a precision cliff or a sign trap.** Particles are stored in
   absolute-world float, but the froxels and `light_buffer` are camera-relative. The vertex stage
   subtracts the eye (`centre − eye`, the eye packed into the push's spare `w` lanes exactly as
@@ -411,25 +417,29 @@ The sun term is multiplied by the sun's cascade visibility, so a puff standing i
 geometry darkens. This is the cheap half of "volumetric shadowing": the medium *receives* shadow, it
 does not yet *cast* one (self-shadowing a particle field needs its own light-space march — §13).
 
-- **A particle-specific sampler, not the mesh path's.** `render/shaders/particle_shadow.glsl`
-  exposes `particle_sun_shadow(atlas, position, view_depth, rotation)`: cascade select, one
-  projection, a four-tap fixed-radius Vogel disc through the comparison sampler, and the mesh path's
-  last-cascade fade. It deliberately skips the two most expensive parts of `sample_sun_shadow`. The
-  blocker search (PCSS) is dropped because a transparency pass pays every tap once per **overdrawn
-  sprite layer**, not once per pixel; the normal offset is dropped because a puff has no surface
-  normal to offset along, so the whole bias budget goes into the depth bias — over-biasing a
-  floating point sample only shifts where its shadow begins and can never print acne across a face.
-  The result is soft and chunky, which is what a volumetric medium wants.
+- **A particle-specific sampler, not the mesh path's.**
+  `engine/presentation/render/shaders/particle_shadow.glsl` exposes
+  `particle_sun_shadow(atlas, position, view_depth, rotation)`: cascade select, one projection, a
+  four-tap fixed-radius Vogel disc through the comparison sampler, and the mesh path's last-cascade
+  fade. It deliberately skips the two most expensive parts of `sample_sun_shadow`. The blocker
+  search (PCSS) is dropped because a transparency pass pays every tap once per **overdrawn sprite
+  layer**, not once per pixel; the normal offset is dropped because a puff has no surface normal to
+  offset along, so the whole bias budget goes into the depth bias — over-biasing a floating point
+  sample only shifts where its shadow begins and can never print acne across a face. The result is
+  soft and chunky, which is what a volumetric medium wants.
 - **No new space anywhere.** The cascade block and atlas bind on the pass's own set at the **scene
-  set's own numbers** (10 and 11, unused here), so `shadow_common.glsl`'s
-  `layout(set = 0, binding = 10)` declaration is reused verbatim instead of copied. No push-constant
-  lane was spent: the shadow projection reuses the camera-relative centre §7.7 already carries (the
-  cascade matrices are fitted around the eye, the same space).
+  set's own numbers** (10 and 11, unused here), so
+  `engine/presentation/render/shaders/shadow_common.glsl`'s `layout(set = 0, binding = 10)`
+  declaration is reused verbatim instead of copied. No push-constant lane was spent: the shadow
+  projection reuses the camera-relative centre §7.7 already carries (the cascade matrices are fitted
+  around the eye, the same space).
 - **One copy of the cascade math.** The sampler-free helpers — `vogel_disc`,
   `select_shadow_cascade`, `shadow_tile_origin`, `shadow_tile_clamp`, `shadow_atlas_texel` — moved
-  from `shadow_sampling.glsl` into `shadow_common.glsl`, which is exactly the split that file's own
-  header describes ("the block and the arithmetic every stage can do"). `shadow_sampling.glsl` keeps
-  only what needs a sampler, so the particle path does not drag in `temporal_common.glsl` (and its
+  from `engine/presentation/render/shaders/shadow_sampling.glsl` into
+  `engine/presentation/render/shaders/shadow_common.glsl`, which is exactly the split that file's
+  own header describes ("the block and the arithmetic every stage can do").
+  `engine/presentation/render/shaders/shadow_sampling.glsl` keeps only what needs a sampler, so the
+  particle path does not drag in `engine/presentation/render/shaders/temporal_common.glsl` (and its
   binding-9 UBO) to reach a Vogel disc. The tap rotation is therefore the frame-static
   `interleaved_gradient_noise` rather than `temporal_dither` — a still pattern on a soft sprite
   beats an unresolved animated one.
@@ -445,11 +455,11 @@ an authored intent the renderer silently dropped. It now works, and the way it w
 pattern the remaining alignment modes (ribbon, mesh) should follow.
 
 - **One expansion, three draws.**
-  `particle_quad_offset(p, corner, camera_right, camera_up, alignment,
-  velocity_stretch)` in `particle_common.glsl` is now the only place a billboard corner is placed.
-  The additive draw, the depth-sorted alpha draw, and the deterministic-billboard draw all call it,
-  where before the first two carried copies of the same four lines. A new mode is a branch in one
-  function.
+  `particle_quad_offset(p, corner, camera_right, camera_up, alignment, velocity_stretch)` in
+  `engine/presentation/render/shaders/particle_common.glsl` is now the only place a billboard corner
+  is placed. The additive draw, the depth-sorted alpha draw, and the deterministic-billboard draw
+  all call it, where before the first two carried copies of the same four lines. A new mode is a
+  branch in one function.
 - **The stretch.** The quad's long axis is the particle's velocity projected onto the camera plane
   and its half-length is `size + speed * velocity_stretch` (the authored
   `RenderModule::velocity_stretch`, streak metres per m/s), the short axis stays `size`. The
@@ -463,10 +473,11 @@ pattern the remaining alignment modes (ribbon, mesh) should follow.
   `GpuEmitter`'s spare `pad0`/`pad_a` lanes became `alignment`/`velocity_stretch`, so the record's
   size is unchanged. Deterministic billboards cannot do this: they belong to no GPU emitter, index 0
   of the table is an unrelated cosmetic emitter, and on a billboard-only frame there is no table at
-  all. They got `particle_billboard.vert` and a pipeline of their own instead of a flag on the
-  shared shader — the two differ in what they are permitted to *read*, which is a pipeline property,
-  not a uniform. Consequence: **velocity stretch is a cosmetic-path feature**; the deterministic
-  path stays camera-facing (`Render::ParticleBillboard` carries no velocity to stretch along).
+  all. They got `engine/presentation/render/shaders/particle_billboard.vert` and a pipeline of their
+  own instead of a flag on the shared shader — the two differ in what they are permitted to *read*,
+  which is a pipeline property, not a uniform. Consequence: **velocity stretch is a cosmetic-path
+  feature**; the deterministic path stays camera-facing (`Render::ParticleBillboard` carries no
+  velocity to stretch along).
 
 ### 7.10 Ribbons and trails (VFX3b)
 
@@ -475,7 +486,7 @@ pattern the remaining alignment modes (ribbon, mesh) should follow.
 - **Trail history is persistent state, so it lives with the pool.** `ParticleSystem` owns a second
   device-local buffer of `capacity * TRAIL_POINTS` `vec4`s (xyz sample position, w its size),
   zero-cleared alongside the pool on the same one-time path. `TRAIL_POINTS` is 8, mirrored between
-  `ParticleSystem` and `particle_common.glsl`.
+  `ParticleSystem` and `engine/presentation/render/shaders/particle_common.glsl`.
 - **Shifted, not a ring.** Each simulate step moves every sample one place down and writes the new
   position at index 0. A ring would save seven `vec4` moves but would put a head index in the vertex
   stage's way, and the 128-byte draw push has no room for one — the moves are nothing beside the
@@ -486,7 +497,8 @@ pattern the remaining alignment modes (ribbon, mesh) should follow.
   a sprite expands into one quad — a different vertex count per instance, which is a property of the
   draw and cannot be a branch inside a shader. So the compute compaction routes ribbons to
   `particle_ribbon` with its own `VkDrawIndirectCommand` (`particle_args` grew to three, ribbons at
-  offset 32) and `particle_ribbon.vert` draws `(TRAIL_POINTS - 1) * 6` vertices per instance.
+  offset 32) and `engine/presentation/render/shaders/particle_ribbon.vert` draws
+  `(TRAIL_POINTS - 1) * 6` vertices per instance.
 - **Orientation and taper.** Each sample's side offset is perpendicular to both the local trail
   direction (taken from the *neighbouring* samples, so a corner shared by two segments resolves
   identically from both and the band has no crease) and the eye ray, so the strip always presents
@@ -496,7 +508,8 @@ pattern the remaining alignment modes (ribbon, mesh) should follow.
   moved yet, and one running straight at the eye.
 - **No ribbon fragment shader.** The shared fragment's radial falloff expects a round sprite; a
   ribbon wants a soft edge across the band and none along it. Emitting `v = 0.5` collapses the
-  radial term to `1 - u²`, which is exactly that, so the strip reuses `particle.frag` unchanged.
+  radial term to `1 - u²`, which is exactly that, so the strip reuses
+  `engine/presentation/render/shaders/particle.frag` unchanged.
 - **Slice limits.** The ribbon bucket composites with the premultiplied "over" and shades
   **emissive**, whatever the emitter authored. Both follow from the bucket being keyed on geometry
   and therefore mixing blends: an unlit trail can only be too bright, while a lit one could come out
@@ -529,11 +542,12 @@ pattern the remaining alignment modes (ribbon, mesh) should follow.
   axis, angle from the roll the update step already integrates), and a colour tint over the mesh's
   own vertex colour. Faces are not culled: debris turns, so a back face is as likely to be the
   visible one.
-- **Shading.** Not `pbr.frag`: a mesh particle carries no material, and reaching the bindless
-  material heap would tie this pass to the whole scene set. It is a diffuse surface lit by the sun —
-  shadowed through the same `particle_shadow.glsl` sampler the lit sprites use, its second consumer
-  — plus a flat ambient. **A mesh particle that needs a real material is a mesh instance, not a
-  particle**, and belongs on the GPU-driven instance path.
+- **Shading.** Not `engine/presentation/render/shaders/pbr.frag`: a mesh particle carries no
+  material, and reaching the bindless material heap would tie this pass to the whole scene set. It
+  is a diffuse surface lit by the sun — shadowed through the same
+  `engine/presentation/render/shaders/particle_shadow.glsl` sampler the lit sprites use, its second
+  consumer — plus a flat ambient. **A mesh particle that needs a real material is a mesh instance,
+  not a particle**, and belongs on the GPU-driven instance path.
 - **Slice limits.** The pass writes colour and depth only, not the id, velocity, or gbuffer targets
   the opaque pass fills, so mesh particles are not pickable, contribute no motion vectors (mild TAA
   ghosting on fast debris), and are absent from SSR and GTAO. They are also outside the GPU cull.
@@ -616,16 +630,17 @@ shortcut the skeleton preview used).
   `draw_emitter_gizmo(preview, camera_view, image_origin, w, h, draw_list)` that paints the emitter
   shape (sphere/cone/box wireframe) and bounds, mirroring `animation/skeleton_debug_draw`'s
   `draw_skeleton_overlay`.
-- `draw_particle_editor_panel(EditorContext&)` in `editor/ui/editor_panels.cpp` — the module-stack
-  authoring UI (emitter list, per-stage module add/remove/reorder, module params), a **curve
-  editor** and a **gradient editor** widget (ImGui draw-list based), a preview toolbar
-  (play/pause/restart, domain toggle). Registered at the three edit points (`PanelVisibility` bool,
-  Window-menu `MenuItem`, the `draw_*_panel` call block in `main.cpp`) + a `DockBuilderDockWindow`
-  placement.
+- `draw_particle_editor_panel(EditorContext&)` in `applications/editor/source/ui/editor_panels.cpp`
+  — the module-stack authoring UI (emitter list, per-stage module add/remove/reorder, module
+  params), a **curve editor** and a **gradient editor** widget (ImGui draw-list based), a preview
+  toolbar (play/pause/restart, domain toggle). Registered at the three edit points
+  (`PanelVisibility` bool, Window-menu `MenuItem`, the `draw_*_panel` call block in
+  `applications/editor/source/main.cpp`) + a `DockBuilderDockWindow` placement.
 - Emitter gizmo threads into the Scene `ViewportPanel::draw` overlay region and the existing gizmo
   drag + `history.begin_change/end_change` undo bracket (an emitter is an entity with a
   `ParticleEmitter` component; its transform moves through `IWorldEditor` like any other).
-- `editor/CMakeLists.txt` gains `vfx/effect_preview.cpp`; panel functions need no CMake change.
+- `applications/editor/CMakeLists.txt` gains `applications/editor/source/vfx/effect_preview.cpp`;
+  panel functions need no CMake change.
 
 ### 8.1 Effect assets, library, and timeline (VFX6)
 
@@ -717,9 +732,10 @@ shortcut the skeleton preview used).
 - `Unit_ParticleSpawn` — rate + burst produce the expected counts over N ticks; pool never exceeds
   capacity; dead/alive accounting balances.
 - `Integration_ParticleDeterminism` — the two byte-exact checks in §6 (independent-run equality +
-  rollback replay), following `test_input_determinism.cpp`'s two-session structure.
-- `examples/particle_demo.cpp` — a headless self-checking demo (GPU path where a device is present;
-  CPU path always) returning 0/1, registered via `add_sushi_sycl_executable`.
+  rollback replay), following `tests/integration/test_input_determinism.cpp`'s two-session
+  structure.
+- `samples/rendering/particle_demo.cpp` — a headless self-checking demo (GPU path where a device is
+  present; CPU path always) returning 0/1, registered via `add_sushi_sycl_executable`.
 
 No mocks — everything runs against the real runtime, per house style.
 
@@ -744,36 +760,40 @@ No mocks — everything runs against the real runtime, per house style.
   - ✅ Per-blend bucketing (additive/premultiplied vs true-alpha) with two draws + a premultiplied
     "over" alpha pipeline.
   - ✅ GPU **bitonic back-to-front depth-sort** of the alpha bucket (`ParticleSortPass` +
-    `particle_sort.comp` + `particle_sorted.vert`; gated on `has_alpha()`; pool capacity dropped to
-    2^16 to keep the sort tractable).
+    `engine/presentation/render/shaders/particle_sort.comp` +
+    `engine/presentation/render/shaders/particle_sorted.vert`; gated on `has_alpha()`; pool capacity
+    dropped to 2^16 to keep the sort tractable).
   - ✅ **Sun-lit particles** — the alpha bucket receives the world-space directional sun + a flat
     ambient (camera-relative hazard sidestepped); the additive bucket stays emissive.
   - ✅ **Clustered-punctual-light particles** (VFX2c, the froxel version) — the lit bucket maps each
     sprite to a cluster and accumulates `punctual_attenuation(...) * NdotL * radiance` over that
     cluster's lights, plus `gi_sh_irradiance(sh, n)` ambient (the flat ambient became the SH
     ambient). Camera-relative via `centre − eye` + `gl_Position.w` view-depth; the froxel primitives
-    extracted into the binding-free `clustered_lighting_common.glsl` shared with `pbr.frag`. See
-    §7.7. **Built green; awaits a GPU visual check** (the camera-relative correctness is not visible
-    at compile time).
+    extracted into the binding-free
+    `engine/presentation/render/shaders/clustered_lighting_common.glsl` shared with
+    `engine/presentation/render/shaders/pbr.frag`. See §7.7. **Built green; awaits a GPU visual
+    check** (the camera-relative correctness is not visible at compile time).
   - ✅ **Volumetric-shadow receive** — the lit bucket's sun term is multiplied by the sun's cascade
-    visibility (`particle_shadow.glsl`: four-tap Vogel, no blocker search, no normal offset, bound
-    at the scene set's own binding numbers on the pass's own set). See §7.8. Built green; **awaits
-    the same GPU visual check** as VFX2c above. Casting (a particle field shadowing itself and the
-    world) is not in this increment — see §13.
+    visibility (`engine/presentation/render/shaders/particle_shadow.glsl`: four-tap Vogel, no
+    blocker search, no normal offset, bound at the scene set's own binding numbers on the pass's own
+    set). See §7.8. Built green; **awaits the same GPU visual check** as VFX2c above. Casting (a
+    particle field shadowing itself and the world) is not in this increment — see §13.
 - ✅ **VFX3 — Streaks, ribbons, trails.**
   - ✅ **VFX3a velocity-stretched sprites** — `RenderAlignment::VelocityStretched` (authored since
     VFX1, unimplemented until now) plus a new authored `velocity_stretch` scale; the quad expansion
     was factored into one shared `particle_quad_offset`, and the deterministic billboards moved to a
     pipeline of their own so the GPU draws can read the emitter table. See §7.9. Built green.
   - ✅ **VFX3b ribbons / trails** — `RenderAlignment::Ribbon`: a persistent per-slot trail history
-    written by the simulate step, a third indirect draw bucket, and `particle_ribbon.vert` expanding
-    each particle into a tapered strip. See §7.10. Built green. Limits: the ribbon bucket is
-    emissive, "over"-blended, and unsorted whatever the emitter authored.
+    written by the simulate step, a third indirect draw bucket, and
+    `engine/presentation/render/shaders/particle_ribbon.vert` expanding each particle into a tapered
+    strip. See §7.10. Built green. Limits: the ribbon bucket is emissive, "over"-blended, and
+    unsorted whatever the emitter authored.
   - ✅ **Beams.** A ribbon between two authored endpoints rather than through a particle's own
     history; the strip expansion was already there, only the sample source differs.
-    `RenderAlignment::Beam` and `BeamModule` in `modules.hpp`, `compile_beam()` in the emitter
-    compiler, `particle_beam_sample()` in `particle_common.glsl` consumed by
-    `particle_ribbon.vert`, world-space placement in
+    `RenderAlignment::Beam` and `BeamModule` in
+    `engine/domain/vfx/include/SushiEngine/vfx/modules.hpp`, `compile_beam()` in the emitter
+    compiler, `particle_beam_sample()` in `engine/presentation/render/shaders/particle_common.glsl`
+    consumed by `engine/presentation/render/shaders/particle_ribbon.vert`, world-space placement in
     `engine/presentation/render/source/scene/particle_system.cpp`, the Alignment combo entry and
     endpoint widgets in the editor's particle panel, and a round-trip case in
     `tests/unit/test_vfx_effect_serializer.cpp`.
@@ -789,9 +809,10 @@ No mocks — everything runs against the real runtime, per house style.
     Hi-Z pyramid, which is still readable at sim time because the pyramid is pass-owned rather than
     a graph transient. See §7.13. Built green. Cosmetic path only, by construction.
   - ✅ **SDF collision** against the existing `sdf_clipmap`, for particles that must collide off
-    screen. `particle_sdf_collide()` in `particle_common.glsl`, called from
-    `particle_simulate.comp`, with the clipmap sampler and its configuration bound on that
-    shader and supplied by `ParticleSimPass` from the global-illumination clipmap.
+    screen. `particle_sdf_collide()` in `engine/presentation/render/shaders/particle_common.glsl`,
+    called from `engine/presentation/render/shaders/particle_simulate.comp`, with the clipmap
+    sampler and its configuration bound on that shader and supplied by `ParticleSimPass` from the
+    global-illumination clipmap.
 - ✅ **VFX6 — Editor polish.**
   - ✅ **`.sushieffect` asset files** — a descriptor-tree JSON serializer with defaulting reads.
   - ✅ **Effect library browser** — list, load, and save into `assets/effects`.
@@ -801,14 +822,15 @@ No mocks — everything runs against the real runtime, per house style.
   - ✅ **Node-graph view** — the module stack laid out as the pipeline it is, with click-to-toggle.
 - ✅ **VFX7 — The particle material.** The four render-module fields that had been authored,
   compiled, and ignored since VFX1 now do what they say: the sprite **texture** (through the same
-  bindless heap `pbr.frag` samples, at set 1, with a `RENDER_TEXTURED` flag rather than a sentinel
-  index), its **flipbook** cell (chosen by the sim since VFX1, read by nobody until now), **soft
-  particles** (the hard depth discard now followed by a fade over the authored distance), and
-  **lit** — moved from the draw *bucket*, which mixes emitters, onto the emitter itself, which also
-  lifts the VFX3b limitation that a ribbon could not be lit. Textures persist by **path**, not by
-  the session-scoped handle. Editor: a **Material** section on the Particle System component. Built
-  green; the shaders compile to SPIR-V at build time, so the GLSL is validated. Awaits a GPU visual
-  check (§13). Deliberately sprite-only — a particle that needs a real surface is a mesh particle.
+  bindless heap `engine/presentation/render/shaders/pbr.frag` samples, at set 1, with a
+  `RENDER_TEXTURED` flag rather than a sentinel index), its **flipbook** cell (chosen by the sim
+  since VFX1, read by nobody until now), **soft particles** (the hard depth discard now followed by
+  a fade over the authored distance), and **lit** — moved from the draw *bucket*, which mixes
+  emitters, onto the emitter itself, which also lifts the VFX3b limitation that a ribbon could not
+  be lit. Textures persist by **path**, not by the session-scoped handle. Editor: a **Material**
+  section on the Particle System component. Built green; the shaders compile to SPIR-V at build
+  time, so the GLSL is validated. Awaits a GPU visual check (§13). Deliberately sprite-only — a
+  particle that needs a real surface is a mesh particle.
 
 ---
 
@@ -861,10 +883,11 @@ No mocks — everything runs against the real runtime, per house style.
   `set 0` bindings 3–7 (light buffer, cluster grid, light-index list, `ClusterBlock` UBO, IBL SH) —
   the "pass's own set" option, not the shared `SceneLayout`. The predicted binding collision was
   sidestepped not by *copying* the helpers but by *extracting* them:
-  `clustered_lighting_common.glsl` now holds the binding-free `PunctualLight` / `cluster_index` /
-  `punctual_attenuation` / grid `#define`s, included by both `clustered_lighting.glsl` (which keeps
-  its 14–22 bindings) and `particle.frag` (which declares 3–7), so there is exactly one copy of the
-  froxel math (§7.7). The camera-relative conversion was done in the **vertex** stage
+  `engine/presentation/render/shaders/clustered_lighting_common.glsl` now holds the binding-free
+  `PunctualLight` / `cluster_index` / `punctual_attenuation` / grid `#define`s, included by both
+  `engine/presentation/render/shaders/clustered_lighting.glsl` (which keeps its 14–22 bindings) and
+  `engine/presentation/render/shaders/particle.frag` (which declares 3–7), so there is exactly one
+  copy of the froxel math (§7.7). The camera-relative conversion was done in the **vertex** stage
   (`centre − eye`, eye packed into the push's spare `w` lanes) with the froxel view-depth taken from
   **`gl_Position.w`** rather than a `dot(cam_forward, camrel)` — no `cam_forward` in the push (keeps
   the block at the 128-byte house budget) and no cross-product sign trap. **Still to verify on a

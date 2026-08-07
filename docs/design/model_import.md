@@ -21,10 +21,10 @@ a conformant file means — a right-handed coordinate system with +Y up, and met
 distance — so an importer that trusts the format needs no per-tool correction, and §4.2's one
 transform escape hatch is named after the correction it applies rather than after who might need it.
 
-Companion docs: `static_mesh_authoring.md` §10, which deferred exactly this work and whose two
-deferrals this document takes up; `physics_system.md` §3.4, which explains why the importer sits
-below the renderer; and `editor_ux_overhaul.md`, whose asset-centric direction the follow-on
-inspector work continues.
+Companion docs: `docs/design/static_mesh_authoring.md` §10, which deferred exactly this work and
+whose two deferrals this document takes up; `docs/design/physics_system.md` §3.4, which explains why
+the importer sits below the renderer; and `docs/design/editor_ux_overhaul.md`, whose asset-centric
+direction the follow-on inspector work continues.
 
 ---
 
@@ -56,9 +56,10 @@ Traced file by file rather than assumed from a name.
   load (`engine/world/serialization/source/scene_serializer.cpp:1530`). A file with twenty-two
   primitives contributes one.
 - **`ShapeParameters` holds one mesh, and material is a separate component.**
-  `simulation.hpp:436-442` carries a single `Render::MeshId`; the entity's `Material` is set through
-  `IWorldEditor::set_material` (`simulation.hpp:1133`). One entity is therefore one mesh with one
-  material, which is the constraint §5's node-splitting rule exists to satisfy.
+  `engine/world/simulation/include/SushiEngine/simulation/simulation.hpp` carries a single
+  `Render::MeshId`; the entity's `Material` is set through `IWorldEditor::set_material`
+  (`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`). One entity is therefore
+  one mesh with one material, which is the constraint §5's node-splitting rule exists to satisfy.
 - **Per-asset settings exist, cover cooking only, and are keyed by path.**
   `Physics::Cooking::ImportProfileOverride`
   (`engine/domain/physics/include/SushiEngine/physics/cooking/import_profile.hpp:110-134`) holds
@@ -66,25 +67,27 @@ Traced file by file rather than assumed from a name.
   `overrides` object is keyed by the asset's path string
   (`engine/world/authoring/source/cook_bake_state.cpp:274,281-298`). Renaming or moving an asset
   orphans its settings silently: nothing reports it, and the asset reverts to the project default.
-- **The asset drag source already exists; the drop target does not.**
-  `set_asset_drag_source` (`applications/editor/source/ui/panel_widgets.cpp:46-53`) publishes an
-  `ASSET_PATH_PAYLOAD` (`applications/editor/source/ui/panel_widgets.hpp:59`) for every file tile
-  in the Project panel (`applications/editor/source/project/project_panel.cpp:459`), and
-  `accept_asset_drop` (`panel_widgets.cpp:56-67`) is the matching consumer.
-  `static_mesh_authoring.md` §10 states that no drag source exists; that sentence is stale, and §12
-  of this document corrects it. No drop target for an asset path exists on the viewport or the
-  Hierarchy panel.
+- **The asset drag source already exists; the drop target does not.** `set_asset_drag_source`
+  (`applications/editor/source/ui/panel_widgets.cpp:46-53`) publishes an `ASSET_PATH_PAYLOAD`
+  (`applications/editor/source/ui/panel_widgets.hpp:59`) for every file tile in the Project panel
+  (`applications/editor/source/project/project_panel.cpp:459`), and `accept_asset_drop`
+  (`applications/editor/source/ui/panel_widgets.cpp:56-67`) is the matching consumer.
+  `docs/design/static_mesh_authoring.md` §10 states that no drag source exists; that sentence is
+  stale, and §12 of this document corrects it. No drop target for an asset path exists on the
+  viewport or the Hierarchy panel.
 - **Every glTF file is treated as a rigged character.** `has_character_extension`
-  (`project_panel.cpp:62-68`) returns true for any `.gltf` or `.glb`, and double-clicking one calls
-  `open_character_in_preview` (`:85-104`), which loads it into the animated preview and logs
-  "Loaded character '…' into the preview." — or, on failure, "Could not load '…' as a rigged
-  character." A static prop is neither loaded nor named correctly.
+  (`applications/editor/source/project/project_panel.cpp:62-68`) returns true for any `.gltf` or
+  `.glb`, and double-clicking one calls `open_character_in_preview` (`:85-104`), which loads it into
+  the animated preview and logs "Loaded character '…' into the preview." — or, on failure, "Could
+  not load '…' as a rigged character." A static prop is neither loaded nor named correctly.
 - **The engine has entity-level lights and cameras, but no entity-level directional light.**
-  `create_light`/`LightParameters` (`simulation.hpp:1625`, `:453-462`) cover point and spot only —
-  the field is a `bool is_spot`, with no third case. The scene's directional light is an
-  `Environment` property, `DirectionalLight sun`
+  `create_light`/`LightParameters`
+  (`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`, `:453-462`) cover point
+  and spot only — the field is a `bool is_spot`, with no third case. The scene's directional light
+  is an `Environment` property, `DirectionalLight sun`
   (`engine/domain/environment/include/SushiEngine/environment/environment.hpp:841`), not a
-  component. `create_camera`/`CameraParameters` (`simulation.hpp:1285`, `:186`) do exist.
+  component. `create_camera`/`CameraParameters`
+  (`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`, `:186`) do exist.
 - **The tier order forbids the obvious shortcut.** `SUSHIENGINE_LAYER_ORDER`
   (`cmake/EngineLayers.cmake:8-11`) is `foundation`, `domain`, `asset`, `presentation`, `world`, and
   `gltf` is an `asset` module (`:35`). An importer in `asset` cannot name `Render::MeshId`, so the
@@ -92,9 +95,10 @@ Traced file by file rather than assumed from a name.
   independently. §6 makes that the glTF node index.
 - **The by-path import cache is already in place.** `AssetLibrary::load_gltf`
   (`engine/presentation/render/source/material/asset_library.cpp:95`) caches its result per path
-  (`asset_library.hpp:227-257`), so several entities importing one file share one `MeshId` and the
-  opaque pass's per-geometry grouping (`opaque_pass.cpp:454`) applies. §6's new entry point inherits
-  that cache rather than opening a second one.
+  (`engine/presentation/render/source/material/asset_library.hpp`), so several entities importing
+  one file share one `MeshId` and the opaque pass's per-geometry grouping
+  (`engine/presentation/render/source/passes/opaque_pass.cpp`) applies. §6's new entry point
+  inherits that cache rather than opening a second one.
 
 ## §2 Non-goals
 
@@ -140,14 +144,15 @@ applications/editor/source/project/model_instantiate.{hpp,cpp}   new
 
 The split is not decoration. Everything difficult — which node becomes which entity, when a node
 splits, how a dropped pivot folds its transform into its children, how a name collision resolves —
-lives in `instantiation_plan.cpp`, which links no graphics stack and no editor and is therefore
-unit-testable on a machine with no GPU. What is left in the editor is a loop of `create` and
-`set_parent` calls with no branches worth testing, kept small for the reason
+lives in `engine/asset/model/source/instantiation_plan.cpp`, which links no graphics stack and no
+editor and is therefore unit-testable on a machine with no GPU. What is left in the editor is a loop
+of `create` and `set_parent` calls with no branches worth testing, kept small for the reason
 `applications/editor/source/physics/cook_bake_panel.hpp` already states about itself: it is the part
 that cannot be tested.
 
-`model` depends on `gltf` publicly, because `instantiation_plan.hpp` names `GLTFSceneDescription` in
-its signature, and on `geometry` and `physics` for the transform type and the embedded
+`model` depends on `gltf` publicly, because
+`engine/asset/model/include/SushiEngine/model/instantiation_plan.hpp` names `GLTFSceneDescription`
+in its signature, and on `geometry` and `physics` for the transform type and the embedded
 `ImportProfileOverride` of §4.2. An `asset` module may depend on another `asset` module
 (`engine/asset/gltf/README.md`, "Tier"), and the dependency costs nothing at the parser level: cgltf
 is a private include directory of `gltf` and no header there names a cgltf type, so `model` takes
@@ -194,8 +199,8 @@ the only identity §6 shares with the renderer.
 
 The transform is kept as translation, rotation and scale rather than a matrix. glTF permits either
 form and cgltf can decompose, and the decomposed form is what `IWorldEditor::set_transform`
-(`simulation.hpp:1057`) takes — converting to a matrix here only to decompose it again in the
-caller would lose precision for nothing.
+(`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`) takes — converting to a
+matrix here only to decompose it again in the caller would lose precision for nothing.
 
 ### §4.2 `ModelImportSettings` and the `.meta` sidecar
 
@@ -231,7 +236,7 @@ Settings are stored in `<asset>.meta` beside the asset — `models/Car.gltf` is 
 beside its asset is moved, renamed, copied and version-controlled with the asset instead of being
 orphaned by the first of those operations. The Project panel filters `.meta` out of its listing, the
 same way it already special-cases extensions in `tile_color` and `has_text_extension`
-(`project_panel.cpp:136-152,210-220`).
+(`applications/editor/source/project/project_panel.cpp`).
 
 Migration runs once, on `CookBakeState::load_profiles`: every entry in the existing `overrides`
 object whose asset still exists is written out as a `.meta` file carrying that override in its
@@ -255,13 +260,13 @@ what it defines anyway. The one thing two fields cannot do — preserve edits ma
 across a rebuild — is override resolution, and that is the prefab system's central problem rather
 than an addition to a small component.
 
-The cost of building the small version first is a component, a `scene_serializer.cpp` block, an
-`IWorldEditor` accessor triple and an undo command, every one of them replaced by the design that
-supersedes them. So the linkage is a stated hole rather than a temporary fill:
-**changing an asset's `.meta` does not update subtrees already placed in a scene.** An artist who
-changes import settings deletes the placed subtree and drags the asset in again. That is a real
-limitation of this phase, it is visible the first time anyone tries it, and it is the price of not
-writing the same mechanism twice.
+The cost of building the small version first is a component, a
+`engine/world/serialization/source/scene_serializer.cpp` block, an `IWorldEditor` accessor triple
+and an undo command, every one of them replaced by the design that supersedes them. So the linkage
+is a stated hole rather than a temporary fill: **changing an asset's `.meta` does not update
+subtrees already placed in a scene.** An artist who changes import settings deletes the placed
+subtree and drags the asset in again. That is a real limitation of this phase, it is visible the
+first time anyone tries it, and it is the price of not writing the same mechanism twice.
 
 ## §5 The instantiation plan
 
@@ -327,7 +332,7 @@ The rules, in the order they apply:
 
     Where it goes is forced by how the physics extract resolves a collider: `resolve_collider`
     scales by `entity.local_scale`, the entity's own scale, not by `world_scale`
-    (`physics_extract.hpp:105-106,129-140`). Putting the factor on the subtree root instead would
+    (`engine/world/simulation/include/SushiEngine/simulation/physics_extract.hpp:105-106,129-140`). Putting the factor on the subtree root instead would
     scale the drawing through the hierarchy and leave every generated collider at the file's raw
     size — silently wrong physics the moment `generate_colliders` and a `scale_factor` are set
     together. Scaling each level's translation scales their sum, so the composed world position
@@ -364,11 +369,12 @@ Two properties matter, and both differ from `load_gltf`:
 - **It does not bake the node's world transform into the vertices.** The entity's transform carries
   the placement now, and baking it as well would apply it twice. This also makes the upload
   shareable: four wheel nodes referencing one glTF mesh yield one `MeshId` rather than four, which
-  is what lets the opaque pass's per-geometry grouping (`opaque_pass.cpp:454`) actually group them.
+  is what lets the opaque pass's per-geometry grouping
+  (`engine/presentation/render/source/passes/opaque_pass.cpp`) actually group them.
 
 `load_gltf` keeps its current behavior and its callers unchanged; the two entry points share the
-existing per-path cache (`asset_library.hpp:227-257`), keyed additionally on which of the two
-produced the entry, since their vertices differ.
+existing per-path cache (`engine/presentation/render/source/material/asset_library.hpp`), keyed
+additionally on which of the two produced the entry, since their vertices differ.
 
 ## §7 Editor wiring
 
@@ -382,8 +388,8 @@ Deliberately narrow, because the asset inspector is the next sub-project (§2).
   correction lands.
 - **No Reimport action** (§4.3). Nothing in the editor offers to rebuild a placed subtree from its
   asset, because nothing records which asset it came from. A control that cannot do what its label
-  says is the failure `editor_ux_overhaul.md` rules out under wire-or-remove, so the honest state
-  for this phase is the absence of the control rather than a disabled one.
+  says is the failure `docs/design/editor_ux_overhaul.md` rules out under wire-or-remove, so the
+  honest state for this phase is the absence of the control rather than a disabled one.
 - **Undo.** An instantiation is one `Authoring::CommandHistory` step. Twenty entities appearing from
   one drag must disappear from one undo.
 
@@ -407,12 +413,13 @@ struct ModelImportReport
 
 An unreadable file creates nothing and logs one warning naming the path and cgltf's own reason. A
 node whose primitives are all non-triangle becomes a plain transform and is counted, the same
-distinction `GLTFMeshImportReport` already draws (`mesh_import.hpp:63-70`). A `.meta` that fails to
-parse is reported and the project default is used for that import — not silently, because an artist
-whose settings stopped applying needs to know it was the file and not the setting.
+distinction `GLTFMeshImportReport` already draws
+(`engine/asset/gltf/include/SushiEngine/gltf/mesh_import.hpp`). A `.meta` that fails to parse is
+reported and the project default is used for that import — not silently, because an artist whose
+settings stopped applying needs to know it was the file and not the setting.
 
 A partial import stays partial and says what is missing. Reporting a model that arrived as half its
-parts as a success is the failure mode `documentation-style-guide.md` names under "Honest about
+parts as a success is the failure mode `docs/documentation-style-guide.md` names under "Honest about
 gaps", and it is the same reason `GLTFMeshImportReport::primitives_skipped` exists rather than the
 importer quietly ignoring what it could not read.
 
@@ -421,8 +428,9 @@ importer quietly ignoring what it could not read.
 The correction is a rename plus a branch, and it is in scope here because §7 changes the same call
 site:
 
-- `has_character_extension` becomes `is_model_extension` (`project_panel.cpp:62-68`), and its
-  comment stops describing every glTF as "a rigged character asset".
+- `has_character_extension` becomes `is_model_extension`
+  (`applications/editor/source/project/project_panel.cpp:62-68`), and its comment stops describing
+  every glTF as "a rigged character asset".
 - `open_character_in_preview` becomes `open_model_asset` (`:85-104`) and branches on
   `GLTFSceneDescription::skin_count` rather than on the extension.
 - The log line stops asserting a category the file has not claimed. A static model reports what
@@ -446,18 +454,20 @@ The weight is on the pure layer, which needs no device:
   every field set, plus the one-way migration from a project document's `overrides`.
 - `import_gltf_scene` integration test against a real asset through `SE_TEST_ASSET_DIR`, the
   mechanism `tests/unit/test_animation_morph_import.cpp` already uses: node count, parent links, and
-  names. This closes part of the coverage gap `engine/asset/gltf/README.md` states about itself.
-No serialization test is added, and none is needed: §4.3 introduces no component, so an imported
-subtree is ordinary entities that `scene_serializer.cpp` already round-trips and already covers.
+  names. This closes part of the coverage gap `engine/asset/gltf/README.md` states about itself. No
+  serialization test is added, and none is needed: §4.3 introduces no component, so an imported
+  subtree is ordinary entities that `engine/world/serialization/source/scene_serializer.cpp` already
+  round-trips and already covers.
 
 ## §11 Verified assumptions, and one limitation they exposed
 
 Both items this document opened were closed by reading the tree rather than by assuming an answer.
 
 1. **A collider is scaled by its entity's own scale, not by its world scale.** `resolve_collider`
-   applies `entity.local_scale` (`physics_extract.hpp:129-140`); both scales are extracted
-   (`:105-106`) and the collider path deliberately takes the local one. §5 rule 10 is written to
-   that fact rather than around it.
+   applies `entity.local_scale`
+   (`engine/world/simulation/include/SushiEngine/simulation/physics_extract.hpp:129-140`); both
+   scales are extracted (`:105-106`) and the collider path deliberately takes the local one. §5 rule
+   10 is written to that fact rather than around it.
 2. **cgltf exposes `KHR_lights_punctual`.** The vendored version 1.15 parses the extension at both
    the node and document level, giving `cgltf_node::light` and a `cgltf_light` carrying type
    (directional, point, spot), colour, intensity, range and both spot cone angles, with
@@ -492,9 +502,9 @@ rather than when something falls through the floor.
 - **glTF feature coverage audit.** A claim-by-claim comparison of what the engine reads against
   glTF 2.0 and the `KHR_*` extensions, which is what "as complete as Unity's FBX support" has to
   mean before it can be checked.
-- `static_mesh_authoring.md` §10's two deferrals are taken up here: multi-primitive import by §5,
-  drag and drop by §7. That section's claim that "no `ImGui::BeginDragDropSource` exists today" is
-  stale — one was added since — and is corrected as part of this work.
+- `docs/design/static_mesh_authoring.md` §10's two deferrals are taken up here: multi-primitive
+  import by §5, drag and drop by §7. That section's claim that "no `ImGui::BeginDragDropSource`
+  exists today" is stale — one was added since — and is corrected as part of this work.
 
 ## §13 Roadmap
 

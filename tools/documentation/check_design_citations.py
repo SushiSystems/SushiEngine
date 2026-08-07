@@ -2,22 +2,28 @@
 
 ``docs/design/`` states its own evidence standard — ``static_mesh_authoring.md`` §1 writes it
 as "a claim is a file:line, not a description" — and ``docs/documentation-style-guide.md``
-repeats it as "a path in prose is a real path". Nothing checked either, and this script
-measures 617 of 680 cited paths pointing at nothing.
+repeats it as "a path in prose is a real path". Nothing checked either, and the first run of this
+script found 617 of 680 cited paths pointing at nothing — the repository restructure had moved
+every engine module and no citation followed. They were repaired against this script; it now
+guards the standard rather than only measuring the gap.
 
 ``check_documentation_length.py`` already resolves markdown *links*. A design document does not
 cite evidence as a link; it cites it as a backticked path, which nothing looked at until this
 script.
 
-Three kinds of cited path legitimately do not resolve, and they are not interchangeable, so
+Four kinds of cited path legitimately do not resolve, and they are not interchangeable, so
 each is declared in ``ALLOWED`` with the category that says why:
 
-* ``external`` — a file in the sibling SushiRuntime checkout, or a system header. Real, and
-  outside this repository.
+* ``external`` — a file in a sibling checkout, or a system header. Real, and outside this
+  repository.
 * ``runtime-artifact`` — a file the program writes or reads at run time. A repository that
   carried one would be carrying a user's state.
 * ``planned`` — a file a plan names and no commit has produced yet. Legitimate in a corpus that
   records intent, and the entry is what makes the intent auditable rather than assumed.
+* ``deleted`` — a file the document names *in order to say it is gone*. The path's deadness is
+  the claim: a deletion recorded, a rename recorded, or a path cited as one that never existed.
+  Repairing such a citation to a live file would invert the sentence it sits in, so the entry is
+  what protects the prose from a well-meaning repair.
 
 An ``ALLOWED`` entry whose path *does* resolve is itself a failure. Without that rule the list
 would silently outlive the reason it was added, which is the exact rot this script exists to
@@ -64,7 +70,126 @@ CITATION_PATTERN = re.compile(
     r"|gltf|meta|ini|yml|set0|sushiprefab))"
     r"(?::[0-9]+(?:-[0-9]+)?(?:,[0-9]+(?:-[0-9]+)?)*)?`")
 
-ALLOWED = {}
+ALLOWED = {
+    # -- external -------------------------------------------------------------------------------
+    ".deps.toml": (
+        "external", "the ss CLI's cross-repo dependency-manifest schema; this repository's own "
+        "instance is cli/sushistack.deps.toml, the schema belongs to the sushistack CLI"),
+    "ENGINE_BACKBONE_REFACTOR.md": (
+        "external", "SushiRuntime's own design corpus, cited by short name"),
+    "PHYSICS_SUBSTRATE_REQUIREMENTS.md": (
+        "external", "SushiRuntime's own design corpus, cited by short name"),
+    "SIMULATION_ENGINE_SUBSTRATE_PLAN.md": (
+        "external", "SushiRuntime's own design corpus, cited by short name"),
+    "sushiruntime/docs/design/ENGINE_BACKBONE_REFACTOR.md": (
+        "external", "the sibling SushiRuntime checkout, cited by path"),
+    "sushiruntime/docs/design/PHYSICS_SUBSTRATE_REQUIREMENTS.md": (
+        "external", "the sibling SushiRuntime checkout, cited by path"),
+    "sushiruntime/docs/design/SIMULATION_ENGINE_SUBSTRATE_PLAN.md": (
+        "external", "the sibling SushiRuntime checkout, cited by path"),
+    "SushiRuntime.h": ("external", "the sibling SushiRuntime checkout's umbrella header"),
+    "TODO.md": (
+        "external", "SushiRuntime's own open-item list; physics_system.md cites its item #29"),
+    "android.toolchain.cmake": ("external", "shipped by the Android NDK, not by this repository"),
+    "vulkan.h": ("external", "the Vulkan SDK's own header"),
+    "vk_mem_alloc.h": ("external", "VulkanMemoryAllocator's own header"),
+    "api/vocabulary/dynamic.hpp": ("external", "SushiRuntime's public API tree"),
+    "run_handle.hpp": ("external", "SushiRuntime's public API tree"),
+    "dynamic_graph.hpp": ("external", "SushiRuntime's graph implementation"),
+    "dependency_tracker.cpp": ("external", "SushiRuntime's hazard tracker"),
+    "resource_region.hpp": ("external", "SushiRuntime's region vocabulary"),
+    "memory_pool.hpp": ("external", "SushiRuntime's memory surface"),
+    "usm_allocator.hpp": ("external", "SushiRuntime's memory surface"),
+    "core/bit.hpp": (
+        "external", "one of the five SushiRuntime platform-branching sites the plan's §2.3 counts"),
+    "core/export.hpp": (
+        "external", "one of the five SushiRuntime platform-branching sites the plan's §2.3 counts"),
+    "core/logger.hpp": (
+        "external", "one of the five SushiRuntime platform-branching sites the plan's §2.3 counts"),
+    "topology/affinity.hpp": (
+        "external", "one of the five SushiRuntime platform-branching sites the plan's §2.3 counts"),
+    "distributed/tcp_transport.cpp": (
+        "external", "one of the five SushiRuntime platform-branching sites the plan's §2.3 counts"),
+    "sushiblas/src/CMakeLists.txt": (
+        "external", "the sibling SushiBLAS checkout, which links sushiruntime directly"),
+
+    # -- runtime-artifact -----------------------------------------------------------------------
+    "boot.json": ("runtime-artifact", "the player's boot manifest, written per installation"),
+    "controller.json": (
+        "runtime-artifact", "the animator panel's Save/Load target, written by the user"),
+    "cooking_profile.json": (
+        "runtime-artifact", "the cook and bake state, written under a project root"),
+    "layout.ini": ("runtime-artifact", "ImGui's persisted dock layout, per user"),
+    "preferences.json": ("runtime-artifact", "the editor's per-user preference store"),
+    "models/Car.gltf": (
+        "runtime-artifact", "the worked example model_import.md and prefab_system.md name to show "
+        "the sidecar convention; a user's asset, not a file this repository carries"),
+    "models/Car.gltf.meta": (
+        "runtime-artifact", "the import-settings sidecar the editor writes beside a user's asset"),
+    "models/Car.gltf.sushiprefab": (
+        "runtime-artifact", "the prefab the importer writes beside a user's asset"),
+
+    # -- planned --------------------------------------------------------------------------------
+    "cmake/Platform.cmake": (
+        "planned", "cross_platform_engineering_plan.md §6.4 and PLATFORM1, which has not started"),
+    "vcpkg.json": (
+        "planned", "cross_platform_engineering_plan.md §6.4 and PLATFORM1 add the root manifest; "
+        "the plan's own §2.2 records that none exists today"),
+    "handles.hpp": (
+        "planned", "cross_platform_engineering_plan.md's RHI1 mints the neutral Rhi vocabulary; "
+        "no Rhi namespace exists in the tree"),
+    "handoff.hpp": (
+        "planned", "unified_hazard_model.md §6's Handoff header, gated on UHM1-UHM5"),
+    "imagery.py": (
+        "planned", "solar_system_overhaul.md §5.4's baker package; the imagery layer belongs to "
+        "P6 (Earth), which has not started"),
+    "landcover.py": (
+        "planned", "solar_system_overhaul.md §5.4's baker package; the landcover layer belongs to "
+        "P7 (material synthesis), which has not started"),
+    "terrain_tile_compile.comp": (
+        "planned", "solar_system_overhaul.md §6.3's tile compile, in a phase that has not started"),
+
+    # -- deleted --------------------------------------------------------------------------------
+    "test_weather_determinism.cpp": (
+        "deleted", "removed in 845eadf; atmosphere_system.md §0, §14 and §16 cite it to state that "
+        "weather leaves the determinism domain, so repairing it would invert the claim"),
+    "regional_weather_grid.hpp": (
+        "deleted", "removed in 845eadf; atmosphere_system.md §1 audits the pre-nest system through "
+        "it, with the line ranges that audit was written against, and §16 records the deletion"),
+    "synoptic_weather.hpp": (
+        "deleted", "removed in 1422689 (phase C3); atmosphere_system.md §1 audits it and §16 "
+        "records the deletion"),
+    "collision.hpp": (
+        "deleted", "split into physics/geometry, physics/collision and collision/contact.hpp; "
+        "physics_system.md §3.1 and §16 cite the pre-split header to record what was split"),
+    "render/geometry/cloth_buffers.cpp": (
+        "deleted", "removed in 76d1fba when P6 generalized ClothStrandView into DeformableMeshView; "
+        "physics_system.md §8.6 cites the pre-P6 path it generalizes"),
+    "weather_and_clouds.md": (
+        "deleted", "removed and in git history; atmosphere_system.md and render_pipeline_refactor."
+        "md cite it to say what supersedes it"),
+    "docs/design/weather_and_clouds.md": (
+        "deleted", "removed and in git history; atmosphere_system.md §16 counts the source files "
+        "that still cite it by section number"),
+    "ARCHITECTURE.md": (
+        "deleted", "split into docs/architecture/ in e0da3f6; repository_restructure.md §10 cites "
+        "the monolith to state its size and what phase 4 did to it"),
+    "docs/guides/ARCHITECTURE.md": (
+        "deleted", "a path that never existed; repository_restructure.md §7 cites it because "
+        "Doxyfile's INPUT named it, which is the finding. INPUT now names docs/architecture"),
+    "include/SushiEngine/loop/rng.hpp": (
+        "deleted", "renamed to core/random_number_generator.hpp; repository_restructure.md §5's "
+        "move table cites the old path as the left-hand column"),
+    "loop/rng.hpp": (
+        "deleted", "renamed to core/random_number_generator.hpp; repository_restructure.md §2 and "
+        "§3 cite the old path to state the descent that retires it"),
+    "rng.hpp": (
+        "deleted", "renamed to core/random_number_generator.hpp; repository_restructure.md §3 and "
+        "§8 cite the old name to record the rename"),
+    "render/probe/atmosphere_main.cpp": (
+        "deleted", "moved to tools/probes/atmosphere/main.cpp; repository_restructure.md §3 cites "
+        "the pre-move location because the move is what makes presentation->world zero edges"),
+}
 
 
 def index_tree():

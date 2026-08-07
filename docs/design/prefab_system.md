@@ -13,12 +13,12 @@ placed in scenes, and instances that rebuild themselves when the asset changes. 
 not specify override resolution, which is the phase that follows and the reason this one is drawn
 where it is.
 
-It also takes over a responsibility another document declined. `model_import.md` §4.3 withdrew the
-link from a placed subtree back to the glTF it came from, on the grounds that a prefab system owns
-it whole. §7 here is that link.
+It also takes over a responsibility another document declined. `docs/design/model_import.md` §4.3
+withdrew the link from a placed subtree back to the glTF it came from, on the grounds that a prefab
+system owns it whole. §7 here is that link.
 
-Companion docs: `model_import.md` §4.3 and §12, whose withdrawn section this document completes;
-`editor_ux_overhaul.md`, whose wire-or-remove rule §8 applies.
+Companion docs: `docs/design/model_import.md` §4.3 and §12, whose withdrawn section this document
+completes; `docs/design/editor_ux_overhaul.md`, whose wire-or-remove rule §8 applies.
 
 ---
 
@@ -41,7 +41,8 @@ Companion docs: `model_import.md` §4.3 and §12, whose withdrawn section this d
   persistent file-scoped identifier; this codebase has no equivalent. That absence is the whole
   reason override resolution is a separate phase (§10) rather than a section here.
 - **The hierarchy the instance needs is already built.** `IWorldEditor::parent`/`set_parent`
-  (`simulation.hpp:1250-1263`) maintain the tree and reject cycles.
+  (`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`) maintain the tree and
+  reject cycles.
 - **The drag source a prefab is authored through already exists.** The Hierarchy panel publishes a
   `HIERARCHY_ENTITY` payload for every row
   (`applications/editor/source/scene/hierarchy_panel.cpp:146`). §6 adds the target, not the
@@ -115,8 +116,8 @@ namespace SushiEngine::Simulation
 ```
 
 It gets the accessor triple every other component has on `IWorldEditor` — `has_prefab_instance`,
-`prefab_instance`, `set_prefab_instance` — and a block in `scene_serializer.cpp` beside the
-existing ones.
+`prefab_instance`, `set_prefab_instance` — and a block in
+`engine/world/serialization/source/scene_serializer.cpp` beside the existing ones.
 
 **A scene file stores the instance's entities in full, expanded, exactly as it stores any other
 entity, plus this component on the root.** That is the whole of the representation, and it is chosen
@@ -133,7 +134,8 @@ merely unlinked; a reference-only scene would lose the objects entirely.
 
 An override — the whole subject of the phase after this one — has to name what it overrides. This
 codebase gives it nothing to name with: an entity's parentage is written as an array index
-(`scene_serializer.cpp:584`) and `EntityId` is a runtime value that does not survive a save (§1).
+(`engine/world/serialization/source/scene_serializer.cpp`) and `EntityId` is a runtime value that
+does not survive a save (§1).
 
 The scope of that problem is narrower than it first looks. **An override is always relative to a
 prefab.** Saying "this instance's `Tire` uses a different material" requires telling that `Tire`
@@ -184,8 +186,8 @@ changes the instance's `EntityId`, which is why this pass runs where nothing is 
 load, before the editor has a selection.
 
 The destroy is bottom-up, because `destroy` leaves a destroyed parent's children as roots rather
-than cascading (`runtime_simulation.cpp:323`). Destroying the root first would scatter the old
-subtree across the scene instead of removing it.
+than cascading (`engine/world/simulation/source/runtime_simulation.cpp`). Destroying the root first
+would scatter the old subtree across the scene instead of removing it.
 
 The pass runs in `load_scene` and **not** in `apply_scene`. This is the detail that is easiest to
 get wrong and the most damaging to get wrong: `apply_scene` is the path undo restores through, and
@@ -207,20 +209,20 @@ than overwriting an existing prefab.
 
 ## §7 Where model import connects
 
-`plan_model_instantiation` (`model_import.md` §5) already produces a list of entities with their
-parents, transforms and components. That list is the content of a prefab file. So the importer
-writes a `.sushiprefab` instead of creating entities directly, and dragging a `.gltf` into a scene
-places an instance of it.
+`plan_model_instantiation` (`docs/design/model_import.md` §5) already produces a list of entities
+with their parents, transforms and components. That list is the content of a prefab file. So the
+importer writes a `.sushiprefab` instead of creating entities directly, and dragging a `.gltf` into
+a scene places an instance of it.
 
 Reimport is then not a feature anyone writes. Changing an asset's `.meta` changes the plan, which
 changes the prefab, which changes its revision, and §5 rebuilds every instance in every scene the
-next time it is opened. The gap `model_import.md` §4.3 left open closes without a line of code that
-exists only to close it.
+next time it is opened. The gap `docs/design/model_import.md` §4.3 left open closes without a line
+of code that exists only to close it.
 
 The generated prefab is written beside the source asset as `<asset>.sushiprefab` — the whole path
-with the extension appended, the same convention `.meta` follows (`model_import.md` §4.2), so
-`models/Car.gltf` produces `models/Car.gltf.meta` and `models/Car.gltf.sushiprefab`, and a `.glb`
-and a `.gltf` of the same name in one directory cannot collide. It is a real file that can be
+with the extension appended, the same convention `.meta` follows (`docs/design/model_import.md`
+§4.2), so `models/Car.gltf` produces `models/Car.gltf.meta` and `models/Car.gltf.sushiprefab`, and a
+`.glb` and a `.gltf` of the same name in one directory cannot collide. It is a real file that can be
 opened, inspected and version-controlled like any other, rather than a hidden generated artefact.
 
 ## §8 Errors and what the editor must say
@@ -232,9 +234,9 @@ opened, inspected and version-controlled like any other, rather than a hidden ge
   discovered afterwards.
 - **A flattened nested instance** is reported by name when a prefab is authored from a subtree that
   contained one (§2).
-- **No control that cannot do what it says.** `editor_ux_overhaul.md`'s wire-or-remove rule applies
-  in full: there is no disabled "Override" affordance hinting at §10, because a control that
-  advertises a capability the build does not have is the failure that rule exists to prevent.
+- **No control that cannot do what it says.** `docs/design/editor_ux_overhaul.md`'s wire-or-remove
+  rule applies in full: there is no disabled "Override" affordance hinting at §10, because a control
+  that advertises a capability the build does not have is the failure that rule exists to prevent.
 
 ## §9 Testing
 

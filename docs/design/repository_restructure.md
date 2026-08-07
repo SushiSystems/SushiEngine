@@ -17,10 +17,11 @@ up to three root-level trees:
 `cooking/` is the worst case: sources at root `cooking/`, headers under
 `include/SushiEngine/physics/cooking/`, its own target. Maintaining one module means
 editing two or three unrelated root directories, which is the opposite of the
-locality `docs/CLAUDE.md` demands.
+locality `CLAUDE.md` demands.
 
 A single central include tree also *cannot express* "physics may not see render".
-`astro/ephemeris.hpp:53` and `atmosphere/quasigeostrophic_core.hpp:79` both include
+`engine/domain/astro/include/SushiEngine/astro/ephemeris.hpp` and
+`engine/domain/atmosphere/include/SushiEngine/atmosphere/quasigeostrophic_core.hpp` both include
 render headers and both shipped, because nothing could stop them.
 
 ## 2. Target layout
@@ -65,11 +66,11 @@ engine/domain/physics/
 └── tests/
 ```
 
-Because each module's public root is `<module>/include` and the subtree beneath it
-keeps its spelling, roughly 900 files keep their `#include` lines byte-for-byte.
-Only three subtrees change spelling, and all three are rule violations being paid
-off anyway: `sim/` → `simulation/` (69 files), the two orphan glTF headers (8 files),
-and `loop/rng.hpp` → `core/random_number_generator.hpp` (4 files).
+Because each module's public root is `<module>/include` and the subtree beneath it keeps its
+spelling, roughly 900 files keep their `#include` lines byte-for-byte. Only three subtrees change
+spelling, and all three are rule violations being paid off anyway: `sim/` → `simulation/` (69
+files), the two orphan glTF headers (8 files), and `loop/rng.hpp` →
+`engine/foundation/core/include/SushiEngine/core/random_number_generator.hpp` (4 files).
 
 ## 3. Enforcement
 
@@ -97,16 +98,19 @@ edges.
 
 The traffic runs the other way and stays there. Eleven `#include
 <SushiEngine/render/...>` lines across the world modules descend into
-`domain/environment` with `environment.hpp` (7), `atmosphere_nest.hpp` (2),
-`weather_field.hpp` (1) and `light.hpp` (1), which also retires the astro→render
-inversion. Exactly three edges survive, and all three are legal downward edges under
+`domain/environment` with
+`engine/domain/environment/include/SushiEngine/environment/environment.hpp` (7),
+`engine/domain/environment/include/SushiEngine/environment/atmosphere_nest.hpp` (2),
+`engine/domain/environment/include/SushiEngine/environment/weather_field.hpp` (1) and
+`engine/domain/environment/include/SushiEngine/environment/light.hpp` (1), which also retires the
+astro→render inversion. Exactly three edges survive, and all three are legal downward edges under
 this order:
 
 | Consumer | Header |
 | --- | --- |
-| `world/simulation` (`simulation.hpp`) | `render/scene_view.hpp` |
-| `world/authoring` (`preferences.hpp`) | `render/render_settings.hpp` |
-| `world/serialization` (`effect_serializer.cpp`) | `render/material.hpp` |
+| `world/simulation` (`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`) | `engine/presentation/render/include/SushiEngine/render/scene_view.hpp` |
+| `world/authoring` (`engine/world/authoring/include/SushiEngine/authoring/preferences.hpp`) | `engine/presentation/render/include/SushiEngine/render/render_settings.hpp` |
+| `world/serialization` (`engine/world/serialization/source/effect_serializer.cpp`) | `engine/domain/material/include/SushiEngine/material/material.hpp` |
 
 So `SUSHIENGINE_LAYER_EXCEPTIONS` starts **empty**. `SUSHIENGINE_FORBIDDEN_EDGES`
 still carries `render;simulation`, deliberately redundant with the tier comparison,
@@ -121,16 +125,18 @@ simulation. Its own headers include only `ecs`, `core` and `execution`, all
 foundation, so nothing about it resists the placement.
 
 Placing it there is what gives the enforcement something real to catch:
-`atmosphere/quasigeostrophic_core.hpp:79` includes `loop/rng.hpp`, which is a domain
-module reaching up into the session loop for a seeded random number generator. The
-fix is the descent already planned — `rng.hpp` includes nothing but `<cstdint>` and
-belongs in `core`. Had `loop` been left in `domain`, that edge would have been
+`engine/domain/atmosphere/include/SushiEngine/atmosphere/quasigeostrophic_core.hpp` includes
+`loop/rng.hpp`, which is a domain module reaching up into the session loop for a seeded random
+number generator. The fix is the descent already planned — `rng.hpp` includes nothing but
+`<cstdint>` and belongs in `core`. Had `loop` been left in `domain`, that edge would have been
 same-tier and legal, and the enforcement would have had nothing to say about it.
 
-`material.hpp` must be split before that move: `atmosphere_nest.hpp:1687` defines
-`IAtmosphereMirror`, which `IAssetLibrary` (`material.hpp:232`) inherits.
-`IAssetLibrary` stays in render as `asset_library.hpp`. That is a code edit, not a
-move, so it belongs to phase 2.
+`engine/domain/material/include/SushiEngine/material/material.hpp` must be split before that move:
+`engine/domain/environment/include/SushiEngine/environment/atmosphere_nest.hpp:1687` defines
+`IAtmosphereMirror`, which `IAssetLibrary`
+(`engine/domain/material/include/SushiEngine/material/material.hpp`) inherits. `IAssetLibrary` stays
+in render as `engine/presentation/render/source/material/asset_library.hpp`. That is a code edit,
+not a move, so it belongs to phase 2.
 
 Name the descended aggregate `Environment::Description` — `SushiEngine::World`
 collides with the ECS class and `SushiEngine::Scene` is taken by the serializer.
@@ -174,14 +180,17 @@ the same commit. Therefore:
 
 Two rows look like moves but are code edits, and are therefore deferred to phase 2:
 
-- `render/geometry/meshlet.*` → `domain/geometry` requires extracting `MeshVertex`
-  out of `mesh_registry.hpp` first; `meshlet.cpp:26` pulls that header in and it
-  includes `<vulkan/vulkan.h>` at lines 42-43.
-- `render/terrain/terrain_frame.hpp` → `domain/terrain` is **not viable at all**
-  until `CameraView` is extracted from `scene_view.hpp`. Its lines 49-50 include
-  `render/environment.hpp` and `render/scene_view.hpp`, and its only function
-  (line 131) takes `const CameraView&` and `const Environment&`. Moving it as
-  proposed would create a new domain→presentation edge.
+- `render/geometry/meshlet.*` → `domain/geometry` requires extracting `MeshVertex` out of
+  `engine/presentation/render/source/geometry/mesh_registry.hpp` first;
+  `engine/domain/geometry/source/meshlet.cpp` pulls that header in and it includes
+  `<vulkan/vulkan.h>` at lines 42-43.
+- `engine/presentation/render/source/terrain/terrain_frame.hpp` → `domain/terrain` is **not viable
+  at all** until `CameraView` is extracted from
+  `engine/presentation/render/include/SushiEngine/render/scene_view.hpp`. Its lines 49-50 include
+  `engine/domain/environment/include/SushiEngine/environment/environment.hpp` and
+  `engine/presentation/render/include/SushiEngine/render/scene_view.hpp`, and its only function
+  (line 131) takes `const CameraView&` and `const Environment&`. Moving it as proposed would create
+  a new domain→presentation edge.
 
 ## 5. Move table
 
@@ -209,7 +218,7 @@ Two rows look like moves but are code edits, and are therefore deferred to phase
 | `editor/core/{command_history,preferences,autosave}.*`, `editor/physics/{cook_bake_state,soft_body_heat}.*` | `engine/world/authoring/` (new library `sushiengine_authoring`) |
 | `editor/` (remainder) | `applications/editor/source/` |
 | `se_player/` | `applications/player/` |
-| `sandbox/main.cpp`, `examples/*.cpp` (53) | `samples/sandbox/`, `samples/{animation,audio,physics,rendering,authoring}/` |
+| `samples/sandbox/main.cpp`, `examples/*.cpp` (53) | `samples/sandbox/`, `samples/{animation,audio,physics,rendering,authoring}/` |
 | `editor/scene/physics_sample_scene.*` | `samples/physics/sample_scene/` |
 | `examples/assets/*.gltf` (3) | `assets/models/` |
 | `render/tools/shader_compiler/` | `tools/shader_compiler/` |
@@ -217,16 +226,18 @@ Two rows look like moves but are code edits, and are therefore deferred to phase
 | `render/probe/goldens/` | `tests/goldens/render/` |
 | `tests/functional/{unit,integration,regression}/` | `tests/{unit,integration,regression}/` |
 | `tests/execution_native/` | `tests/native_execution/` (keeps its deliberate reach-back to shared translation units) |
-| `include/SushiEngine/SushiEngine.hpp` | `engine/include/SushiEngine/SushiEngine.hpp` |
+| `engine/include/SushiEngine/SushiEngine.hpp` | `engine/include/SushiEngine/SushiEngine.hpp` |
 | `build/`, `build-editor/`, `build-player/` | `build/{default,editor,player}/` |
-| `docs/CLAUDE.md` | `CLAUDE.md` (root) |
+| `CLAUDE.md` | `CLAUDE.md` (root) |
 | root `LICENCE` + `docs/LICENSE` | one root `LICENSE` |
 
 Deleted: `cooked/`, `editor/serialization/`, `editor/window/` (all three verified
 empty on disk), `docs/LICENSE`, `docs/api-site/`, and `include/` itself once drained.
 `imgui.ini` is **not** tracked by git — nothing to remove; the fix is to set
-`io.IniFilename` under `Platform::user_data_directory()` and ship
-`applications/editor/layout/default_layout.ini` as the first-run default.
+`io.IniFilename` under `Platform::user_data_directory()` and give first run a default
+layout. **As built:** the pin landed (`applications/editor/source/main.cpp`) but the
+first-run default is applied in code by `build_default_layout`, so no layout file ships
+with the editor and the planned `.ini` asset was never produced.
 
 Tests move mechanically in phase 1; the `functional/` level is dropped because every
 test in the tree is functional and the three subdirectories already match the three
@@ -253,46 +264,48 @@ one line.
 ## 7. Fixed in the same change
 
 - `cmake/Runtime.cmake` `add_subdirectory(../sushiruntime)` into one flat CMake
-  namespace is the entire reason `CONTRIBUTING.md` mandates the `sushiengine_`
+  namespace is the entire reason `docs/CONTRIBUTING.md` mandates the `sushiengine_`
   prefix, and no CI job ever configures both repositories together — so the
   collision the rule prevents has never been tested. Add that job.
 - `SE_EXECUTION_BACKEND=native` has no CLI flag, no CI job and no documentation
-  entry; `SE_BUILD_PLAYER` is configured by nothing in `ci.yml`.
+  entry; `SE_BUILD_PLAYER` is configured by nothing in `.github/workflows/ci.yml`.
 - `sandbox` and `pgs_demo` are declared twice (`CMakeLists.txt:89/:544` and
   `:90/:545`), once per execution lane, and are the only two targets proving the
   native lane works. `samples/CMakeLists.txt` must keep both lanes.
-- `render/CMakeLists.txt:459-460` compile absolute source-tree and build-tree paths
+- `engine/presentation/render/CMakeLists.txt` compile absolute source-tree and build-tree paths
   (`SUSHI_SHADER_SOURCE_DIR`, `SUSHI_PIPELINE_CACHE_DIR`) into the shipped library.
   Route both through `Platform::user_data_directory` and a relative shader search
   path.
 - Asset resolution is by cwd-relative string literal in shipped code
-  (`render/terrain/planet_terrain.cpp:69`, `include/SushiEngine/sim/climatology_asset.hpp:52`
-  in a public header, `editor/vfx/particle_panel.cpp:54` pointing at a directory that
-  does not exist). Two tests already work around it with a five-deep walk-up hunt.
-  This needs one seam, not a new `assets/effects/` directory invented to satisfy a
-  dangling literal.
-- `render/CMakeLists.txt` `SHADER_INCLUDES` omits `punctual_shadow_common.glsl`, so
-  edits to it do not rebuild `sky.frag` or `clustered_lighting.glsl`.
+  (`engine/presentation/render/source/terrain/planet_terrain.cpp`,
+  `engine/world/simulation/include/SushiEngine/simulation/climatology_asset.hpp` in a public header,
+  `applications/editor/source/vfx/particle_panel.cpp` pointing at a directory that does not exist).
+  Two tests already work around it with a five-deep walk-up hunt. This needs one seam, not a new
+  `assets/effects/` directory invented to satisfy a dangling literal.
+- `engine/presentation/render/CMakeLists.txt` `SHADER_INCLUDES` omits
+  `engine/presentation/render/shaders/punctual_shadow_common.glsl`, so edits to it do not rebuild
+  `engine/presentation/render/shaders/sky.frag` or
+  `engine/presentation/render/shaders/clustered_lighting.glsl`.
 - `Doxyfile` `INPUT` points at `docs/guides/ARCHITECTURE.md`, which does not exist,
   so the architecture manual is silently dropped from the generated site.
 - Four UI-free editor translation units are recompiled into two or three targets each
   because no library target exists for them; the new `sushiengine_authoring` library
   deletes `CMakeLists.txt:496-501` and `tests/CMakeLists.txt:148,561,562,616`.
 - No `.clang-format`, `.editorconfig`, `CODEOWNERS` or `CMakePresets.json` exists, so
-  `CONTRIBUTING.md` §4 has no mechanical enforcement at all.
+  `docs/CONTRIBUTING.md` §4 has no mechanical enforcement at all.
 
 ## 8. Phase 2 — naming
 
 | Class | Count |
 | --- | --- |
-| Bare `sushi_` CMake identifiers | 278, and zero `sushiengine_` ones. All 13 libraries and all three functions, including `sushi_configure_test_target` — the exact collision example `CONTRIBUTING.md` gives |
+| Bare `sushi_` CMake identifiers | 278, and zero `sushiengine_` ones. All 13 libraries and all three functions, including `sushi_configure_test_target` — the exact collision example `docs/CONTRIBUTING.md` gives |
 | Title-cased acronyms | `Aabb` (111), `Xpbd` (~200), `Dsp` (37 files), `Vfx` (31), `Gi` (11), plus `Gpu`, `Sdf`, `Bvh`, `Ibl`, `Taa`, `Ssr`, `Gtao`, `Fxaa`, `Hiz`, `Fem`, `Gltf`, `Hrtf`, `Fdn`, `Lod`, `Rng`, `Dag`, `Json`, `Sdl`, `Glsl`, `Lut`, `Ik`, `Fft` |
 | Abbreviated identifiers | `*Params` 33 types, `*Desc` 33 types, `Mat4` (76 files, defined beside a correctly-spelled `Vector3`), `cmd` 737 occurrences including virtual interface signatures |
 | Lowercase namespaces | `detail` ×20 in public headers while `Detail` appears correctly ×12; `placeholder`; `fs` aliases ×7 |
 | Truncated license headers | 151 files missing the four-line grant clause |
 | Separator comments | 210 lines across 65 files |
 | Historical narration comments | 247 lines across 109 files |
-| File names | the `sim/` rename (69 including files), `dof_pass`, `particle_sim_pass`, `hiz_pass`, `*_params.hpp` ×4, `cluster_config.hpp`, `upscaler_info.hpp`, `ma_audio_device`, `rect.hpp`, `rng.hpp`, `net.hpp`, four `*_impl.cpp` |
+| File names | the `sim/` rename (69 including files), `dof_pass`, `particle_sim_pass`, `hiz_pass`, `*_params.hpp` ×4, `engine/presentation/render/source/lighting/cluster_config.hpp`, `engine/presentation/render/include/SushiEngine/render/upscaler_info.hpp`, `ma_audio_device`, `engine/domain/ui/include/SushiEngine/ui/rect.hpp`, `rng.hpp`, `engine/world/loop/include/SushiEngine/loop/net.hpp`, four `*_impl.cpp` |
 
 `UiPass`/`UiBuffers`/`UiView`/`UiVertex` are self-contradicting: `include/SushiEngine/ui/`
 already spells `UIButton`/`UIText`/`UIDrawList` correctly.
@@ -318,20 +331,20 @@ when wiring needs shader or pass work that cannot be verified without a GPU.
 **Data loss**
 
 - `SoftBodyParams` is addable via Add Component ▸ Soft Body but absent from
-  `scene_serializer.cpp`'s `capture_scene`, so Save, Load, Undo/Redo and Play→Stop
-  each destroy it silently.
+  `engine/world/serialization/source/scene_serializer.cpp`'s `capture_scene`, so Save, Load,
+  Undo/Redo and Play→Stop each destroy it silently.
 
 **Implemented features with no entry point**
 
 - The Crowd component quintet on `IWorldEditor` is implemented in
-  `sim/runtime_simulation.cpp:939-996,1280-1290` and rendered through the
+  `engine/world/simulation/source/runtime_simulation.cpp` and rendered through the
   skinned-instance channel, with no menu item, no Inspector section, no scene
   serialization and no test.
 - `Terrain::LayerStack` (Flatten/Raise/Crater) is implemented and unit-tested and
   `PlanetTerrain::layers()` exposes it, but nothing ever adds a layer.
 - `VFX::BeamModule` + `RenderAlignment::Beam` have a working GPU path
-  (`particle_ribbon.vert`, `is_beam`) but no Alignment combo entry and no serializer
-  field.
+  (`engine/presentation/render/shaders/particle_ribbon.vert`, `is_beam`) but no Alignment combo
+  entry and no serializer field.
 - `VFX::SortMode` is authored, serialized, compiled and uploaded to the GPU emitter
   table, and read by no shader or pass.
 - `PlanetTerrain::statistics()` is computed every frame and displayed nowhere.
@@ -343,11 +356,12 @@ Mode and Anisotropic Filtering; Post Process's Bloom Threshold and Knee. Also
 `Material::receive_shadows` / `gpu_instancing` (serialized, no UI, no consumer) and
 `ColorGradeSettings::lut_enabled`.
 
-**Documentation and lane links** — `docs/CLI_GUIDE.md` never mentions `se player` or
-`se climatology`; `docs/README.md`'s tables omit player/planet/climatology,
-`SE_BUILD_PLAYER` and `SE_EXECUTION_BACKEND`; `docs/VEHICLES.md` is absent from the
-index; `first_game.cpp` and `audio_authoring_demo.cpp` are built and documented
-nowhere; `include/SushiEngine/input/replay_json.hpp` is included by no file.
+**Documentation and lane links** — `docs/guides/command-line-interface.md` never mentions
+`se player` or `se climatology`; `docs/README.md`'s tables omit player/planet/climatology,
+`SE_BUILD_PLAYER` and `SE_EXECUTION_BACKEND`; `docs/guides/vehicles.md` is absent from the index;
+`samples/authoring/first_game.cpp` and `samples/audio/audio_authoring_demo.cpp` are built and
+documented nowhere; `engine/domain/input/include/SushiEngine/input/replay_json.hpp` is included by
+no file.
 
 **Zero test coverage** — `sushi_render` is linked by no test target at all;
 `sushi_platform`, the compiled input translator, both audio device backends and all
@@ -356,8 +370,8 @@ of `se_player` have no ctest coverage.
 ## 10. Phase 4 — documentation
 
 `ARCHITECTURE.md` is 298 KB / 3790 lines with a single 12,806-character paragraph.
-`CHANGELOG.md` is 205 KB across 617 lines — 304 bullets, median 180 characters,
-90th percentile 681, longest 2788 — against a `CONTRIBUTING.md` §5 rule that says
+`docs/reference/changelog.md` is 205 KB across 617 lines — 304 bullets, median 180 characters,
+90th percentile 681, longest 2788 — against a `docs/CONTRIBUTING.md` §5 rule that says
 "a short bullet, not an essay… one line, a past-tense verb, then the object."
 
 The restructure:
@@ -376,7 +390,7 @@ The restructure:
   the rule already exists in prose and is already ignored.
 - A root `README.md`, which does not exist today; `docs/README.md` becomes an index
   only.
-- `docs/glossary.md` for the phase codes scattered across the corpus (WP-3, M2-M5,
+- `docs/reference/glossary.md` for the phase codes scattered across the corpus (WP-3, M2-M5,
   S0-S10, A0-A9, W4-W6, VFX1-6, P0-P2b, UX0-UX6, PLATFORM0 S1-S6, RHI0, UHM, T1/T2).
 
 Documents obey the repository's own no-abbreviation and acronym-casing rules in prose
@@ -387,7 +401,7 @@ and headings, and every markdown link must resolve.
 Three departures, each decided rather than drifted into:
 
 - **The community-health files stay at `docs/` root.** `docs/contributing/` is never
-  created. GitHub resolves `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` and `SECURITY.md`
+  created. GitHub resolves `docs/CONTRIBUTING.md`, `docs/CODE_OF_CONDUCT.md` and `docs/SECURITY.md`
   from the repository root, `docs/` and `.github/` only, so a fourth location silently
   drops the "Contribute" and "Report a vulnerability" affordances from the repository
   page.

@@ -43,7 +43,7 @@ authoritatively. There are no sockets, no threads, no serialization, and no gene
 protocol here — those are out of scope for this milestone, the same way M3 scoped out per-write
 dirty tracking.
 
-Reconciliation (`net::reconcile`) is built entirely on the existing M3 machinery, not a parallel
+Reconciliation (`Net::reconcile`) is built entirely on the existing M3 machinery, not a parallel
 mechanism: for every ack that disagrees with what the client predicted for that tick, it corrects
 the client's `InputHistory` in place (a new `InputHistory::correct`, an overwrite rather than
 `record`'s append-only insert), tracks the earliest disagreeing tick, and — if any correction
@@ -55,7 +55,7 @@ generalization of [the snapshot invariant](#1-sushiloop-snapshot-rollback-m3) (r
 reproduces an uninterrupted run) to the case where the *input itself* changes underneath the
 replay, not just the tick range.
 
-`net::make_network_id(client_id, tick, spawn_sequence)` is the deterministic-id half M4 needs: an
+`Net::make_network_id(client_id, tick, spawn_sequence)` is the deterministic-id half M4 needs: an
 entity spawned mid-simulation must get the same id on server and client without a matching
 round-trip, so the id is derived from facts both sides already agree on from the numbered command
 stream itself — which client is spawning, which tick, and that spawn's index among the client's
@@ -79,7 +79,7 @@ command stream now uses; it is deliberately game-side (defined at the point of u
 "Client" and "server" are modelled as two logical roles in one process, each owning its own
 `ecs::World`, which is the honest shape of a loopback-only milestone — there is no second process
 or thread to model them as. The harness proves the full chain live: per-tick prediction into
-`InputHistory`, batched `LoopbackChannel::server_process` acks, `net::reconcile` rolling back and
+`InputHistory`, batched `LoopbackChannel::server_process` acks, `Net::reconcile` rolling back and
 replaying on misprediction, and convergence to an uninterrupted authoritative-only baseline world
 — then, in a second phase kept strictly outside the ticks captured by `RollbackBuffer`,
 `make_network_id` proves its agreement against an actual independent spawn on both the client's

@@ -9,12 +9,13 @@ distance, how it is collided with, how it is *edited* at run time, and what it p
 systems that have been waiting on it. Design authority for this pass was delegated by the owner on
 2026-08-01, along with ten scoping decisions recorded in §0.2.
 
-**Companion documents.** `atmosphere_system.md` (§15's recorded blocker — *"no terrain height field
-exists in the engine"* — is discharged by §14 here; §16's surface-property provider is §14.2);
-`unified_hazard_model.md` (the `Execution` vocabulary and the determinism classes §13 uses);
-`render_pipeline_refactor.md` (Phase 7's LUT stack and Phase 10's GPU-driven path, both shipped, are
-consumed rather than re-planned); `SUSHILOOP.md` (the determinism contract §13 answers to);
-`physics_system.md` (the height-field collider §12 feeds).
+**Companion documents.** `docs/design/atmosphere_system.md` (§15's recorded blocker — *"no terrain
+height field exists in the engine"* — is discharged by §14 here; §16's surface-property provider is
+§14.2); `docs/design/unified_hazard_model.md` (the `Execution` vocabulary and the determinism
+classes §13 uses); `docs/design/render_pipeline_refactor.md` (Phase 7's LUT stack and Phase 10's
+GPU-driven path, both shipped, are consumed rather than re-planned); `docs/design/SUSHILOOP.md` (the
+determinism contract §13 answers to); `docs/design/physics_system.md` (the height-field collider §12
+feeds).
 
 ---
 
@@ -60,67 +61,77 @@ Verified against the tree on 2026-08-01. Nine facts are load-bearing; nothing be
 capability the engine does not have or duplicates one it does.
 
 **G1 — There is no terrain, and the absence is already a recorded blocker.** `PlanetParams`
-(`render/environment.hpp:189`) is two colours and a roughness; `sky.frag`'s `surface_albedo`
-(`render/shaders/sky.frag:298`) paints a body from noise and its pole, and `relief_normal` (`:321`)
-fakes relief by perturbing a normal. `atmosphere_system.md` §15 names this exactly: *"Blocker: no
-terrain height field exists in the engine … Orography, surface type, valley fog, föhn, rain shadows,
-and terrain-driven turbulence — all of Phase D and part of Phase B's surface model — cannot start
-until the terrain system provides one."*
+(`engine/domain/environment/include/SushiEngine/environment/environment.hpp`) is two colours and a
+roughness; `engine/presentation/render/shaders/sky.frag`'s `surface_albedo`
+(`engine/presentation/render/shaders/sky.frag:298`) paints a body from noise and its pole, and
+`relief_normal` (`:321`) fakes relief by perturbing a normal. `docs/design/atmosphere_system.md` §15
+names this exactly: *"Blocker: no terrain height field exists in the engine … Orography, surface
+type, valley fog, föhn, rain shadows, and terrain-driven turbulence — all of Phase D and part of
+Phase B's surface model — cannot start until the terrain system provides one."*
 
 **G2 — The body LOD ladder is already declared, and its two near rungs are empty.**
-`Render::BodyLod` (`render/environment.hpp:697`) is `Point → Disk → Impostor → Mesh → Surface`, and
-its own comment states *"The far-field sky pass handles Point/Disk/Impostor today; Mesh/Surface are
-the near-field hand-off."* `Astro::SURFACE_HANDOFF_ALTITUDE_RADII = 10.0`
-(`astro/ephemeris.hpp:188`) already picks the dominant body and switches `planet_surface_visible`
-off past the hand-off. Terrain does not invent a regime; it fills two declared ones.
+`Render::BodyLod` (`engine/domain/environment/include/SushiEngine/environment/environment.hpp`) is
+`Point → Disk → Impostor → Mesh → Surface`, and its own comment states *"The far-field sky pass
+handles Point/Disk/Impostor today; Mesh/Surface are the near-field hand-off."*
+`Astro::SURFACE_HANDOFF_ALTITUDE_RADII = 10.0`
+(`engine/domain/astro/include/SushiEngine/astro/ephemeris.hpp:188`) already picks the dominant body
+and switches `planet_surface_visible` off past the hand-off. Terrain does not invent a regime; it
+fills two declared ones.
 
 **G3 — The frame stack for standing on an arbitrary body is complete and body-parametric.**
-`astro/surface_frame.hpp` supplies `geodetic_to_body_fixed`, `body_fixed_to_geodetic`,
-`geodetic_normal`, and `local_tangent_basis` for any catalogued body; `astro/body_orientation.hpp`
-supplies the IAU spin `W(t)`; `docs/architecture/domain-astro.md` §1's three coordinate spaces
-(solar / planet / local) and the sphere-of-influence rebase already exist. Terrain consumes this and
-adds no frame of its own.
+`engine/domain/astro/include/SushiEngine/astro/surface_frame.hpp` supplies `geodetic_to_body_fixed`,
+`body_fixed_to_geodetic`, `geodetic_normal`, and `local_tangent_basis` for any catalogued body;
+`engine/domain/astro/include/SushiEngine/astro/body_orientation.hpp` supplies the IAU spin `W(t)`;
+`docs/architecture/domain-astro.md` §1's three coordinate spaces (solar / planet / local) and the
+sphere-of-influence rebase already exist. Terrain consumes this and adds no frame of its own.
 
 **G4 — The renderer is a Vulkan 1.4 frame graph with a bindless heap, and its per-frame descriptor
-set is full.** `render/graph/render_graph.hpp` derives barriers, aliasing, culling, and
-async-compute submissions from declarations. `Scene::SceneLayout` (`render/scene/scene_layout.hpp`)
-is set 0 with **32 bindings, all named** — `POST_BINDING = 31` is documented as *"the last
-frame-global binding the guaranteed 32-entry push set has room for."* Terrain therefore **cannot**
-add a frame-global binding; it takes its own set 2, exactly as the GPU-driven instance path
-(`INSTANCE_SET = 2`, `:331`) and the meshlet path already do.
+set is full.** `engine/presentation/render/source/graph/render_graph.hpp` derives barriers,
+aliasing, culling, and async-compute submissions from declarations. `Scene::SceneLayout`
+(`engine/presentation/render/source/scene/scene_layout.hpp`) is set 0 with **32 bindings, all
+named** — `POST_BINDING = 31` is documented as *"the last frame-global binding the guaranteed
+32-entry push set has room for."* Terrain therefore **cannot** add a frame-global binding; it takes
+its own set 2, exactly as the GPU-driven instance path (`INSTANCE_SET = 2`, `:331`) and the meshlet
+path already do.
 
 **G5 — The device tiers are known, and terrain must not require any of them.**
-`render/rhi/vulkan/vulkan_device.cpp:153` enables exactly one core feature, `samplerAnisotropy`:
-**tessellation shaders, sparse residency, and multi-draw-indirect are not enabled.** Mesh shaders
-(`supports_mesh_shader()`), ray query, host image copy, and shading-rate images are queried and
-optional. The base terrain path uses none of them; §8.5 states which are additive tiers.
+`engine/presentation/render/source/rhi/vulkan/vulkan_device.cpp` enables exactly one core feature,
+`samplerAnisotropy`: **tessellation shaders, sparse residency, and multi-draw-indirect are not
+enabled.** Mesh shaders (`supports_mesh_shader()`), ray query, host image copy, and shading-rate
+images are queried and optional. The base terrain path uses none of them; §8.5 states which are
+additive tiers.
 
 **G6 — The physics height-field collider exists and takes a borrowed view.**
-`physics/collision/height_field_manifold.hpp:72`'s `HeightFieldView<T>` is
+`engine/domain/physics/include/SushiEngine/physics/collision/height_field_manifold.hpp`'s
+`HeightFieldView<T>` is
 `{const T* heights, columns, rows, cell_size_x, cell_size_z, center, orientation}` — a *borrowed*
 pointer, row-major, with a corner-anchored placement. It needs no cooking step and no ownership
-transfer, which is precisely what a streaming tile can satisfy. `test_height_field_compound.cpp`
-already exercises it.
+transfer, which is precisely what a streaming tile can satisfy.
+`tests/unit/test_height_field_compound.cpp` already exercises it.
 
 **G7 — The asset-bake pattern is established, down to the packaging.**
-`cli/sushiengine/services/climatology/` is a package of `sources.py` (a `Source` table carrying
-`url`, `describes`, and `attribution`), `reanalysis.py`, `landmask.py`, and `asset.py`; heavy
-dependencies live behind a `[project.optional-dependencies]` extras group so `se` stays installable
-without them (`cli/pyproject.toml`). The consumer is a value type that *adopts bytes* and degrades
-rather than failing (`sim/climatology_asset.hpp:70`). `se planet bake` is this shape again, and §5.4
-does not re-derive it.
+`cli/sushiengine/services/climatology/` is a package of
+`cli/sushiengine/services/climatology/sources.py` (a `Source` table carrying `url`, `describes`, and
+`attribution`), `cli/sushiengine/services/climatology/reanalysis.py`,
+`cli/sushiengine/services/climatology/landmask.py`, and
+`cli/sushiengine/services/climatology/asset.py`; heavy dependencies live behind a
+`[project.optional-dependencies]` extras group so `se` stays installable without them
+(`cli/pyproject.toml`). The consumer is a value type that *adopts bytes* and degrades rather than
+failing (`engine/world/simulation/include/SushiEngine/simulation/climatology_asset.hpp`).
+`se planet bake` is this shape again, and §5.4 does not re-derive it.
 
 **G8 — Floating-origin types exist and are unconsumed.** `WorldVector3`, `SectorCoord`, and
-`FloatingOriginVector3` are in `core/blas_placeholder.hpp:229-291`;
+`FloatingOriginVector3` are in
+`engine/foundation/core/include/SushiEngine/core/blas_placeholder.hpp`;
 `docs/architecture/foundation.md` §2 records them as *"the SushiLoop M0 foundation … not yet
 consumed by any simulation code."* §9 explains why terrain does **not** consume them either, and
 what it uses instead.
 
 **G9 — The precision hazard at planet scale is measured, not theoretical.** The project memory
-records `sky.frag`'s `ray_ellipsoid` trapping at ~6.4 × 10⁶ m in float32, and the shader carries a
-hand-built remedy: `scene.planet_precision` holds CPU-computed double-precision intermediates
-(`sky.frag:193-221`) precisely because the naive form loses catastrophic significance. §9
-generalises that remedy instead of rediscovering it.
+records `engine/presentation/render/shaders/sky.frag`'s `ray_ellipsoid` trapping at ~6.4 × 10⁶ m in
+float32, and the shader carries a hand-built remedy: `scene.planet_precision` holds CPU-computed
+double-precision intermediates (`engine/presentation/render/shaders/sky.frag`) precisely because the
+naive form loses catastrophic significance. §9 generalises that remedy instead of rediscovering it.
 
 ---
 
@@ -133,10 +144,11 @@ cannot say which is which will eventually claim accuracy it does not have.
 
 **T2 — The authority is host code with no GPU in it.** The server is headless; the atmosphere's nest
 and the physics solver run without a swapchain; a unit test must be able to ask for an elevation.
-Therefore the *definition* of terrain height is C++ (`terrain/height_function.hpp`), and the GPU
-compile shader is a **port** of it held to a stated tolerance by a conformance test — the same
-discipline the engine already applies to skinning, where the Vulkan path ships and the SYCL kernel
-is the correctness oracle.
+Therefore the *definition* of terrain height is C++
+(`engine/domain/terrain/include/SushiEngine/terrain/height_function.hpp`), and the GPU compile
+shader is a **port** of it held to a stated tolerance by a conformance test — the same discipline
+the engine already applies to skinning, where the Vulkan path ships and the SYCL kernel is the
+correctness oracle.
 
 **T3 — Editability is a property of the pipeline, not a feature bolted to it.** A design where tiles
 are loaded and drawn cannot later grow a dam that floods a valley. A design where tiles are
@@ -344,10 +356,12 @@ Hi-Z occlusion pass.
 
 ### 5.4 `se planet bake`
 
-`cli/sushiengine/services/planet/` mirrors `services/climatology/` exactly: `sources.py` (the
-`Source` table with `describes` and `attribution`), `dem.py`, `imagery.py`, `landcover.py`,
-`cube.py` (reprojection), `pack.py` (the writer). Heavy dependencies (`rasterio`/`GDAL`, `numpy`,
-`requests`) go behind a `planet` extras group so every other `se` command stays installable.
+`cli/sushiengine/services/planet/` mirrors `services/climatology/` exactly:
+`cli/sushiengine/services/planet/sources.py` (the `Source` table with `describes` and
+`attribution`), `cli/sushiengine/services/planet/dem.py`, `imagery.py`, `landcover.py`,
+`cli/sushiengine/services/planet/cube.py` (reprojection), `cli/sushiengine/services/planet/pack.py`
+(the writer). Heavy dependencies (`rasterio`/`GDAL`, `numpy`, `requests`) go behind a `planet`
+extras group so every other `se` command stays installable.
 
 ```
 se planet bake --body moon  --quality standard
@@ -655,8 +669,9 @@ which it degrades, so `MAX_TILE_DEPTH` is bounded by what the data and the synth
 than by arithmetic.
 
 Nine floating-point operations more than the naive form, no doubles, no branches, one code path from
-depth 0 to depth 20. It is the same remedy `sky.frag` already applies by hand at `sky.frag:193-221`
-(G9), generalised and given a derivation instead of a comment.
+depth 0 to depth 20. It is the same remedy `engine/presentation/render/shaders/sky.frag` already
+applies by hand at `engine/presentation/render/shaders/sky.frag` (G9), generalised and given a
+derivation instead of a comment.
 
 ### 9.3 Depth buffer
 
@@ -716,10 +731,12 @@ plain vectors and a plain int, and the ephemeris is the only thing that fills th
 | `Point`, `Disk` | Sky pass, analytic | Unchanged. |
 | `Impostor` | Sky pass, procedural `surface_albedo` | A single shallow terrain node with its colour tile — real geography instead of noise. |
 | `Mesh` | **Empty** | The quadtree at a depth set by the body's angular size. Earth seen from the Moon has real continents. |
-| `Surface` | Analytic ground in `sky.frag:634-660` | The quadtree at full depth. |
+| `Surface` | Analytic ground in `engine/presentation/render/shaders/sky.frag` | The quadtree at full depth. |
 
 The hand-off is surgical, and it exploits a fact already true: the sky pass samples depth (it is one
-of its six pass-local image bindings, per `scene_layout.hpp:142-151`), and `sky.frag` already writes
+of its six pass-local image bindings, per
+`engine/presentation/render/source/scene/scene_layout.hpp`), and
+`engine/presentation/render/shaders/sky.frag` already writes
 `ground_hit = ground_t > 0 && ground_t < geometry_t` — the analytic ground loses to anything nearer.
 **The analytic ground is not deleted; it becomes the far-field fallback**, which is the right role
 for it and costs nothing to keep.
@@ -791,8 +808,8 @@ simulated off-screen. Re-evaluation is triggered by a body leaving its patch or 
 
 ## 13. Determinism and the network (D3)
 
-Mapped directly onto UHM's classes (`unified_hazard_model.md` §4.3), because the vocabulary already
-exists and this is exactly the split it was built for:
+Mapped directly onto UHM's classes (`docs/design/unified_hazard_model.md` §4.3), because the
+vocabulary already exists and this is exactly the split it was built for:
 
 | Quantity | Class | Why |
 |---|---|---|
@@ -819,10 +836,10 @@ machinery already designed in UHM §6.3 applies unchanged.
 
 ### 14.1 What was blocked
 
-`atmosphere_system.md` §15 blocks Phase D (orographic lift, rain shadows, föhn, valley fog, sea and
-lake breezes, terrain-driven turbulence) and part of Phase B's surface model on a queryable
-elevation field. §16 additionally records that the seam worth building is *"a provider of surface
-properties, so a terrain or ocean system could publish a real land/sea mask"*.
+`docs/design/atmosphere_system.md` §15 blocks Phase D (orographic lift, rain shadows, föhn, valley
+fog, sea and lake breezes, terrain-driven turbulence) and part of Phase B's surface model on a
+queryable elevation field. §16 additionally records that the seam worth building is *"a provider of
+surface properties, so a terrain or ocean system could publish a real land/sea mask"*.
 
 ### 14.2 What terrain publishes
 
@@ -874,10 +891,11 @@ Three interfaces, each defined now so the systems that consume them do not force
 
 ## 16. SOLID
 
-- **SRP** — one reason to change each: the address algebra (`cube_sphere.hpp`), the source
-  interface, the layer stack, the height function, the pak format, the tile cache, the streamer, the
-  compile pass, the draw passes, the collision patch set. The quadtree does not know about Vulkan;
-  the cache does not know about layers; the format does not know about the frame graph.
+- **SRP** — one reason to change each: the address algebra
+  (`engine/domain/terrain/include/SushiEngine/terrain/cube_sphere.hpp`), the source interface, the
+  layer stack, the height function, the pak format, the tile cache, the streamer, the compile pass,
+  the draw passes, the collision patch set. The quadtree does not know about Vulkan; the cache does
+  not know about layers; the format does not know about the frame graph.
 - **OCP** — a new body is data (`se planet bake --body …`); a new data source is an `IHeightSource`;
   a new edit kind is a `LayerOperation`; a new surface class is a palette entry. None of these open
   a shipped file.
@@ -886,8 +904,8 @@ Three interfaces, each defined now so the systems that consume them do not force
   procedural body is configured, not compiled in.
 - **ISP** — the renderer sees tiles and node frames; gameplay and the atmosphere see
   `ITerrainField`; physics sees `HeightFieldView`; the builder sees `LayerStack`. No consumer can
-  reach state it has no business touching, and the point-query bottleneck of `atmosphere_system.md`
-  §1.1 is structurally impossible to reintroduce.
+  reach state it has no business touching, and the point-query bottleneck of
+  `docs/design/atmosphere_system.md` §1.1 is structurally impossible to reintroduce.
 - **DIP** — the height function depends on `IHeightSource`, not on a pak; the render passes depend
   on the frame graph's declarations, not on each other; Vulkan stays in `render/`, and
   `include/SushiEngine/terrain/` includes no graphics header at all.
@@ -915,8 +933,8 @@ VRAM: 241 MB tile cache + 64 MB material palette + ~8 MB buffers = **313 MB**, h
 Disk: 320 MB (`compact`) / 4.5 GB (`standard`) per body.
 
 For calibration against the frame it lands in: the atmosphere's whole simulation stack budgets ≤ 2.6
-ms (`atmosphere_system.md` §12), so terrain is the larger of the two and has to be held to a number
-rather than to an adjective.
+ms (`docs/design/atmosphere_system.md` §12), so terrain is the larger of the two and has to be held
+to a number rather than to an adjective.
 
 **The error target is the lever, and it is now measured rather than assumed.** Node counts on the
 Moon through a 60°, 16:9 frustum, at 2 048 triangles per node (measured 2026-08-01, P2a):
@@ -1028,18 +1046,18 @@ assertion.
 
 | Phase | Delivers | Exit criterion |
 |---|---|---|
-| **P0** Algebra and authority — **landed 2026-08-01** | `cube_sphere.hpp`, `tile_address.hpp`, `IHeightSource`, `layer_stack.hpp`, `height_function.hpp`. Host only, no Vulkan, no data. | Unit tests: projection round-trips; §9.2's difference form is within 1 mm of a double reference at depth 20; address algebra including face-crossing neighbours; layer composition is order-stable under shuffled insertion. **Met** — 22 tests, plus §9.2's measured table. |
-| **P1** The baker — **landed 2026-08-01** | `se planet bake` / `se planet inspect`, `pack_format.hpp`, `PackHeightSource`. | A pack whose sampled elevations match LOLA within the quantisation bound; provenance present in the header; the reader refuses a truncated blob whole. **Met** — worst deviation 0.092 m against a 0.184 m step on the compact lunar tier; 12 further tests drive every refusal from synthesized bytes. |
-| **P2a** Node selection — **landed 2026-08-01** | `quadtree.hpp`: the refinement cut, camera-relative node frames, bounding volumes from the pack's bands, frustum rejection, morph ranges, a hard node budget. Host only. | The emitted set is a proper cut — every face covered exactly once, no node inside another — under refinement, under a binding budget, and against the real lunar pack. **Met**, 10 tests; and the node-count table in §17 is measured rather than assumed. |
-| **P2b** The vertical slice — **draws 2026-08-02, exit not met** | `tile_residency.hpp`, `terrain.vert` + `terrain_common.glsl`, `TerrainLayout` (set 2), `TileCache`, `PlanetTerrain`, `TerrainPass`, `terrain_frame.hpp`, and the frame seam of §9.4. Registered in `VulkanSceneView` after the opaque pass; the analytic ground stands down where terrain draws. | Real lunar topography on screen. No cracks at LOD boundaries. Camera from 100 km to 10 m with no popping. GPU cost measured against §17. **The frame seam is closed and tested** (15 further tests, 69 in the terrain group): the tidal-lock check puts the Earth within 11° of the zenith from selenographic (0, 0), and an observer's own zenith reads back their own coordinates to 1e-9°. **The first rendered frame did not meet the exit criteria**, and §20.1 records what it showed and why: the camera is inside the shell (nothing places it on the terrain), the shipped tier is 2.7 km per texel, and the material is one flat colour until P7. §20.1's punch list is P2c. |
+| **P0** Algebra and authority — **landed 2026-08-01** | `engine/domain/terrain/include/SushiEngine/terrain/cube_sphere.hpp`, `engine/domain/terrain/include/SushiEngine/terrain/tile_address.hpp`, `IHeightSource`, `engine/domain/terrain/include/SushiEngine/terrain/layer_stack.hpp`, `engine/domain/terrain/include/SushiEngine/terrain/height_function.hpp`. Host only, no Vulkan, no data. | Unit tests: projection round-trips; §9.2's difference form is within 1 mm of a double reference at depth 20; address algebra including face-crossing neighbours; layer composition is order-stable under shuffled insertion. **Met** — 22 tests, plus §9.2's measured table. |
+| **P1** The baker — **landed 2026-08-01** | `se planet bake` / `se planet inspect`, `engine/domain/terrain/include/SushiEngine/terrain/pack_format.hpp`, `PackHeightSource`. | A pack whose sampled elevations match LOLA within the quantisation bound; provenance present in the header; the reader refuses a truncated blob whole. **Met** — worst deviation 0.092 m against a 0.184 m step on the compact lunar tier; 12 further tests drive every refusal from synthesized bytes. |
+| **P2a** Node selection — **landed 2026-08-01** | `engine/domain/terrain/include/SushiEngine/terrain/quadtree.hpp`: the refinement cut, camera-relative node frames, bounding volumes from the pack's bands, frustum rejection, morph ranges, a hard node budget. Host only. | The emitted set is a proper cut — every face covered exactly once, no node inside another — under refinement, under a binding budget, and against the real lunar pack. **Met**, 10 tests; and the node-count table in §17 is measured rather than assumed. |
+| **P2b** The vertical slice — **draws 2026-08-02, exit not met** | `engine/domain/terrain/include/SushiEngine/terrain/tile_residency.hpp`, `engine/presentation/render/shaders/terrain.vert` + `engine/presentation/render/shaders/terrain_common.glsl`, `TerrainLayout` (set 2), `TileCache`, `PlanetTerrain`, `TerrainPass`, `engine/presentation/render/source/terrain/terrain_frame.hpp`, and the frame seam of §9.4. Registered in `VulkanSceneView` after the opaque pass; the analytic ground stands down where terrain draws. | Real lunar topography on screen. No cracks at LOD boundaries. Camera from 100 km to 10 m with no popping. GPU cost measured against §17. **The frame seam is closed and tested** (15 further tests, 69 in the terrain group): the tidal-lock check puts the Earth within 11° of the zenith from selenographic (0, 0), and an observer's own zenith reads back their own coordinates to 1e-9°. **The first rendered frame did not meet the exit criteria**, and §20.1 records what it showed and why: the camera is inside the shell (nothing places it on the terrain), the shipped tier is 2.7 km per texel, and the material is one flat colour until P7. §20.1's punch list is P2c. |
 | **P3** The whole body, streaming | Six faces, async loader, inheritance, LRU, bounded per-frame work. | Fly anywhere on the Moon; no frame exceeds budget during a fast orbital descent; resident set stays under the 320 MB ceiling. |
 | **P4** Collision | Collision patch set, `HeightFieldView` feed, patch residency following physics bodies. | Walk and drive on lunar terrain. A headless run reproduces the client's authoritative heights exactly. |
 | **P5** The layer stack lands | Crater and flatten operations; edit → dirty region → recompile → re-cook. | Place a crater in the editor: it appears, it is collided with, and the frame budget holds. |
-| **P6** Earth | Second body. Bathymetry, land/sea mask, geoid removal, ETOPO + BMNG. | Earth renders with real coastlines; `sky.frag` hands off cleanly; **no body-specific branch was added** — the T4 proof. |
+| **P6** Earth | Second body. Bathymetry, land/sea mask, geoid removal, ETOPO + BMNG. | Earth renders with real coastlines; `engine/presentation/render/shaders/sky.frag` hands off cleanly; **no body-specific branch was added** — the T4 proof. |
 | **P7** Material synthesis | Class tiles, material palette, height blend, albedo preservation, distance blend. | One metre from the ground reads as ground; the same mountain is the same colour from orbit and from its slope. |
 | **P8** Detail synthesis | Deterministic sub-Nyquist detail, host and device forms. | Conformance test pins host-vs-device agreement to a stated tolerance; detail is visually absent on flat terrain and present on slopes. |
 | **P9** The `Mesh` rung | Terrain on non-dominant bodies at a depth set by angular size. | Earth from the Moon shows real continents; the `Impostor` rung's procedural path retires. |
-| **P10** The atmosphere seam | `ITerrainField`, grid sampling, `data_depth` reporting. | `atmosphere_system.md` §15's terrain blocker is struck; Phase D can begin. |
+| **P10** The atmosphere seam | `ITerrainField`, grid sampling, `data_depth` reporting. | `docs/design/atmosphere_system.md` §15's terrain blocker is struck; Phase D can begin. |
 | **P11** Tier: GPU quadtree | Task/mesh-shader descent, gated on `supports_mesh_shader()`. | Measured reduction in host selection cost with byte-identical node selection against the host path. |
 
 P0–P5 are the slice: after P5 there is a real, walkable, editable planetary surface. P6–P8 make it
@@ -1064,13 +1082,14 @@ that point is somewhere between −9 km and +11 km away. Nothing yet resolves th
 altitude against the height field, so the camera starts buried (or, in a basin, kilometres
 above nothing).
 
-Being underground would normally draw nothing. It draws a skin instead because the terrain
-pipeline sets `VK_CULL_MODE_NONE` — deliberately, per `terrain_pass.hpp`, "until the first
-rendered frame confirms the winding", on the argument that a winding mistake with culling on
-is an invisible planet and with culling off is a slightly slower one. That trade was right
-for bring-up and is now backwards: with culling off, *being inside the body* renders the
-shell's interior in every direction, which is exactly the reported symptom, and it hides the
-real problem behind a plausible-looking one.
+Being underground would normally draw nothing. It draws a skin instead because the terrain pipeline
+sets `VK_CULL_MODE_NONE` — deliberately, per
+`engine/presentation/render/source/passes/terrain_pass.hpp`, "until the first rendered frame
+confirms the winding", on the argument that a winding mistake with culling on is an invisible planet
+and with culling off is a slightly slower one. That trade was right for bring-up and is now
+backwards: with culling off, *being inside the body* renders the shell's interior in every
+direction, which is exactly the reported symptom, and it hides the real problem behind a
+plausible-looking one.
 
 **2. The shipped lunar tier has 2.7 km texels.** `moon.compact.planet` stores 510 tiles,
 which is 6·(1+4+16+64) — depths 0 through 3, and nothing below. At depth 3 a tile's texel is
@@ -1084,14 +1103,14 @@ So even with the camera correctly placed, standing on the Moon shows a smooth, f
 surface — there is no measured terrain at human scale to show. The render lattice is not the
 constraint (at the selector's `maximum_depth` of 12 a cell is 21 m); the data is.
 
-**3. Terrain shades as one flat colour, and will look worse than what it replaced until
-P7.** The other bodies are `sky.frag`'s analytic ground, which at least has a procedural
-`surface_albedo` pattern. Terrain currently pushes a single material from
-`PlanetParams::ground_albedo`, because §11's class tiles, height blend and distance blend are
-P7 and sub-Nyquist detail is P8. Between here and there, real geometry with no material will
-read as *worse* than fake geometry with a procedural one at anything closer than a few
-kilometres. That is the expected shape of the work rather than a regression, and it is stated
-here so it is not mistaken for one.
+**3. Terrain shades as one flat colour, and will look worse than what it replaced until P7.** The
+other bodies are `engine/presentation/render/shaders/sky.frag`'s analytic ground, which at least has
+a procedural `surface_albedo` pattern. Terrain currently pushes a single material from
+`PlanetParams::ground_albedo`, because §11's class tiles, height blend and distance blend are P7 and
+sub-Nyquist detail is P8. Between here and there, real geometry with no material will read as
+*worse* than fake geometry with a procedural one at anything closer than a few kilometres. That is
+the expected shape of the work rather than a regression, and it is stated here so it is not mistaken
+for one.
 
 ### P2c — the punch list before the vertical slice can be judged
 
@@ -1146,16 +1165,16 @@ In order, because each one makes the next one observable:
 
 - **Nothing blocks P0–P5.** Every capability they need exists: the frame graph, the bindless heap,
   the depth prepass, Hi-Z occlusion, the astro frame stack, and `HeightFieldView`.
-- **P10 unblocks, rather than being blocked by, `atmosphere_system.md` Phase D** and the surface-
-  property provider its §16 defers.
-- **`render_pipeline_refactor.md` Phase 7 (LUT stack) and Phase 11 (async compute)** are both
-  shipped
-  and are consumed as-is: terrain receives aerial perspective and fog through set 0, and
-  `TerrainCompilePass` declares async-compute eligibility that the graph honours or ignores.
+- **P10 unblocks, rather than being blocked by, `docs/design/atmosphere_system.md` Phase D** and the
+  surface- property provider its §16 defers.
+- **`docs/design/render_pipeline_refactor.md` Phase 7 (LUT stack) and Phase 11 (async compute)** are
+  both shipped and are consumed as-is: terrain receives aerial perspective and fog through set 0,
+  and `TerrainCompilePass` declares async-compute eligibility that the graph honours or ignores.
 - **UHM** supplies the determinism vocabulary §13 uses. No new request to SushiRuntime, and no
   `Handoff` registration in the phases above.
-- **`se` CLI** gains a `planet` command group and a `planet` extras group; `CLI_GUIDE.md` is updated
-  in the same change, per `CONTRIBUTING.md` §5.
+- **`se` CLI** gains a `planet` command group and a `planet` extras group;
+  `docs/guides/command-line-interface.md` is updated in the same change, per `docs/CONTRIBUTING.md`
+  §5.
 - **The pak is not committed, and this deliberately departs from the climatology precedent.**
   `assets/atmosphere/climatology.set0` *is* committed — it is 3.4 MB, and committing it is what lets
   a fresh clone run with a real mean state. A planet pak is 250 MB at `compact` and 4 GB at

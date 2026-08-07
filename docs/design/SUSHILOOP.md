@@ -172,8 +172,8 @@ runtime's signatures change, a single file should need updating, not the whole e
 
 Each milestone compiles and can be validated on its own.
 
-- **M0 — Type seam.** Firm up `Scalar` for float and double, and add the
-  floating-origin / sector vector type for WGS84 to `core/types.hpp`. Small and
+- **M0 — Type seam.** Firm up `Scalar` for float and double, and add the floating-origin / sector
+  vector type for WGS84 to `engine/foundation/core/include/SushiEngine/core/types.hpp`. Small and
   foundational.
 - **M1 — SushiLoop skeleton.** The fixed-tick loop, input capture, and the determinism
   guard rails (a build flag that disables fast-math, a seeded RNG component). Prove it

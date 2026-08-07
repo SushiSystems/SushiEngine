@@ -48,12 +48,13 @@ exactly as `weather_and_clouds.md` §5.4 already described for ingested data.
 ### 1.1 The root cause: the meteorology never reaches the sky spatially
 
 `RegionalWeatherGrid` simulates 64×64 columns × 3 levels over 1 000 km
-(`regional_weather_grid.hpp:81-84`). `RuntimeSimulation::extract()` then samples
-**exactly one column — the one under the observer** (`sim/runtime_simulation.cpp:2580`)
-and compiles it into a **globally uniform** `Render::Cloudscape` of six decks.
+(`regional_weather_grid.hpp:81-84`). `RuntimeSimulation::extract()` then samples **exactly one
+column — the one under the observer** (`engine/world/simulation/source/runtime_simulation.cpp`) and
+compiles it into a **globally uniform** `Render::Cloudscape` of six decks.
 
-What produces the pattern actually visible in the sky is `cloud_noise_weather.comp`: a
-static procedural fBm texture, generated once. `cloudscape_field.comp:138` reads
+What produces the pattern actually visible in the sky is
+`engine/presentation/render/shaders/cloud_noise_weather.comp`: a static procedural fBm texture,
+generated once. `engine/presentation/render/shaders/cloudscape_field.comp` reads
 
 ```glsl
 float coverage = clamp(la.z + (weather - 0.5) * 1.35, 0.0, 1.0);
@@ -66,9 +67,9 @@ tiled noise texture. Every consequence follows from this one line:
 
 - A front "crossing the region" is a global coverage number ramping. There is no front
   in the sky, no leading cirrus deck ahead of it, no clearing behind it.
-- Rain here and sun 40 km away is not representable. Precipitation is a scalar for the
-  whole world (`WeatherColumn::precipitation`), which is why the rain emitter is
-  camera-attached (`runtime_simulation.cpp:2776`) rather than placed under the cell that
+- Rain here and sun 40 km away is not representable. Precipitation is a scalar for the whole world
+  (`WeatherColumn::precipitation`), which is why the rain emitter is camera-attached
+  (`engine/world/simulation/source/runtime_simulation.cpp`) rather than placed under the cell that
   is actually raining — the stated W5 acceptance bar, unmet.
 - Advection is invisible. The pattern you see is a static texture; it cannot translate
   with the wind, because the wind only moves data the renderer never reads.
@@ -77,17 +78,17 @@ tiled noise texture. Every consequence follows from this one line:
 
 ### 1.2 The data contract is the ceiling
 
-`WeatherColumn` (`weather_types.hpp:146`) is 3 levels × 4 floats + 3 floats ≈ **15 floats
-at one point**, and it is the entire output of `IWeatherProvider`. It cannot express:
-cloud base or top altitude, visibility, absolute temperature or pressure, dew point, a
-wind profile (only surface `u`/`v` exist), precipitation type, freezing level, liquid
-water content, ice phase, turbulence, or vertical velocity.
+`WeatherColumn` (`engine/world/simulation/include/SushiEngine/simulation/weather_types.hpp`) is 3
+levels × 4 floats + 3 floats ≈ **15 floats at one point**, and it is the entire output of
+`IWeatherProvider`. It cannot express: cloud base or top altitude, visibility, absolute temperature
+or pressure, dew point, a wind profile (only surface `u`/`v` exist), precipitation type, freezing
+level, liquid water content, ice phase, turbulence, or vertical velocity.
 
-No improvement to the simulation can pass through this. Three downstream honesty notes
-in the shipped code are all the same defect surfacing: rain can never be snow because
-there is no temperature (`runtime_simulation.cpp:2787`); `icing_risk` had to have
-`temperature_offset_c` retrofitted into the struct in W6 to exist at all; visibility is
-derived from a coverage proxy rather than from anything optical.
+No improvement to the simulation can pass through this. Three downstream honesty notes in the
+shipped code are all the same defect surfacing: rain can never be snow because there is no
+temperature (`engine/world/simulation/source/runtime_simulation.cpp`); `icing_risk` had to have
+`temperature_offset_c` retrofitted into the struct in W6 to exist at all; visibility is derived from
+a coverage proxy rather than from anything optical.
 
 **The interface shape, not the CPU-ness, is the architectural root cause.**
 
@@ -140,26 +141,28 @@ returning 0**, because no terrain height field exists in the engine
 resolution the superseded document actually asked for (256×256) is 16× this cost, i.e. a
 tens-of-milliseconds hitch every 15 s of simulated time.
 
-Meanwhile physics (`physics_simulation.hpp:253`), animation, audio, and VFX all take a
-`SushiRuntime::API::Runtime&`. Weather is the only simulation system in the engine that
-never touches the GPU.
+Meanwhile physics (`engine/world/simulation/include/SushiEngine/simulation/physics_simulation.hpp`),
+animation, audio, and VFX all take a `SushiRuntime::API::Runtime&`. Weather is the only simulation
+system in the engine that never touches the GPU.
 
 ### 1.6 SOLID
 
 - **DIP, broken at the top.** The abstract interface returns a concrete class:
-  `virtual ProceduralWeather* procedural_weather()` (`simulation.hpp:733`), and the host
-  stores `std::unique_ptr<ProceduralWeather>` (`runtime_simulation.cpp:3301`), not
-  `IWeatherProvider`. The consequence is on the record in the W6 CHANGELOG entry:
-  `IngestedWeather` is written, unit-tested, and **impossible to install** — "not wired
-  into `RuntimeSimulation`'s `procedural_weather_` slot". The seam whose purpose was to
-  prove LSP cannot be used.
+  `virtual ProceduralWeather* procedural_weather()`
+  (`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`), and the host stores
+  `std::unique_ptr<ProceduralWeather>` (`engine/world/simulation/source/runtime_simulation.cpp`),
+  not `IWeatherProvider`. The consequence is on the record in the W6 CHANGELOG entry:
+  `IngestedWeather` is written, unit-tested, and **impossible to install** — "not wired into
+  `RuntimeSimulation`'s `procedural_weather_` slot". The seam whose purpose was to prove LSP cannot
+  be used.
 - **SRP.** `RegionalWeatherGrid` is simultaneously grid storage, floating-origin rebase,
   advection, microphysics, insolation/radiation, background climatology, and temporal
   interpolation.
 - **OCP.** `pick_low_genus`/`pick_mid_genus`/`pick_high_genus`
-  (`weather_cloudscape_compiler.hpp:129-150`) are hard-coded `if` chains over the genus
-  enum; every physical constant is a function-local `constexpr`. A new microphysics
-  scheme, a new genus, or a per-biome parameter set means editing these classes.
+  (`engine/world/simulation/include/SushiEngine/simulation/weather_cloudscape_compiler.hpp`) are
+  hard-coded `if` chains over the genus enum; every physical constant is a function-local
+  `constexpr`. A new microphysics scheme, a new genus, or a per-biome parameter set means editing
+  these classes.
 - **ISP.** `IWeatherProvider` exposes a *point* query and nothing else. There is no way
   to ask it for a field — which is the direct interface-level cause of §1.1.
 - **DRY / correctness.** `solar_elevation_fraction` (`regional_weather_grid.hpp:308`)
@@ -175,10 +178,12 @@ shadow authority, the dedicated cloud buffer with its own YCoCg-variance-clip TA
 near/far split, the depth-aware composite, the panorama impostor, the quality tiers, and
 the per-pass GPU profiling. §8 states precisely what changes there, and it is small.
 
-Also carried forward: the WMO genus catalogue and preset system as an *authoring* and
-*labelling* vocabulary (§7.4), the METAR parser (`metar_parser.hpp`), and the shape of
-the gameplay query APIs in `weather_wind.hpp` / `weather_flight_hazards.hpp` — all
-retargeted onto a new data source rather than rewritten.
+Also carried forward: the WMO genus catalogue and preset system as an *authoring* and *labelling*
+vocabulary (§7.4), the METAR parser
+(`engine/world/simulation/include/SushiEngine/simulation/metar_parser.hpp`), and the shape of the
+gameplay query APIs in `engine/world/simulation/include/SushiEngine/simulation/weather_wind.hpp` /
+`engine/world/simulation/include/SushiEngine/simulation/weather_flight_hazards.hpp` — all retargeted
+onto a new data source rather than rewritten.
 
 ---
 
@@ -302,7 +307,7 @@ free and paid for it with a readback and its latency, and it would have made the
 untestable without a device and non-reproducible without a driver. See §11's C2 for the
 measured cost.
 
-Async compute queue where available (`render_pipeline_refactor.md` Phase 11), graphics
+Async compute queue where available (`docs/design/render_pipeline_refactor.md` Phase 11), graphics
 queue otherwise; the tier steps are latency-insensitive by construction, which makes them
 ideal async-compute candidates.
 
@@ -347,12 +352,13 @@ IAtmosphereAuthoring       optional capability: place/edit systems, force scenar
 
 **The four composed interfaces above are how this was drawn before any of it ran on a GPU, and two
 of them never became types.** `ISurfaceModel` and `IRadiationModel` shipped in Phase B3 as *stages*
-— `atmosphere_surface.comp` is the surface model and the radiation is its shortwave and longwave
-terms — because on the GPU a "model" is a compute shader plus a parameter group, and there is
-exactly one of each. An interface with one implementation forever is a stub wearing a vtable. The
-substitutability the sketch was reaching for lives in `AtmosphereParameters` instead: a different
-planet, a different land cover or a different microphysics tuning is a data edit. See §11's B3c for
-the seam that *would* earn a type, and why it is blocked.
+— `engine/presentation/render/shaders/atmosphere_surface.comp` is the surface model and the
+radiation is its shortwave and longwave terms — because on the GPU a "model" is a compute shader
+plus a parameter group, and there is exactly one of each. An interface with one implementation
+forever is a stub wearing a vtable. The substitutability the sketch was reaching for lives in
+`AtmosphereParameters` instead: a different planet, a different land cover or a different
+microphysics tuning is a data edit. See §11's B3c for the seam that *would* earn a type, and why it
+is blocked.
 
 Rules that follow, and that the shipped system violated:
 
@@ -700,11 +706,12 @@ of a remapped noise value.
 
 ### 7.2 The field stops wrapping
 
-The shipped field is a **periodic 65 km tile** in XZ (`cloudscape_field.comp:10-18`),
-which is only coherent because the weather above it is globally uniform. With spatial
-weather it must become **camera-centred and non-wrapping**: 256×256×64 over the near
-region (~64–128 km), rebaked when the camera crosses a rebake threshold or when T2 steps,
-whichever is sooner, amortized across frames exactly as the current bake already is.
+The shipped field is a **periodic 65 km tile** in XZ
+(`engine/presentation/render/shaders/cloudscape_field.comp`), which is only coherent because the
+weather above it is globally uniform. With spatial weather it must become **camera-centred and
+non-wrapping**: 256×256×64 over the near region (~64–128 km), rebaked when the camera crosses a
+rebake threshold or when T2 steps, whichever is sooner, amortized across frames exactly as the
+current bake already is.
 
 This is the one structurally significant change to the render tier, and it is the price
 of the feature. **Shipped in Phase B1**, as two windows rather than one — a near window at
@@ -773,25 +780,25 @@ amount of constant-twiddling inside the old split could fix it.
 
 So the split moved. This is the War Thunder / Nubis arrangement proper:
 
-- **The bake stores the envelope, not the shape.** `cloudscape_field.comp` now writes
-  r = coverage envelope (the nest's diagnosed cloud fraction, top-openness-tapered; or the
-  deck stack's height-gradient-tapered coverage), g = vertical profile (unchanged),
-  a = in-cloud water amplitude at half scale. All noise taps are gone from the bake; the
-  deck paths keep only their weather-map modulation, streets and anvil. Multi-deck
-  combination became a probabilistic union of coverages instead of a density sum.
-- **The march carves, at every distance.** `cloud.frag`'s `cloud_density_carved` runs the
-  full Nubis recipe per sample — domain warp, CDF-uniformised base threshold at
-  `1 − envelope`, height-flipped Worley erosion (wispy base, billowy top), plus a fine
+- **The bake stores the envelope, not the shape.**
+  `engine/presentation/render/shaders/cloudscape_field.comp` now writes r = coverage envelope (the
+  nest's diagnosed cloud fraction, top-openness-tapered; or the deck stack's height-gradient-tapered
+  coverage), g = vertical profile (unchanged), a = in-cloud water amplitude at half scale. All noise
+  taps are gone from the bake; the deck paths keep only their weather-map modulation, streets and
+  anvil. Multi-deck combination became a probabilistic union of coverages instead of a density sum.
+- **The march carves, at every distance.** `engine/presentation/render/shaders/cloud.frag`'s
+  `cloud_density_carved` runs the full Nubis recipe per sample — domain warp, CDF-uniformised base
+  threshold at `1 − envelope`, height-flipped Worley erosion (wispy base, billowy top), plus a fine
   incommensurate octave and the curl warp near the camera — in the same world-anchored,
-  wind-advected pattern frame the bake evaluates weather in (`cloud_field_pattern`, newly
-  published through the scene tail). The carve scale is coverage-adaptive
-  (1/√envelope — count falls with coverage, not size) and floored at 4× the march's local
-  step, which is the bake's old Nyquist floor restated against the true sampler. Past
-  80 km the carve hands off, faded, to the statistical mean `envelope · water · 0.45`.
-- **One new noise volume instead of new bindings.** The march had exactly one free image
-  slot, so `cloud_noise_volume.comp` kind 4 precombines everything the carve needs into
-  one 128³ RGBA8: uniformised base (the CDF transform runs at generation now), combined
-  erosion fbm, fine fbm, curl potential. Binding 4 swaps the old detail volume for it.
+  wind-advected pattern frame the bake evaluates weather in (`cloud_field_pattern`, newly published
+  through the scene tail). The carve scale is coverage-adaptive (1/√envelope — count falls with
+  coverage, not size) and floored at 4× the march's local step, which is the bake's old Nyquist
+  floor restated against the true sampler. Past 80 km the carve hands off, faded, to the statistical
+  mean `envelope · water · 0.45`.
+- **One new noise volume instead of new bindings.** The march had exactly one free image slot, so
+  `engine/presentation/render/shaders/cloud_noise_volume.comp` kind 4 precombines everything the
+  carve needs into one 128³ RGBA8: uniformised base (the CDF transform runs at generation now),
+  combined erosion fbm, fine fbm, curl potential. Binding 4 swaps the old detail volume for it.
 - **Every sun-depth integral states mass against the carved sky.** The light volume, the
   far light channel, the cloud shadow map and the panorama impostor all march the
   envelope×water product scaled by `CLOUD_ENVELOPE_MEAN_SHAPE = 0.45` (the threshold's
@@ -817,18 +824,21 @@ there is still no cloud — §7.5's planet-scale far field remains future work.
 
 Everything W0–W3 shipped stays. The changes are:
 
-1. **`cloudscape_field.comp`** — density source becomes T3's extinction field; the
-   six-deck genus loop is deleted (it moves to §7.4's classifier, in the other direction).
-2. **The field becomes camera-centred and non-wrapping** (§7.2), with a rebake cadence
-   driven by camera motion and T2 steps. `CloudscapeCompilePass`'s change-detection
-   snapshot (`cloudscape_compile_pass.cpp:287`) is replaced by that cadence.
+1. **`engine/presentation/render/shaders/cloudscape_field.comp`** — density source becomes T3's
+   extinction field; the six-deck genus loop is deleted (it moves to §7.4's classifier, in the other
+   direction).
+2. **The field becomes camera-centred and non-wrapping** (§7.2), with a rebake cadence driven by
+   camera motion and T2 steps. `CloudscapeCompilePass`'s change-detection snapshot
+   (`engine/presentation/render/source/passes/cloudscape_compile_pass.cpp`) is replaced by that
+   cadence.
 3. **Aerial perspective, fog, and turbidity** read T2's humidity and precipitation fields
    spatially instead of `WeatherCoupling`'s global scalars — the froxel fog volume can
    sample the simulated field directly, which is what makes a rain shaft visible as a
    local darkening rather than a global one.
 4. **Precipitation VFX** are placed under the cells that are raining, from T3's surface
    precipitation field, replacing the camera-attached emitter
-   (`runtime_simulation.cpp:2776`). This finally meets the W5 acceptance bar.
+   (`engine/world/simulation/source/runtime_simulation.cpp`). This finally meets the W5 acceptance
+   bar.
 5. **Lightning** is driven by T2's graupel/updraft product (the standard proxy for
    charge separation), injected into the light volume as W2 already provides for.
 
@@ -870,10 +880,11 @@ target shape; the interim mirror Phase B2 pulled forward is a 32×32 `WeatherCol
 lattice, plus the observer column's full `AtmosphereProfileLevel` profile added in B2c.)
 
 Existing consumers keep their API shape and change only their source:
-`weather_wind.hpp`'s `weather_wind()` / `wind_gust()`, `weather_flight_hazards.hpp`'s
-`icing_risk()` / `turbulence_intensity()`, `weather_world_coupling.hpp`'s fog/wetness/
-turbidity signals, plus audio (rain and wind beds placed by where it is actually raining)
-and VFX.
+`engine/world/simulation/include/SushiEngine/simulation/weather_wind.hpp`'s `weather_wind()` /
+`wind_gust()`, `engine/world/simulation/include/SushiEngine/simulation/weather_flight_hazards.hpp`'s
+`icing_risk()` / `turbulence_intensity()`,
+`engine/world/simulation/include/SushiEngine/simulation/weather_world_coupling.hpp`'s fog/wetness/
+turbidity signals, plus audio (rain and wind beds placed by where it is actually raining) and VFX.
 
 ### 9.3 The deterministic summary
 
@@ -952,7 +963,7 @@ Working constraints:
 | CV2 | Erosion deleted ~42 % of every cloud, leaving filaments | Flat-amplitude subtraction against a CDF-uniform ramp with no plateau; height flip keyed to the 800–12 000 m *union* shell so cumulus never left the base regime |
 | CV4 | One sample per cloud; a 1.3 km unrendered block in front of the camera; skips crossing untested sky | `seg_min = max(shell_thick * 0.12, 40)` — 12 % of the union of every enabled deck, 1344 m — used simultaneously as the integration step, the clamp floor and the jitter span |
 | CV10 | No cauliflower at any erosion strength | **Sign error.** The carve built clouds by *subtraction*, which can only produce concave features. The billow ladder is now *added before the threshold* so it displaces the isosurface outward |
-| CV11 | Snow-white deck against a black evening sky | `cloud.frag` never sampled the transmittance LUT and had no horizon gate, so the sun that lit a cloud was identical at midnight and noon |
+| CV11 | Snow-white deck against a black evening sky | `engine/presentation/render/shaders/cloud.frag` never sampled the transmittance LUT and had no horizon gate, so the sun that lit a cloud was identical at midnight and noon |
 | CV12 | After CV11, clouds went perfectly black at night | Nothing replaced the sun: no skylight, and the Moon — which the ephemeris already derives as a real directional light — never reached the cloud pass |
 | CV13 | A one-pixel white line at the horizon | The depth-aware upsample demotes a mismatched tap to 0.05; when *all four* miss, `/ wsum` renormalises them back into plain bilinear and the rejection cancels itself out |
 | CV3 | *"berbat LOD, bulutları direkt beyaz render ediyor"* | The carve band-limited the **feature size** instead of the sampling: `carve_scale = max(carve_scale, footprint * 4)` made a distant cumulus 3–5 km wide at full solidity. Under it, every tap was an implicit-LOD `texture()` on a `mipLevels = 1` volume through a `max_lod = 0` sampler. Fixed by a real mip chain plus a threshold integrated over the detail the filter removes — see the eighth entry |
@@ -981,15 +992,16 @@ Working constraints:
   sunlight and full moonlight at ~2.4e-6; both are within ~20 % of measured lux ratios. A
   moonless night really is black. Making night *visible* is an exposure-adaptation decision,
   not a cloud-shader one.
-* **`cloud_panorama.comp` has the same missing-transmittance bug and it is deliberately not fixed.**
-  The pass has no consumer today: `view()`/`sampler()` are never called and the `IblPass`
-  reflection-probe wiring is explicitly scoped out. Fix it *when that consumer lands*, or the seam
-  against the corrected primary march will show.
-* **Direct sunlight is un-attenuated for *every* surface, not only clouds** (`sky.frag`'s ground and
-  `pbr.frag` both read the raw uniform). Clouds were merely the most visible consumer. If the ground
-  and meshes are later given the same treatment, do it by attenuating at each consumer — **not** by
-  tinting `environment.sun.color` on the CPU, which would double-count against the sky, whose LUTs
-  already integrate the transmittance themselves.
+* **`engine/presentation/render/shaders/cloud_panorama.comp` has the same missing-transmittance bug
+  and it is deliberately not fixed.** The pass has no consumer today: `view()`/`sampler()` are never
+  called and the `IblPass` reflection-probe wiring is explicitly scoped out. Fix it *when that
+  consumer lands*, or the seam against the corrected primary march will show.
+* **Direct sunlight is un-attenuated for *every* surface, not only clouds**
+  (`engine/presentation/render/shaders/sky.frag`'s ground and
+  `engine/presentation/render/shaders/pbr.frag` both read the raw uniform). Clouds were merely the
+  most visible consumer. If the ground and meshes are later given the same treatment, do it by
+  attenuating at each consumer — **not** by tinting `environment.sun.color` on the CPU, which would
+  double-count against the sky, whose LUTs already integrate the transmittance themselves.
 
 #### Open, in the order they should be done
 
@@ -1026,8 +1038,8 @@ Working constraints:
    Today Manual mode is not a mode at all: `RuntimeSimulation::procedural_weather_enabled()` is
    literally `static_cast<bool>(weather_provider_)`, so Manual means **no provider**, and the bake
    applies one authored deck stack to the entire planet. `StaticWeather` exists in
-   `weather_provider.hpp` for exactly this job and is never installed, so it is dead code. Two
-   consequences that shape the work:
+   `engine/world/simulation/include/SushiEngine/simulation/weather_provider.hpp` for exactly this
+   job and is never installed, so it is dead code. Two consequences that shape the work:
    * The mode must become an explicit enum before a Manual provider can exist, because installing
      one would otherwise flip the predicate every consumer keys off.
    * A varying field fixes the *near* view but not the orbital one. `cloud_globe_envelope` reads the
@@ -1073,10 +1085,11 @@ Working constraints:
 
 #### Two constants that rest on an unmeasured estimate
 
-`BILLOW_RELIEF` (1.6) and `CREASE_SENSITIVITY` (4.0) in `cloud.frag` are derived from an
-inverted-Worley F1 standard deviation taken as ~0.18, which the shader cannot measure. They
-move **together**, keeping roughly a 2.5:1 ratio. `BILLOW_MAX_DISPLACE` exists so that a wrong
-estimate bounds the turret size instead of swallowing the coverage threshold.
+`BILLOW_RELIEF` (1.6) and `CREASE_SENSITIVITY` (4.0) in
+`engine/presentation/render/shaders/cloud.frag` are derived from an inverted-Worley F1 standard
+deviation taken as ~0.18, which the shader cannot measure. They move **together**, keeping roughly a
+2.5:1 ratio. `BILLOW_MAX_DISPLACE` exists so that a wrong estimate bounds the turret size instead of
+swallowing the coverage threshold.
 
 ### Where this stands — 2026-08-02, fourteenth entry: the rings were a loop counter
 
@@ -1168,9 +1181,10 @@ Fixing the *altitude* fixes everything downstream on its own:
   is the layering earning its keep: the bake says "at height fraction h the envelope is E" and stays
   out of the argument about where h is.
 
-`cloud_planet_radius_at` and `cloud_ray_shell` live in `cloud_field_window.glsl` for the reason
-everything else in that file does — the view march and the panorama impostor must bound the *same*
-shell, or the impostor continues the sky at a different altitude than the march ended it at.
+`cloud_planet_radius_at` and `cloud_ray_shell` live in
+`engine/presentation/render/shaders/cloud_field_window.glsl` for the reason everything else in that
+file does — the view march and the panorama impostor must bound the *same* shell, or the impostor
+continues the sky at a different altitude than the march ended it at.
 
 #### Verified partially: "bir nebze düzeldi"
 
@@ -1182,12 +1196,12 @@ the evidence supported.
 
 What turned up while looking is that **the cloud path is not the only thing in this frame that
 generates concentric rings**, and the other candidate had not been considered at all:
-`terrain.vert:106` computes its CDLOD morph weight as `length(unmorphed)` against a per-node band,
-and positions are camera-relative, so that length is the distance from the eye. Morph bands are
-therefore **spherical shells about the camera**, which project onto the globe as circles centred on
-the sub-camera point — the same shape, from geometry that has nothing to do with clouds. The user's
-reading attributed the rings to the cloud shaders and that was reasonable given what changed
-recently, but it is not established.
+`engine/presentation/render/shaders/terrain.vert` computes its CDLOD morph weight as
+`length(unmorphed)` against a per-node band, and positions are camera-relative, so that length is
+the distance from the eye. Morph bands are therefore **spherical shells about the camera**, which
+project onto the globe as circles centred on the sub-camera point — the same shape, from geometry
+that has nothing to do with clouds. The user's reading attributed the rings to the cloud shaders and
+that was reasonable given what changed recently, but it is not established.
 
 One toggle separates them completely: **Clouds Enabled off, same viewpoint.** Rings that survive are
 terrain and the cloud path is innocent. Rings that vanish are in the cloud path, and *Atmosphere
@@ -1240,11 +1254,12 @@ almost never about what is in the world at that place.
 
 #### The march stopped instead of coarsening (CV16)
 
-`cloud.frag`'s loop ran `while (iter < max_iterations && real_samples < STEPS)`. When the sample
-budget ran out the ray simply ended, contributing nothing for whatever remained of its length. The
-user's words: *"kameraya yakın yerde bulut renderlanmaması hem büyük ölçekte hem küçük ölçekte hala
-var"* — and a second shot at 1 500 m showing a cloud mass sliced off along a hard line, with *"eğer
-sola doğru gidersem renderlanmayan kısım renderlanmaya başlıyor"*.
+`engine/presentation/render/shaders/cloud.frag`'s loop ran
+`while (iter < max_iterations && real_samples < STEPS)`. When the sample budget ran out the ray
+simply ended, contributing nothing for whatever remained of its length. The user's words: *"kameraya
+yakın yerde bulut renderlanmaması hem büyük ölçekte hem küçük ölçekte hala var"* — and a second shot
+at 1 500 m showing a cloud mass sliced off along a hard line, with *"eğer sola doğru gidersem
+renderlanmayan kısım renderlanmaya başlıyor"*.
 
 That last clause is the diagnosis. A boundary that retreats as you approach it is a boundary
 that depends on the eye, and the only eye-dependent quantity in the march is how much budget a
@@ -1272,10 +1287,11 @@ spent. Correct in magnitude, quantised in the worst possible variable. See below
 #### The cloud resolve had nothing to evict history with (CV17)
 
 *"kamera hareket ederken shader bu şekilde trail bırakıyor. aşırı rahatsız edici."* The Low tier set
-`cloud_variance_clip = false`, and reading `cloud_taa.comp` it becomes clear that flag did not
-select a cheaper clip — it removed the clip entirely, leaving a plain EMA at up to 0.97 feedback.
-The neighbourhood clip is the **only** mechanism in that resolve that ever rejects a stale sample,
-so without it reprojection error does not decay, it compounds over ~33 frames.
+`cloud_variance_clip = false`, and reading `engine/presentation/render/shaders/cloud_taa.comp` it
+becomes clear that flag did not select a cheaper clip — it removed the clip entirely, leaving a
+plain EMA at up to 0.97 feedback. The neighbourhood clip is the **only** mechanism in that resolve
+that ever rejects a stale sample, so without it reprojection error does not decay, it compounds over
+~33 frames.
 
 This is a general trap in tiering temporal passes: a temporal filter is a feedback loop, and the
 rejection test is not a quality feature layered on top of it, it is the loop's stability condition.
@@ -1309,11 +1325,12 @@ The user put our Earth next to Google Earth's. Ours: a uniformly milky sphere. T
 **The defect was structural and it was hiding in a predicate.**
 `RuntimeSimulation::procedural_weather_enabled()` was literally
 `static_cast<bool>(weather_provider_)`. So "Manual" did not mean *a* provider — it meant **no
-provider**, and no provider means no published `WeatherField`, which means one hand-authored
-deck stack applied to every square metre of a planet. Every downstream symptom followed from
-that one line, and `StaticWeather` had been sitting in `weather_provider.hpp` since W4 for
-exactly this job, never installed, dead code. A boolean whose two states are "the system" and
-"the absence of the system" is not a mode, and it is worth noticing when one is written.
+provider**, and no provider means no published `WeatherField`, which means one hand-authored deck
+stack applied to every square metre of a planet. Every downstream symptom followed from that one
+line, and `StaticWeather` had been sitting in
+`engine/world/simulation/include/SushiEngine/simulation/weather_provider.hpp` since W4 for exactly
+this job, never installed, dead code. A boolean whose two states are "the system" and "the absence
+of the system" is not a mode, and it is worth noticing when one is written.
 
 The mode is named now, and both states install a provider. The distinction that replaced it is
 worth more than the one it removed — **placed** versus **grown**:
@@ -1350,11 +1367,12 @@ effort.
 
 #### One definition, two evaluators, and why they could not be one
 
-The placement has two consumers on opposite sides of the render seam: the simulation samples it
-per column to publish the weather field the bake reads, and the cloud march samples it per step
-out past every baked window. The obvious answer — publish a global coverage texture — dies on a
-binding: `cloud.frag` has none free (2–6 are taken, 7–10 are named/reserved), and the bindless
-heap would drag a descriptor set into a pass that deliberately avoids one.
+The placement has two consumers on opposite sides of the render seam: the simulation samples it per
+column to publish the weather field the bake reads, and the cloud march samples it per step out past
+every baked window. The obvious answer — publish a global coverage texture — dies on a binding:
+`engine/presentation/render/shaders/cloud.frag` has none free (2–6 are taken, 7–10 are
+named/reserved), and the bindless heap would drag a descriptor set into a pass that deliberately
+avoids one.
 
 So it is a **closed form**, and the centre list is the only thing that crosses: twelve
 directions and two scalars each. Both sides then evaluate the same function from the same
@@ -1402,8 +1420,8 @@ Two reports, one line of code:
 > görüyor"*
 > *"bulutlar, LOD dahil, akşam güneş görmeyen yerlerde kayboluyor. bir nebze gözükmeli"*
 
-`cloud.frag` computed the solar zenith cosine once per pixel, in the **camera's** radial frame,
-and gated the direct beam on it:
+`engine/presentation/render/shaders/cloud.frag` computed the solar zenith cosine once per pixel, in
+the **camera's** radial frame, and gated the direct beam on it:
 
 ```glsl
 vec3 camera_up = normalize(-center);
@@ -1466,10 +1484,10 @@ low altitude looking up; Manual weather mode, fair-weather preset, Ultra.
 
 **PL1 — from orbit the sky was a box, and it was exactly the box the design predicted.** Both
 windows are camera-centred flat squares in world XZ (32 km and 262 km) that fade to nothing across
-their rim *by design*; `cloud_field_window.glsl` has carried the paragraph explaining why a flat
-prism is meaningless at planetary distance since it was written. What was missing was the thing that
-paragraph defers to — §7.5's coarse planet-scale far field — and nothing had ever been put there, so
-past 131 km the planet simply had no weather.
+their rim *by design*; `engine/presentation/render/shaders/cloud_field_window.glsl` has carried the
+paragraph explaining why a flat prism is meaningless at planetary distance since it was written.
+What was missing was the thing that paragraph defers to — §7.5's coarse planet-scale far field — and
+nothing had ever been put there, so past 131 km the planet simply had no weather.
 
 What went in is deliberately the *cheap* form, and the reason is not effort: **there is no data
 to be finer with.** The nest is 384 km across and T1 runs on the host (§3.3), so anything
@@ -1486,8 +1504,9 @@ Three consequences worth recording:
 * **The windows now fade *into* it rather than into nothing**, so the far rim is a hand-off. The
   layers agree in the mean because they are built from the same decks; they differ only in the
   structure the coarse one cannot know about, which is what a LOD hand-off should look like.
-* `cloud_height_gradient` moved into `cloud_field_window.glsl`. Two answers about where a deck's top
-  is would have shown as a step at the rim, and the bake and the march are now one answer.
+* `cloud_height_gradient` moved into `engine/presentation/render/shaders/cloud_field_window.glsl`.
+  Two answers about where a deck's top is would have shown as a step at the rim, and the bake and
+  the march are now one answer.
 * **The skip guarantee weakens, and it is stated rather than quietly assumed.** Inside the
   windows a zero probe *proves* a region empty (it is a max-pool, and the carve only removes).
   The planet-scale field is a point evaluation, so out there the hop is a bound tied to the
@@ -1495,12 +1514,12 @@ Three consequences worth recording:
   is also gated to the near window now: past it the volume it refines does not exist, and each
   call is twelve probes.
 
-**The yellow was a real bug, and a satisfying one.** From orbit the deck rendered saturated
-yellow, and closer in the whole frame went orange. `cloud_composite.frag` continues the view
-path past the froxel volume with Bruneton's ratio identity — `T(near→top) = T(near→far) ·
-T(far→top)` — which holds only while the near point's path to the top runs *through* the far
-point, i.e. while the ray climbs. Look down from orbit and the far point is the deeper one; the
-containment reverses and so must the quotient.
+**The yellow was a real bug, and a satisfying one.** From orbit the deck rendered saturated yellow,
+and closer in the whole frame went orange. `engine/presentation/render/shaders/cloud_composite.frag`
+continues the view path past the froxel volume with Bruneton's ratio identity —
+`T(near→top) = T(near→far) · T(far→top)` — which holds only while the near point's path to the top
+runs *through* the far point, i.e. while the ray climbs. Look down from orbit and the far point is
+the deeper one; the containment reverses and so must the quotient.
 
 Taking the wrong branch is not an inaccuracy. `transmittance_to_top` integrates the straight line
 from `r` along `mu` to the top *sphere*, with no planet in the way, so at a downward `mu` it marches
@@ -1508,8 +1527,8 @@ through the body: the closest approach is `r·sqrt(1 − mu²)`, essentially the
 near-vertical look-down, and an exponential density profile evaluated below the surface is
 astronomically large. Both fetches underflow toward zero, they underflow by different amounts per
 wavelength — blue first, because Rayleigh — and their ratio is then an arbitrary saturated colour.
-Hence yellow, and hence *only* on the clouds: the ground reaches the frame through `sky.frag`, which
-never asks this question.
+Hence yellow, and hence *only* on the clouds: the ground reaches the frame through
+`engine/presentation/render/shaders/sky.frag`, which never asks this question.
 
 It also explains something in the ground-level shots. For a slightly downward ray the wrong quotient
 exceeds one and clamps, which means near-horizon pixels were getting **no distance extinction at
@@ -1563,8 +1582,8 @@ non-uniform control flow a ray march is made of. Every tap is now `textureLod` w
 its filter has to wrap; a blit's clamps instead, and at the coarse levels *every* texel is a border
 texel, which would bake the tile seam into the chain. Because every extent is a power of two the
 wrap costs nothing to honour — the eight sources of a destination texel are exactly `2x + (0,1)³`,
-all in range — so `cloud_noise_mip.comp` is fifteen lines and states its filter rather than
-inheriting one.
+all in range — so `engine/presentation/render/shaders/cloud_noise_mip.comp` is fifteen lines and
+states its filter rather than inheriting one.
 
 **The half that matters: a percentile threshold cannot be applied to a filtered field.** `coverage`
 selects the top `coverage` of a field that is uniform on [0, 1] — that uniformity is the CDF
@@ -1744,22 +1763,21 @@ the render tier alone. The four that produce the reported look are arithmetic, n
 and the first two are now fixed.
 
 **The whiteout was flattening every thick cloud in the sky (CV1, fixed).**
-`cloud.frag`'s post-march whiteout was gated on the *ray's total* transmittance rather than
-on the camera being immersed, and its ramp's lower edge (0.02) is numerically identical to
-the march's own opacity break — so by construction every ray the march calls opaque lost
-100 % of its accumulated shading to a colour varying only with `dot(view, sun)`. At the
-default cumulus (σ = 0.00279/m) that is 50 % of the shading gone at 717 m of body and all
-of it past 1.4 km: bright shredded edges around a dull featureless mass, which is the
-complaint verbatim. The block is deleted. The hole it papered over was real but is a
-missing *term*: all three octaves of `cloud_sun_energy` carry the same Beer factor, so a
-deep interior decayed to the ambient floor, when a medium of single-scattering albedo
-~0.999 converges to a bright near-isotropic radiance instead. A saturating multiple-scatter
-term keyed on the sample's own sun depth now rises where the ladder falls — it is exactly
-zero at zero depth, so a fully lit edge is unchanged and the ladder needed no
-recalibration, and because it is per-sample it *carries form* where the flat glow destroyed
-it. A softened phase keeps the residual forward bias the whiteout's `mu` term was reaching
-for. Mirrored into `cloud_panorama.comp` so the impostor does not read darker than the
-marched sky it continues.
+`engine/presentation/render/shaders/cloud.frag`'s post-march whiteout was gated on the *ray's total*
+transmittance rather than on the camera being immersed, and its ramp's lower edge (0.02) is
+numerically identical to the march's own opacity break — so by construction every ray the march
+calls opaque lost 100 % of its accumulated shading to a colour varying only with `dot(view, sun)`.
+At the default cumulus (σ = 0.00279/m) that is 50 % of the shading gone at 717 m of body and all of
+it past 1.4 km: bright shredded edges around a dull featureless mass, which is the complaint
+verbatim. The block is deleted. The hole it papered over was real but is a missing *term*: all three
+octaves of `cloud_sun_energy` carry the same Beer factor, so a deep interior decayed to the ambient
+floor, when a medium of single-scattering albedo ~0.999 converges to a bright near-isotropic
+radiance instead. A saturating multiple-scatter term keyed on the sample's own sun depth now rises
+where the ladder falls — it is exactly zero at zero depth, so a fully lit edge is unchanged and the
+ladder needed no recalibration, and because it is per-sample it *carries form* where the flat glow
+destroyed it. A softened phase keeps the residual forward bias the whiteout's `mu` term was reaching
+for. Mirrored into `engine/presentation/render/shaders/cloud_panorama.comp` so the impostor does not
+read darker than the marched sky it continues.
 
 **The erosion was eating the body, not the edge (CV2, fixed).** Three compounding
 arithmetic errors, all in the carve:
@@ -1792,11 +1810,11 @@ pinches its features into sheared strands. And `CLOUD_ENVELOPE_MEAN_SHAPE` is re
 0.45 → 0.75 from the new carve's actual yield; left at 0.45 every sun-depth integral, cloud
 shadow and impostor would light a sky 40 % thinner than the one being drawn.
 
-The `b` lane's two meanings are safe because they are co-sited: the far window overwrites it
-with sun depth (`cloudscape_far_light.comp`), and the carve's erosion — the only consumer of
-the near meaning — has faded out entirely by 14 km, where the near window hands over.
-Verified by reading that the skip, light-volume, shadow-map and panorama consumers all touch
-only `r` and `a`.
+The `b` lane's two meanings are safe because they are co-sited: the far window overwrites it with
+sun depth (`engine/presentation/render/shaders/cloudscape_far_light.comp`), and the carve's erosion
+— the only consumer of the near meaning — has faded out entirely by 14 km, where the near window
+hands over. Verified by reading that the skip, light-volume, shadow-map and panorama consumers all
+touch only `r` and `a`.
 
 **Still open on the reported symptoms**, in the order they are queued: the erosion octaves
 are 5–30× below the march's Nyquist limit with no footprint floor and one mip level (CV3);
@@ -1813,18 +1831,19 @@ bright as cloud tops (CV8).
 
 ### Where this stands — 2026-08-01, fourth entry: CloudsV2, the visual model rebuilt
 
-The third entry's fixes (normalisation, TAA translation blindness, composite gate) were
-correct and stay — but the user's verdict on the *look* stood even with them in: baked
-128 m texels cannot hold a cumulus. §7.6 documents the rebuild: the bake now stores only
-the physics envelope (coverage / profile / water), and the march carves the shape
-analytically per sample at every distance in the shared pattern frame. Touched:
-`cloudscape_field.comp` (envelope-only), `cloud.frag` (per-sample carve, the 200 m erosion
-band deleted), `cloud_noise_volume.comp` + `CloudNoise` (precombined march volume, kind 4),
-`cloudscape_skip/light_volume/far_light/shadow_map/panorama` (envelope×water×mean-shape),
-`scene_weather_tail.glsl` / `SceneUniforms` / `CloudscapeCompilePass` (`cloud_field_pattern`
-published; far supersample 8→2). Not yet verified by eye — the user builds and judges; the
-carve constants (2400 m base, 620 m erosion, 0.42/0.30 strengths, 0.45 mean shape) are the
-expected first knobs if the look is close but not right.
+The third entry's fixes (normalisation, TAA translation blindness, composite gate) were correct and
+stay — but the user's verdict on the *look* stood even with them in: baked 128 m texels cannot hold
+a cumulus. §7.6 documents the rebuild: the bake now stores only the physics envelope (coverage /
+profile / water), and the march carves the shape analytically per sample at every distance in the
+shared pattern frame. Touched: `engine/presentation/render/shaders/cloudscape_field.comp`
+(envelope-only), `engine/presentation/render/shaders/cloud.frag` (per-sample carve, the 200 m
+erosion band deleted), `engine/presentation/render/shaders/cloud_noise_volume.comp` + `CloudNoise`
+(precombined march volume, kind 4), `cloudscape_skip/light_volume/far_light/shadow_map/panorama`
+(envelope×water×mean-shape), `engine/presentation/render/shaders/scene_weather_tail.glsl` /
+`SceneUniforms` / `CloudscapeCompilePass` (`cloud_field_pattern` published; far supersample 8→2).
+Not yet verified by eye — the user builds and judges; the carve constants (2400 m base, 620 m
+erosion, 0.42/0.30 strengths, 0.45 mean shape) are the expected first knobs if the look is close but
+not right.
 
 ### Where this stands — 2026-08-01, third entry: the specks were a stale normalisation
 
@@ -1875,25 +1894,25 @@ dry air down across the inversion, warming the top back toward its environment a
 ends a deck — drying the layer it condenses from.
 
 Shipped as the flux-partitioning closure (Lilly 1968; Nicholls & Turton 1986),
-`w_e = A · ΔF / (ρ c_p Δθ)`, in `atmosphere_forces.comp` directly under the cooling term whose
-absorbed flux drives it — so the entrainment inherits the same top-concentration (`exp(−κ·path)`)
-and the same closing condition, and the two shut down together. The entrained fraction mixes θ,
-vapour and cloud water toward the level above; evaporation of the entrained-in deficit is left to
-the microphysics dispatch one barrier later, where its latent cooling lands without double-counting.
-Gated on a stable interface (Δθ > 0.05 K), because an unstable top is resolved convection and
-entraining through it would count the same mixing twice. The efficiency is data —
-`cloud_top_entrainment_efficiency` on `AtmosphereParameters`, default 0.8 (the enhanced field
-estimate; written at the mid-range 0.4 and raised after the verifying runs below), folding the
-evaporative enhancement into one coefficient between the dry 0.2 and enhanced ~0.8 literature
-values; 0 removes the closure and reproduces the deck-on-its-floor state for A/B. The probe carries
-`--entrainment` for exactly that experiment. The depression floor stays, demoted to the runaway
-guard it should have been: a deck should now break by entrainment drying before its top reaches −15
-K.
+`w_e = A · ΔF / (ρ c_p Δθ)`, in `engine/presentation/render/shaders/atmosphere_forces.comp` directly
+under the cooling term whose absorbed flux drives it — so the entrainment inherits the same
+top-concentration (`exp(−κ·path)`) and the same closing condition, and the two shut down together.
+The entrained fraction mixes θ, vapour and cloud water toward the level above; evaporation of the
+entrained-in deficit is left to the microphysics dispatch one barrier later, where its latent
+cooling lands without double-counting. Gated on a stable interface (Δθ > 0.05 K), because an
+unstable top is resolved convection and entraining through it would count the same mixing twice. The
+efficiency is data — `cloud_top_entrainment_efficiency` on `AtmosphereParameters`, default 0.8 (the
+enhanced field estimate; written at the mid-range 0.4 and raised after the verifying runs below),
+folding the evaporative enhancement into one coefficient between the dry 0.2 and enhanced ~0.8
+literature values; 0 removes the closure and reproduces the deck-on-its-floor state for A/B. The
+probe carries `--entrainment` for exactly that experiment. The depression floor stays, demoted to
+the runaway guard it should have been: a deck should now break by entrainment drying before its top
+reaches −15 K.
 
 Magnitude, by arithmetic rather than by run: 0.8 × 70 W/m² over a 5 K inversion at ρ ≈ 1 is 11.1
 mm/s — the upper end of the measured nocturnal-stratocumulus range — and at a 400 m top level that
 is a drying e-folding of a few hours, which is the timescale a nocturnal deck actually breaks on.
-`test_atmosphere_nest.cpp` pins the closure's arithmetic through the mirrored
+`tests/unit/test_atmosphere_nest.cpp` pins the closure's arithmetic through the mirrored
 `atmosphere_cloud_top_entrainment` helper.
 
 **Measured 2026-08-01, same day.** Four probe runs, in order. `--entrainment 0` reproduced the
@@ -1958,8 +1977,8 @@ it is a bias rather than a runaway, but it is also the term that would have *clo
 first: a ground kept warm under a cooling deck drives a sensible flux back into it. **Fixed** by
 blending the downwelling longwave toward the cloud base's own emission by cover and cloud
 emissivity. The data it needs — cloud-base temperature and column liquid water path — comes out of
-the walk `atmosphere_extinction.comp` already runs for the shading, so `cloud_shade` widens from two
-channels to four and nothing new is computed.
+the walk `engine/presentation/render/shaders/atmosphere_extinction.comp` already runs for the
+shading, so `cloud_shade` widens from two channels to four and nothing new is computed.
 
 **Both fixes verified, on the same 72 h at the same defaults.** The column stops running away, and
 the two halves show up in different places, which is what says each is doing its own work:
@@ -2062,18 +2081,18 @@ saturated GPU and that is a real constraint on what gets asked.
    with that mean — and 0.0605 roughness is exactly 120/1984 differing neighbour pairs. From 43 h
    the published coverage field is binary: every one of the 1024 columns reads exactly 0 or
    exactly 1. That is not a stuck publish path, it is `nest_cloud_partition`'s clamps
-   (`atmosphere_nest_common.glsl`, the `across <= -1` / `across >= 1` branches): once the persistent
-   deck settles onto its radiative floor the cell mean sits outside the top-hat width in every deck
-   column, the diagnosed fraction pins at exactly 1 (elsewhere exactly 0), and the coverage,
-   deviation and roughness become exact rationals of the column membership — which cannot move by
-   less than 1/1024 and therefore holds to four decimal places while θ′ beneath goes on settling
-   (−0.9, −0.7, −1.0 K per six hours through the same samples). The readback, slot collection and
-   publish were read end to end for this and are correct. **Not yet confirmed by a run:**
-   `atmosphere_probe` now reports `sky_coverage_pinned`, the fraction of columns whose low-band
-   coverage is exactly 0 or 1; the prediction is that it reaches 1.0 at the same sample the field
-   freezes, and stays there. One 72 h run settles it. If it does, this item closes into item 4 below
-   — a sky that cannot unfreeze is a deck nothing erodes, and the defect is the missing
-   entrainment/subsidence, not the mirror.
+   (`engine/presentation/render/shaders/atmosphere_nest_common.glsl`, the `across <= -1` /
+   `across >= 1` branches): once the persistent deck settles onto its radiative floor the cell mean
+   sits outside the top-hat width in every deck column, the diagnosed fraction pins at exactly 1
+   (elsewhere exactly 0), and the coverage, deviation and roughness become exact rationals of the
+   column membership — which cannot move by less than 1/1024 and therefore holds to four decimal
+   places while θ′ beneath goes on settling (−0.9, −0.7, −1.0 K per six hours through the same
+   samples). The readback, slot collection and publish were read end to end for this and are
+   correct. **Not yet confirmed by a run:** `atmosphere_probe` now reports `sky_coverage_pinned`,
+   the fraction of columns whose low-band coverage is exactly 0 or 1; the prediction is that it
+   reaches 1.0 at the same sample the field freezes, and stays there. One 72 h run settles it. If it
+   does, this item closes into item 4 below — a sky that cannot unfreeze is a deck nothing erodes,
+   and the defect is the missing entrainment/subsidence, not the mirror.
 2. **The diurnal comparison has never been run.** Every measurement in the 2026-08-01 entries is
    under a fixed noon sun and a quiescent parent, which is the harsh case by construction — B3b
    measured the same 72 h *with* a day/night cycle and found no runaway at all (−0.86 K above 10
@@ -2113,68 +2132,72 @@ behind them, not the pixels.
    decision, so nothing was changed yet. Diagnosis by reading, 2026-08-01:
    - **(a) Clouds start as tiny flickering specks.** The low-coverage regime of the carve. After the
      CDF fix the threshold `remap(base_shape, 1 - c, 1, 0, 1)` really does keep only the top `c` of
-     the field (`cloudscape_field.comp:529`), so at a young deck's 5–15 % coverage the survivors are
-     the noise's isolated peaks — islands far smaller than one 600 m shape cell — and their remapped
-     values sit barely above zero, where the erosion's fixed `detail_fbm * 0.45` threshold
-     (`cloudscape_field.comp:535`) erases most of them; which peaks survive changes each rebake.
-     This is the "coverage/density retune after the CDF fix" this document already records as never
-     done, plus the same marginal-regime erosion shape that produced the confetti before it was
-     moved off the density. The structural question a retune has to answer: the carve makes cloud
-     *size* grow with coverage, where a real fair-weather sky holds full-sized cumuli in smaller
-     *number* — the erosion amplitude and the carve law at low coverage are one authoring decision,
-     not two.
-   - **(b) Faint cloud visible from one viewpoint and not another.** The two windows do not
-     carve the same clouds. `min_shape_scale()` is derived from each window's *own* texel
-     (`cloudscape_field.comp:177-181`): the near window's floor is 2048 m, which leaves the
-     nest carve's 2400 m alone, while the far window's is 1024 m × 4 × 4 = **16 384 m** — so
-     the same sky is carved from two different octaves of the shape volume
-     (`cloudscape_field.comp:275` and `:477`). Coverage agrees between them; the individual
-     clouds do not, and a marginal cloud exists in one realisation and not the other. The
-     near/far blend weight is a function of the camera (`cloud.frag:210-225`), so walking moves
-     which realisation is being shown: the cloud appears and disappears with the viewpoint.
-     The claim in `cloud_field_window.glsl` that the two windows "differ only in how finely
-     they carve its shape" is false at feature level — they differ in *which clouds exist*.
+     the field (`engine/presentation/render/shaders/cloudscape_field.comp`), so at a young deck's
+     5–15 % coverage the survivors are the noise's isolated peaks — islands far smaller than one 600
+     m shape cell — and their remapped values sit barely above zero, where the erosion's fixed
+     `detail_fbm * 0.45` threshold (`engine/presentation/render/shaders/cloudscape_field.comp`)
+     erases most of them; which peaks survive changes each rebake. This is the "coverage/density
+     retune after the CDF fix" this document already records as never done, plus the same
+     marginal-regime erosion shape that produced the confetti before it was moved off the density.
+     The structural question a retune has to answer: the carve makes cloud *size* grow with
+     coverage, where a real fair-weather sky holds full-sized cumuli in smaller *number* — the
+     erosion amplitude and the carve law at low coverage are one authoring decision, not two.
+   - **(b) Faint cloud visible from one viewpoint and not another.** The two windows do not carve
+     the same clouds. `min_shape_scale()` is derived from each window's *own* texel
+     (`engine/presentation/render/shaders/cloudscape_field.comp`): the near window's floor is 2048
+     m, which leaves the nest carve's 2400 m alone, while the far window's is 1024 m × 4 × 4 = **16
+     384 m** — so the same sky is carved from two different octaves of the shape volume
+     (`engine/presentation/render/shaders/cloudscape_field.comp`). Coverage agrees
+     between them; the individual clouds do not, and a marginal cloud exists in one realisation and
+     not the other. The near/far blend weight is a function of the camera
+     (`engine/presentation/render/shaders/cloud.frag`), so walking moves which realisation is being
+     shown: the cloud appears and disappears with the viewpoint. The claim in
+     `engine/presentation/render/shaders/cloud_field_window.glsl` that the two windows "differ only
+     in how finely they carve its shape" is false at feature level — they differ in *which clouds
+     exist*.
    - **(c) Very harsh tile seams.** The same defect seen at the rim: the cross-fade
      (`CLOUD_WINDOW_BLEND_START = 0.84`, a ~2.6 km ring at ~13.8 km from the camera) blends two
-     uncorrelated cloud fields, and on the light side it switches sources at the same ring —
-     the amortized light volume inside, the far field's 8-bit sun-depth channel (16 m
-     quantisation over 4 096 m) outside (`cloud.frag:267-284`). The far window additionally
-     rebakes whole every 4 s of weather or 1° of sun (`cloudscape_compile_pass.hpp:374,385`)
-     with no amortization (`record_density` rewrites the full volume), so everything past the
-     ring pops on that cadence while the near side does not.
+     uncorrelated cloud fields, and on the light side it switches sources at the same ring — the
+     amortized light volume inside, the far field's 8-bit sun-depth channel (16 m quantisation over
+     4 096 m) outside (`engine/presentation/render/shaders/cloud.frag`). The far window additionally
+     rebakes whole every 4 s of weather or 1° of sun
+     (`engine/presentation/render/source/passes/cloudscape_compile_pass.hpp`) with no amortization
+     (`record_density` rewrites the full volume), so everything past the ring pops on that cadence
+     while the near side does not.
    - **(d) Stretched, flat, horizontal 2D cotton rather than cumulus.** Three quantisations
-     compound. Horizontally, most of the visible sky is far-window (past ~14 km of a ~150 km
-     march), where the 16 384 m carve floor means the shape noise varies at ~4 km horizontally
-     but is effectively constant across a deck's few hundred metres of depth: a vertical
-     *extrusion* of a horizontal pattern, which is exactly "2D cotton", and is the "smooth
-     kilometre-wide lumps" regime the carve was built to break (`cloudscape_field.comp:449`)
-     reappearing wherever the floor overrides it. Vertically, a thin deck occupies one to two
-     nest levels, the nest-path bake deliberately applies no height gradient
-     (`cloudscape_field.comp:492-498`) so the density steps on and off across one texel — hard
-     top and bottom faces — and the extinction's interior profile is exactly 0 for a
-     single-level cloud (`atmosphere_extinction.comp:88-93`: `min(above, below)/here` with both
-     neighbours empty), so the ambient term lights the whole cloud as edge: flat.
-   **Implemented 2026-08-01, same session, all four — by reading; the editor look is the
-   verification and has not been done:**
-   - **(b), (c), (d-at-distance): the supersampled far bake.** The far window now carves at
-     the near window's scale and averages 8×8 sub-texel taps per texel — threshold first,
-     then filter, the order the bake's own aliasing note names as correct — so both windows
-     carve the *same clouds* and the cross-fade interpolates one realisation
-     (`cloudscape_field.comp`: `bake_at` factored out of `main`, `supersample`/`slab_base`
-     push fields, `min_shape_scale` divides by the tap count). The 64× cost is paid by
-     amortization: the far bake records 16 Z slices a frame into `far_source_`, which nothing
-     samples mid-bake, and the completing frame resolves the sun depth and publishes the
-     pending placement together (`CloudscapeCompilePass`: `far_baking_`/`far_queued_`
-     /`far_completing_` state machine) — the 4 s whole-volume hitch becomes a ~16-frame
-     rolling update, and triggers that fire mid-bake queue the next bake instead of
-     restarting.
-   - **(c), the light side of the ring:** the far sun depth is now square-root encoded across
-     its 8-bit channel (`cloud_far_sun_depth_encode/decode` in `cloud_field_window.glsl`,
-     shared by writer and both readers): 0.06 m steps at the shallow depths where the Beer
-     term still moves, 16 m only past ~1.5 km where it has collapsed. The crossover ring
-     stays co-sited with the density blend on purpose — that co-siting is what keeps a sample
-     from reading density from one window and light from the other; what made it visible was
-     the decorrelation and the quantisation, and both are addressed.
+     compound. Horizontally, most of the visible sky is far-window (past ~14 km of a ~150 km march),
+     where the 16 384 m carve floor means the shape noise varies at ~4 km horizontally but is
+     effectively constant across a deck's few hundred metres of depth: a vertical *extrusion* of a
+     horizontal pattern, which is exactly "2D cotton", and is the "smooth kilometre-wide lumps"
+     regime the carve was built to break
+     (`engine/presentation/render/shaders/cloudscape_field.comp`) reappearing wherever the floor
+     overrides it. Vertically, a thin deck occupies one to two nest levels, the nest-path bake
+     deliberately applies no height gradient
+     (`engine/presentation/render/shaders/cloudscape_field.comp`) so the density steps on and off
+     across one texel — hard top and bottom faces — and the extinction's interior profile is exactly
+     0 for a single-level cloud (`engine/presentation/render/shaders/atmosphere_extinction.comp`:
+     `min(above, below)/here` with both neighbours empty), so the ambient term lights the whole
+     cloud as edge: flat. **Implemented 2026-08-01, same session, all four — by reading; the editor
+     look is the verification and has not been done:**
+   - **(b), (c), (d-at-distance): the supersampled far bake.** The far window now carves at the near
+     window's scale and averages 8×8 sub-texel taps per texel — threshold first, then filter, the
+     order the bake's own aliasing note names as correct — so both windows carve the *same clouds*
+     and the cross-fade interpolates one realisation
+     (`engine/presentation/render/shaders/cloudscape_field.comp`: `bake_at` factored out of `main`,
+     `supersample`/`slab_base` push fields, `min_shape_scale` divides by the tap count). The 64×
+     cost is paid by amortization: the far bake records 16 Z slices a frame into `far_source_`,
+     which nothing samples mid-bake, and the completing frame resolves the sun depth and publishes
+     the pending placement together (`CloudscapeCompilePass`: `far_baking_`/`far_queued_`
+     /`far_completing_` state machine) — the 4 s whole-volume hitch becomes a ~16-frame rolling
+     update, and triggers that fire mid-bake queue the next bake instead of restarting.
+   - **(c), the light side of the ring:** the far sun depth is now square-root encoded across its
+     8-bit channel (`cloud_far_sun_depth_encode/decode` in
+     `engine/presentation/render/shaders/cloud_field_window.glsl`, shared by writer and both
+     readers): 0.06 m steps at the shallow depths where the Beer term still moves, 16 m only past
+     ~1.5 km where it has collapsed. The crossover ring stays co-sited with the density blend on
+     purpose — that co-siting is what keeps a sample from reading density from one window and light
+     from the other; what made it visible was the decorrelation and the quantisation, and both are
+     addressed.
    - **(a): the coverage-adaptive carve.** The nest path carves from the same shape volume at
      a coordinate scale of `1/sqrt(coverage)` (clamped 3×), so island *diameter* stays
      constant and island *count* falls with coverage — the marginal distribution is
@@ -2184,11 +2207,11 @@ behind them, not the pixels.
      full-sized islands the erosion prunes rims and the weakest clouds rather than erasing a
      young sky wholesale — the speck-erasure was a symptom of island size, not of the
      erosion's amplitude.
-   - **(d), vertically:** the nest carve now tapers its *carve coverage* (never the water)
-     where the level above is clear — sampled off the extinction field a nest level up — so
-     the noise eats domes and turrets out of a deck's top while the base, which is flat
-     because the condensation level is, stays flat. And the extinction's interior profile is
-     floored at half the cell's own cloud fraction (`atmosphere_extinction.comp`), so a
+   - **(d), vertically:** the nest carve now tapers its *carve coverage* (never the water) where the
+     level above is clear — sampled off the extinction field a nest level up — so the noise eats
+     domes and turrets out of a deck's top while the base, which is flat because the condensation
+     level is, stays flat. And the extinction's interior profile is floored at half the cell's own
+     cloud fraction (`engine/presentation/render/shaders/atmosphere_extinction.comp`), so a
      one-level deck stops reading as all-edge and the ambient term shades it as a body.
 
 ### Where this stood — 2026-07-31
@@ -2212,7 +2235,7 @@ different outcome from being deferred again and is written up as such:
   % airmass a dry surface still built a 2 km afternoon deck. The four presets deliver the sky each
   tooltip promises, measured over 11 h from sunrise.
 - **Cloud-top radiative cooling is in, and it is not the sink this document said it was.** Added to
-  `atmosphere_forces.comp` as the flux difference across a level,
+  `engine/presentation/render/shaders/atmosphere_forces.comp` as the flux difference across a level,
   `F0 (e^{−κW_top} − e^{−κW_bottom})`, which telescopes down a column to `F0 (1 − e^{−κW})` and is
   therefore conservative at any vertical resolution — the differential form `dF/dz` over-cools an
   optically thick level by its own opacity, 16× for a 250 m level holding half a gram per kilogram,
@@ -2405,7 +2428,7 @@ interim; §5's quasi-geostrophic core replaces it in Phase C.
 
 **Determinism is given up here in practice, not only on paper.**
 `test_weather_determinism.cpp` is deleted per §0 and §14, replaced by
-`test_atmosphere_nest.cpp`, which pins the base state against the International Standard
+`tests/unit/test_atmosphere_nest.cpp`, which pins the base state against the International Standard
 Atmosphere, Magnus saturation against its textbook values, the stretched grid closing on its
 domain top, and the mirror's cold start and transcription.
 
@@ -2415,11 +2438,12 @@ eye** — nothing has been run.
 
 ### Phase B2b — Extinction drives the cloudscape directly — **shipped**
 
-The last piece of §7.1. `cloudscape_field.comp` gains a third path, taken whenever the nest is
-running: `σ_ext` read straight from the nest, with no genus, no deck and no height gradient. A
-cumulus has a flat base because the condensation level is flat, not because a gradient function
-draws one. Tiled noise survives only as a sub-2 km modulation at 35 % amplitude — §7.3's demotion in
-its final form, since the nest resolves 2 km and that is all it is still needed for.
+The last piece of §7.1. `engine/presentation/render/shaders/cloudscape_field.comp` gains a third
+path, taken whenever the nest is running: `σ_ext` read straight from the nest, with no genus, no
+deck and no height gradient. A cumulus has a flat base because the condensation level is flat, not
+because a gradient function draws one. Tiled noise survives only as a sub-2 km modulation at 35 %
+amplitude — §7.3's demotion in its final form, since the nest resolves 2 km and that is all it is
+still needed for.
 
 Baked density is stated against the extinction of 1 g/m³ of liquid water rather than in absolute
 1/m, so the medium's authored absorption keeps the meaning it has always had: *where* the cloud is
@@ -2432,7 +2456,7 @@ per-column genus from the published field, then the authored deck stack.
 
 ### Phase B2c — The correctness pass B2 exposed — **shipped**
 
-**The instrument came first.** `render/probe/atmosphere_main.cpp` (`atmosphere_probe`) brings the
+**The instrument came first.** `tools/probes/atmosphere/main.cpp` (`atmosphere_probe`) brings the
 nest up on a headless Vulkan device, steps it through hours of simulated weather in seconds of wall
 clock, and prints the observer column's *unreduced* vertical profile. Everything below the "Fixed in
 the cloudscape bake" heading was settled with it, and none of it was settleable without it: three
@@ -2456,12 +2480,13 @@ out wrong, and every one settled by porting the code and sampling it turned out 
 
 #### Fixed in the cloudscape bake — all three pre-date the nest
 
-**`coverage` did not mean coverage.** The Nubis threshold `remap(base_shape, 1 - coverage, 1, 0,
-1) * coverage` is a percentile cut, and a percentile cut is only meaningful on a field that is
-   uniform on [0, 1]. `cloud_noise_common.glsl` was ported exactly to numpy and sampled on lattices
-   from 56³ to 100³ (converged to five decimals): the deck path's `base_shape` is a narrow bell,
-   mean 0.779, standard deviation 0.038, **entire support [0.574, 0.906]**. The threshold therefore
-   never reached the field above ~0.43 coverage:
+**`coverage` did not mean coverage.** The Nubis threshold
+`remap(base_shape, 1 - coverage, 1, 0, 1) * coverage` is a percentile cut, and a percentile cut is
+only meaningful on a field that is uniform on [0, 1].
+`engine/presentation/render/shaders/cloud_noise_common.glsl` was ported exactly to numpy and sampled
+on lattices from 56³ to 100³ (converged to five decimals): the deck path's `base_shape` is a narrow
+bell, mean 0.779, standard deviation 0.038, **entire support [0.574, 0.906]**. The threshold
+therefore never reached the field above ~0.43 coverage:
 
 | requested coverage | clear sky asked for | clear sky delivered |
 |---|---|---|
@@ -2536,10 +2561,10 @@ the solve is a fixed number of relaxation sweeps, so the residual it leaves scal
 asked to remove, and the convection was running under a six-fold larger one. Corrected by
 subtracting `nest_base_vapour`.
 
-`MOISTURE_UNIT` was defined separately in four shaders and in none of the shared headers, which
-is how the diagnostic above first reported 69500 % relative humidity. It now lives in
-`atmosphere_nest_common.glsl` beside a note that `theta` and `moisture` use *opposite*
-conventions in the same nest.
+`MOISTURE_UNIT` was defined separately in four shaders and in none of the shared headers, which is
+how the diagnostic above first reported 69500 % relative humidity. It now lives in
+`engine/presentation/render/shaders/atmosphere_nest_common.glsl` beside a note that `theta` and
+`moisture` use *opposite* conventions in the same nest.
 
 #### The drying was not drying: the vapour field was frozen by its own storage format
 
@@ -2595,12 +2620,12 @@ an anelastic projection is for. The thermal seed's variance is negligible beside
 heating, so what the solver sees is a uniform layer and it annihilates it.
 
 **The nest has no vertical mixing of any kind.** `eddy_viscosity` is applied horizontally only, by
-explicit design (`atmosphere_forces.comp`), and there is no boundary-layer parameterization. Real
-surface fluxes are carried upward by turbulence far below a 2 km grid — which is precisely what §2.1
-lists among the parameterizations that "actually determine the weather" (YSU, MYNN). Without one,
-heat and moisture accumulate in a 54 m slab without bound, the layer above never destabilizes, and
-no parcel is ever lifted. Running longer does not help; nor would more pressure sweeps, a larger
-seed, or a stronger flux.
+explicit design (`engine/presentation/render/shaders/atmosphere_forces.comp`), and there is no
+boundary-layer parameterization. Real surface fluxes are carried upward by turbulence far below a 2
+km grid — which is precisely what §2.1 lists among the parameterizations that "actually determine
+the weather" (YSU, MYNN). Without one, heat and moisture accumulate in a 54 m slab without bound,
+the layer above never destabilizes, and no parcel is ever lifted. Running longer does not help; nor
+would more pressure sweeps, a larger seed, or a stronger flux.
 
 The chain above that link is intact, and this was checked rather than assumed. Forced with
 `--sensible 0 --latent 220`, the surface layer saturates on its own, and at three hours the probe
@@ -2613,21 +2638,23 @@ atmosphere with no vertical transport can make.
 
 - **Potential temperature was advected without its stratification.** `theta` is a perturbation about
   a height-varying base state, so its equation is `∂θ′/∂t + u·∇θ′ + w ∂θ̄/∂z = 0`;
-  `atmosphere_advect_scalars.comp` carried only the material derivative. Without the second term a
-  parcel keeps its warmth as it rises into an environment whose own warming with height it never
-  feels, so it never loses buoyancy and never finds an equilibrium level: the domain's Brunt–Väisälä
-  frequency is zero, convection has no top, and gravity waves have no restoring force. Added after
-  the monotone limiter deliberately — it is a source, not a transported quantity, and clamping it to
-  the upstream stencil would cap exactly the stable stratification it supplies. Latent while the
-  updraft was zero; it would have been the next fault exposed.
+  `engine/presentation/render/shaders/atmosphere_advect_scalars.comp` carried only the material
+  derivative. Without the second term a parcel keeps its warmth as it rises into an environment
+  whose own warming with height it never feels, so it never loses buoyancy and never finds an
+  equilibrium level: the domain's Brunt–Väisälä frequency is zero, convection has no top, and
+  gravity waves have no restoring force. Added after the monotone limiter deliberately — it is a
+  source, not a transported quantity, and clamping it to the upstream stencil would cap exactly the
+  stable stratification it supplies. Latent while the updraft was zero; it would have been the next
+  fault exposed.
 - **Coriolis was never uploaded.** `NestParams::coriolis` is declared, is documented as riding the
   forcing, and was never assigned — so `f` was identically zero and `AtmosphereForcing::coriolis`,
   which the simulation computes from the observer's latitude, was dropped on the floor.
-- **Three volumes were read before anything wrote them.** `atmosphere_shift.comp` seeds the
-  prognostic state, because that is what a fresh atmosphere *is*; pressure, divergence and surface
-  rain are step outputs and no step has run on the seed frame. Pressure is the one that matters: the
-  relaxation warm-starts from the field it left behind, so undefined contents propagate rather than
-  being overwritten and a single NaN would be permanent. Cleared on seed.
+- **Three volumes were read before anything wrote them.**
+  `engine/presentation/render/shaders/atmosphere_shift.comp` seeds the prognostic state, because
+  that is what a fresh atmosphere *is*; pressure, divergence and surface rain are step outputs and
+  no step has run on the seed frame. Pressure is the one that matters: the relaxation warm-starts
+  from the field it left behind, so undefined contents propagate rather than being overwritten and a
+  single NaN would be permanent. Cleared on seed.
 - **`thermal_seed_amplitude` is a rate, not a magnitude.** The header said K, the shader scales it
   by `dt` and its own comment says K/s. Corrected in the header, with what it implies stated: the
   seed is re-drawn and added each step, so what it produces is a random walk rather than a bounded
@@ -2641,9 +2668,9 @@ moisture species, on a `K(z)` profile over a mixed-layer depth **diagnosed per c
 method** — walk up from the surface, stop at the first level whose potential temperature exceeds the
 surface parcel's by 0.5 K. `boundary_layer_depth_m` survives as the cap the free troposphere's
 inversion puts on it. It lives in the advection stage rather than beside the horizontal diffusion in
-`atmosphere_forces.comp`, because that shader reads its stencil from the image it writes:
-horizontally that is a smoothing operator either way, but across a surface-to-air gradient of tens
-of kelvin it would not be.
+`engine/presentation/render/shaders/atmosphere_forces.comp`, because that shader reads its stencil
+from the image it writes: horizontally that is a smoothing operator either way, but across a
+surface-to-air gradient of tens of kelvin it would not be.
 
 Diagnosed rather than prescribed because the *growth* is the diurnal cycle's mechanism. A fixed
 depth mixes the whole layer from the first step and dilutes the surface moisture into ten times
@@ -3011,19 +3038,19 @@ sky each produces in its tooltip, and displays the resulting Bowen ratio, flagge
   *So the defect was never the cost; it was where the cost landed.* The 12.6 ms fell inside a single
   frame — one dropped frame every 2.4 s at 1× time scale, and far worse once defect 7 above was
   fixed and a frame could legitimately record four steps. Async compute alone would not have helped:
-  `vulkan_scene_view.cpp` had each view wait on the step submitted *this* frame, so the frame was
-  serialised behind it whatever queue it ran on. The step is now **staged during the frame and
-  submitted at its end**, after every scene view — so a frame reads the step before it and waits on
-  a value that has almost always already passed. The step waits on the frame's readers in turn,
-  because submission order on a queue orders the *start* of submissions and promises nothing about
-  one completing before the next begins. One nest step of staleness, a couple of seconds of game
-  time, against a medium whose own time scale is minutes.
+  `engine/presentation/render/source/rhi/vulkan/vulkan_scene_view.cpp` had each view wait on the
+  step submitted *this* frame, so the frame was serialised behind it whatever queue it ran on. The
+  step is now **staged during the frame and submitted at its end**, after every scene view — so a
+  frame reads the step before it and waits on a value that has almost always already passed. The
+  step waits on the frame's readers in turn, because submission order on a queue orders the *start*
+  of submissions and promises nothing about one completing before the next begins. One nest step of
+  staleness, a couple of seconds of game time, against a medium whose own time scale is minutes.
 
   Still open, in order: fewer sweeps or a tiled pressure smoother; the **async compute queue**,
   which the engine already has a seam for (`VulkanDevice::share_across_queues`) and which is now a
   straightforward win rather than a blocked one; and the semi-coarsened multigrid
-  `atmosphere_pressure.comp`'s header names. **The editor path of the frame-end move has been built
-  and its tests pass, but has not been confirmed by eye.**
+  `engine/presentation/render/shaders/atmosphere_pressure.comp`'s header names. **The editor path of
+  the frame-end move has been built and its tests pass, but has not been confirmed by eye.**
 - **SushiRuntime is the wrong tool for this tier, and the reason is worth recording** so it is not
   re-proposed. The nest's output is a Vulkan 3D image the cloud bake samples with hardware
   filtering; it is a *render resource* that happens to be computed. Moving the arithmetic to
@@ -3065,10 +3092,10 @@ H  = rho c_p C_H |U| (T_s - T_air)
 LE = rho L   C_H |U| beta (q_s(T_s) - q_v_air)
 ```
 
-`atmosphere_surface.comp`, 37 000 invocations against the 1.8 million every 3-D stage runs, and it
-measures **0.069 ms — 0.7 % of the step.** The skin temperature is prognostic, so it joins the
-shift: a nest that walks two kilometres brings the ground's warmth with it rather than laying a cold
-strip along its leading edge.
+`engine/presentation/render/shaders/atmosphere_surface.comp`, 37 000 invocations against the 1.8
+million every 3-D stage runs, and it measures **0.069 ms — 0.7 % of the step.** The skin temperature
+is prognostic, so it joins the shift: a nest that walks two kilometres brings the ground's warmth
+with it rather than laying a cold strip along its leading edge.
 
 **Measured, on a 24 h cycle over vegetated summer land:**
 
@@ -3366,11 +3393,11 @@ section is that candidate, built and tested.
 
 **It is the first term the nest receives that is not a boundary condition.** The three parent
 anomalies feed the Davies zone; this is applied across the whole domain, because a 384 km window has
-no way to know it is sitting under a thousand-kilometre high. In `atmosphere_forces.comp` it is
-vertical advection of potential temperature and vapour against the *total* profile — subsidence
-warms by compression and dries by bringing down air from where there is less water — with a shape
-that rises from zero at the ground to the supplied value near the boundary-layer top and decays to
-zero at the tropopause.
+no way to know it is sitting under a thousand-kilometre high. In
+`engine/presentation/render/shaders/atmosphere_forces.comp` it is vertical advection of potential
+temperature and vapour against the *total* profile — subsidence warms by compression and dries by
+bringing down air from where there is less water — with a shape that rises from zero at the ground
+to the supplied value near the boundary-layer top and decays to zero at the tropopause.
 
 **Where it comes from: Ekman pumping, and `SynopticLayer` already had it.** Its geostrophic wind
 carries a 25° surface-friction turn that relaxes with altitude, and *that turn is the cross-isobaric
@@ -3513,14 +3540,14 @@ low tiers therefore cannot simply be the same physics on a coarser grid, and
 unit test that exercises the instability at 64 latitudes lengthens the damping for exactly this
 reason.
 
-**Measured against references that are not itself.** `test_quasigeostrophic_core.cpp`: the fast
-transform against a naive O(N²) one and the real-pair packing against two separate transforms; the
-recovered streamfunction against the potential-vorticity relation written out a second time in the
-test (residual under 10⁻⁶ of the field); the prescribed jet coming back through streamfunction,
-vorticity, inversion and differencing at 30 m/s ± 0.6; free advection conserving the domain integral
-of `q` to 10⁻⁴ and of `q²` to 2×10⁻³ over a simulated day; and an injected vorticity blob drifting
-**northwest** at 19.7 m/s against Rossby's `beta * R²` of 23.3 — the beta drift, in both of its
-components, from a core that was never told about it.
+**Measured against references that are not itself.** `tests/unit/test_quasigeostrophic_core.cpp`:
+the fast transform against a naive O(N²) one and the real-pair packing against two separate
+transforms; the recovered streamfunction against the potential-vorticity relation written out a
+second time in the test (residual under 10⁻⁶ of the field); the prescribed jet coming back through
+streamfunction, vorticity, inversion and differencing at 30 m/s ± 0.6; free advection conserving the
+domain integral of `q` to 10⁻⁴ and of `q²` to 2×10⁻³ over a simulated day; and an injected vorticity
+blob drifting **northwest** at 19.7 m/s against Rossby's `beta * R²` of 23.3 — the beta drift, in
+both of its components, from a core that was never told about it.
 
 Every check that can assert a magnitude does. §11's C1 records the synoptic wind running 735 times
 too fast for the entire life of the shipped system, surviving because the one test covering it
@@ -3591,7 +3618,8 @@ failing the whole scene load. Round trip measured at 3e-8 hPa; a junk blob is re
 
 ##### Measured: the front-passage sequence
 
-`FrontPassage` at 45°N, sampled hourly at the observer (headless, `frontpass.cpp`):
+`FrontPassage` at 45°N, sampled hourly at the observer (headless, through a probe that was never
+committed):
 
 | h | p' (hPa) | grad (K/100km) | wind E | wind N |
 |---:|---:|---:|---:|---:|
@@ -3809,20 +3837,20 @@ Stated here so they are decisions rather than discoveries:
 ## 15. Dependencies and blockers
 
 - **Blocker: no terrain height field exists in the engine.** `PlanetParams` and
-  `sky.frag`'s `relief_normal` are an analytic shading trick, not queryable elevation
-  (`regional_weather_grid.hpp:50-55`). Orography, surface type, valley fog, föhn, rain
-  shadows, and terrain-driven turbulence — all of Phase D and part of Phase B's surface
-  model — cannot start until the terrain system provides one. Phases A, B (aloft), C, and
-  E are unblocked.
+  `engine/presentation/render/shaders/sky.frag`'s `relief_normal` are an analytic shading trick, not
+  queryable elevation (`regional_weather_grid.hpp:50-55`). Orography, surface type, valley fog,
+  föhn, rain shadows, and terrain-driven turbulence — all of Phase D and part of Phase B's surface
+  model — cannot start until the terrain system provides one. Phases A, B (aloft), C, and E are
+  unblocked.
 - **T0 asset pipeline** — *done*. `se climatology bake` builds `assets/atmosphere/climatology.set0`
   from NCEP-NCAR Reanalysis 1, NOAA OISST V2 and Natural Earth (ERA5 was dropped: it needs a
   Copernicus account, and an asset nobody else can reproduce is an asset nobody else can check).
   Attribution rides inside the asset. Terrain and land-cover remain blocked on §15's terrain system,
   which is what the ETOPO/MODIS half of this item was waiting for.
-- `render_pipeline_refactor.md` **Phase 7** (sky-view / aerial-perspective LUTs) —
+- `docs/design/render_pipeline_refactor.md` **Phase 7** (sky-view / aerial-perspective LUTs) —
   consumed by §8.3's spatial fog and AP coupling; analytic fallbacks stand until it lands.
-- `render_pipeline_refactor.md` **Phase 11** (async compute) — the preferred home for the
-  tier steps; the graphics queue is a working interim.
+- `docs/design/render_pipeline_refactor.md` **Phase 11** (async compute) — the preferred home for
+  the tier steps; the graphics queue is a working interim.
 - **Water/sea state** consumes `IAtmosphereQuery`'s wind field.
 - **Legacy references.** Fourteen source files still cite `docs/design/weather_and_clouds.md` by
   section number in their file comments, sixteen citations in all. Those files are rewritten or
@@ -3838,11 +3866,11 @@ Stated here so they are decisions rather than discoveries:
 |---|---|
 | `synoptic_weather.hpp` | Deleted (Phase C). Its editor affordance becomes vorticity injection into T1. |
 | `regional_weather_grid.hpp` | **Deleted (Phase B2).** Replaced by the GPU nest. The policy-object decomposition is not what the GPU form wanted — a stage is a compute shader plus its parameters, so `AtmosphereParameters` carries the data and the eleven shaders carry the schemes. |
-| `ISurfaceModel` / `IRadiationModel` | **Never introduced, and B3 is where that was settled rather than deferred again.** Both arrived as *stages*: `atmosphere_surface.comp` is the surface model and the radiation is the shortwave and longwave terms inside it. Neither is a swappable policy object, because on the GPU a "model" is a shader plus a parameter group and there is exactly one of each — an interface with one implementation forever is a stub wearing a vtable. The seam that *would* earn its keep is a **provider of surface properties**, so a terrain or ocean system could publish a real land/sea mask, and that one is blocked on the same terrain field Phase D is (§15). See B3c. |
-| `weather_cloudscape_compiler.hpp` | Kept, narrowed (Phase B1). The genus choice moved to §7.4's classifier (`Render::classify_cloud_genus`, shared with the GPU bake); what remains produces the label and the medium. |
-| `weather_provider.hpp` | Reshaped (Phase A) into `IAtmosphereSource` / `IAtmosphereField` / `IAtmosphereQuery` / `IAtmosphereAuthoring`. |
-| `weather_types.hpp` | Replaced (Phase E) by `AtmosphereProfile` / `AtmosphereDiagnostics`. |
-| `ingested_weather.hpp`, `metar_parser.hpp` | Kept, retargeted onto the new contract — and made installable, which they are not today. |
-| `weather_wind.hpp`, `weather_flight_hazards.hpp`, `weather_world_coupling.hpp` | API shape kept; source becomes the query mirror. |
-| `test_weather_determinism.cpp` | **Deleted (Phase B2)** per §0. Replaced by `test_atmosphere_nest.cpp`, which pins the base state, the saturation relations and the grid against textbook values, plus the mirror's cold start. The summary contract itself is Phase E. |
+| `ISurfaceModel` / `IRadiationModel` | **Never introduced, and B3 is where that was settled rather than deferred again.** Both arrived as *stages*: `engine/presentation/render/shaders/atmosphere_surface.comp` is the surface model and the radiation is the shortwave and longwave terms inside it. Neither is a swappable policy object, because on the GPU a "model" is a shader plus a parameter group and there is exactly one of each — an interface with one implementation forever is a stub wearing a vtable. The seam that *would* earn its keep is a **provider of surface properties**, so a terrain or ocean system could publish a real land/sea mask, and that one is blocked on the same terrain field Phase D is (§15). See B3c. |
+| `engine/world/simulation/include/SushiEngine/simulation/weather_cloudscape_compiler.hpp` | Kept, narrowed (Phase B1). The genus choice moved to §7.4's classifier (`Render::classify_cloud_genus`, shared with the GPU bake); what remains produces the label and the medium. |
+| `engine/world/simulation/include/SushiEngine/simulation/weather_provider.hpp` | Reshaped (Phase A) into `IAtmosphereSource` / `IAtmosphereField` / `IAtmosphereQuery` / `IAtmosphereAuthoring`. |
+| `engine/world/simulation/include/SushiEngine/simulation/weather_types.hpp` | Replaced (Phase E) by `AtmosphereProfile` / `AtmosphereDiagnostics`. |
+| `engine/world/simulation/include/SushiEngine/simulation/ingested_weather.hpp`, `engine/world/simulation/include/SushiEngine/simulation/metar_parser.hpp` | Kept, retargeted onto the new contract — and made installable, which they are not today. |
+| `engine/world/simulation/include/SushiEngine/simulation/weather_wind.hpp`, `engine/world/simulation/include/SushiEngine/simulation/weather_flight_hazards.hpp`, `engine/world/simulation/include/SushiEngine/simulation/weather_world_coupling.hpp` | API shape kept; source becomes the query mirror. |
+| `test_weather_determinism.cpp` | **Deleted (Phase B2)** per §0. Replaced by `tests/unit/test_atmosphere_nest.cpp`, which pins the base state, the saturation relations and the grid against textbook values, plus the mirror's cold start. The summary contract itself is Phase E. |
 | W0–W3 render passes and shaders | Kept. Changes enumerated in §8. |

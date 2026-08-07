@@ -2,17 +2,18 @@
 
 **Status:** designed, 2026-08-01.
 
-This is the "dedicated design pass" that `cross_platform_engineering_plan.md` §3.1 defers — the
-shared sim+render hazard vocabulary, the tracker discipline, and the interop contract at the domain
-boundary. It resolves that document's §9 risk-register entry ("hazard vocabularies diverge before a
-shared model is designed") and its open go/no-go decision on gating `RUNTIME-PORT0`/`RHI0`. Design
-authority for this pass was delegated by the owner on 2026-08-01.
+This is the "dedicated design pass" that `docs/design/cross_platform_engineering_plan.md` §3.1
+defers — the shared sim+render hazard vocabulary, the tracker discipline, and the interop contract
+at the domain boundary. It resolves that document's §9 risk-register entry ("hazard vocabularies
+diverge before a shared model is designed") and its open go/no-go decision on gating
+`RUNTIME-PORT0`/`RHI0`. Design authority for this pass was delegated by the owner on 2026-08-01.
 
-**Companion documents.** `cross_platform_engineering_plan.md` (the three walls; `Execution` seam §4,
-RHI §5); `sushiruntime/docs/design/ENGINE_BACKBONE_REFACTOR.md` (BB-0…BB-8 — this design *composes
-with* BB-1a/1b and BB-7, it does not re-plan them); `physics_system.md` §18 (the runtime request
-register); `atmosphere_system.md` Phase B3 (the recorded SYCL rejection this design treats as
-doctrine); `SUSHILOOP.md` (the determinism contract the sim domain answers to).
+**Companion documents.** `docs/design/cross_platform_engineering_plan.md` (the three walls;
+`Execution` seam §4, RHI §5); `sushiruntime/docs/design/ENGINE_BACKBONE_REFACTOR.md` (BB-0…BB-8 —
+this design *composes with* BB-1a/1b and BB-7, it does not re-plan them);
+`docs/design/physics_system.md` §18 (the runtime request register);
+`docs/design/atmosphere_system.md` Phase B3 (the recorded SYCL rejection this design treats as
+doctrine); `docs/design/SUSHILOOP.md` (the determinism contract the sim domain answers to).
 
 ---
 
@@ -40,64 +41,67 @@ from them.
 
 **G1 — The sim domain's hazard currency is byte intervals over USM columns.** A chunk column is
 `SushiRuntime::API::Buffer<std::byte>` allocated with `runtime.buffer<std::byte>(capacity * size)`
-(`ecs/chunk.hpp:71`); `Schedule::each` emits one node per chunk whose dependency keys are the raw
-column base addresses — whole-buffer regions today (`ecs/schedule.hpp:146-164`,
-`Buffer::dependency_key()`), while the runtime's `Core::ResourceRegion`
-(`{ResourceId base, byte offset, byte length}`, half-open, `WHOLE` sentinel) and the R3
-interval-boundary work (merged to `main` in `f801cc5`) make interval-exact sub-range tracking real
-where it is declared — the fixed-order reduce's levels and `DynamicGraph`'s island regions are the
-two in-tree proofs. The system kernels themselves are plain C++ over those pointers — no SYCL in any
-kernel body. One forward-compatibility fact matters to the vocabulary: `Core::ResourceId` is `void*`
-today but is *explicitly aliased so it can become an opaque registered id*
-(`resource_region.hpp:39`, WP-2's unfinished half) — the engine's mirror type must typedef its key
-for the same reason.
+(`engine/foundation/ecs/include/SushiEngine/ecs/chunk.hpp`); `Schedule::each` emits one node per
+chunk whose dependency keys are the raw column base addresses — whole-buffer regions today
+(`engine/foundation/ecs/include/SushiEngine/ecs/schedule.hpp`, `Buffer::dependency_key()`), while
+the runtime's `Core::ResourceRegion` (`{ResourceId base, byte offset, byte length}`, half-open,
+`WHOLE` sentinel) and the R3 interval-boundary work (merged to `main` in `f801cc5`) make
+interval-exact sub-range tracking real where it is declared — the fixed-order reduce's levels and
+`DynamicGraph`'s island regions are the two in-tree proofs. The system kernels themselves are plain
+C++ over those pointers — no SYCL in any kernel body. One forward-compatibility fact matters to the
+vocabulary: `Core::ResourceId` is `void*` today but is *explicitly aliased so it can become an
+opaque registered id* (`resource_region.hpp:39`, WP-2's unfinished half) — the engine's mirror type
+must typedef its key for the same reason.
 
 **G1b — The demanding sim consumer is no longer only the ECS.**
-`physics/solver/runtime_graph_builder.hpp` (created 2026-07-28, after the cross-platform plan's
-ground-truth pass; 42 `SushiRuntime::` usages) is the deepest coupling site in the engine and uses a
-far wider graph surface than `Schedule` does: `ElementRange` sub-buffer accesses, `API::when(...)`
-predicated nodes, `API::sized(...)` late-bound counts, `Residency`/`DeviceIndex` placement. Any
-`Execution` vocabulary that cannot express these cannot retarget the physics graph — §4.5 addresses
-each.
+`engine/domain/physics/include/SushiEngine/physics/solver/runtime_graph_builder.hpp` (created
+2026-07-28, after the cross-platform plan's ground-truth pass; 42 `SushiRuntime::` usages) is the
+deepest coupling site in the engine and uses a far wider graph surface than `Schedule` does:
+`ElementRange` sub-buffer accesses, `API::when(...)` predicated nodes, `API::sized(...)` late-bound
+counts, `Residency`/`DeviceIndex` placement. Any `Execution` vocabulary that cannot express these
+cannot retarget the physics graph — §4.5 addresses each.
 
 **G2 — The render domain's hazard currency is typed access intents over opaque virtual resources.**
 A pass declares `TextureAccess`/`BufferAccess` against frame-scoped virtual handles
-(`render/graph/resource_handle.hpp:96-126`), and the graph's *entire* barrier knowledge is one total
-function from those intents to the Vulkan `(stage, access, layout)` triple
-(`render/graph/resource_state.hpp:26-34`). Whole-resource granularity, re-declared every frame,
-usage flags inferred by unioning intents. This is already an access-intent model — the render domain
-needs **no semantic change** to participate in UHM, only a vocabulary alignment at RHI1.
+(`engine/presentation/render/source/graph/resource_handle.hpp:96-126`), and the graph's *entire*
+barrier knowledge is one total function from those intents to the Vulkan `(stage, access, layout)`
+triple (`engine/presentation/render/source/graph/resource_state.hpp`). Whole-resource granularity,
+re-declared every frame, usage flags inferred by unioning intents. This is already an access-intent
+model — the render domain needs **no semantic change** to participate in UHM, only a vocabulary
+alignment at RHI1.
 
 **G3 — The boundary already has a designed direction.** The renderer *exports* allocations
-(`render/interop.hpp`: UUID-matched external memory, Win32 handle / POSIX fd, "the importing half
-belongs to whoever owns the other API"); SushiRuntime's import half plus completion export are
-BB-1a/BB-1b — planned, unbuilt, with the engine's `vulkan_interop_buffer.cpp` export path sitting
-callerless until they land. UHM's boundary contract is the engine-side orchestration of exactly
-those two seams, not a third mechanism. Note the correction to the cross-platform plan's §3 wording:
-on desktop, zero-copy is **renderer-exports / runtime-imports** external memory — not USM columns
+(`engine/presentation/render/include/SushiEngine/render/interop.hpp`: UUID-matched external memory,
+Win32 handle / POSIX fd, "the importing half belongs to whoever owns the other API"); SushiRuntime's
+import half plus completion export are BB-1a/BB-1b — planned, unbuilt, with the engine's
+`engine/presentation/render/source/interop/vulkan_interop_buffer.cpp` export path sitting callerless
+until they land. UHM's boundary contract is the engine-side orchestration of exactly those two
+seams, not a third mechanism. Note the correction to the cross-platform plan's §3 wording: on
+desktop, zero-copy is **renderer-exports / runtime-imports** external memory — not USM columns
 handed raw to Vulkan. The USM-column-as-graphics-memory shape appears only on the native-`Execution`
 UMA path (§6, tier T3).
 
 **G4 — Rollback constrains publication, not tracking.** `Loop::App` owns the fixed-step loop and a
 `RollbackBuffer` that snapshots/restores columns generically — full column copies, not deltas
-(`loop/rollback.hpp:96-121`; per-write dirty tracking is a recorded follow-on, not present); a
-reconciliation replays from the earliest mismatched tick through the *same compiled graph*
-(`Schedule::run` rebuilds only on `structure_version` change), with the structural constraint that
-no spawn/destroy may occur between capture and restore (`rollback.hpp:33-36`). The render domain
-must never observe an intermediate replayed tick — which makes "when may the render domain see sim
-output" a publication rule at the boundary, not a property of either tracker. Note also that today's
-shipping sim→render seam is a *value snapshot*: the editor never instantiates `Loop::App` at all —
-it hosts `ISimulation` and reads `render_scene()`, a copied `RenderScene` struct, once per host
-frame (`editor/main.cpp:439-461`). The copy-shaped host round-trip BB-1 describes is therefore the
-*current* T0 reality, not a regression risk.
+(`engine/world/loop/include/SushiEngine/loop/rollback.hpp`; per-write dirty tracking is a recorded
+follow-on, not present); a reconciliation replays from the earliest mismatched tick through the
+*same compiled graph* (`Schedule::run` rebuilds only on `structure_version` change), with the
+structural constraint that no spawn/destroy may occur between capture and restore
+(`engine/world/loop/include/SushiEngine/loop/rollback.hpp`). The render domain must never observe an
+intermediate replayed tick — which makes "when may the render domain see sim output" a publication
+rule at the boundary, not a property of either tracker. Note also that today's shipping sim→render
+seam is a *value snapshot*: the editor never instantiates `Loop::App` at all — it hosts
+`ISimulation` and reads `render_scene()`, a copied `RenderScene` struct, once per host frame
+(`applications/editor/source/main.cpp`). The copy-shaped host round-trip BB-1 describes is therefore
+the *current* T0 reality, not a regression risk.
 
 **G5 — The engine already runs three compute lanes, by recorded doctrine.** SushiRuntime SYCL for
 the deterministic sim domain; Vulkan compute for render-resource computation (atmosphere's recorded
 rejection: *"its value is in the deterministic simulation domain, where the data does not have to
-become something the rasteriser samples"* — `atmosphere_system.md` Phase B3); CPU for host systems
-and fallbacks. UHM does not merge these lanes — it gives the first lane's output a typed,
-epoch-fenced route into the second's inputs, and it gives the future `Execution` RHI-compute backend
-(`RUNTIME-PORT8`) a vocabulary that already speaks GPU barriers.
+become something the rasteriser samples"* — `docs/design/atmosphere_system.md` Phase B3); CPU for
+host systems and fallbacks. UHM does not merge these lanes — it gives the first lane's output a
+typed, epoch-fenced route into the second's inputs, and it gives the future `Execution` RHI-compute
+backend (`RUNTIME-PORT8`) a vocabulary that already speaks GPU barriers.
 
 ---
 
@@ -125,7 +129,7 @@ needs them) but a `Handoff` registration of an image is a compile-time error. Th
 decision dissolves most of §3.1's "vocabulary mismatch" concern: the superset type exists, but the
 shared wire format is the narrow, well-understood half.
 
-**U4 — Determinism is a per-node class, enforced at the boundary.** `SUSHILOOP.md` locks
+**U4 — Determinism is a per-node class, enforced at the boundary.** `docs/design/SUSHILOOP.md` locks
 bit-determinism for the sim; render nodes must not pay for it and must not poison it. The class
 marker is in the vocabulary from day one (§3.1's requirement), and the rules it implies (§7) are
 mechanical, assertable, and cheap.
@@ -164,10 +168,12 @@ them. The waist is the design.
 
 ## 4. The vocabulary
 
-Header tree: `include/SushiEngine/execution/` — `access.hpp` (intents, classes), `interval.hpp`
-(regions), `hazard.hpp` (the semantic, §5), `handoff.hpp` (§6). Header-only, freestanding, no engine
-dependencies beyond `<cstdint>`/`<cstddef>` — these headers must compile in a SYCL TU, a stock-clang
-TU, and (later) an NDK TU without friction.
+Header tree: `include/SushiEngine/execution/` —
+`engine/foundation/execution/include/SushiEngine/execution/access.hpp` (intents, classes),
+`engine/foundation/execution/include/SushiEngine/execution/interval.hpp` (regions),
+`engine/foundation/execution/include/SushiEngine/execution/hazard.hpp` (the semantic, §5),
+`handoff.hpp` (§6). Header-only, freestanding, no engine dependencies beyond `<cstdint>`/`<cstddef>`
+— these headers must compile in a SYCL TU, a stock-clang TU, and (later) an NDK TU without friction.
 
 ### 4.1 Access intents
 
@@ -200,11 +206,11 @@ namespace SushiEngine::Execution
 The render graph's `TextureAccess`/`BufferAccess` are **projections** of this enum, not parallel
 inventions: at RHI1, each existing value gains a documented mapping (e.g.
 `TextureAccess::StorageComputeReadWrite` ⇒ `{StorageRead, StorageWrite}`, `BufferAccess::HostRead` ⇒
-`HostRead`) and `resource_state.cpp`'s total function is re-keyed on the shared enum — the same
-table, relocated exactly as the cross-platform plan §5.3 already requires for Metal. The
-stage-qualified distinctions the current render enums carry (`SampledFragment` vs `SampledCompute`)
-become a `StageMask` field beside the intent rather than enum values, which is what Metal and
-console barrier models want anyway.
+`HostRead`) and `engine/presentation/render/source/graph/resource_state.cpp`'s total function is
+re-keyed on the shared enum — the same table, relocated exactly as the cross-platform plan §5.3
+already requires for Metal. The stage-qualified distinctions the current render enums carry
+(`SampledFragment` vs `SampledCompute`) become a `StageMask` field beside the intent rather than
+enum values, which is what Metal and console barrier models want anyway.
 
 ### 4.2 Resource intervals
 
@@ -280,16 +286,18 @@ inventing a new taxonomy.
 ```
 
 `Schedule::each`'s emission today pushes bare `void*` into `reads`/`writes`
-(`ecs/schedule.hpp:150-158`); under UHM it pushes
+(`engine/foundation/ecs/include/SushiEngine/ecs/schedule.hpp`); under UHM it pushes
 `{BufferInterval{base, 0, capacity * elem_size}, Read ? ComputeRead : ComputeWrite}`. The
 RuntimeBackend lowers that to exactly the pointer regions SushiRuntime tracks today — byte-for-byte
 the same dependency behaviour, which is what keeps RUNTIME-PORT0's "byte-identical output logs" exit
 criterion honest.
 
-### 4.5 The vocabulary must carry what `runtime_graph_builder.hpp` already uses
+### 4.5 The vocabulary must carry what the physics graph builder already uses
 
-The physics graph builder (G1b) is the retarget stress test, and each of its constructs has a
-designed home so `Execution` does not silently become "the ECS subset":
+The physics graph builder (G1b —
+`engine/domain/physics/include/SushiEngine/physics/solver/runtime_graph_builder.hpp`) is the
+retarget stress test, and each of its constructs has a designed home so `Execution` does not
+silently become "the ECS subset":
 
 | Construct in use today | UHM/`Execution` answer |
 |---|---|
@@ -304,9 +312,10 @@ designed home so `Execution` does not silently become "the ECS subset":
 
 ## 5. The tracker: one semantic, N implementations, one shared core where it pays
 
-The hazard **semantic** is specified once, normatively, in `execution/hazard.hpp`'s documentation
-and a conformance test. Stating it precisely matters, because the two shipping reference points do
-*not* run the same algorithm and a naive "mirror the runtime" instruction is self-contradictory (the
+The hazard **semantic** is specified once, normatively, in
+`engine/foundation/execution/include/SushiEngine/execution/hazard.hpp`'s documentation and a
+conformance test. Stating it precisely matters, because the two shipping reference points do *not*
+run the same algorithm and a naive "mirror the runtime" instruction is self-contradictory (the
 cross-platform plan §4.3 asked for both "mirror `dependency_tracker.cpp`" and "linear-time" — the
 runtime's tracker is an append-only per-shard access history with a backward overlap scan that
 terminates only on a *fully covering* prior write: effectively O(1) amortized for whole-buffer keys,
@@ -338,7 +347,7 @@ Implementations:
 | Render graph barrier planner | today's per-frame compile pass | Migrates onto the same shared core **during RHI2**, when the pass-recording layer is already being rebuilt behind `ICommandList` and RHI0's harness exists to prove the migration is a no-op. Not before: rewriting a shipping barrier planner with no golden images would be the exact mistake the cross-platform plan spends §5.1 warning about. |
 | RHI-compute sim backend (RUNTIME-PORT8) | barrier emission for AOT compute sim | The shared core plus the same intent→barrier table the render backend uses — this is where carrying full `AccessIntent` in sim `NodeDescriptor`s from day one pays off. |
 
-The conformance test (engine-side, `tests/functional/unit/test_hazard_semantics.cpp`) drives the
+The conformance test (engine-side, `tests/unit/test_hazard_semantics.cpp`) drives the
 shared core and — through a recorded-order probe graph — the RuntimeBackend with identical access
 sequences and asserts **every conflicting pair is ordered identically observable-side** (schedule
 equivalence over conflicts, per the floors above), plus schedule determinism across repeated builds.
@@ -388,7 +397,8 @@ counter per entry, and two verbs.
   an acquired token into either a host wait before submit (T1) or a queue wait (T2) — in both cases
   *inferred inside the graph* from the acquire, never hand-placed by a pass. T2 has an exact in-tree
   precedent already: the atmosphere nest runs outside the render graph on its own timeline semaphore
-  and the frame's submissions wait on it (`vulkan_scene_view.cpp:829-850`) — `Handoff` generalizes
+  and the frame's submissions wait on it
+  (`engine/presentation/render/source/rhi/vulkan/vulkan_scene_view.cpp`) — `Handoff` generalizes
   that hand-wired pattern into the registry so the *next* external producer (the runtime) doesn't
   hand-wire a second one.
 
@@ -414,18 +424,19 @@ The **allocator hook** is thereby owned: it is the T3 realization of `Handoff` v
 here once, consumed by RUNTIME-PORT1 (the native allocator accepts an injected external allocator)
 and by the RHI's buffer creation (Wall 2) — the two-wall agreement point §3 of the cross-platform
 plan insists on. Direction per tier is asymmetric and deliberate: on desktop the **renderer exports
-and the runtime imports** (G3 — `render/interop.hpp`'s recorded doctrine); on T3 the **RHI supplies
-memory to `Execution`** at allocation time. Both keep graphics ownership of graphics memory, which
-is the invariant that survives every backend.
+and the runtime imports** (G3 —
+`engine/presentation/render/include/SushiEngine/render/interop.hpp`'s recorded doctrine); on T3 the
+**RHI supplies memory to `Execution`** at allocation time. Both keep graphics ownership of graphics
+memory, which is the invariant that survives every backend.
 
 ### 6.4 Cross-device scoping
 
 `Handoff` guarantees its contract only when both sides share a physical device (`DeviceInfo::uuid`
-match — the key `render/interop.hpp` already selects by). Cross-*device* zero-copy (sim on a compute
-dGPU, render on another) is explicitly **out of scope**: T4 is the answer there, and the primary
-GPU-compute consumer that is genuinely device-remote (the SushiLoop server) is headless — its
-`Handoff` has no render domain at all and degenerates to a no-op registry. This adopts §3.1's own
-skepticism as a decision instead of a worry.
+match — the key `engine/presentation/render/include/SushiEngine/render/interop.hpp` already selects
+by). Cross-*device* zero-copy (sim on a compute dGPU, render on another) is explicitly **out of
+scope**: T4 is the answer there, and the primary GPU-compute consumer that is genuinely
+device-remote (the SushiLoop server) is headless — its `Handoff` has no render domain at all and
+degenerates to a no-op registry. This adopts §3.1's own skepticism as a decision instead of a worry.
 
 ---
 
@@ -476,26 +487,25 @@ risk was vocabulary divergence *because* the shared design didn't exist; it now 
   sketch: near zero — the adapter to SushiRuntime stays member-wise trivial by construction (§4.2),
   and kernel bodies are untouched.
 - **RHI0** was never vocabulary-bound; unchanged.
-- **RHI1** re-keys `resource_state.cpp` on `AccessIntent` + `StageMask` when it collapses
-  `TextureState`/`BufferState` — work it was already doing; the only delta is *which* enum it
-  lands on.
+- **RHI1** re-keys `engine/presentation/render/source/graph/resource_state.cpp` on `AccessIntent` +
+  `StageMask` when it collapses `TextureState`/`BufferState` — work it was already doing; the only
+  delta is *which* enum it lands on.
 - **RHI2** migrates the render barrier planner onto the shared hazard core (§5), under the RHI0
   harness.
-- **Requests to SushiRuntime** (via `physics_system.md` §18, per the two-repo convention): none new.
-  UHM consumes BB-1a/1b and BB-7 exactly as specified in `ENGINE_BACKBONE_REFACTOR.md`; the only
-  soft ask is that `import_buffer`'s returned `Buffer<T>` participates in interval-exact tracking
-  (BB-1a already commits to this) and that BB-1b lands the semaphore-export design (i) variant,
-  which keeps SYCL types out of the engine.
-- **The runtime moved under the engine's feet, favourably — adopt it (BB-0 engine half).**
-  Verified 2026-08-01: `feature/physics-substrate-seams` is *merged* (`f801cc5`) and a second
-  wave landed on top (`cb894ff`: BB-3 determinism flags, BB-2 co-tenancy, BB-4 packaging).
-  Two immediate engine-side consequences: (1) R1–R7 adoption (delete the hand-built two-node
-  reduction, `sized_from_device` for the broadphase→solver chain, region-per-island) is
-  unblocked *now*, and UHM0's vocabulary should land before or with it so adoption emits
-  through `Execution` rather than adding fresh direct call sites; (2) **a known breakage**:
-  `RuntimeConfig`'s rebalancer default flipped to off, and the engine's
-  `test_runtime_graph_builder.cpp:266-277` asserts the old default — that test inverts as part
-  of adoption, exactly as the BB plan predicted.
+- **Requests to SushiRuntime** (via `docs/design/physics_system.md` §18, per the two-repo
+  convention): none new. UHM consumes BB-1a/1b and BB-7 exactly as specified in
+  `ENGINE_BACKBONE_REFACTOR.md`; the only soft ask is that `import_buffer`'s returned `Buffer<T>`
+  participates in interval-exact tracking (BB-1a already commits to this) and that BB-1b lands the
+  semaphore-export design (i) variant, which keeps SYCL types out of the engine.
+- **The runtime moved under the engine's feet, favourably — adopt it (BB-0 engine half).** Verified
+  2026-08-01: `feature/physics-substrate-seams` is *merged* (`f801cc5`) and a second wave landed on
+  top (`cb894ff`: BB-3 determinism flags, BB-2 co-tenancy, BB-4 packaging). Two immediate
+  engine-side consequences: (1) R1–R7 adoption (delete the hand-built two-node reduction,
+  `sized_from_device` for the broadphase→solver chain, region-per-island) is unblocked *now*, and
+  UHM0's vocabulary should land before or with it so adoption emits through `Execution` rather than
+  adding fresh direct call sites; (2) **a known breakage**: `RuntimeConfig`'s rebalancer default
+  flipped to off, and the engine's `tests/integration/test_runtime_graph_builder.cpp` asserts the
+  old default — that test inverts as part of adoption, exactly as the BB plan predicted.
 - **The runtime's WP-7 native-CPU path and the engine's NativeBackend do not merge.** They look
   similar and serve different masters: WP-7 keeps a *SushiRuntime binary* alive on a
   zero-SYCL-device desktop; the NativeBackend keeps the *engine* alive on platforms where
@@ -507,7 +517,7 @@ risk was vocabulary divergence *because* the shared design didn't exist; it now 
 
 | Code | Delivers | Slots |
 |---|---|---|
-| **UHM0** | **LANDED 2026-08-01 (partial — see below).** `execution/access.hpp` + `execution/interval.hpp` + `NodeDescriptor`, consumed by RUNTIME-PORT0's seam extraction. Exit: PORT0's own oracle (byte-identical logs, `compile_count==1`) — **met**, `sandbox` reports `compile_count=1 mismatches=0`, suite 1108/1108 — plus the §5 conformance test's RuntimeBackend half, which is deferred to UHM1. | with RUNTIME-PORT0 |
+| **UHM0** | **LANDED 2026-08-01 (partial — see below).** `engine/foundation/execution/include/SushiEngine/execution/access.hpp` + `engine/foundation/execution/include/SushiEngine/execution/interval.hpp` + `NodeDescriptor`, consumed by RUNTIME-PORT0's seam extraction. Exit: PORT0's own oracle (byte-identical logs, `compile_count==1`) — **met**, `sandbox` reports `compile_count=1 mismatches=0`, suite 1108/1108 — plus the §5 conformance test's RuntimeBackend half, which is deferred to UHM1. | with RUNTIME-PORT0 |
 | **UHM1** | shared hazard core (header template) + NativeBackend adoption. Exit: conformance test green on both implementations; §7.3 worker-count suite on the native side. | with RUNTIME-PORT1 |
 | **UHM2** | render vocabulary alignment (`AccessIntent` re-key of `resource_state`, `StageMask`). Exit: trace byte-identical under RHI0's `TraceCommandList`. | with RHI1 |
 | **UHM3** | `Handoff` T0/T1: registry + epochs + fence tokens; first zero-copy consumer (animation palettes — the BB-1a proof consumer) routed through it. Exit: capture shows no staging upload for the routed buffer; palette readback loop deleted. | after BB-1a lands runtime-side |
@@ -516,19 +526,27 @@ risk was vocabulary divergence *because* the shared design didn't exist; it now 
 
 #### UHM0 — what landed, and what did not (2026-08-01)
 
-Landed, in `include/SushiEngine/execution/`: `access.hpp` (`AccessIntent` with its three
-projections, `DeterminismClass`), `interval.hpp` (`ResourceId`, `BufferInterval` with the
-`WHOLE` sentinel, `TextureInterval`, the `ResourceInterval` sum type), `node_descriptor.hpp`
-(`ResourceAccess`, `NodeKind`, the non-allocating `Provider` and `NodeDescriptor`),
-`hazard.hpp` (the normative semantic, `accesses_conflict`, `classify_hazard`,
-`nodes_conflict`, `determinism_permits`), `memory.hpp`, `run_report.hpp`, `context.hpp` (the
-compile-time backend selection), and `backend/runtime_backend.hpp` (the member-wise
-SushiRuntime adapter). `ecs/{chunk,archetype,world,schedule}.hpp` name only these types;
-`loop/app.hpp` owns the context. `tests/functional/unit/test_hazard_semantics.cpp` pins the
-semantic. The naming follows `CONTRIBUTING.md` §4 rather than this document's original
-sketch — `Execution`/`NodeDescriptor`, not `Exec`/`NodeDesc`, since neither abbreviation is
-an acronym; the name is adjacent to but never ambiguous with `SushiRuntime::Execution`,
-because no translation unit in the engine carries a `using namespace SushiRuntime`.
+Landed, in `include/SushiEngine/execution/`:
+`engine/foundation/execution/include/SushiEngine/execution/access.hpp` (`AccessIntent` with its
+three projections, `DeterminismClass`),
+`engine/foundation/execution/include/SushiEngine/execution/interval.hpp` (`ResourceId`,
+`BufferInterval` with the `WHOLE` sentinel, `TextureInterval`, the `ResourceInterval` sum type),
+`engine/foundation/execution/include/SushiEngine/execution/node_descriptor.hpp` (`ResourceAccess`,
+`NodeKind`, the non-allocating `Provider` and `NodeDescriptor`),
+`engine/foundation/execution/include/SushiEngine/execution/hazard.hpp` (the normative semantic,
+`accesses_conflict`, `classify_hazard`, `nodes_conflict`, `determinism_permits`),
+`engine/foundation/execution/include/SushiEngine/execution/memory.hpp`,
+`engine/foundation/execution/include/SushiEngine/execution/run_report.hpp`,
+`engine/foundation/execution/include/SushiEngine/execution/context.hpp` (the compile-time backend
+selection), and
+`engine/foundation/execution/include/SushiEngine/execution/backend/runtime_backend.hpp` (the
+member-wise SushiRuntime adapter). `ecs/{chunk,archetype,world,schedule}.hpp` name only these types;
+`engine/world/loop/include/SushiEngine/loop/app.hpp` owns the context.
+`tests/unit/test_hazard_semantics.cpp` pins the semantic. The naming follows `docs/CONTRIBUTING.md`
+§4 rather than this document's original sketch — `Execution`/`NodeDescriptor`, not
+`Exec`/`NodeDesc`, since neither abbreviation is an acronym; the name is adjacent to but never
+ambiguous with `SushiRuntime::Execution`, because no translation unit in the engine carries a
+`using namespace SushiRuntime`.
 
 Two deviations from §4 worth recording. `ResourceId` is `void*`, not `const void*`, so the
 lowering to `Core::ResourceRegion` stays a member-wise copy with no cast in the adapter.
@@ -543,9 +561,9 @@ later the same day with the standalone-solver retarget, which gave it three real
 
 #### The physics retarget (§4.5's stress test), 2026-08-01
 
-`physics/solver/runtime_graph_builder.hpp` — the deepest coupling site in the engine, and the
-one §4.5 was written against — **names no runtime type at all** now. Each construct landed as
-that table assigns it, with two corrections worth recording:
+`engine/domain/physics/include/SushiEngine/physics/solver/runtime_graph_builder.hpp` — the deepest
+coupling site in the engine, and the one §4.5 was written against — **names no runtime type at all**
+now. Each construct landed as that table assigns it, with two corrections worth recording:
 
 | §4.5's construct | What it became |
 |---|---|
@@ -560,33 +578,39 @@ because migrating work mid-run costs the jitter a fixed-rate tick cannot absorb.
 `Context::set_work_migration(bool)` — a throughput/reproducibility trade any backend with a work
 pool eventually has to expose, and one a backend that never migrates satisfies by doing nothing.
 
-`sim/physics_simulation.hpp` and `create_physics_simulation` moved with it.
+`engine/world/simulation/include/SushiEngine/simulation/physics_simulation.hpp` and
+`create_physics_simulation` moved with it.
 
 #### The rest of PORT0's surface, same day
 
-The standalone solvers and the batch animation evaluator followed, which is what actually
-collapses the blast radius: `physics/solver/pgs_solver.hpp`, `physics/solver/xpbd_solver.hpp`,
-`physics/scene/physics_world.hpp`, and `animation/device_batch_evaluator.hpp`. These used a
-*different* runtime shape from the graph builder — the capture-list `add(Extent, In(buffer),
-InOut(buffer), …)` overload with `sycl::id<1>` kernel signatures — so each node became an
-explicit access declaration over raw pointers, the same form the ECS and the graph builder use.
-Four `sycl::id<1>` signatures became `std::size_t`, exactly as cross-platform plan §4.4
+The standalone solvers and the batch animation evaluator followed, which is what actually collapses
+the blast radius: `engine/domain/physics/include/SushiEngine/physics/solver/pgs_solver.hpp`,
+`engine/domain/physics/include/SushiEngine/physics/solver/xpbd_solver.hpp`,
+`engine/domain/physics/include/SushiEngine/physics/scene/physics_world.hpp`, and
+`engine/domain/animation/include/SushiEngine/animation/device_batch_evaluator.hpp`. These used a
+*different* runtime shape from the graph builder — the capture-list
+`add(Extent, In(buffer), InOut(buffer), …)` overload with `sycl::id<1>` kernel signatures — so each
+node became an explicit access declaration over raw pointers, the same form the ECS and the graph
+builder use. Four `sycl::id<1>` signatures became `std::size_t`, exactly as cross-platform plan §4.4
 predicted.
 
 That removed the last `sycl::` call in a kernel body outside the audio accelerator, so the
-`Math::{sqrt, fmod, floor}` shim §4.4 asks for landed in `core/types.hpp` with the three real
-consumers it was waiting for (`pgs_solver`'s distance projection, the evaluator's clip-time
-wrap and frame interpolation) rather than as speculative machinery.
+`Math::{sqrt, fmod, floor}` shim §4.4 asks for landed in
+`engine/foundation/core/include/SushiEngine/core/types.hpp` with the three real consumers it was
+waiting for (`pgs_solver`'s distance projection, the evaluator's clip-time wrap and frame
+interpolation) rather than as speculative machinery.
 
-**Blast radius, measured 2026-08-01:** files naming SushiRuntime in code outside tests and
-examples went from 38 under `include/` to **three**, all structural and none a porting task:
-`execution/backend/runtime_backend.hpp` (the adapter, by definition), `loop/app.hpp` (the
-composition root, which constructs the runtime and hands out the context), and
-`audio/accelerator_sycl.hpp` (already correctly isolated behind `IDspAccelerator`, and
-deliberately backend-specific — it is the *optional* GPU DSP path, not a portable one). Plus
-`sim/runtime_simulation.cpp`, which owns the runtime for the same reason `loop/app.hpp` does.
-That discharges RUNTIME-PORT0's stated exit, and with it the standing project guidance that
-SushiRuntime call sites be kept thin and isolated.
+**Blast radius, measured 2026-08-01:** files naming SushiRuntime in code outside tests and examples
+went from 38 under `include/` to **three**, all structural and none a porting task:
+`engine/foundation/execution/include/SushiEngine/execution/backend/runtime_backend.hpp` (the
+adapter, by definition), `engine/world/loop/include/SushiEngine/loop/app.hpp` (the composition root,
+which constructs the runtime and hands out the context), and
+`engine/domain/audio/include/SushiEngine/audio/accelerator_sycl.hpp` (already correctly isolated
+behind `IDspAccelerator`, and deliberately backend-specific — it is the *optional* GPU DSP path, not
+a portable one). Plus `engine/world/simulation/source/runtime_simulation.cpp`, which owns the
+runtime for the same reason `engine/world/loop/include/SushiEngine/loop/app.hpp` does. That
+discharges RUNTIME-PORT0's stated exit, and with it the standing project guidance that SushiRuntime
+call sites be kept thin and isolated.
 
 A late-bound provider's storage model changed as part of this, and the reason generalizes: the
 physics builder passes provider lambdas as *temporaries*, one per (kind, colour, substep), so a

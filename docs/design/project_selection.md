@@ -10,45 +10,50 @@ preferences JSON file on disk. This document adds `File ▸ New Project...`/`Fil
 reusing machinery that is already cross-platform and already built: the preferences store's config
 directory, and the unsaved-changes guard every scene replacement already goes through.
 
-Companion doc: `editor_feature_sync_gaps.md` — the audit convention this document's §1 follows.
+Companion doc: `docs/design/editor_feature_sync_gaps.md` — the audit convention this document's §1
+follows.
 
 ---
 
 ## §1 Audit — what exists today, and where it stops
 
-- **`project_root` is set once and never again.** `main.cpp:338-346` resolves it from
-  `context.preferences.last_project_root` or, when that is empty, `default_projects_root()`
-  (`main.cpp:101-121`) — and nothing else in `applications/editor/` ever assigns
+- **`project_root` is set once and never again.** `applications/editor/source/main.cpp` resolves it
+  from `context.preferences.last_project_root` or, when that is empty, `default_projects_root()`
+  (`applications/editor/source/main.cpp`) — and nothing else in `applications/editor/` ever assigns
   `context.project_root`.
 - **The default resolution is already cross-platform.** `default_projects_root()`
-  (`main.cpp:104-115`) reads `USERPROFILE` on Windows and `HOME` elsewhere, landing on
-  `<home>/sushiengine/project`.
-- **Persistence is already cross-platform and already built.** `Preferences::last_project_root`
-  and `::recent_scenes`
-  (`engine/world/authoring/include/SushiEngine/authoring/preferences.hpp:58-136`) round-trip
-  through `IPreferencesStore::save`/`::load` (`preferences.hpp:158-171`) to a config
-  directory that is already `%APPDATA%/SushiEngine` on Windows and `$XDG_CONFIG_HOME` (or
-  `~/.config/SushiEngine`) elsewhere (`preferences.hpp:174-177`). `context.preferences_dirty`
-  (`editor_context.hpp:562`) is the established "persist this at the next frame boundary" flag —
-  `main.cpp:1249-1254` is the one place that reads it and calls `save()`; every panel that changes
-  a `Preferences` field sets it rather than saving directly (e.g. `scene_commands.cpp:509`,
-  `editor_panels.cpp:118,499`).
+  (`applications/editor/source/main.cpp`) reads `USERPROFILE` on Windows and `HOME` elsewhere,
+  landing on `<home>/sushiengine/project`.
+- **Persistence is already cross-platform and already built.** `Preferences::last_project_root` and
+  `::recent_scenes` (`engine/world/authoring/include/SushiEngine/authoring/preferences.hpp:58-136`)
+  round-trip through `IPreferencesStore::save`/`::load`
+  (`engine/world/authoring/include/SushiEngine/authoring/preferences.hpp`) to a config directory
+  that is already `%APPDATA%/SushiEngine` on Windows and `$XDG_CONFIG_HOME` (or
+  `~/.config/SushiEngine`) elsewhere
+  (`engine/world/authoring/include/SushiEngine/authoring/preferences.hpp`).
+  `context.preferences_dirty` (`applications/editor/source/core/editor_context.hpp`) is the
+  established "persist this at the next frame boundary" flag — `applications/editor/source/main.cpp`
+  is the one place that reads it and calls `save()`; every panel that changes a `Preferences` field
+  sets it rather than saving directly (e.g. `applications/editor/source/scene/scene_commands.cpp`,
+  `applications/editor/source/ui/editor_panels.cpp`).
 - **No folder or file picker exists anywhere in the editor.** Neither a native OS dialog nor a
   custom one — `grep` for dialog/picker/chooser vocabulary across `applications/editor/` matches
   nothing.
 - **The unsaved-changes guard this reuses.** `EditorContext::PendingSceneAction`
-  (`editor_context.hpp:326-333`) parks a scene-replacing action when `scene_is_dirty(context)`
-  (`:672`) is true; `request_new_scene`/`request_open_scene` (`scene_commands.cpp:619-634`) raise
-  it, `perform_pending_scene_action` (`:599-617`) resolves it once the unsaved-changes prompt
-  clears the way, and `new_scene`/`open_scene` (`:551-596`) are the actions themselves.
+  (`applications/editor/source/core/editor_context.hpp:326-333`) parks a scene-replacing action when
+  `scene_is_dirty(context)` (`:672`) is true; `request_new_scene`/`request_open_scene`
+  (`applications/editor/source/scene/scene_commands.cpp`) raise it, `perform_pending_scene_action`
+  (`:599-617`) resolves it once the unsaved-changes prompt clears the way, and
+  `new_scene`/`open_scene` (`:551-596`) are the actions themselves.
 - **A project-scoped path that would go stale on a silent switch.** `cook_bake_state`'s
   `cooking_profile.json` location is set from `project_root` only at startup
-  (`main.cpp:360-361`); nothing re-points it if `project_root` changes later. `EditorContext`
-  already holds the pointer this needs (`editor_context.hpp:264`, `Authoring::CookBakeState*
-  cook_bake_state`).
-- **Where the menu item belongs.** `File` (`editor_panels.cpp:96-148`) already opens with
-  `New Scene`/`Open Scene...`/`Open Recent`, in that order, each item routed through the same
-  guard this document extends.
+  (`applications/editor/source/main.cpp`); nothing re-points it if `project_root` changes later.
+  `EditorContext` already holds the pointer this needs
+  (`applications/editor/source/core/editor_context.hpp:264`,
+  `Authoring::CookBakeState* cook_bake_state`).
+- **Where the menu item belongs.** `File` (`applications/editor/source/ui/editor_panels.cpp`)
+  already opens with `New Scene`/`Open Scene...`/`Open Recent`, in that order, each item routed
+  through the same guard this document extends.
 - **No test coverage exists for `applications/editor/` at all.** Confirmed by grep and by
   `tests/CMakeLists.txt` naming no editor source — not a gap this feature introduces, one it
   inherits; see §8.
@@ -87,8 +92,8 @@ std::string pending_project_switch_path;
 
 ## §4 File menu
 
-Two items open the picker, inserted above `New Scene` in `editor_panels.cpp:96-148` as their own
-separated group:
+Two items open the picker, inserted above `New Scene` in
+`applications/editor/source/ui/editor_panels.cpp` as their own separated group:
 
 - **New Project...** — `project_picker_mode = New`; `project_picker_directory` starts at
   `default_projects_root()`'s parent.
@@ -109,9 +114,9 @@ Confirming either calls `request_switch_project(context, chosen_path)` (§6) and
 
 ## §6 Switching
 
-Mirrors `request_new_scene`/`request_open_scene` (`scene_commands.cpp:619-634`) exactly — a
-project switch discards the current scene the same way a new/opened one does, so it goes through
-the identical guard:
+Mirrors `request_new_scene`/`request_open_scene`
+(`applications/editor/source/scene/scene_commands.cpp`) exactly — a project switch discards the
+current scene the same way a new/opened one does, so it goes through the identical guard:
 
 ```cpp
 void request_switch_project(EditorContext& context, const std::string& new_root)
@@ -153,10 +158,10 @@ void switch_project(EditorContext& context, const std::string& new_root)
 
 ## §7 Persistence
 
-No new mechanism. `context.preferences_dirty = true` (§6) is the same flag every other
-`Preferences` field change already raises (§1); the existing once-per-frame flush
-(`main.cpp:1249-1254`) writes `last_project_root` through `IPreferencesStore::save` exactly as it
-already does for every other preference.
+No new mechanism. `context.preferences_dirty = true` (§6) is the same flag every other `Preferences`
+field change already raises (§1); the existing once-per-frame flush
+(`applications/editor/source/main.cpp`) writes `last_project_root` through `IPreferencesStore::save`
+exactly as it already does for every other preference.
 
 ## §8 Testing
 
@@ -173,17 +178,17 @@ P0 — this document's entire scope (§3-§7) — **complete**, built via
 `docs/superpowers/plans/2026-08-05-project-selection.md`, four tasks plus a final-review fix
 wave, all task-scoped and reviewed.
 
-The final whole-branch review found and closed five real gaps §3-§7's illustrative code left
-open: `switch_project` did not validate `new_root` as an existing directory before persisting it
-into `preferences.last_project_root` (a rejected/deleted target would have reinstated exactly the
+The final whole-branch review found and closed five real gaps §3-§7's illustrative code left open:
+`switch_project` did not validate `new_root` as an existing directory before persisting it into
+`preferences.last_project_root` (a rejected/deleted target would have reinstated exactly the
 "hand-edit the preferences file" failure mode this document exists to remove), did not reset
-`CookBakeState`'s cooking-profile settings before loading the new project's own (so a fidelity
-dial and per-asset overrides could silently carry across a switch), and the picker's directory
-listing used the throwing `directory_iterator` increment and left a `create_directories` failure
-unreported. `project_picker.cpp`'s modal also called `ImGui::EndPopup()` on the path where
-`BeginPopupModal` already returns false and closes it internally — reachable by the modal's own
-close button, and a real contract violation, not a hypothetical one. All five are fixed on the
-shipped branch; `switch_project` validates before mutating any state and resets the profile set,
-and the picker uses the non-throwing iterator form throughout. Navigation in the shipped picker is
-single-click, not the double-click §5 describes — the one interaction detail that changed during
+`CookBakeState`'s cooking-profile settings before loading the new project's own (so a fidelity dial
+and per-asset overrides could silently carry across a switch), and the picker's directory listing
+used the throwing `directory_iterator` increment and left a `create_directories` failure unreported.
+`applications/editor/source/project/project_picker.cpp`'s modal also called `ImGui::EndPopup()` on
+the path where `BeginPopupModal` already returns false and closes it internally — reachable by the
+modal's own close button, and a real contract violation, not a hypothetical one. All five are fixed
+on the shipped branch; `switch_project` validates before mutating any state and resets the profile
+set, and the picker uses the non-throwing iterator form throughout. Navigation in the shipped picker
+is single-click, not the double-click §5 describes — the one interaction detail that changed during
 implementation.

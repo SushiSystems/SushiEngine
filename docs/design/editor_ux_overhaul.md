@@ -14,9 +14,9 @@ supersedes that file's two "Deferred" sections (§2.4 here carries every item fo
 a verdict), while its "Fixed this pass" log remains historical record.
 
 The audit behind this plan was a line-level sweep of `editor/` (four independent passes:
-window/layout inventory, settings/domain coupling, dead-control detection with
-consumer-side verification, and architecture/data-flow), cross-checked against the
-serializers, `render/frame/quality.cpp`, and the engine headers. Every claim below
+window/layout inventory, settings/domain coupling, dead-control detection with consumer-side
+verification, and architecture/data-flow), cross-checked against the serializers,
+`engine/presentation/render/source/frame/quality.cpp`, and the engine headers. Every claim below
 carries a `file:line` reference into the tree as of branch `atmosphere/phase-b1`.
 
 Three decisions were taken up front with the project owner:
@@ -38,15 +38,15 @@ Three decisions were taken up front with the project owner:
 
 | # | Finding | Where | Severity |
 |---|---|---|---|
-| 1 | **Undo, Save Scene, and Play→Stop silently destroy every light, decal, and material** — `capture_scene`/`apply_scene` never serialize them, and all three paths round-trip through that serializer | `editor/serialization/scene_serializer.cpp:620-800`, `editor/core/command_history.cpp:47,73,86`, `editor/ui/editor_panels.cpp:5289-5299` | Critical — data loss |
-| 2 | **Rendering "Quality" rebuilds the meteorology simulation** — the Ultra branch writes the atmosphere nest grid (256×256×64 @ 1.5 km), the renderer detects the size change and destroys the running weather via `vkDeviceWaitIdle` | `render/frame/quality.cpp:259`, `render/rhi/vulkan/vulkan_scene_view.cpp:456-458`, `render/material/asset_library.cpp:186-196` | Critical — the reported SOLID violation, mechanism confirmed |
-| 3 | **13 of 22 panels have no dock slot and no default position** — they open floating at ImGui's cascade origin; `Environment` (default-open, ~1000 lines of controls) lands on top of the fresh layout on first run | `editor/ui/editor_panels.cpp:6586-6614` | High — the reported window-pile symptom |
-| 4 | **Panel open/closed state is not persisted, layout has no reset, and `imgui.ini` is CWD-relative** — layout silently varies by launch directory, and 12 default-closed panels cost a menu click every launch | `editor/core/editor_context.hpp:66-98`, no `io.IniFilename` assignment anywhere | High |
-| 5 | **The scene file's environment block is written but never read** — `open_scene` loads it, then immediately overwrites it with `preferences.environment`; the ~35 authored meteorology constants survive **neither** the scene path nor the preferences path | `editor_panels.cpp:717-720`, `core/preferences.cpp:433-486` | High — authored work evaporates |
+| 1 | **Undo, Save Scene, and Play→Stop silently destroy every light, decal, and material** — `capture_scene`/`apply_scene` never serialize them, and all three paths round-trip through that serializer | `engine/world/serialization/source/scene_serializer.cpp`, `engine/world/authoring/source/command_history.cpp`, `applications/editor/source/ui/editor_panels.cpp` | Critical — data loss |
+| 2 | **Rendering "Quality" rebuilds the meteorology simulation** — the Ultra branch writes the atmosphere nest grid (256×256×64 @ 1.5 km), the renderer detects the size change and destroys the running weather via `vkDeviceWaitIdle` | `engine/presentation/render/source/frame/quality.cpp`, `engine/presentation/render/source/rhi/vulkan/vulkan_scene_view.cpp`, `engine/presentation/render/source/material/asset_library.cpp` | Critical — the reported SOLID violation, mechanism confirmed |
+| 3 | **13 of 22 panels have no dock slot and no default position** — they open floating at ImGui's cascade origin; `Environment` (default-open, ~1000 lines of controls) lands on top of the fresh layout on first run | `applications/editor/source/ui/editor_panels.cpp` | High — the reported window-pile symptom |
+| 4 | **Panel open/closed state is not persisted, layout has no reset, and `imgui.ini` is CWD-relative** — layout silently varies by launch directory, and 12 default-closed panels cost a menu click every launch | `applications/editor/source/core/editor_context.hpp`, no `io.IniFilename` assignment anywhere | High |
+| 5 | **The scene file's environment block is written but never read** — `open_scene` loads it, then immediately overwrites it with `preferences.environment`; the ~35 authored meteorology constants survive **neither** the scene path nor the preferences path | `applications/editor/source/ui/editor_panels.cpp`, `engine/world/authoring/source/preferences.cpp` | High — authored work evaporates |
 | 6 | **Hard-dead controls ship in the UI**: the Upscaler combo (FSR/DLSS/XeSS) is never read by the renderer, Autosave has no implementation, GPU-culling Freeze/Statistics have zero consumers, the Physics Timings section is permanently unreachable | §1.4 | High — trust |
-| 7 | **Two whole panels are structurally disconnected**: Audio Authoring is not in the build and has no caller; Animator Graph authors a controller that no entity, scene, or preview ever consumes | `editor/CMakeLists.txt:56-76`, `animation/animator_graph_panel.cpp:87-91` | High |
+| 7 | **Two whole panels are structurally disconnected**: Audio Authoring is not in the build and has no caller; Animator Graph authors a controller that no entity, scene, or preview ever consumes | `applications/editor/CMakeLists.txt`, `applications/editor/source/animation/animator_graph_panel.cpp` | High |
 | 8 | **Duplicated settings with divergent ranges**: sun edited in two panels, shadows edited in two panels with different legal ranges for the same field, exposure in two panels, time-of-day in three places | §1.3 | Medium |
-| 9 | **`editor_panels.cpp` is a 6,616-line monolith**; ~3,400 lines extract cleanly along seams the codebase already uses (`animation/`, `audio/`, `physics/` directories exist) | §1.5 | Medium — velocity |
+| 9 | **`applications/editor/source/ui/editor_panels.cpp` is a 6,616-line monolith**; ~3,400 lines extract cleanly along seams the codebase already uses (`animation/`, `audio/`, `physics/` directories exist) | §1.5 | Medium — velocity |
 | 10 | **Interaction parity gaps vs Unity**: no Duplicate (Ctrl+D), no Delete key, no drag-drop outside the Hierarchy, no Open Scene menu item, no Recent Scenes, console has no severity/filter, Inspector is single-object only | §1.5 | Medium |
 
 ---
@@ -56,11 +56,11 @@ Three decisions were taken up front with the project owner:
 ### 1.1 Window inventory and layout
 
 **The inventory.** 22 dockable panels tracked by `PanelVisibility`
-(`editor/core/editor_context.hpp:66-98`), plus `Preferences` and `Input Manager` on
-loose bools (`editor_context.hpp:389-390`), the ImGui demo (`:408`), the dock host, and
-the status bar — **27 possible top-level ImGui windows**. The struct's doc comment
-("Defaults to everything visible on a fresh layout", `editor_context.hpp:64`) is false:
-10 of 22 default open, 12 closed.
+(`applications/editor/source/core/editor_context.hpp`), plus `Preferences` and `Input Manager` on
+loose bools (`applications/editor/source/core/editor_context.hpp`), the ImGui demo (`:408`), the
+dock host, and the status bar — **27 possible top-level ImGui windows**. The struct's doc comment
+("Defaults to everything visible on a fresh layout",
+`applications/editor/source/core/editor_context.hpp`) is false: 10 of 22 default open, 12 closed.
 
 | Domain | Windows (default state) |
 |---|---|
@@ -75,20 +75,20 @@ the status bar — **27 possible top-level ImGui windows**. The struct's doc com
 
 **The layout facts:**
 
-- A dockspace exists (`main.cpp:110-137`, docking enabled at `imgui_backend.cpp:76`;
-  multi-viewport tear-out is **not** enabled). `build_default_layout`
-  (`editor_panels.cpp:6586-6614`) runs once when no ini node exists and docks **only 9
-  windows**: Toolbar (top), Scene+Game (center tabs), Hierarchy (left),
-  Inspector+Statistics (right tabs), Project+Text Editor+Console (bottom tabs).
+- A dockspace exists (`applications/editor/source/main.cpp:110-137`, docking enabled at
+  `applications/editor/source/ui/imgui_backend.cpp`; multi-viewport tear-out is **not** enabled).
+  `build_default_layout` (`applications/editor/source/ui/editor_panels.cpp`) runs once when no ini
+  node exists and docks **only 9 windows**: Toolbar (top), Scene+Game (center tabs), Hierarchy
+  (left), Inspector+Statistics (right tabs), Project+Text Editor+Console (bottom tabs).
 - The other **13 panels have no dock slot, no `SetNextWindowPos`, no size hint** (the
   only `SetNextWindowSize(FirstUseEver)` calls in the tree are Preferences `:6345` and
   Input Manager `:6480`). They open floating at the default cascade origin, overlapping
   the Scene view — this is the "windows without a parent, stacked" symptom.
-- **`Environment` is default-open but undocked** (`editor_context.hpp:80`): the very
-  first frame of a fresh install shows a ~1000-line floating settings window on top of
-  the new layout.
+- **`Environment` is default-open but undocked**
+  (`applications/editor/source/core/editor_context.hpp`): the very first frame of a fresh install
+  shows a ~1000-line floating settings window on top of the new layout.
 - **`Preview` is a 3D viewport that floats** at ImGui's tiny auto-size
-  (`main.cpp:796-810`) — worst case for a render-target panel.
+  (`applications/editor/source/main.cpp`) — worst case for a render-target panel.
 - **`Console` is tab-hidden behind `Project`** by default, so log output is invisible
   on a fresh layout. If a user drags the 13 floating panels into the bottom node it
   reaches 16 tabs; no tab-bar fitting policy is configured anywhere — this is the
@@ -96,62 +96,69 @@ the status bar — **27 possible top-level ImGui windows**. The struct's doc com
 - **`io.IniFilename` is never set** — the layout file is CWD-relative (`.gitignore:6`
   confirms it lands in the repo root). Launching from another directory silently loads
   a different layout. Preferences, by contrast, are correctly path-locked
-  (`preferences.cpp:695` → `user_config_dir()/preferences.json`).
+  (`engine/world/authoring/source/preferences.cpp` → `user_config_dir()/preferences.json`).
 - **No reset-layout feature, no explicit save/load.** A wedged layout has no in-app
   recovery.
 - **Panel visibility is not persisted** (no `PanelVisibility` field in
-  `preferences.cpp`) while dock geometry *is* (ImGui ini) — asymmetric: the editor
-  remembers *where* Lighting was docked but forgets *that it was open*.
-- **First-frame sizing bug**: `draw_dockspace()` runs before the menu bar and status
-  bar exist (`main.cpp:442` vs `:466-467`), so the first-run layout bakes a node size
-  too tall by both bars' heights into the persisted ini.
-- **Two independent fullscreen state machines fight over the `Game` window**:
-  `ViewportPanel` members (`viewport_panel.cpp:392-413`) vs function-local statics in
-  `draw_no_camera_game_view` (`game_view_toolbar.hpp:109-132`). Toggling fullscreen
-  while camera availability flips across `main.cpp:761` can restore the wrong dock id.
-- **The Window menu is one flat 22-item list** (`editor_panels.cpp:850-877`), ungrouped
-  and unordered (`Preview` sits between `Physics` and `Project`). Closing `Toolbar`
+  `engine/world/authoring/source/preferences.cpp`) while dock geometry *is* (ImGui ini) —
+  asymmetric: the editor remembers *where* Lighting was docked but forgets *that it was open*.
+- **First-frame sizing bug**: `draw_dockspace()` runs before the menu bar and status bar exist
+  (`applications/editor/source/main.cpp`), so the first-run layout bakes a node size too tall by
+  both bars' heights into the persisted ini.
+- **Two independent fullscreen state machines fight over the `Game` window**: `ViewportPanel`
+  members (`applications/editor/source/ui/viewport_panel.cpp`) vs function-local statics in
+  `draw_no_camera_game_view` (`applications/editor/source/ui/game_view_toolbar.hpp`). Toggling
+  fullscreen while camera availability flips across `applications/editor/source/main.cpp` can
+  restore the wrong dock id.
+- **The Window menu is one flat 22-item list** (`applications/editor/source/ui/editor_panels.cpp`),
+  ungrouped and unordered (`Preview` sits between `Physics` and `Project`). Closing `Toolbar`
   removes all mouse access to Play/Pause/Step — which have no keyboard bindings
-  (`editor/input/editor_contexts.hpp:58-81`).
+  (`applications/editor/source/input/editor_contexts.hpp`).
 
 ### 1.2 The quality tier crosses domains — the "Ultra" mechanism
 
-The single `RenderQuality` enum (`include/SushiEngine/render/render_settings.hpp:50`)
-feeds `resolve_quality()` (`render/frame/quality.cpp:62-279`), whose Ultra branch
-writes, in one gesture: shadow resolution/taps, light and decal budgets, GTAO
-slices/steps, cloud march steps, VRS coarseness, material lobes, probe GI, bloom/DoF/
-motion blur, meshlets, GPU particles — **and the meteorology nest grid**:
+The single `RenderQuality` enum
+(`engine/presentation/render/include/SushiEngine/render/render_settings.hpp:50`) feeds
+`resolve_quality()` (`engine/presentation/render/source/frame/quality.cpp`), whose Ultra branch
+writes, in one gesture: shadow resolution/taps, light and decal budgets, GTAO slices/steps, cloud
+march steps, VRS coarseness, material lobes, probe GI, bloom/DoF/ motion blur, meshlets, GPU
+particles — **and the meteorology nest grid**:
 
-- `quality.cpp:259` sets `params.atmosphere_nest = {256, 256, 64, 1500 m, 18 km}`
-  (High is 192×192×48 @ 2 km, `quality.cpp:181`).
-- `vulkan_scene_view.cpp:456-458` stages the resolved size each frame;
-  `asset_library.cpp:186-196` compares it to the live nest and, on mismatch, calls
-  `vkDeviceWaitIdle`, **destroys the nest, and rebuilds it — losing all running
-  weather** (conceded at `quality_params.hpp:326-328`).
+- `engine/presentation/render/source/frame/quality.cpp` sets
+  `params.atmosphere_nest = {256, 256, 64, 1500 m, 18 km}` (High is 192×192×48 @ 2 km,
+  `engine/presentation/render/source/frame/quality.cpp`).
+- `engine/presentation/render/source/rhi/vulkan/vulkan_scene_view.cpp` stages the resolved size each
+  frame; `engine/presentation/render/source/material/asset_library.cpp` compares it to the live nest
+  and, on mismatch, calls `vkDeviceWaitIdle`, **destroys the nest, and rebuilds it — losing all
+  running weather** (conceded at
+  `engine/presentation/render/include/SushiEngine/render/quality_params.hpp`).
 - The physics is not tier-invariant: cell size crosses the 2 km convection-resolving
   threshold between tiers, and `docs/design/atmosphere_system.md:476-484` records that
   the same configuration leaves High with 5.8 % cloudy columns and the other tiers
   between 0 and 0.1 %. **A rendering dropdown changes the meteorological result.**
-- The combo itself (`editor_panels.cpp:2598-2601`) carries no tooltip and no warning;
-  the weather-restart warning lives in a different panel (`:3029-3036`).
+- The combo itself (`applications/editor/source/ui/editor_panels.cpp`) carries no tooltip and no
+  warning; the weather-restart warning lives in a different panel (`:3029-3036`).
 
 Aggravating findings around the same seam:
 
 - **Dead tier outputs**: `params.max_particles`, `particle_sim_substeps`
-  (`quality.cpp:254-255`) and the entire animation budget block
+  (`engine/presentation/render/source/frame/quality.cpp`) and the entire animation budget block
   (`max_skinned_instances`, `bone_lod_bias`, `animation_influences`,
-  `quality.cpp:264-266`) have **zero consumers** — `batch_evaluator.hpp:51` claims
-  the resolver fills them; nothing reads them.
-- **Contradictory documented contracts**: `weather_provider.hpp:566-578` says the QG
-  global grid is *deliberately not* tier-resolved; `quasigeostrophic_core.hpp:104-108`
-  says it *is* chosen by the tier. One of the two is wrong today.
-- **A raw-enum leak**: `ray_traced_shadow_pass.cpp:138` branches on
-  `settings.quality == RenderQuality::Ultra` directly, violating the resolver contract
-  stated at `quality_params.hpp:32-34`.
+  `engine/presentation/render/source/frame/quality.cpp`) have **zero consumers** —
+  `engine/domain/animation/include/SushiEngine/animation/batch_evaluator.hpp` claims the resolver
+  fills them; nothing reads them.
+- **Contradictory documented contracts**:
+  `engine/world/simulation/include/SushiEngine/simulation/weather_provider.hpp` says the QG global
+  grid is *deliberately not* tier-resolved;
+  `engine/domain/atmosphere/include/SushiEngine/atmosphere/quasigeostrophic_core.hpp` says it *is*
+  chosen by the tier. One of the two is wrong today.
+- **A raw-enum leak**: `engine/presentation/render/source/passes/ray_traced_shadow_pass.cpp`
+  branches on `settings.quality == RenderQuality::Ultra` directly, violating the resolver contract
+  stated at `engine/presentation/render/include/SushiEngine/render/quality_params.hpp:32-34`.
 - **A latent multi-view hazard**: `RenderSettings` is per-viewport by design
-  (`viewport_panel.hpp:211-217`) but the nest is device-global and "last view wins"
-  (`asset_library.hpp:124-131`) — if two views ever diverge in tier, they rebuild the
-  nest (with a device stall) every frame.
+  (`applications/editor/source/ui/viewport_panel.hpp`) but the nest is device-global and "last view
+  wins" (`engine/presentation/render/source/material/asset_library.hpp`) — if two views ever diverge
+  in tier, they rebuild the nest (with a device stall) every frame.
 - **No test pins any of this** — `grep resolve_quality tests/` is empty.
 
 The structural root: **there is no simulation-side settings container at all.** The
@@ -175,39 +182,42 @@ lives as loose doubles on `EditorContext`.
 
 **Persistence, who actually wins:**
 
-- `Environment` exists in three copies: the world's live copy, `Preferences::environment`,
-  and the `.sushiscene` block. **Preferences wins absolutely**: `open_scene`
-  (`editor_panels.cpp:711-720`) applies the scene's environment via `load_scene`
-  (`scene_serializer.cpp:1122`) and then immediately overwrites it with
-  `context.preferences.environment`. Every scene-authored environment value is written
-  to disk on save and discarded on load.
-- Meanwhile `environment_to_json` (`preferences.cpp:433-486`) persists only
-  `sun, atmosphere, clouds, surface, stars, night, ambient, exposure, ibl` — **no fog,
-  no fog volumes, no GI, no atmosphere nest, no observer**. Net effect: fog, fog
-  volumes, GI, and all ~35 nest physics constants survive **neither** path — lost on
-  restart *and* on scene reload. `atmosphere_nest.hpp:33-35` documents the exact
-  opposite ("serialized with the scene, and editable").
+- `Environment` exists in three copies: the world's live copy, `Preferences::environment`, and the
+  `.sushiscene` block. **Preferences wins absolutely**: `open_scene`
+  (`applications/editor/source/ui/editor_panels.cpp`) applies the scene's environment via
+  `load_scene` (`engine/world/serialization/source/scene_serializer.cpp`) and then immediately
+  overwrites it with `context.preferences.environment`. Every scene-authored environment value is
+  written to disk on save and discarded on load.
+- Meanwhile `environment_to_json` (`engine/world/authoring/source/preferences.cpp`) persists only
+  `sun, atmosphere, clouds, surface, stars, night, ambient, exposure, ibl` — **no fog, no fog
+  volumes, no GI, no atmosphere nest, no observer**. Net effect: fog, fog volumes, GI, and all ~35
+  nest physics constants survive **neither** path — lost on restart *and* on scene reload.
+  `engine/domain/environment/include/SushiEngine/environment/atmosphere_nest.hpp` documents the
+  exact opposite ("serialized with the scene, and editable").
 - The Environment panel's own comment (`:4987-4990`, "they persist through the
   preferences store") is therefore false for the fields users most tune.
 - One button mutates environment state *without* updating the preferences mirror —
   Meteorology's "Switch the nest on" (`:3213-3218`) — so it is silently reverted on
   the next scene open. Every other environment write updates the mirror
   (`:3851`, `:4987`).
-- **Lifetime hazard**: `Environment` carries borrowed pointers
-  (`AtmosphereForcing::samples`, `WeatherField`), and both panels copy the whole live
-  struct into long-lived `Preferences::environment` — which is re-installed into the
-  world at startup (`main.cpp:275`) and on every scene open (`:720`), carrying a stale
-  non-null pointer that `AtmosphereForcing::valid()` (`atmosphere_nest.hpp:1179`)
-  cannot distinguish from a live one.
-- Weather→render implicit writes: the sim writes `Environment::weather.fog_density_bias`
-  / `ground_wetness` (`weather_world_coupling.hpp:97,113`), consumed by
-  `volumetric_fog_pass.cpp:286-297` and `pbr.frag` — and `volumetric_fog_pass.cpp:296`
-  gates the result on the render tier, so **the Low tier suppresses fog the simulation
-  says is there**.
+- **Lifetime hazard**: `Environment` carries borrowed pointers (`AtmosphereForcing::samples`,
+  `WeatherField`), and both panels copy the whole live struct into long-lived
+  `Preferences::environment` — which is re-installed into the world at startup
+  (`applications/editor/source/main.cpp`) and on every scene open (`:720`), carrying a stale
+  non-null pointer that `AtmosphereForcing::valid()`
+  (`engine/domain/environment/include/SushiEngine/environment/atmosphere_nest.hpp`) cannot
+  distinguish from a live one.
+- Weather→render implicit writes: the sim writes `Environment::weather.fog_density_bias` /
+  `ground_wetness`
+  (`engine/world/simulation/include/SushiEngine/simulation/weather_world_coupling.hpp:97,113`),
+  consumed by `engine/presentation/render/source/passes/volumetric_fog_pass.cpp` and
+  `engine/presentation/render/shaders/pbr.frag` — and
+  `engine/presentation/render/source/passes/volumetric_fog_pass.cpp` gates the result on the render
+  tier, so **the Low tier suppresses fog the simulation says is there**.
 
 **Wrong-panel ownership:** the entire regional-nest physics (~35 meteorological
 constants: surface energy balance, boundary layer, microphysics, ice, dynamics —
-`editor_panels.cpp:4559-4890`) lives in the **Environment** panel, while the
+`applications/editor/source/ui/editor_panels.cpp`) lives in the **Environment** panel, while the
 **Meteorology** panel (`:2976-3581`) authors nothing — it is read-only diagnostics
 plus three buttons that mutate other panels' state plus a CSV writer
 (`std::ofstream` inside a UI draw function, `:3510-3578`). The nest's *grid
@@ -215,113 +225,117 @@ resolution* meanwhile lives in the **Rendering** panel, as the tier.
 
 ### 1.4 Controls that do not tell the truth
 
-Verification method: for every bound variable, the consuming side was grepped across
-`sim/`, `render/`, `include/SushiEngine/`, and the shader tree; serializer coverage was
-checked in both `preferences.cpp` and `scene_serializer.cpp`. Only zero-consumer /
-provably-omitted findings are listed.
+Verification method: for every bound variable, the consuming side was grepped across `sim/`,
+`render/`, `include/SushiEngine/`, and the shader tree; serializer coverage was checked in both
+`engine/world/authoring/source/preferences.cpp` and
+`engine/world/serialization/source/scene_serializer.cpp`. Only zero-consumer / provably-omitted
+findings are listed.
 
 **Hard-dead (zero consumers):**
 
 | Control | Site | Evidence |
 |---|---|---|
-| "Autosave" checkbox | Preferences, `editor_panels.cpp:6369` | `preferences.autosave` written, serialized (`preferences.cpp:633,664`), read by nothing — no timer, no save call keyed to it |
-| "Upscaler" combo (None / Temporal / FSR 3.1 / DLSS / XeSS) | Rendering ▸ Frame Delivery, `:2856` | `settings.upscale` has no renderer-side reader; the upscale path is decided solely by `anti_aliasing` (`frame_context.hpp:374`, `taa_pass.cpp:79,100`). Selecting None does not disable upscaling; FSR/DLSS/XeSS change nothing. The "Runs:" label (`:2861-2869`) is self-referential — `upscaler_availability()`/`resolve_upscale_mode()` (`upscaler.cpp:31,69`) have no callers outside these editor lines |
-| "Freeze frustum (debug)" | GPU Culling, `:3751` | `cull.freeze` never uploaded — `cull_pass.cpp:271-273` packs only frustum/occlusion/min-diameter |
+| "Autosave" checkbox | Preferences, `applications/editor/source/ui/editor_panels.cpp` | `preferences.autosave` written, serialized (`engine/world/authoring/source/preferences.cpp`), read by nothing — no timer, no save call keyed to it |
+| "Upscaler" combo (None / Temporal / FSR 3.1 / DLSS / XeSS) | Rendering ▸ Frame Delivery, `:2856` | `settings.upscale` has no renderer-side reader; the upscale path is decided solely by `anti_aliasing` (`engine/presentation/render/source/frame/frame_context.hpp:374`, `engine/presentation/render/source/passes/taa_pass.cpp`). Selecting None does not disable upscaling; FSR/DLSS/XeSS change nothing. The "Runs:" label (`:2861-2869`) is self-referential — `upscaler_availability()`/`resolve_upscale_mode()` (`engine/presentation/render/source/frame/upscaler.cpp:31,69`) have no callers outside these editor lines |
+| "Freeze frustum (debug)" | GPU Culling, `:3751` | `cull.freeze` never uploaded — `engine/presentation/render/source/passes/cull_pass.cpp` packs only frustum/occlusion/min-diameter |
 | "Show statistics" | GPU Culling, `:3752` | `cull.show_statistics` unconsumed; its help text points at a "Profiler HUD" **that does not exist as any window** — the timings actually surface in Statistics (`:6086-6088`) |
-| "Receive Shadows" / "GPU Instancing" | Material Inspector (`material_inspector.cpp`) | Carried from `editor_feature_sync_gaps.md`: no pass reads `Material::receive_shadows` / `gpu_instancing` |
+| "Receive Shadows" / "GPU Instancing" | Material Inspector (`applications/editor/source/ui/material_inspector.cpp`) | Carried from `docs/design/editor_feature_sync_gaps.md`: no pass reads `Material::receive_shadows` / `gpu_instancing` |
 
 **Structurally disconnected:**
 
-- **Audio Authoring panel** (`audio/audio_authoring_panel.cpp:112`): not in
-  `editor/CMakeLists.txt:56-76`, no caller, no `PanelVisibility` flag, no menu entry.
+- **Audio Authoring panel** (`applications/editor/source/audio/audio_authoring_panel.cpp`): not in
+  `applications/editor/CMakeLists.txt`, no caller, no `PanelVisibility` flag, no menu entry.
   Dead on two independent counts.
-- **Animator Graph panel** (`animator_graph_panel.cpp:881`): authors a
-  `ControllerDesc` in a file-static singleton (`:87-91`) that no entity component, no
-  scene serializer, and not even the live `AnimatedMeshPreview` ever consumes (the
-  preview compiles its own controller internally, `animated_mesh_preview.cpp:214`).
-  Its only egress is a `controller.json` Save/Load that nothing reads back. The panel
-  gives no indication the graph drives nothing.
-- **Physics ▸ Timings** (`physics_statistics_panel.cpp:107-125`): gated on
-  `PhysicsConfiguration::profiling`, which **nothing ever sets** —
-  `create_simulation()` takes no arguments (`main.cpp:239`). "Profiling off" shows
-  forever, with no control anywhere to turn it on.
-- **Animator preview** (`animator_preview_panel.cpp:222`): the only `load_gltf` call
-  is hard-coded to `examples/assets/rigged_arm_anim.gltf` (`main.cpp:269`); the
-  Project browser routes `.gltf` double-clicks to an **external app**
-  (`editor_panels.cpp:5127-5134`). If the hard-coded asset is missing the panel is
-  permanently stuck on "No character loaded".
+- **Animator Graph panel** (`applications/editor/source/animation/animator_graph_panel.cpp`):
+  authors a `ControllerDesc` in a file-static singleton (`:87-91`) that no entity component, no
+  scene serializer, and not even the live `AnimatedMeshPreview` ever consumes (the preview compiles
+  its own controller internally, `applications/editor/source/animation/animated_mesh_preview.cpp`).
+  Its only egress is a `controller.json` Save/Load that nothing reads back. The panel gives no
+  indication the graph drives nothing.
+- **Physics ▸ Timings** (`applications/editor/source/physics/physics_statistics_panel.cpp`): gated
+  on `PhysicsConfiguration::profiling`, which **nothing ever sets** — `create_simulation()` takes no
+  arguments (`applications/editor/source/main.cpp`). "Profiling off" shows forever, with no control
+  anywhere to turn it on.
+- **Animator preview** (`applications/editor/source/animation/animator_preview_panel.cpp`): the only
+  `load_gltf` call is hard-coded to `assets/models/rigged_arm_anim.gltf`
+  (`applications/editor/source/main.cpp`); the Project browser routes `.gltf` double-clicks to an
+  **external app** (`applications/editor/source/ui/editor_panels.cpp`). If the hard-coded asset is
+  missing the panel is permanently stuck on "No character loaded".
 - "Show in Explorer" / open-with-default are silent no-ops off Windows
-  (`editor_panels.cpp:170-192`, bare `(void)path` on the `#else` branch).
+  (`applications/editor/source/ui/editor_panels.cpp`, bare `(void)path` on the `#else` branch).
 
 **Serialization asymmetries (beyond §1.3):**
 
-- `recent_scenes` round-trips through preferences (`preferences.cpp:636,665`) but
-  nothing ever appends to it and there is no Open Recent menu — writes an empty array
-  forever. There is **no File ▸ Open Scene item at all**; opening a scene requires
-  double-clicking it in Project.
+- `recent_scenes` round-trips through preferences (`engine/world/authoring/source/preferences.cpp`)
+  but nothing ever appends to it and there is no Open Recent menu — writes an empty array forever.
+  There is **no File ▸ Open Scene item at all**; opening a scene requires double-clicking it in
+  Project.
 - "Secondary Shadow Casters" (`:2682`) *is* consumed by the engine
-  (`quality.cpp:84,225`) but is the one shadow field omitted from the preferences
-  block (`preferences.cpp:96-111`) — the only Rendering slider that resets on restart.
+  (`engine/presentation/render/source/frame/quality.cpp`) but is the one shadow field omitted from
+  the preferences block (`engine/world/authoring/source/preferences.cpp`) — the only Rendering
+  slider that resets on restart.
 - `GameViewSettings` (aspect/orientation/fullscreen) has no serializer — resets every
   launch. Meteorology's log path/interval are function-statics — same.
 - Menu labels lie about bindings: "Ctrl+N" on New Entity (`:785`) is display-only
-  (`editor_contexts.hpp:58-63` binds no such chord), and Redo's "Ctrl+Y" text is
-  hardcoded, not derived from the actual binding.
+  (`applications/editor/source/input/editor_contexts.hpp` binds no such chord), and Redo's "Ctrl+Y"
+  text is hardcoded, not derived from the actual binding.
 
-**Stale documentation that misdescribes live behavior** (worth fixing in the same
-passes): `editor_context.hpp:64` (visibility defaults), `editor_context.hpp:113-115`
-(play state "not wired" — it is), `editor_panels.hpp:311-318` (central node "empty
-for a future viewport" — it holds Scene/Game), `game_view_settings.hpp:61-64`
-(fullscreen ≠ "Maximize on Play"), `editor_panels.cpp:3757` (nonexistent "Profiler
-HUD"), `editor_panels.cpp:4988-4989` (persistence claim), `atmosphere_nest.hpp:33-35`
-(scene-serialization claim), `batch_evaluator.hpp:51` (resolver fills budgets — it
-does not).
+**Stale documentation that misdescribes live behavior** (worth fixing in the same passes):
+`applications/editor/source/core/editor_context.hpp` (visibility defaults),
+`applications/editor/source/core/editor_context.hpp` (play state "not wired" — it is),
+`applications/editor/source/ui/editor_panels.hpp` (central node "empty for a future viewport" — it
+holds Scene/Game), `engine/world/authoring/include/SushiEngine/authoring/game_view_settings.hpp`
+(fullscreen ≠ "Maximize on Play"), `applications/editor/source/ui/editor_panels.cpp` (nonexistent
+"Profiler HUD"), `applications/editor/source/ui/editor_panels.cpp` (persistence claim),
+`engine/domain/environment/include/SushiEngine/environment/atmosphere_nest.hpp` (scene-serialization
+claim), `engine/domain/animation/include/SushiEngine/animation/batch_evaluator.hpp` (resolver fills
+budgets — it does not).
 
 ### 1.5 Architecture debt behind the UX
 
-- **`editor_panels.cpp` is 6,616 lines** holding 15 windows, the menu bar, modals,
-  scene commands, the VFX authoring UI, the input manager, and the layout builder.
-  The codebase already established the per-domain pattern (`animation/`, `audio/`,
-  `physics/` directories); the monolith simply predates it. Clean extraction seams
-  (line ranges in §3, phase UX4) take it to ~500 lines of genuine shell.
-- **Undo is whole-world JSON snapshots** (`command_history.hpp:40-49`, depth 50).
-  Coverage is good (~150 sites) but three big surfaces bypass it entirely: the whole
-  particle-system authoring UI (`:5747-6024`, `set_particle_effect_source` with no
-  record), the 1018-line Environment panel (`:4981-4983`), and the Lighting panel's
-  environment writes — and `draw_lighting_panel:3963-3967` calls `record()` **once
-  per frame of a slider drag**, flooding the 50-deep stack in under a second
-  (everywhere else correctly uses `begin_change`/`end_change`).
-- **`ViewportPanel::draw` takes 31 positional parameters** and never sees
-  `EditorContext` (`viewport_panel.hpp:184-208`) — the largest bypass of the shared
-  context; `main.cpp` hand-unpacks the context at three call sites.
+- **`applications/editor/source/ui/editor_panels.cpp` is 6,616 lines** holding 15 windows, the menu
+  bar, modals, scene commands, the VFX authoring UI, the input manager, and the layout builder. The
+  codebase already established the per-domain pattern (`animation/`, `audio/`, `physics/`
+  directories); the monolith simply predates it. Clean extraction seams (line ranges in §3, phase
+  UX4) take it to ~500 lines of genuine shell.
+- **Undo is whole-world JSON snapshots**
+  (`engine/world/authoring/include/SushiEngine/authoring/command_history.hpp`, depth 50). Coverage
+  is good (~150 sites) but three big surfaces bypass it entirely: the whole particle-system
+  authoring UI (`:5747-6024`, `set_particle_effect_source` with no record), the 1018-line
+  Environment panel (`:4981-4983`), and the Lighting panel's environment writes — and
+  `draw_lighting_panel:3963-3967` calls `record()` **once per frame of a slider drag**, flooding the
+  50-deep stack in under a second (everywhere else correctly uses `begin_change`/`end_change`).
+- **`ViewportPanel::draw` takes 31 positional parameters** and never sees `EditorContext`
+  (`applications/editor/source/ui/viewport_panel.hpp`) — the largest bypass of the shared context;
+  `applications/editor/source/main.cpp` hand-unpacks the context at three call sites.
 - **21 function-local statics hold real UI state** (rename buffers ×3, meteorology
   logger, weather-map controls, effect-library cache, rebind state, the two animation
   panels' entire authoring state) — process-global, non-reentrant, unpersistable.
 - **The clipboard silently guts entities**: `ClipboardEntity`
-  (`editor_context.hpp:147-173`) has no material, particle emitter, audio
+  (`applications/editor/source/core/editor_context.hpp`) has no material, particle emitter, audio
   emitter/listener/reverb-zone, reference frame, or surface anchor — all real
   components. Copy/paste of an audio source yields a silent shell.
-- **Duplicated helpers**: `world_of()` copied verbatim into `animation_panel.cpp:79`;
-  the sun-editor block duplicated across two panels; the inline-rename block written
-  three times with three static buffers; the `memcmp(&settings_before,…)` persistence
-  idiom pasted five times; the `begin_change`/`IsItemDeactivatedAfterEdit`/`end_change`
-  dance hand-written ~30 times while `vector3_field`/`scalar_field` (`:273`, `:294`)
-  already encapsulate it and are used only by Transform.
+- **Duplicated helpers**: `world_of()` copied verbatim into
+  `applications/editor/source/animation/animation_panel.cpp`; the sun-editor block duplicated across
+  two panels; the inline-rename block written three times with three static buffers; the
+  `memcmp(&settings_before,…)` persistence idiom pasted five times; the
+  `begin_change`/`IsItemDeactivatedAfterEdit`/`end_change` dance hand-written ~30 times while
+  `vector3_field`/`scalar_field` (`:273`, `:294`) already encapsulate it and are used only by
+  Transform.
 - **Widget inconsistency**: 117 `SliderFloat` vs 40 `DragFloat` with no rule for which
   quantity gets which; sun intensity is a slider in two panels while light intensity
   is a drag; the same distance field is formatted `"%.0f"` in one panel and
   `"%.0f m"` in the other; `TreeNode` / `CollapsingHeader` / `SeparatorText` are
   interchanged for section breaks within a single panel.
-- **Interaction parity vs Unity** — present and correct: multi-select in Hierarchy
-  (click/Ctrl/Shift with anchor semantics, works filtered), hierarchy drag-reparent
-  and reorder with insertion line, double-click-to-frame, per-field undo on nearly
-  every Inspector widget. Missing: multi-object Inspector editing (Inspector shows
-  `selected_entity` only, `:1507`; viewport cannot multi-select, `main.cpp:901-907`),
-  **Duplicate (Ctrl+D)**, Delete-key binding, every drag-drop except within Hierarchy
-  (no Project→Hierarchy, Project→Inspector texture slots — the decal texture is a
-  typed path string, Project→viewport), recursive Project search, console
-  severity/filter/collapse (raw `vector<string>` with Clear only, `:6036-6046`),
-  component context menus (Reset/Copy/Paste values), Lock Inspector, prefabs.
+- **Interaction parity vs Unity** — present and correct: multi-select in Hierarchy (click/Ctrl/Shift
+  with anchor semantics, works filtered), hierarchy drag-reparent and reorder with insertion line,
+  double-click-to-frame, per-field undo on nearly every Inspector widget. Missing: multi-object
+  Inspector editing (Inspector shows `selected_entity` only, `:1507`; viewport cannot multi-select,
+  `applications/editor/source/main.cpp`), **Duplicate (Ctrl+D)**, Delete-key binding, every
+  drag-drop except within Hierarchy (no Project→Hierarchy, Project→Inspector texture slots — the
+  decal texture is a typed path string, Project→viewport), recursive Project search, console
+  severity/filter/collapse (raw `vector<string>` with Clear only, `:6036-6046`), component context
+  menus (Reset/Copy/Paste values), Lock Inspector, prefabs.
 
 ---
 
@@ -394,9 +408,9 @@ floating):
 
 ### 2.3 Settings architecture — one owner per domain
 
-**The structs.** `RenderSettings` stays the render authority and *loses* its foreign
-cargo. A new `SushiEngine::Simulation` settings aggregate is introduced (working name
-`SimulationSettings`, `include/SushiEngine/sim/simulation_settings.hpp`):
+**The structs.** `RenderSettings` stays the render authority and *loses* its foreign cargo. A new
+`SushiEngine::Simulation` settings aggregate is introduced (working name `SimulationSettings`,
+`engine/world/simulation/include/SushiEngine/simulation/simulation_settings.hpp`):
 
 ```
 enum class AtmosphereQuality { Low, Medium, High, Ultra };   // sim-owned
@@ -417,16 +431,16 @@ struct SimulationSettings
 - `resolve_quality()` **stops emitting `atmosphere_nest`** and the dead
   particle/animation budgets. A sim-side
   `resolve_atmosphere_quality(AtmosphereQuality) → AtmosphereNestSize` takes over the
-  Low…Ultra grid table (`quality.cpp:171-259` rows move verbatim).
+  Low…Ultra grid table (`engine/presentation/render/source/frame/quality.cpp` rows move verbatim).
 - The resolved nest size travels to the renderer through `Environment` (which already
   carries `atmosphere_nest` parameters to `stage_atmosphere`) instead of through the
   per-view `QualityParams`. This *also* closes the latent multi-view hazard: the nest
   size becomes device-global state carried by device-global data, not per-view state
   that happens to agree.
-- The raw-enum leak in `ray_traced_shadow_pass.cpp:138` moves into a resolved
-  `QualityParams` field, restoring the "no pass branches on the raw enum" contract.
-- The contradictory QG-grid doc comments are reconciled (the grid stays deliberately
-  fixed; `quasigeostrophic_core.hpp:104-108` is corrected).
+- The raw-enum leak in `engine/presentation/render/source/passes/ray_traced_shadow_pass.cpp` moves
+  into a resolved `QualityParams` field, restoring the "no pass branches on the raw enum" contract.
+- The contradictory QG-grid doc comments are reconciled (the grid stays deliberately fixed;
+  `engine/domain/atmosphere/include/SushiEngine/atmosphere/quasigeostrophic_core.hpp` is corrected).
 
 **The preset.** The Toolbar (and the Rendering panel header) gets an **Overall
 Quality** combo: Low / Medium / High / Ultra / Custom. It is *derived, not stored*:
@@ -472,14 +486,14 @@ and re-installation nulls them explicitly.
 
 The standing rule going forward: **a control that does nothing is a bug, not a
 placeholder.** Disabled+tooltip is the only legitimate way to ship a not-yet-wired
-control. Verdicts on today's inventory (absorbing `editor_feature_sync_gaps.md`'s
+control. Verdicts on today's inventory (absorbing `docs/design/editor_feature_sync_gaps.md`'s
 deferred list):
 
 | Item | Verdict |
 |---|---|
 | Autosave checkbox | **Wire it** — a real timer keyed to `scene_is_dirty` + interval; it is a small, honest feature and the checkbox already round-trips |
-| Upscaler combo + "Runs:" label | **Remove the combo** (and `RenderSettings::upscale` with it) until a second upscale backend exists; the temporal path is already governed by Anti-Aliasing. Removal per the contract at `upscaler.cpp` — or, if the seam should stay visible, disable with "Built-in temporal only today" tooltip. Recommended: remove |
-| GPU Culling "Freeze frustum" | **Wire it** — upload the flag, latch the frustum in `cull_pass.cpp`; it is the single most useful culling debug tool and the struct doc already reserves it |
+| Upscaler combo + "Runs:" label | **Remove the combo** (and `RenderSettings::upscale` with it) until a second upscale backend exists; the temporal path is already governed by Anti-Aliasing. Removal per the contract at `engine/presentation/render/source/frame/upscaler.cpp` — or, if the seam should stay visible, disable with "Built-in temporal only today" tooltip. Recommended: remove |
+| GPU Culling "Freeze frustum" | **Wire it** — upload the flag, latch the frustum in `engine/presentation/render/source/passes/cull_pass.cpp`; it is the single most useful culling debug tool and the struct doc already reserves it |
 | GPU Culling "Show statistics" | **Remove the checkbox**, replace the dead text with the real numbers: a compact readback of cull counts into the panel (the Statistics-panel timing plumbing already exists) |
 | Physics ▸ Timings | **Wire it** — `PhysicsConfiguration::profiling` set true while the Physics panel is open (its own doc comment says exactly this); timings then flow |
 | Material "Receive Shadows" / "GPU Instancing" | **Remove both checkboxes** until the passes read the fields (engine work tracked separately); today they are pure false promises |
@@ -489,12 +503,12 @@ deferred list):
 | `recent_scenes` | **Wire it** — append on open/save, File ▸ Open Recent submenu; add the missing **File ▸ Open Scene…** while in there |
 | "Ctrl+N" label, "Ctrl+Y" label | Bind New *Scene* to Ctrl+N (relabel New Entity), derive menu shortcut text from the live bindings |
 | Off-Windows Explorer/open no-ops | Disable the menu items with a tooltip on non-Windows rather than silently doing nothing |
-| VFX SortMode / SimulationDomain / BeamModule; audio acoustic-geometry authoring | **Backlog** (unchanged from `editor_feature_sync_gaps.md`) — real authoring surfaces, out of UX-overhaul scope |
+| VFX SortMode / SimulationDomain / BeamModule; audio acoustic-geometry authoring | **Backlog** (unchanged from `docs/design/editor_feature_sync_gaps.md`) — real authoring surfaces, out of UX-overhaul scope |
 
 ### 2.5 Widget and interaction standards
 
-Codified in a new shared header (`editor/ui/panel_widgets.hpp`, phase UX4) and applied
-tree-wide:
+Codified in a new shared header (`applications/editor/source/ui/panel_widgets.hpp`, phase UX4) and
+applied tree-wide:
 
 - **Field helpers own undo**: `scalar_field`/`vector3_field` siblings for float,
   angle, color, combo, checkbox — every one wrapping the
@@ -534,16 +548,15 @@ manual checklist since ImGui panels have no automated harness.
 recorded in item 4.
 
 1. **Serialize lights, decals, and materials** in `capture_scene`/`apply_scene`
-   (`scene_serializer.cpp`) — the `IWorldEditor` API already exists
-   (`simulation.hpp:601,709,1027,1030,1098`). This single fix repairs Undo, Redo,
-   Save/Load, and Play→Stop simultaneously, because all four ride the same
+   (`engine/world/serialization/source/scene_serializer.cpp`) — the `IWorldEditor` API already
+   exists (`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`). This single fix
+   repairs Undo, Redo, Save/Load, and Play→Stop simultaneously, because all four ride the same
    serializer. Shipped with it, following the VFX live-handle precedent
-   (`effect_serializer.cpp:225-232`): texture **source paths** persisted on the
-   entity (`Simulation::MaterialTexturePaths`, `DecalParams::*_path`), with the
-   load-from-disk resolve pass (`resolve_scene_textures`) re-deriving every handle
-   from its path — kept beside the material, not inside it, because the extract
-   copies the material per instance per frame and nine strings do not belong on
-   that path.
+   (`engine/world/serialization/source/effect_serializer.cpp`): texture **source paths** persisted
+   on the entity (`Simulation::MaterialTexturePaths`, `DecalParams::*_path`), with the
+   load-from-disk resolve pass (`resolve_scene_textures`) re-deriving every handle from its path —
+   kept beside the material, not inside it, because the extract copies the material per instance per
+   frame and nine strings do not belong on that path.
 2. **Complete `ClipboardEntity`** (material + paths, particle emitter + effect,
    audio emitter/listener/reverb zone, reference frame, surface anchor) so
    copy/paste stops gutting entities.
@@ -556,7 +569,7 @@ recorded in item 4.
    edits now would commit snapshots that cannot restore the environment: a fake
    undo, worse than none. UX2's snapshot format change (environment riding the
    undo/play captures) is the honest place for it.
-5. **Tests** (`tests/functional/integration/test_scene_serializer_roundtrip.cpp`,
+5. **Tests** (`tests/integration/test_scene_serializer_roundtrip.cpp`,
    compiled against the editor's serializer TUs and the real simulation via
    `sushi_sim`): capture/apply equality for light + decal + material + paths,
    default-material file cleanliness, and undo/redo through `CommandHistory`.
@@ -567,16 +580,19 @@ restores the scene bit-identically; the round-trip test pins it. ✔
 
 ### UX1 — Layout overhaul  *(the visible transformation)*
 
-**Status: shipped (2026-07-29).** All nine items landed. Implementation notes:
-`PanelVisibility` moved to its own header (`editor/core/panel_visibility.hpp`) and the
-gizmo enums to `editor/gizmo/gizmo_state.hpp`, so `preferences.hpp` can persist both
-without inheriting ImGui; the two-modifier chord (Ctrl+Shift+P) needed a new
-`ButtonBuilder::bind(Key, Key, Key)` overload (`ChordGate` always supported two, the
-fluent API offered one — and the more specific chord must be tested first, since a
-chord requires its modifiers rather than excluding extras). "Audio Authoring" is
-docked into the bottom stack pre-emptively so UX3's wiring lands already homed.
-Persistence is pinned by `Unit_PreferencesRoundTrip` (3 cases, run standalone against
-the real store). The acceptance checklist below is visual and remains for the
+**Status: shipped (2026-07-29).** All nine items landed. Implementation notes: `PanelVisibility`
+moved to its own header
+(`engine/world/authoring/include/SushiEngine/authoring/panel_visibility.hpp`) and the gizmo enums to
+`engine/world/authoring/include/SushiEngine/authoring/gizmo_state.hpp`, so
+`engine/world/authoring/include/SushiEngine/authoring/preferences.hpp` can persist both without
+inheriting ImGui. **Both headers crossed a tier boundary, not just a folder:** they left the
+`application`-tier editor for the `world`-tier `authoring` module, which is what lets a
+non-editor target read them. The two-modifier chord (Ctrl+Shift+P) needed a new
+`ButtonBuilder::bind(Key, Key, Key)` overload (`ChordGate` always supported two, the fluent API
+offered one — and the more specific chord must be tested first, since a chord requires its modifiers
+rather than excluding extras). "Audio Authoring" is docked into the bottom stack pre-emptively so
+UX3's wiring lands already homed. Persistence is pinned by `Unit_PreferencesRoundTrip` (3 cases, run
+standalone against the real store). The acceptance checklist below is visual and remains for the
 project owner's editor pass.
 
 1. Rewrite `build_default_layout` to dock **all** windows per §2.1's map.
@@ -587,10 +603,11 @@ project owner's editor pass.
 5. Reorder the frame: menu bar and status bar before the dockspace (fixes the
    first-run node-size bake).
 6. Convert Toolbar to a fixed `BeginViewportSideBar` strip; bind Play/Pause to
-   Ctrl+P / Ctrl+Shift+P in `editor_contexts.hpp`.
+   Ctrl+P / Ctrl+Shift+P in `applications/editor/source/input/editor_contexts.hpp`.
 7. Regroup the Window menu into domain submenus; alphabetize within groups.
 8. Unify the Game fullscreen state machine into `ViewportPanel`.
-9. Fix stale comments: `editor_context.hpp:64`, `editor_panels.hpp:311-318`.
+9. Fix stale comments: `applications/editor/source/core/editor_context.hpp`,
+   `applications/editor/source/ui/editor_panels.hpp`.
 
 Acceptance (manual checklist): fresh start (deleted layout.ini + preferences) shows
 the §2.1 layout with nothing floating; every panel opened from the Window menu docks
@@ -602,12 +619,14 @@ open panels and layout regardless of launch directory.
 **Status: shipped (2026-07-29).** All eight items landed. Implementation notes and
 deviations from the letter of the plan:
 - The environment JSON shape was extracted into its own owner
-  (`editor/serialization/environment_serializer.{hpp,cpp}`), shared by the scene
-  file, the preferences' `default_environment` (legacy `environment` key still
-  read), and `capture_scene` — which now returns `{entities, environment}` (bare
-  arrays still accepted). The shape gained fog, fog volumes, GI, observer, and
-  `ocean_roughness`, which the "full round-trip" claim required and the old shape
-  silently lacked.
+  (`engine/world/serialization/include/SushiEngine/serialization/environment_serializer.hpp`,
+  `engine/world/serialization/source/environment_serializer.cpp`), shared by the scene file, the
+  preferences' `default_environment` (legacy `environment` key still read), and `capture_scene` —
+  which now returns `{entities, environment}` (bare arrays still accepted). The shape gained fog,
+  fog volumes, GI, observer, and `ocean_roughness`, which the "full round-trip" claim required and
+  the old shape silently lacked. **This owner crossed a tier boundary too:** it left the
+  `application`-tier editor for the `world`-tier `serialization` module, so the scene file and the
+  preferences share one writer rather than the editor owning the format.
 - The env-write undo bracketing is one shared `commit_environment_edit` /
   `finish_environment_edit` pair (edge-triggered like the particle panel's, since
   these panels detect changes by memcmp, not per widget), used by Environment,
@@ -616,13 +635,14 @@ deviations from the letter of the plan:
   pre-tonemap multiplier ("Scene Exposure") beside the EV chain and labels which
   is scene content — rather than leaving `Environment::exposure` authorable
   nowhere.
-- Item 2 resolved as "delete": the animation budgets went too
-  (`max_skinned_instances`, `bone_lod_bias`, `animation_influences` had no
-  consumer either); `quality_params.hpp` now states the every-field-has-a-consumer
-  rule.
+- Item 2 resolved as "delete": the animation budgets went too (`max_skinned_instances`,
+  `bone_lod_bias`, `animation_influences` had no consumer either);
+  `engine/presentation/render/include/SushiEngine/render/quality_params.hpp` now states the
+  every-field-has-a-consumer rule.
 - The QG grid is documented as deliberately fixed (`QuasiGeostrophicGridSize`),
   with the sidecar-match rationale; only the nest is tiered.
-- `MeteorologyLog` moved onto `EditorContext` (`core/meteorology_log.hpp`).
+- `MeteorologyLog` moved onto `EditorContext`
+  (`applications/editor/source/core/meteorology_log.hpp`).
 - Tests: `Unit_AtmosphereQuality` (table, 384 km invariant, High = baseline) and
   two new `Integration_SceneSerializer` cases (environment capture/apply,
   environment undo/redo) — all run standalone against the real runtime; the first
@@ -633,31 +653,32 @@ deviations from the letter of the plan:
 1. Introduce `SimulationSettings` / `AtmosphereQuality` /
    `resolve_atmosphere_quality()` (§2.3); move the nest-grid table out of
    `resolve_quality()`; route the resolved size through `Environment`.
-2. Delete the dead tier outputs (`max_particles`, `particle_sim_substeps`, animation
-   budgets) from `QualityParams` — or wire the animation budgets if the batch
-   evaluator grows a consumer in the same pass; recommended: delete, re-add with a
-   consumer. Fix `batch_evaluator.hpp:51`'s claim accordingly.
-3. Fix the raw-enum leak (`ray_traced_shadow_pass.cpp:138`) via a resolved param.
+2. Delete the dead tier outputs (`max_particles`, `particle_sim_substeps`, animation budgets) from
+   `QualityParams` — or wire the animation budgets if the batch evaluator grows a consumer in the
+   same pass; recommended: delete, re-add with a consumer. Fix
+   `engine/domain/animation/include/SushiEngine/animation/batch_evaluator.hpp`'s claim accordingly.
+3. Fix the raw-enum leak (`engine/presentation/render/source/passes/ray_traced_shadow_pass.cpp`) via
+   a resolved param.
 4. Overall Quality preset combo (derived, "Custom" on divergence) in the Toolbar;
    Render Quality combo stays in Rendering with a truthful tooltip; Atmosphere
    Quality combo lands in Meteorology **with the weather-restart warning at the
    control**.
-5. **Environment becomes scene-owned**: `open_scene` stops overwriting the loaded
-   environment; preferences keep a `default_environment` applied only to *new*
-   scenes; `preferences.cpp` serializes the full environment (fog, fog volumes, GI,
-   observer included) for that default; borrowed pointers stripped/nulled on both
-   paths. The Meteorology "Switch the nest on" mirror bug disappears with the
-   override. In the same pass, the undo/play-mode snapshots gain an `environment`
-   block beside the entity array, and the Environment/Lighting panels' environment
-   writes get their deferred-from-UX0 `begin_change`/`end_change` bracketing —
-   deferring both together is what makes environment undo real rather than a
-   snapshot that cannot restore what it claims to.
+5. **Environment becomes scene-owned**: `open_scene` stops overwriting the loaded environment;
+   preferences keep a `default_environment` applied only to *new* scenes;
+   `engine/world/authoring/source/preferences.cpp` serializes the full environment (fog, fog
+   volumes, GI, observer included) for that default; borrowed pointers stripped/nulled on both
+   paths. The Meteorology "Switch the nest on" mirror bug disappears with the override. In the same
+   pass, the undo/play-mode snapshots gain an `environment` block beside the entity array, and the
+   Environment/Lighting panels' environment writes get their deferred-from-UX0
+   `begin_change`/`end_change` bracketing — deferring both together is what makes environment undo
+   real rather than a snapshot that cannot restore what it claims to.
 6. Panel ownership moves per §2.3: nest physics → Meteorology; single sun block;
    single exposure owner; single shadow editor; shared "Tier resolves to" widget;
    Meteorology's CSV logger moves out of the draw function into a small
    `MeteorologyLog` service owned by `EditorContext`.
-7. Reconcile the QG-grid doc contradiction; fix `atmosphere_nest.hpp:33-35` and
-   `editor_panels.cpp:4988-4989`.
+7. Reconcile the QG-grid doc contradiction; fix
+   `engine/domain/environment/include/SushiEngine/environment/atmosphere_nest.hpp` and
+   `applications/editor/source/ui/editor_panels.cpp`.
 8. **Tests**: `resolve_quality()` output contains no atmosphere field (compile-time
    by struct change); `resolve_atmosphere_quality` grid table pinned per tier;
    environment scene round-trip including nest physics + fog + GI; preferences
@@ -670,42 +691,38 @@ authored environment survives close→reopen bit-identically.
 
 ### UX3 — Wire or remove  *(every control tells the truth)*
 
-**Status: shipped (2026-07-29).** The four items the first tranche left open landed
-in the second: **Freeze frustum** is wired end to end (`cull.comp` gained
-`frozen_view_proj`/`frozen_delta_eye` in `CullParams`, `CullPass` latches the
-camera-relative view-projection and the eye at the freeze and rebases each sphere
-onto the latched origin, so the frozen frustum stays pinned to the world; LOD gate
-and occlusion keep the live camera); **Show statistics** became real numbers (the
-dead checkbox and `GpuCullingSettings::show_statistics` are gone; the panel shows
-drawn/tested/%-culled from `ISceneView::cull_statistics`, which existed unused —
-plumbed through `ViewportPanel` and `EditorContext::scene_cull_drawn/tested`);
-the **Animator Graph drives the preview** (`AnimatedMeshPreview::apply_controller`
-compiles the authored `ControllerDesc` against the loaded character, restoring the
-known-good controller on failure; the panel states scene entities do not consume
-controllers yet); and the **preview loader** is wired (Animator panel Load
-Character field + Project-panel double-click routing for `.gltf/.glb` through
-`open_character_in_preview`). ⚠ The second tranche was **not** compile-verified
-locally at the user's direction ("derleme, devam et") — `se build` is the first
-compile of `cull_pass.{hpp,cpp}`, `cull.comp` (host `Params` and the GLSL
-`CullParams` block must mirror field-for-field, in order), the animator files, and
-the panel edits.
+**Status: shipped (2026-07-29).** The four items the first tranche left open landed in the second:
+**Freeze frustum** is wired end to end (`engine/presentation/render/shaders/cull.comp` gained
+`frozen_view_proj`/`frozen_delta_eye` in `CullParams`, `CullPass` latches the camera-relative
+view-projection and the eye at the freeze and rebases each sphere onto the latched origin, so the
+frozen frustum stays pinned to the world; LOD gate and occlusion keep the live camera); **Show
+statistics** became real numbers (the dead checkbox and `GpuCullingSettings::show_statistics` are
+gone; the panel shows drawn/tested/%-culled from `ISceneView::cull_statistics`, which existed unused
+— plumbed through `ViewportPanel` and `EditorContext::scene_cull_drawn/tested`); the **Animator
+Graph drives the preview** (`AnimatedMeshPreview::apply_controller` compiles the authored
+`ControllerDesc` against the loaded character, restoring the known-good controller on failure; the
+panel states scene entities do not consume controllers yet); and the **preview loader** is wired
+(Animator panel Load Character field + Project-panel double-click routing for `.gltf/.glb` through
+`open_character_in_preview`). ⚠ The second tranche was **not** compile-verified locally at the
+user's direction ("derleme, devam et") — `se build` is the first compile of `cull_pass.{hpp,cpp}`,
+`engine/presentation/render/shaders/cull.comp` (host `Params` and the GLSL `CullParams` block must
+mirror field-for-field, in order), the animator files, and the panel edits.
 
-**First tranche (earlier the same day):** Landed: Autosave (real timer + interval
-preference, `Unit_Autosave`), Upscaler combo + `RenderSettings::upscale` removed
-(the frame never read it; `IUpscaler` seam stays), Physics profiling wired
-(`ISimulation::set_physics_profiling` → `IPhysicsStepper::set_profiling_requested`
-→ `PhysicsConfiguration::profiling`, consumed at solver build; the panel says so),
-Material Receive-Shadows/GPU-Instancing checkboxes removed, Audio Authoring wired
-into build + PanelVisibility + Window ▸ Audio (which exposed and fixed a missing
-`audio_scene.hpp` include in `audio/bank.hpp`), `recent_scenes` + File ▸ Open
-Scene…/Open Recent, Ctrl+N → New Scene with menu shortcut hints derived from live
-bindings, off-Windows shell items disabled with a reason. Out of plan but landed
-with this tranche (user requests): Scene view fullscreen (Shift+Space through the
-shared `ViewportPanel` fullscreen machine) and the Scene-resize image-loss fix
-(descriptor sets freed before the idle wait + per-frame target rebuilds during a
-drag; now rebuild-then-release plus a ~100 ms debounce).
-**Remaining:** GPU-culling Freeze-frustum wire, Show-statistics → real cull
-counts, Animator Graph → preview connection, Animator preview loader.
+**First tranche (earlier the same day):** Landed: Autosave (real timer + interval preference,
+`Unit_Autosave`), Upscaler combo + `RenderSettings::upscale` removed (the frame never read it;
+`IUpscaler` seam stays), Physics profiling wired (`ISimulation::set_physics_profiling` →
+`IPhysicsStepper::set_profiling_requested` → `PhysicsConfiguration::profiling`, consumed at solver
+build; the panel says so), Material Receive-Shadows/GPU-Instancing checkboxes removed, Audio
+Authoring wired into build + PanelVisibility + Window ▸ Audio (which exposed and fixed a missing
+`engine/domain/audio/include/SushiEngine/audio/audio_scene.hpp` include in
+`engine/domain/audio/include/SushiEngine/audio/bank.hpp`), `recent_scenes` + File ▸ Open Scene…/Open
+Recent, Ctrl+N → New Scene with menu shortcut hints derived from live bindings, off-Windows shell
+items disabled with a reason. Out of plan but landed with this tranche (user requests): Scene view
+fullscreen (Shift+Space through the shared `ViewportPanel` fullscreen machine) and the Scene-resize
+image-loss fix (descriptor sets freed before the idle wait + per-frame target rebuilds during a
+drag; now rebuild-then-release plus a ~100 ms debounce). **Remaining:** GPU-culling Freeze-frustum
+wire, Show-statistics → real cull counts, Animator Graph → preview connection, Animator preview
+loader.
 
 Execute the §2.4 verdict table: wire Autosave, Freeze-frustum, Physics profiling,
 recent-scenes + File ▸ Open Scene/Open Recent, animator-preview loading, Ctrl+N
@@ -723,9 +740,9 @@ reason.
 ### UX4 — Monolith decomposition + widget library  *(velocity for everything after)*
 
 **Status: shipped (2026-07-30).** The fourteen units mapped below came out of
-`editor_panels.cpp`, which stands at **1,064 lines** today against the 7,157 it carried
-before the split — the one place this document states that count. Every
-step landed; deviations from the letter of the plan, and why:
+`applications/editor/source/ui/editor_panels.cpp`, which stands at **1,064 lines** today against the
+7,157 it carried before the split — the one place this document states that count. Every step
+landed; deviations from the letter of the plan, and why:
 
 - **The table below is superseded by what actually shipped** — the line ranges were
   measured against a 6,616-line file and UX1–UX3 had grown it to 7,157. Fourteen units
@@ -748,33 +765,32 @@ step landed; deviations from the letter of the plan, and why:
   `track_item_undo` encapsulates exactly that and the call sites keep spelling their
   own clamp. A field-per-type family would have been a wrapper per widget with a
   parameter for every difference — more code hiding less.
-- **The statics migration split by dependency direction.** The dependency-free scratch
-  went into one `PanelState` on `EditorContext` (`core/panel_state.hpp`); the two
-  animation panels' authoring documents did not, because their structs speak in
-  `Animation::` and ImGui types and putting them in core would have inverted the
-  dependency. Those moved to their own headers with `main` owning the instances, the
-  pattern already used for `EffectPreview`/`AnimatedMeshPreview`.
+- **The statics migration split by dependency direction.** The dependency-free scratch went into one
+  `PanelState` on `EditorContext` (`applications/editor/source/core/panel_state.hpp`); the two
+  animation panels' authoring documents did not, because their structs speak in `Animation::` and
+  ImGui types and putting them in core would have inverted the dependency. Those moved to their own
+  headers with `main` owning the instances, the pattern already used for
+  `EffectPreview`/`AnimatedMeshPreview`.
 - **The `ViewportFrameInputs` conversion found a real defect**: the Scene view's
   comment explaining when the previewed effect is drawn sat two positions above the
   argument it described (it annotated `skeleton_names`). Both are now named fields.
-- **Verification.** All 36 editor translation units compile with the project's real
-  flags (`-Wall -Wextra -Werror -pedantic`), and a symbol cross-check over the whole
-  object set reports **zero unresolved `SushiEngine::Editor` symbols** — which is what
-  actually validates a decomposition, since a mis-fenced anonymous namespace is a link
-  error and not a compile error. ⚠ The final `se_editor` **link was not run**: a
-  concurrent session has `include/SushiEngine/physics/solver/runtime_graph_builder.hpp`
-  mid-edit (a `joints_store_` member missing from its base), which stops `sushi_sim`
-  and therefore the editor's link. Nothing in that break is UX4's; the editor's own
-  compile is clean. No new tests: this phase changed no behavior, and the test suite
-  compiles only `serialization/`, `command_history` and `preferences`, none of which
-  moved.
+- **Verification.** All 36 editor translation units compile with the project's real flags
+  (`-Wall -Wextra -Werror -pedantic`), and a symbol cross-check over the whole object set reports
+  **zero unresolved `SushiEngine::Editor` symbols** — which is what actually validates a
+  decomposition, since a mis-fenced anonymous namespace is a link error and not a compile error. ⚠
+  The final `se_editor` **link was not run**: a concurrent session has
+  `engine/domain/physics/include/SushiEngine/physics/solver/runtime_graph_builder.hpp` mid-edit (a
+  `joints_store_` member missing from its base), which stops `sushi_sim` and therefore the editor's
+  link. Nothing in that break is UX4's; the editor's own compile is clean. No new tests: this phase
+  changed no behavior, and the test suite compiles only `serialization/`, `command_history` and
+  `preferences`, none of which moved.
 
 Extraction order (each is a pure move + include fix, no behavior change, verified by
 clean build):
 
 | Step | New file | Moves | LOC |
 |---|---|---|---|
-| 1 | `editor/atmosphere/meteorology_panel.{hpp,cpp}` | `editor_panels.cpp:2879-3581` | ~703 |
+| 1 | `editor/atmosphere/meteorology_panel.{hpp,cpp}` | `applications/editor/source/ui/editor_panels.cpp` | ~703 |
 | 2 | `editor/environment/weather_panel.{hpp,cpp}` | `:4184-4890` | ~707 |
 | 3 | `editor/vfx/particle_panel.{hpp,cpp}` | `:5378-6024` | ~647 |
 | 4 | `editor/render/render_settings_panels.{hpp,cpp}` | `:2577-2877`, `:3583-3777` | ~496 |
@@ -783,14 +799,14 @@ clean build):
 | 7 | `editor/scene/hierarchy_panel.{hpp,cpp}` + `editor/scene/inspector_panel.{hpp,cpp}` (one `draw_X_component` per component) | `:882-1259`, `:1488-2575` | ~1466 |
 | 8 | `editor/scripting/script_panel.{hpp,cpp}`, `editor/input/input_manager_window.{hpp,cpp}`, `editor/ui/modals.{hpp,cpp}` | `:1261-1477`, `:6403-6584`, `:6182-6338` | ~556 |
 
-Plus: `editor/ui/panel_widgets.{hpp,cpp}` (§2.5 helpers: undo-wrapping fields,
-shared sun editor, `push_if_changed` persistence helper replacing the five `memcmp`
-copies, the double↔float round-trip, shared rename widget replacing the three static
-buffers); `world_of()` promoted there and the `animation_panel.cpp` copy deleted;
-`ViewportPanel::draw`'s 31 parameters folded into a `ViewportFrameInputs` struct;
-the 21 state-bearing function statics migrated into `EditorContext`/panel state
-structs. End state: `editor_panels.cpp` ≈ 500 lines of shell (menu bar, toolbar,
-console, statistics, status bar, theme, layout).
+Plus: `editor/ui/panel_widgets.{hpp,cpp}` (§2.5 helpers: undo-wrapping fields, shared sun editor,
+`push_if_changed` persistence helper replacing the five `memcmp` copies, the double↔float
+round-trip, shared rename widget replacing the three static buffers); `world_of()` promoted there
+and the `applications/editor/source/animation/animation_panel.cpp` copy deleted;
+`ViewportPanel::draw`'s 31 parameters folded into a `ViewportFrameInputs` struct; the 21
+state-bearing function statics migrated into `EditorContext`/panel state structs. End state:
+`applications/editor/source/ui/editor_panels.cpp` ≈ 500 lines of shell (menu bar, toolbar, console,
+statistics, status bar, theme, layout).
 
 ### UX5 — Interaction parity  *(the Unity muscle-memory set)*
 
@@ -811,12 +827,12 @@ console, statistics, status bar, theme, layout).
 - **Live shortcut labels everywhere.** `menu_item_for_action` (in `panel_widgets`)
   replaced the menu bar's private lambdas, so the Hierarchy's context menus stopped
   advertising hard-coded chords.
-- **Structured Console** (`core/console.hpp`): severity, editor-uptime timestamp,
-  per-level toggles that double as counts, a text filter, and collapse of identical
-  consecutive runs — in the *view* only. The store keeps every line, so the toggle is
-  reversible and the repeat count reports what happened rather than what survived the
-  filter. The failure paths that mattered now log Error/Warning; a console where
-  everything is Info is a console nothing can be filtered out of.
+- **Structured Console** (`applications/editor/source/core/console.hpp`): severity, editor-uptime
+  timestamp, per-level toggles that double as counts, a text filter, and collapse of identical
+  consecutive runs — in the *view* only. The store keeps every line, so the toggle is reversible and
+  the repeat count reports what happened rather than what survived the filter. The failure paths
+  that mattered now log Error/Warning; a console where everything is Info is a console nothing can
+  be filtered out of.
 - **Recursive Project search** (capped at 400 results, with the path relative to the
   browsed folder on hover, since a truncated filename is ambiguous the moment two
   subfolders hold the same name) and **asset drag-and-drop** into the material texture
@@ -834,13 +850,13 @@ console, statistics, status bar, theme, layout).
   firmly than it rules out a missing feature. Unblocked by engine-side asset
   instantiation, not by editor work.
 
-- **Multi-object Inspector editing, for every common component** — §4's locked decision, in
-  full. `ui/component_editor.hpp` names a field by a *pointer-to-member*, and that is the
-  whole design: the same mechanism can then read the field from every selected entity to
-  decide whether they agree, and write an edit back to all of them, for any component,
-  without knowing which one it is. Each field method also absorbs what the call site used to
-  spell — the `Scalar`/float narrowing, the undo bracket, the unit format, the tooltip — so a
-  section now reads as a list of the component's fields rather than a list of ImGui calls.
+- **Multi-object Inspector editing, for every common component** — §4's locked decision, in full.
+  `applications/editor/source/ui/component_editor.hpp` names a field by a *pointer-to-member*, and
+  that is the whole design: the same mechanism can then read the field from every selected entity to
+  decide whether they agree, and write an edit back to all of them, for any component, without
+  knowing which one it is. Each field method also absorbs what the call site used to spell — the
+  `Scalar`/float narrowing, the undo bracket, the unit format, the tooltip — so a section now reads
+  as a list of the component's fields rather than a list of ImGui calls.
 
   The tempting shortcut was rejected on purpose: diffing the component's bytes before and
   after the widgets run would be exhaustive for free, and it is wrong. Nudging a float from
@@ -935,9 +951,9 @@ panels move once. UX5/UX6 last.
 
 | Unit | Holds |
 |---|---|
-| `ui/editor_panels.cpp` | Menu bar, toolbar strip (drawn icons), Console, Statistics, status bar, the theme's metric/accent pass, `build_default_layout` |
+| `applications/editor/source/ui/editor_panels.cpp` | Menu bar, toolbar strip (drawn icons), Console, Statistics, status bar, the theme's metric/accent pass, `build_default_layout` |
 | `ui/panel_widgets.{hpp,cpp}` | The shared vocabulary: `track_item_undo`, `push_if_changed`, `inline_rename_field`, `vector3_field`/`scalar_field`, `component_header`, `icon_button`, `shortcut_for_action`, `to_lower`, `world_of`, `to_float`/`to_scalar`, quaternion↔Euler, `commit_environment_edit`/`finish_environment_edit` |
-| `ui/component_editor.hpp` | `ComponentAccess`/`ComponentEditor`: pointer-to-member component fields that detect a mixed selection and fan an edit out to all of it, plus the value clipboard behind the header menus |
+| `applications/editor/source/ui/component_editor.hpp` | `ComponentAccess`/`ComponentEditor`: pointer-to-member component fields that detect a mixed selection and fan an edit out to all of it, plus the value clipboard behind the header menus |
 | `ui/modals.{hpp,cpp}` | Save-As, close-confirm, replace-scene-confirm |
 | `scene/scene_commands.{hpp,cpp}` | New/Open/Save, recent scenes, clipboard, the shared create/clipboard menu items, sky-state capture |
 | `scene/hierarchy_panel.{hpp,cpp}` | The Hierarchy tree, selection, drag-reparent, filter |
@@ -950,7 +966,7 @@ panels move once. UX5/UX6 last.
 | `project/project_panel.{hpp,cpp}` | Browser, Text Editor, document open/save, the shell hand-offs |
 | `vfx/particle_panel.{hpp,cpp}` | The Particle System component section |
 | `core/preferences_window.{hpp,cpp}` | The Preferences window |
-| `core/panel_state.hpp` | Every panel's between-frame scratch, on `EditorContext` |
+| `applications/editor/source/core/panel_state.hpp` | Every panel's between-frame scratch, on `EditorContext` |
 | `input/input_manager_window.{hpp,cpp}` | Bindings list, rebind flow, `input_binding_label` |
 
 ---
@@ -1022,27 +1038,28 @@ means. That is the check that matters for work of this shape, since a mis-fenced
 namespace or a header-only template that never gets instantiated is a link error rather than
 a compile error.
 
-The `se_editor` **link and run are still unverified**, for two reasons that are not this
-work's: the session was asked not to build, and a concurrent session has
-`include/SushiEngine/physics/solver/runtime_graph_builder.hpp` mid-edit, which breaks
-`sushi_sim` and with it the editor's link. `se build` with tests additionally fails on two of
-that session's physics tests (`test_contact_projection.cpp:51` unused `PI`,
-`test_convex_manifold.cpp:195` unused `crate` — the second looks like a test missing an
+The `se_editor` **link and run are still unverified**, for two reasons that are not this work's: the
+session was asked not to build, and a concurrent session has
+`engine/domain/physics/include/SushiEngine/physics/solver/runtime_graph_builder.hpp` mid-edit, which
+breaks `sushi_sim` and with it the editor's link. `se build` with tests additionally fails on two of
+that session's physics tests (`tests/unit/test_contact_projection.cpp` unused `PI`,
+`tests/unit/test_convex_manifold.cpp` unused `crate` — the second looks like a test missing an
 assertion, worth telling them). Run `se editor --no-run`, then `se editor`, once their tree
 compiles; that same run is the first-run check if you move the config directory aside first.
 
 **Test coverage, honestly.** The editor's test lane compiles only `serialization/*`,
-`core/command_history.cpp` and `core/preferences.cpp`, none of which this tranche touched, so
-the suite is unaffected and also does not cover any of it. Everything UX5 and UX6 added is
-ImGui-bound behaviour with no headless seam; the mechanism that *could* be tested without one
-is `ComponentEditor`'s mixed-detection and single-field fan-out, which is a pure function of
-an `IWorldEditor` and a pointer-to-member and would want a stub world to test against. That
-is the gap, and it is a real one.
+`engine/world/authoring/source/command_history.cpp` and
+`engine/world/authoring/source/preferences.cpp`, none of which this tranche touched, so the suite is
+unaffected and also does not cover any of it. Everything UX5 and UX6 added is ImGui-bound behaviour
+with no headless seam; the mechanism that *could* be tested without one is `ComponentEditor`'s
+mixed-detection and single-field fan-out, which is a pure function of an `IWorldEditor` and a
+pointer-to-member and would want a stub world to test against. That is the gap, and it is a real
+one.
 
 **Concurrent-session caution still applies.** They own `include/SushiEngine/physics/**`,
-`sim/runtime_simulation.cpp`, and the root/tests `CMakeLists.txt` entries for their joint
-work. This tranche touched only `editor/` plus `docs/{ARCHITECTURE,CHANGELOG}.md` and this
-file — never `git add -A`.
+`engine/world/simulation/source/runtime_simulation.cpp`, and the root/tests `CMakeLists.txt` entries
+for their joint work. This tranche touched only `editor/` plus `docs/{ARCHITECTURE,CHANGELOG}.md`
+and this file — never `git add -A`.
 
 ### 6.2 As of 2026-07-30 (end of the UX4 session)
 
@@ -1052,20 +1069,20 @@ items still open (multi-object Inspector editing, which is the locked §4 decisi
 the only remaining piece with real design weight, and the component-header context
 menus). **UX6** (visual polish) is untouched. The post-UX4 file map above is the layout to work
 against; anything UX5 adds to a panel goes in that panel's own unit, and anything two
-panels would both need goes in `ui/panel_widgets.hpp`.
+panels would both need goes in `applications/editor/source/ui/panel_widgets.hpp`.
 
-**Verification state.** The editor's 36 translation units compile clean with the
-project flags, and a whole-object-set symbol cross-check finds no unresolved
-`SushiEngine::Editor` symbol. The `se_editor` **link is unverified**: a concurrent
-session has `runtime_graph_builder.hpp` mid-edit, which breaks `sushi_sim` and with it
-the editor's link — and `se build` with tests additionally fails on two of that
-session's physics tests (`test_contact_projection.cpp:51` unused `PI`,
-`test_convex_manifold.cpp:195` unused `crate` — the second looks like a test missing
-an assertion, worth telling them). Neither break is this overhaul's; run `se editor
---no-run` once their tree compiles.
+**Verification state.** The editor's 36 translation units compile clean with the project flags, and
+a whole-object-set symbol cross-check finds no unresolved `SushiEngine::Editor` symbol. The
+`se_editor` **link is unverified**: a concurrent session has
+`engine/domain/physics/include/SushiEngine/physics/solver/runtime_graph_builder.hpp` mid-edit, which
+breaks `sushi_sim` and with it the editor's link — and `se build` with tests additionally fails on
+two of that session's physics tests (`tests/unit/test_contact_projection.cpp` unused `PI`,
+`tests/unit/test_convex_manifold.cpp` unused `crate` — the second looks like a test missing an
+assertion, worth telling them). Neither break is this overhaul's; run `se editor --no-run` once
+their tree compiles.
 
-**Concurrent-session caution still applies.** They own `include/SushiEngine/physics/**`
-and `sim/runtime_simulation.cpp` right now. UX4 touched only `editor/` plus
+**Concurrent-session caution still applies.** They own `include/SushiEngine/physics/**` and
+`engine/world/simulation/source/runtime_simulation.cpp` right now. UX4 touched only `editor/` plus
 `docs/{ARCHITECTURE,CHANGELOG}.md` and this file — never `git add -A`.
 
 ### 6.3 As of 2026-07-29 (end of the UX0–UX3 session)
@@ -1082,32 +1099,36 @@ Remaining phases at the time: UX4, UX5, UX6 — see §6.1 for what is left now.
   project flags and the runnable tests pass standalone: `Unit_PreferencesRoundTrip`
   (3), `Unit_AtmosphereQuality` (3), `Unit_Autosave` (3),
   `Integration_SceneSerializer` (5, against the real runtime).
-- UX3's *second* tranche (freeze-frustum: `cull_pass.{hpp,cpp}` + `cull.comp`;
-  cull counts: `viewport_panel.hpp`, GPU Culling panel; animator bridge:
-  `animated_mesh_preview.{hpp,cpp}`, `animator_graph_panel.cpp`,
-  `animator_preview_panel.cpp`; character loader in `editor_panels.cpp`) was **not
-  compile-verified locally** at the user's direction — `se build` is its first
-  compile. The editor-side TUs of that tranche *did* pass `-fsyntax-only`; the
-  render-side pair and the shader did not get checked (no local Vulkan-SDK include
-  path / GLSL validator). `CullPass::Params` and `cull.comp`'s `CullParams` block
-  must stay mirrored field-for-field, in order.
+- UX3's *second* tranche (freeze-frustum: `cull_pass.{hpp,cpp}` +
+  `engine/presentation/render/shaders/cull.comp`; cull counts:
+  `applications/editor/source/ui/viewport_panel.hpp`, GPU Culling panel; animator bridge:
+  `animated_mesh_preview.{hpp,cpp}`,
+  `applications/editor/source/animation/animator_graph_panel.cpp`,
+  `applications/editor/source/animation/animator_preview_panel.cpp`; character loader in
+  `applications/editor/source/ui/editor_panels.cpp`) was **not compile-verified locally** at the
+  user's direction — `se build` is its first compile. The editor-side TUs of that tranche *did* pass
+  `-fsyntax-only`; the render-side pair and the shader did not get checked (no local Vulkan-SDK
+  include path / GLSL validator). `CullPass::Params` and
+  `engine/presentation/render/shaders/cull.comp`'s `CullParams` block must stay mirrored
+  field-for-field, in order.
 - Syntax-check trap: `clang … | head; echo $?` reports *head's* exit code — use
-  `${PIPESTATUS[0]}`. `editor/main.cpp` additionally needs
+  `${PIPESTATUS[0]}`. `applications/editor/source/main.cpp` additionally needs
   `-IC:/Projects/sushiengine/input`.
 
-**Concurrent-session caution.** A parallel session works in this same tree on the
-physics/atmosphere phases. Shared files this overhaul also touched:
-`sim/runtime_simulation.cpp`, `include/SushiEngine/sim/{simulation.hpp,
-physics_services.hpp, physics_simulation.hpp}`,
-`include/SushiEngine/atmosphere/quasigeostrophic_core.hpp`, `tests/CMakeLists.txt`,
-`docs/CHANGELOG.md`. That session independently added the same
-`profiling_requested_` member to `physics_simulation.hpp` (deduplicated; theirs
-kept). Expect its in-flight work in any commit touching those files.
+**Concurrent-session caution.** A parallel session works in this same tree on the physics/atmosphere
+phases. Shared files this overhaul also touched:
+`engine/world/simulation/source/runtime_simulation.cpp`,
+`include/SushiEngine/sim/{simulation.hpp, physics_services.hpp, physics_simulation.hpp}`,
+`engine/domain/atmosphere/include/SushiEngine/atmosphere/quasigeostrophic_core.hpp`,
+`tests/CMakeLists.txt`, `docs/reference/changelog.md`. That session independently added the same
+`profiling_requested_` member to
+`engine/world/simulation/include/SushiEngine/simulation/physics_simulation.hpp` (deduplicated;
+theirs kept). Expect its in-flight work in any commit touching those files.
 
 **Small debts left deliberately.**
-- The standalone run of `Integration_SceneSerializer` currently needs an
-  `add_reduce` shim for `runtime_graph_builder.hpp` (recipe in the session memory
-  and in [[standalone-test-harness]]); the `se test` lane is unaffected.
+- The standalone run of `Integration_SceneSerializer` currently needs an `add_reduce` shim for
+  `engine/domain/physics/include/SushiEngine/physics/solver/runtime_graph_builder.hpp` (recipe in
+  the session memory and in [[standalone-test-harness]]); the `se test` lane is unaffected.
 - The Audio Authoring project is session-scoped (no project-file persistence yet);
   the panel is wired and docked.
 - `docs/architecture/roadmap.md` §1's editor bullet still describes the pre-live-World
