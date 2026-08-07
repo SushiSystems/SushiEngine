@@ -1,6 +1,7 @@
 # Physics System — unified XPBD, cooking, and deformable vehicles (`SushiEngine::Physics`)
 
-**Status:** in progress, P0 to P7 and PX complete, P8 under way, P9 not started (§16). P1, P2, P6
+**Status:** in progress, P0 to P7 and PX complete, P8 under way, P9 begun — its kinematic bodies
+landed 2026-08-07 (P9-A, §16.46) and its other four items are not started (§16). P1, P2, P6
 and P7's §13.1 acceptance numbers are built but unmeasured: every one of them is timed against a
 desktop GPU, and SushiRuntime finds none on the machine this is developed on (§16.35).
 
@@ -1679,7 +1680,7 @@ place progress is recorded.
 | **P7** | **Vehicles.** `NodeBeamAsset` and its cooker, beam plasticity and breakage, the hybrid rigid-core structure, suspension joints, the powertrain chain (§11.4), the tyre model (§11.5), wind coupling (§11.6), the vehicle editor. | **A drivable vehicle that deforms permanently on impact and loses parts**, at the §13.1 target, deterministic under replay. | **Complete.** The beam exists as a constraint kind and its numbers come from a material (P7-A, P7-B, P7-A2 — see §16.22): the descriptor with its deform and break thresholds, the axial projection and its load recovery, the rate-based damping pass, tick-boundary plasticity, the derivation from a `SoftBodyMaterial` and a cross-section, and the fifth kind wired into both solvers with four conformance scenes holding them to each other. The `.sushinodebeam` asset exists too (P7-C — see §16.23): nodes, beams, the collision surface, the rigid core's mass properties, the shell-to-core attachments and the render-mesh skinning, in one blob that refuses what it would not itself load. And `NodeBeamCooker` produces one from a mesh, a dial and a `SoftBodyMaterial` (P7-D — see §16.24): the tetrahedralizer's lattice as the node cloud, its edges as the beams classified by length into structural and bracing, a frame-relative render skinning that reproduces the rest pose to 1e-8 m, and the mass split between a rigid core and the shell hung off it. And the hybrid is alive in a solver (P7-E — see §16.25): nodes as particles, beams as the fifth kind, the core in its principal frame, the shell held on by ball-joint mounts, and a tick boundary where beams dent, mounts tear out, and a part that has lost its last tie is reported once as having come off. Suspension and wheels are built (P7-F — see §16.26): a corner is a slider with a spring-damper drive plus a hinge for the axle, steering is that slider's frame turned about its own axis, `JointMotorT` grew the damping rate a spring-damper drive needs, and a leak in the core angular integrator that cost a spinning wheel a third of its speed per second was found and fixed. And the drivetrain turns them (P7-G — see §16.27): §10.5's first escape hatch applied, a one-dimensional chain with the crankshaft as its only free coordinate, a clutch whose torque is solved and clamped rather than sprung, a differential that is one lock number instead of three kinds and that balances to conserve, and a coupling that puts a torque on each driven wheel and the exact negative of it on the chassis. And the tyres are under it (P7-H — see §16.28): a brush model whose curve is derived rather than fitted, one slip vector saturated once so combined slip cannot be got wrong, load sensitivity read off the normal force the solver already recovered, and the reaction shared back by load so the world loses exactly what the wheel gains. And the row is closed (P7-I and P7-J — see §16.29 and §16.30): §11.6's `WindSampler` seam mirroring `GravitySampler`, with the wind term written as a *difference* against the still-air drag `predict` already applies so that still air costs exactly nothing; the cooker's per-node drag area finally read; the car's own drag as a body constant and its downforce at a centre of pressure that is not its centre of mass; the acceptance scene proving all four clauses of this row at once; and the Vehicle window, whose derived column is the half of it that catches mistakes. **The acceptance clause's number is unmeasured:** "at the §13.1 target" is a GPU-timed budget, and §16.35 records that every §13.1 target still needs a GPU this machine does not have. Built, not measured. |
 | **PX** | **Exposure.** Everything P0-P7 built, reachable without writing C++: §5.5's `PhysicsJoint`, `VehicleInstance` and `CollisionFilter` components with their `IWorldEditor` surfaces and scene serialization; §5.3's surface materials carried per body and combined per pair; the Assembly editor; §14's physics debug draw and joint gizmo; the vehicle drawn, driven from the keyboard and instanced from a path; and the demonstration scene as a file. | **An author can build, see and drive every physics feature the engine has from the editor**, and anything they cannot is a named gap rather than a shortcut. | **Complete** — see §16.31 (joints), §16.32 (materials, filters, the Assembly editor, debug draw), §16.33 (the vehicle in a scene), §16.34 (drawn, driven, shipped), §16.35 for the remainder, and §16.36 for PX-9, the last item, which closed the stream. The node-beam cooker now has an editor entry point in the Bake window: `NodeBeamPostProcessor` is registered into the shipped chain in `engine/domain/physics/source/cooking/mesh_post_processor.cpp`, `ImportProfile::node_beam_settings` and `CookingParameters::cook_node_beam` carry the settings, and `tests/unit/test_import_chain.cpp` covers it, so step one of `docs/guides/vehicles.md` no longer needs C++. Three smaller items §16.35 tabulated stay open and are outside this phase: the vehicle setup has no serializer, the cooked render skinning is not drawn, and joint gizmos are not draggable. |
 | **P8** | **Scale.** Device-resident broadphase, narrowphase, and contact solve. Structure-of-arrays state columns. Deterministic parallel accumulation (§12.2). Per-island substepping and the one `DynamicGraph` region per island it needs (moved here from P2 — see §16.10). Half-precision storage measured and kept or dropped (§6.5). Optional runtime-accelerated cooking stages (§6.6). Budgets and their reporting. | Every §13.1 target met or beaten; determinism tests still byte-equal; the conformance suites pass for the device implementations. | **In progress — see §16.38 to §16.44.** P8-A's measurement (§16.37) set the order: reduce barriers before building device collision the measured scene has no use for. **Closed:** the zero-capacity structural skip that measurement itself exposed (§16.38); the `Execution::DynamicGraph`/`Region` seam extension the runtime side of per-island regions needs (§16.39); the per-node device-timing breakdown surfaced into `PhysicsStatistics` and the editor (§16.40, closes §18 R8's deferred half); a per-tick budget on continuous-collision escalation and the statistic that was structurally always zero until now (§16.40); the `sycl::half` cosmetic storage path, its measurement harness, and now (§16.41, addendum) the harness's printed numbers, read once build access made running it possible — the device-buffer verdict §6.5 actually asks for is still unmeasured, for the reason the harness's own comment already gave; two stale §18 rows corrected from Open to Built (R4, R6) and one from missing to recorded (R9, mirrored into the runtime's own requirements doc — §16.43); a settled island's *joint* now actually costs nothing rather than merely early-outing its math, behind an opt-in flag, tested (§16.44). **Open, and why:** the deeper barrier-reduction primitive P8-A's own finding asks for has no supporting runtime call today and is recorded as a new runtime ask rather than guessed at engine-side (§16.42, §18 R9); per-island substepping's full form — constraint bands becoming island-aware, one `DynamicGraph` region actually replacing the monolithic composition — needs the seam §16.39 built but is not itself built, and needs the project owner's answer on the design question §16.43 narrowed it to; beams and elements do not yet get §16.44's parking, and beams were found not to participate in island connectivity at all, a real prerequisite bug recorded rather than guessed at; structure-of-arrays state columns are scoped and now build/test-verifiable rather than blind, but the ~60-file job itself is a dedicated pass's work, not this one's remainder (§16.42 item 3, revised); device-resident broadphase/narrowphase/contact-detection remains the largest single item, sequenced last, not attempted. **Every §13.1 target still needs a GPU this machine does not have** (§16.35's finding stands unchanged) — nothing in this update closes that gap, and nothing claims to. |
-| **P9** | **Gameplay surface.** Kinematic bodies, character controller, the full event stream into gameplay/audio/VFX through `IPhysicsEventSink`, rollback integration and its snapshot, and the networking validation harness. | Snapshot-rollback-replay byte equality across 10 000 ticks including contacts and fracture; impact events drive audio and VFX in a demo scene. | Not started |
+| **P9** | **Gameplay surface.** Kinematic bodies, character controller, the full event stream into gameplay/audio/VFX through `IPhysicsEventSink`, rollback integration and its snapshot, and the networking validation harness. | Snapshot-rollback-replay byte equality across 10 000 ticks including contacts and fracture; impact events drive audio and VFX in a demo scene. | **In progress — see §16.46.** **Kinematic bodies are done** (P9-A): `predict`'s third branch, the target-pose command surface, the flag carried from the ECS through the extract to the solver, the Inspector checkbox, scene serialization, and six tests including a host-versus-device conformance scene. **Open:** the character controller, which depends on P9-A and on nothing else; `IPhysicsEventSink` and its fan-out, whose underlying `ContactEvent`/`JointBrokenEvent` stream already reaches `ISimulation` and has no consumer outside the tests; the rollback snapshot, which is the one item of this row a GPU is not needed for; and the networking validation harness, which needs `docs/design/SUSHILOOP.md`'s M4 sockets — a clause that document withdrew on 2026-08-07. |
 
 ### 16.1 P0, item by item
 
@@ -5315,6 +5316,88 @@ The second `set_joint_motor`/`set_joint_limits` bullet (16.45.1) was investigate
 The `sycl::half` storage keep/drop call (16.45.4) went to the project owner rather than being
 guessed at, and the answer was **drop** — see §16.41's decision addendum. Nothing left open from
 this audit's original six findings.
+
+### 16.46 P9-A: kinematic bodies, and the branch that was missing between two others
+
+`BodyFlags::kinematic` had existed since P0
+(`engine/domain/physics/include/SushiEngine/physics/core/body_flags.hpp`) and **nothing read it.**
+Nothing wrote it either: `extract_rigid_bodies`
+(`engine/world/simulation/include/SushiEngine/simulation/physics_extract.hpp`) filled a
+description's pose, inverse mass, inverse inertia and drag and never touched the flag word, so
+every body reached the solver as `dynamic_body`. An author who found the bit and reached for
+`inv_mass = 0` instead got a *pinned* body, which pushes nothing — a different thing wearing the
+same number.
+
+**Three of the four mechanisms a kinematic body needs were already built, for other reasons.**
+Immovability: every projection in
+`engine/domain/physics/include/SushiEngine/physics/core/rigid_body.hpp` scales its correction by
+the body's inverse mass, so a body at zero takes no share of any contact, constraint or joint —
+no kinematic case, anywhere. Pushing: a kinematic body pushes by *moving*, its pose advancing each
+sub-step until the next sub-step's contact projection sees the overlap and depenetrates the other
+side. Island isolation: `IslandBuilder::conducts`
+(`engine/domain/physics/include/SushiEngine/physics/scene/islands.hpp`) requires a positive
+inverse mass, so a conveyor cannot hold a whole scene awake through a chain of contacts — the
+behaviour PhysX implements deliberately, here falling out of a rule written for static bodies.
+
+**What was missing was one branch.** `predict` guarded the acceleration accumulation and the
+position integration with the same `inv_mass > 0` test, which is correct for the two body kinds
+that existed and wrong for the one between them: a kinematic body must skip the acceleration and
+still perform the integration, and no single inverse-mass test says both. It now has its own
+branch, taken before either, integrating pose and orientation from the commanded velocity with no
+gravity, no field and no drag. `update_velocity` skips it for the opposite reason — the velocity
+is the input, not the output, and re-deriving it would bleed a commanded spin away through the
+logarithmic map's small-angle approximation every sub-step. That map is now
+`angular_velocity_between`, lifted out so the commanded turn and the recovered one cannot come
+from two hand-written copies.
+
+`is_simulated` is deliberately **unchanged**. Its question is "is this body integrated and
+projected this tick", and for a kinematic body both are yes; twenty call sites ask it, and
+narrowing it would have dropped kinematic bodies out of the contact list, the statistics and the
+wake logic in one edit.
+
+**The command is a target pose, not a velocity.** `IRigidBodyService::move_rigid_body`
+(`engine/world/simulation/include/SushiEngine/simulation/physics_services.hpp`) records where the
+body should be by the tick's end, and the tick divides that difference by its own duration —
+which is the first moment the duration is known, since the command arrives before the tick starts.
+Chosen over a velocity setter because an author driving a platform from an animation clip has a
+pose and would otherwise have to differentiate it, because a re-derived velocity cannot accumulate
+positional drift, and because the derived velocity is exactly what a contact's friction term
+reads, so a crate on a rising platform is carried without a line of code that knows it is standing
+there. A kinematic body given no target has its velocity cleared: nothing in the tick would slow
+it otherwise, so driving one means writing its pose every tick — which a clip or a script loop
+does anyway.
+
+**The invariant is established at the boundary.** The extract writes the flag *after* the density
+derivation and forces inverse mass and inertia to zero, so ticking the box wins over whatever mass
+the collider would have implied, and the solver never has to hold a second opinion about what a
+kinematic body weighs.
+
+**One consequence needed real work.** Because a kinematic body does not conduct, a crate resting on
+a platform forms its own island and sleeps — and a sleeping body is skipped by `predict` outright,
+so it would hang in the air while the platform left. Waking the platform's island wakes nothing but
+the platform. So `move_rigid_body` walks the contact records instead of the partition and wakes
+every body sharing one with the moved slot. Those records are last tick's, the same staleness
+sleeping already tolerates, and the cost is bounded by the moved body's own contact count rather
+than by scene size.
+
+**Reachable without writing C++**, which is what PX established as the standard: a Kinematic
+checkbox at the top of the Rigid Body inspector, greying out the mass rows it makes meaningless;
+the field round-tripped through the scene file; and a transform edit routed on the flag, so
+dragging a gizmo *places* a dynamic body and *moves* a kinematic one. There is no second API to
+learn — driving a platform is writing its transform. The serialization pass also found that
+`PhysicsBodyParameters::density` had never been written to a scene file at all: harmless to the
+simulation, since the numbers it derives were saved, but the author's density box came back empty
+with the derived figures presented as hand-typed.
+
+**Six tests**, five through the scene seam in `tests/integration/test_physics_simulation.cpp` and
+one in `tests/integration/test_solver_conformance.cpp`. The conformance scene asserts the absolute
+position as well as the agreement, because two solvers that both lost the branch would agree with
+each other perfectly, on the floor. **All six run on the CPU backend: P9-A needed no GPU**, which
+makes it the first phase row in some time whose acceptance is not waiting on hardware.
+
+Continuous collision for kinematic bodies is **not** implicit. The `continuous_collision` flag
+already exists and a fast platform's author opts in, exactly as any other body's author does;
+making it automatic would spend a sweep on every door in every scene.
 
 ---
 
