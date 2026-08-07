@@ -299,6 +299,16 @@ namespace SushiEngine
                         const auto it = records_.find(id);
                         if (it == records_.end())
                             return;
+                        // Destroying a parent takes its whole subtree with it, matching
+                        // how the Hierarchy shows and selects them as one unit. Collected
+                        // up front rather than walked live, since each recursive destroy()
+                        // below erases entries out of the very map being scanned.
+                        std::vector<EntityId> children;
+                        for (auto& entry : records_)
+                            if (entry.second.parent == id)
+                                children.push_back(entry.first);
+                        for (const EntityId child : children)
+                            destroy(child);
                         // The physics simulation regenerates its body/grid set from the
                         // surviving entities on the next rebuild, so a destroy only needs
                         // to flag that rebuild — it holds no per-entity map to prune here.
@@ -320,11 +330,6 @@ namespace SushiEngine
                         records_.erase(it);
                         order_.erase(std::remove(order_.begin(), order_.end(), id),
                                      order_.end());
-                        // Destroying a parent leaves its children as roots rather than
-                        // cascading the destroy, matching how the Hierarchy shows them.
-                        for (auto& entry : records_)
-                            if (entry.second.parent == id)
-                                entry.second.parent = NULL_ENTITY;
                         extract();
                     }
 
