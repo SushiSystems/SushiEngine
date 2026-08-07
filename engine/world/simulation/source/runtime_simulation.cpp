@@ -829,6 +829,40 @@ namespace SushiEngine
                         physics_dirty_ = true;
                     }
 
+                    bool has_character(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->has_character;
+                    }
+
+                    CharacterParameters character_parameters(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->character_parameters
+                                                 : CharacterParameters{};
+                    }
+
+                    void set_character_parameters(EntityId id,
+                                                  const CharacterParameters& parameters) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        // No dirty flag, and that is the whole difference from cloth: a
+                        // grid's row count decides how many bodies exist, while a
+                        // capsule's radius decides nothing until somebody asks for a
+                        // move. There is no built thing here for an edit to invalidate.
+                        record->character_parameters = parameters;
+                    }
+
+                    void set_has_character(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record == nullptr)
+                            return;
+                        record->has_character = value;
+                    }
+
                     bool has_cloth(EntityId id) const noexcept override
                     {
                         const Record* record = find(id);
@@ -1993,6 +2027,11 @@ namespace SushiEngine
                         // plain host bookkeeping rather than a component toggle.
                         bool has_physics_body = false;
                         PhysicsBodyParameters physics_parameters{};
+                        // How this entity walks, if it walks. Nothing is built from these
+                        // numbers — they are read when a move is resolved and never
+                        // otherwise — so unlike cloth an edit here dirties nothing.
+                        bool has_character = false;
+                        CharacterParameters character_parameters{};
                         // Whether a cloth grid is tracked by the physics simulation (see
                         // set_has_cloth). Same plain-host-bookkeeping treatment as
                         // has_physics_body: cloth needs no ECS component migration.

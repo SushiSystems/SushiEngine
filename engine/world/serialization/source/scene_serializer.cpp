@@ -670,6 +670,19 @@ namespace SushiEngine
                              {"kinematic", parameters.kinematic}};
                 }
 
+                const bool has_character = world.has_character(id);
+                entry["has_character"] = has_character;
+                if (has_character)
+                {
+                    const auto c = world.character_parameters(id);
+                    entry["character"] = json{{"radius", c.radius},
+                                              {"height", c.height},
+                                              {"step_height", c.step_height},
+                                              {"max_slope_degrees", c.max_slope_degrees},
+                                              {"skin_width", c.skin_width},
+                                              {"ground_snap", c.ground_snap}};
+                }
+
                 // Not mutually exclusive with any of the above, so it is its own field
                 // pair too.
                 const bool has_cloth = world.has_cloth(id);
@@ -1001,6 +1014,24 @@ namespace SushiEngine
                         parameters.density = p.value("density", parameters.density);
                         parameters.kinematic = p.value("kinematic", parameters.kinematic);
                         world.set_physics_body_parameters(id, parameters);
+                    }
+                }
+
+                if (entry.value("has_character", false))
+                {
+                    world.set_has_character(id, true);
+                    if (entry.contains("character"))
+                    {
+                        const json& c = entry["character"];
+                        SushiEngine::Simulation::CharacterParameters parameters;
+                        parameters.radius = c.value("radius", parameters.radius);
+                        parameters.height = c.value("height", parameters.height);
+                        parameters.step_height = c.value("step_height", parameters.step_height);
+                        parameters.max_slope_degrees =
+                            c.value("max_slope_degrees", parameters.max_slope_degrees);
+                        parameters.skin_width = c.value("skin_width", parameters.skin_width);
+                        parameters.ground_snap = c.value("ground_snap", parameters.ground_snap);
+                        world.set_character_parameters(id, parameters);
                     }
                 }
 

@@ -1525,6 +1525,40 @@ namespace SushiEngine
                 virtual void set_has_physics_body(EntityId id, bool value) = 0;
 
                 /**
+                 * @brief Whether @p id is authored as a character controller.
+                 *
+                 * A character is an entity with a **kinematic** rigid body plus these
+                 * parameters. The flag does not create the body and does not imply one:
+                 * the two are authored separately because they answer different
+                 * questions — "what shape is this in the world" and "how does this walk
+                 * through it" — and a character whose body was authored dynamic is a
+                 * mistake `ICharacterService::move_character` reports rather than one
+                 * this flag can prevent.
+                 */
+                virtual bool has_character(EntityId id) const noexcept = 0;
+
+                /** @brief The entity's authored character parameters (defaults if not a character). */
+                virtual CharacterParameters character_parameters(EntityId id) const = 0;
+
+                /**
+                 * @brief Writes a character's capsule and movement limits.
+                 *
+                 * Applied immediately and never deferred, unlike cloth: nothing is built
+                 * from these numbers. They are read at the moment a move is resolved and
+                 * at no other time, so there is no world for a change to invalidate.
+                 */
+                virtual void set_character_parameters(EntityId id,
+                                                      const CharacterParameters& parameters) = 0;
+
+                /**
+                 * @brief Marks an existing entity as a character controller, or stops.
+                 *
+                 * @param id    The entity to update.
+                 * @param value Whether it should be a character after this call.
+                 */
+                virtual void set_has_character(EntityId id, bool value) = 0;
+
+                /**
                  * @brief Whether @p id owns a simulated cloth grid.
                  *
                  * Like `has_physics_body`, cloth needs no ECS component migration —
