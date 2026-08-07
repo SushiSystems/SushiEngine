@@ -2360,7 +2360,7 @@ namespace SushiEngine
                         {
                             Record* record = find(id);
                             if (record == nullptr || !record->has_vehicle ||
-                                !world_.alive(record->entity))
+                                !world_.alive(record->entity) || !enabled_in_hierarchy(record))
                                 continue;
                             if (!refresh_vehicle_asset(*record))
                                 continue;
@@ -3430,7 +3430,8 @@ namespace SushiEngine
                         for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
-                            if (record == nullptr || !world_.alive(record->entity))
+                            if (record == nullptr || !world_.alive(record->entity) ||
+                                !enabled_in_hierarchy(record))
                                 continue;
 
                             PhysicsSourceEntity entity;
@@ -3507,7 +3508,8 @@ namespace SushiEngine
                         {
                             const Record* record = find(id);
                             if (record == nullptr || !record->has_soft_body ||
-                                record->soft_body_parameters.asset.empty())
+                                record->soft_body_parameters.asset.empty() ||
+                                !enabled_in_hierarchy(record))
                                 continue;
                             const SoftBodyParameters& parameters = record->soft_body_parameters;
                             SoftBodyDescription description;
@@ -3535,7 +3537,8 @@ namespace SushiEngine
                             if (record == nullptr || !record->has_cloth ||
                                 !world_.alive(record->entity) ||
                                 record->cloth_parameters.rows == 0 ||
-                                record->cloth_parameters.cols == 0)
+                                record->cloth_parameters.cols == 0 ||
+                                !enabled_in_hierarchy(record))
                                 continue;
                             ClothDescription description;
                             description.id = id;

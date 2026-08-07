@@ -192,3 +192,35 @@ TEST(Integration_EntityLifecycle, DisabledHidesEvenWhenVisibleIsTrue)
     EXPECT_EQ(find_instance(simulation->render_scene(), id), nullptr)
         << "enabled=false must hide rendering even though visible is still true";
 }
+
+TEST(Integration_EntityLifecycle, DisablingAnEntityRemovesItsRigidBodyFromPhysics)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    const EntityId id = world.create_box("Box");
+    EntityTransform transform = world.transform(id);
+    transform.position = Vector3{0, 5, 0};
+    world.set_transform(id, transform);
+    PhysicsBodyParameters body;
+    body.density = Scalar(1000);
+    world.set_has_physics_body(id, true);
+    world.set_physics_body_parameters(id, body);
+
+    simulation->tick(simulation->fixed_dt_seconds());
+    RigidDebugState state;
+    ASSERT_TRUE(world.physics_body_debug(id, state))
+        << "an enabled entity with a physics body must be tracked by the solver";
+
+    world.set_enabled(id, false);
+    simulation->tick(simulation->fixed_dt_seconds());
+    EXPECT_FALSE(world.physics_body_debug(id, state))
+        << "a disabled entity's rigid body must be removed from the solver";
+
+    world.set_enabled(id, true);
+    simulation->tick(simulation->fixed_dt_seconds());
+    EXPECT_TRUE(world.physics_body_debug(id, state))
+        << "re-enabling must re-admit the body to the solver";
+}
