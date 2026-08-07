@@ -52,7 +52,8 @@ an image, eventually produce an `ImTextureID` for it, or nothing if the file can
 class ThumbnailCache
 {
 public:
-    ThumbnailCache(Render::NativeDeviceHandles handles, ImGuiBackend& backend);
+    ThumbnailCache(Render::NativeDeviceHandles handles, ImGuiBackend& backend,
+                   Editor::Console& console);
     ~ThumbnailCache();
 
     // Call once per frame from the Project panel, before drawing tiles.
@@ -111,9 +112,9 @@ it ever appearing on screen never enqueues a decode for it.
 - `EditorContext` (`applications/editor/source/core/editor_context.hpp`) gains
   `ThumbnailCache* thumbnail_cache = nullptr;`, following the existing non-owning pointer pattern
   used for `assets` and `cook_bake_state`.
-- `main.cpp` constructs the `ThumbnailCache` once, after the renderer and `ImGuiBackend` exist
-  (it needs `native_handles()` and a reference to the backend), and destroys it before the
-  renderer is torn down — the worker thread must be joined and every resident Vulkan resource
+- `main.cpp` constructs the `ThumbnailCache` once, after the renderer, `ImGuiBackend`, and
+  `Editor::Console` all exist (it needs `native_handles()` and references to the backend and the
+  console), and destroys it before the renderer is torn down — the worker thread must be joined and every resident Vulkan resource
   freed while the `VmaAllocator`/`VkDevice` it used are still alive. This ordering constraint is
   the same one every other renderer-dependent editor system already respects.
 - `draw_project_grid_view` (`applications/editor/source/project/project_panel.cpp`): for a tile
@@ -131,10 +132,19 @@ it ever appearing on screen never enqueues a decode for it.
   user — a failed thumbnail is not a failure of the panel, and Phase 1's glyph is a legitimate,
   intentional fallback rather than an error state.
 - Vulkan upload failure (out of device memory, unexpected driver error): the same fallback path —
-  log once via the editor's existing logging facility for diagnosability, keep the tile on the
-  Phase 1 glyph, and do not retry that path automatically (retrying would require the same viewport
-  visibility to trigger `texture_for` again, which naturally happens if the user scrolls the tile
-  out and back — no separate retry mechanism is needed).
+  log once via the editor's existing Console facility
+  (`applications/editor/source/core/console.hpp`'s `Editor::Console`, the same backlog the
+  Console panel reads and that ~150 call sites across the editor already write to through
+  `editor_log`), at `LogLevel::Warning`, then keep the tile on the Phase 1 glyph and do not retry
+  that path automatically (retrying would require the same viewport visibility to trigger
+  `texture_for` again, which naturally happens if the user scrolls the tile out and back — no
+  separate retry mechanism is needed). `ThumbnailCache` takes an `Editor::Console&` directly
+  (not an `EditorContext&`, which would create a construction-order cycle with
+  `EditorContext::thumbnail_cache` below) so it can log without depending on the wider context
+  type. RHI-tier code is never the one reporting this failure — `engine/presentation/render`'s
+  Vulkan layer has no logging facility of its own and today only throws on device error;
+  `ThumbnailCache`'s upload step catches around its own Vulkan calls and reports through
+  `Editor::Console` itself, entirely inside the editor tier.
 
 ## Testing
 
