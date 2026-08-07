@@ -10,6 +10,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- 2026-08-07 — Added `tools/documentation/check_design_citations.py`: it resolves every backticked
+  path a `docs/design/` document cites and fails on one naming nothing, in continuous integration,
+  so a stale citation fails the build.
+- 2026-08-07 — Added `docs/design/remaining_work.md`: every phase the corpus audit found open,
+  withdrawn or unmeasured, in one table derived from the seventeen roadmap sections and rewritten
+  whenever one of them changes.
 - 2026-08-06 — Added prefab assets: an entity subtree saved as a `.sushiprefab`, placed as
   instances, and rebuilt from the asset when a scene is opened at an older revision. See
   `docs/design/prefab_system.md`.
@@ -91,6 +97,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   the pyramid instead of only persisting.
 
 ### Fixed
+- 2026-08-07 — Fixed 1,074 stale citation sites across seventeen design documents. The restructure
+  moved every engine module and no cited path followed it, leaving 617 of 680 resolving to nothing.
 - 2026-08-07 — Corrected seven status lines across eleven design documents and withdrew four claims
   the tree does not carry: SushiLoop's Windows continuous integration, chunk-delta recording and
   real sockets, plus model import's colliders.
