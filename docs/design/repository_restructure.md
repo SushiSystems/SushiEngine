@@ -441,11 +441,14 @@ demands:
   followed. The repair rewrote 1,074 citation sites across seventeen documents, and the check
   now runs in continuous integration. Four categories of path legitimately do not resolve and
   are declared in the script rather than repaired: external, run-time artifact, planned, and
-  deleted, the last for a path a document names in order to say it is gone. Three classes of
+  deleted, the last for a path a document names in order to say it is gone. Four classes of
   defect survive the repair and are recorded in [remaining_work.md](remaining_work.md): the
   repaired sites were never swept for whether the file a path resolves to is the file its
-  sentence means, the citations that already resolved carry line numbers no pass verified, and
-  a bare line-number continuation beside an anchor is invisible to a check that matches paths.
+  sentence means, the citations that already resolved carry line numbers no pass verified,
+  a bare line-number continuation beside an anchor is invisible to a check that matches paths,
+  and so is an identifier the de-abbreviation pass renamed, because an identifier is not a
+  path — the nine `QualityParams` sites were corrected by hand and the rest of that pass's
+  renames have never been swept for.
 
 ## 11. Verification
 

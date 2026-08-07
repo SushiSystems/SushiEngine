@@ -97,6 +97,9 @@ code:
 - **A path in prose is a real path.** `engine/domain/physics/include/SushiEngine/physics/`, in
   backticks, spelled as the tree spells it. Verify it before you write it — the restructure
   left several hundred stale paths behind precisely because nobody did.
+  `tools/documentation/check_design_citations.py` verifies it now, on every continuous
+  integration run: it resolves every backticked file path a `docs/design/` document cites and
+  fails on one that names nothing, the way `check_documentation_length.py` enforces the ceilings.
 - **Cite a section by link, not by number.** Link the section's own anchor rather than writing
   "see §5.0.1". Section numbers move, and a document that cites them by number rots silently
   because nothing can tell that the number now points somewhere else.

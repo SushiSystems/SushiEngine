@@ -16,6 +16,7 @@ comment or a changelog entry can be resolved without guessing.
 | `P1`–`P4` | [prefab_system.md](../design/prefab_system.md) | Phases of the prefab system. `P1` is the asset, the instance and refresh on load; `P2`–`P4` are override resolution, nesting and the runtime API, designed only as boundaries. **Collides with the physics family** — see below. |
 | `P0` | [static_mesh_authoring.md](../design/static_mesh_authoring.md) | The single phase that places an imported glTF as a plain visual prop. **Collides with the physics family** — see below. |
 | `P0` | [project_selection.md](../design/project_selection.md) | The single phase that adds New/Load Project to the editor's File menu. **Collides with the physics family** — see below. |
+| `Phase 0`–`Phase 13` | [render_pipeline_refactor.md](../design/render_pipeline_refactor.md) | Steps of the renderer rebuild: the foundation, the shading core, shadows, clustered Forward+, screen-space lighting, global illumination, the atmosphere lookup-table stack, post-processing, GPU-driven geometry, frame delivery, the ray-tracing tier. The corpus's largest family and its least self-describing code — a bare integer names nothing on its own, so write `Phase 4`, never `4`. [remaining_work.md](../design/remaining_work.md) carries eight of them as bare integers in its Phase column, where the Document column disambiguates. |
 | `A0`–`A9` | [animation_system.md](../design/animation_system.md) | Phases of the skeletal animation stack, from clip assets to retargeting. |
 | `S0`–`S10` | [audio_system.md](../design/audio_system.md) | Phases of the from-scratch audio engine, from the device seam to the authoring surface. |
 | `PLATFORM0`–`PLATFORM9`, `S1`–`S6` | [cross_platform_engineering_plan.md](../design/cross_platform_engineering_plan.md) | Stages of the port to Linux, Android, macOS, iOS and PlayStation. `S1`–`S6` are `PLATFORM0`'s own sub-stages, the editor/runtime split. **`S` collides with the audio family** — see below. |
@@ -29,6 +30,7 @@ comment or a changelog entry can be resolved without guessing.
 | `UX0`–`UX6` | [editor_ux_overhaul.md](../design/editor_ux_overhaul.md) | Phases of the editor overhaul. All shipped as of 2026-07-30. |
 | `UHM0`–`UHM5` | [unified_hazard_model.md](../design/unified_hazard_model.md) | Milestones of the one execution vocabulary shared by simulation, compute and render. Its own sections are cited as `UHM §4`. |
 | `RESTRUCTURE0` | [repository_restructure.md](../design/repository_restructure.md) | The four-phase reorganization of this repository. |
+| none | [editor_feature_sync_gaps.md](../design/editor_feature_sync_gaps.md) | Mints no phase code, which is a design decision rather than an omission from this table: it is a dated backlog of individual controls, cited by its section headings and by the document name alone. Its two Deferred sections were absorbed into [editor_ux_overhaul.md](../design/editor_ux_overhaul.md) §2.4, whose `UX` codes cover them. |
 
 ## The two collisions
 

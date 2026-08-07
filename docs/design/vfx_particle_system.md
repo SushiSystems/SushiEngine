@@ -181,7 +181,7 @@ ranges, a bitfield of enabled update modules + their scalar params, render flags
 lit), texture/atlas ids, capacity, and **offsets into a shared LUT atlas** for its baked
 curves/gradients. `CompiledEffect` = a span of `CompiledEmitter` + the LUT atlas bytes. This is the
 single artifact both backends and the GPU consume — the equivalent of `resolve_quality()` turning
-authored `RenderSettings` into a POD `QualityParams`.
+authored `RenderSettings` into a POD `QualityParameters`.
 
 ### 4.4 The asset & its registry
 
@@ -710,7 +710,7 @@ shortcut the skeleton preview used).
 
 | Cap | Value | Where |
 |---|---|---|
-| GPU particles (Ultra) | 4 M | `QualityParams::max_particles` |
+| GPU particles (Ultra) | 4 M | unresolved: `max_particles` was deleted from `QualityParameters` on 2026-07-29 as a resolved field no pass read |
 | GPU particles (High) | 1 M | tier scale |
 | GPU particles (Low) | disabled | `gpu_particles = false` |
 | Deterministic particles / emitter | 1 024 | `MAX_DETERMINISTIC_PARTICLES` |

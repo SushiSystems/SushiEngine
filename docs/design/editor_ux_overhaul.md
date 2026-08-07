@@ -434,11 +434,12 @@ struct SimulationSettings
   Low…Ultra grid table (`engine/presentation/render/source/frame/quality.cpp` rows move verbatim).
 - The resolved nest size travels to the renderer through `Environment` (which already
   carries `atmosphere_nest` parameters to `stage_atmosphere`) instead of through the
-  per-view `QualityParams`. This *also* closes the latent multi-view hazard: the nest
+  per-view `QualityParameters`. This *also* closes the latent multi-view hazard: the nest
   size becomes device-global state carried by device-global data, not per-view state
   that happens to agree.
 - The raw-enum leak in `engine/presentation/render/source/passes/ray_traced_shadow_pass.cpp` moves
-  into a resolved `QualityParams` field, restoring the "no pass branches on the raw enum" contract.
+  into a resolved `QualityParameters` field, restoring the "no pass branches on the raw enum"
+  contract.
 - The contradictory QG-grid doc comments are reconciled (the grid stays deliberately fixed;
   `engine/domain/atmosphere/include/SushiEngine/atmosphere/quasigeostrophic_core.hpp` is corrected).
 
@@ -654,8 +655,8 @@ deviations from the letter of the plan:
    `resolve_atmosphere_quality()` (§2.3); move the nest-grid table out of
    `resolve_quality()`; route the resolved size through `Environment`.
 2. Delete the dead tier outputs (`max_particles`, `particle_sim_substeps`, animation budgets) from
-   `QualityParams` — or wire the animation budgets if the batch evaluator grows a consumer in the
-   same pass; recommended: delete, re-add with a consumer. Fix
+   `QualityParameters` — or wire the animation budgets if the batch evaluator grows a consumer
+   in the same pass; recommended: delete, re-add with a consumer. Fix
    `engine/domain/animation/include/SushiEngine/animation/batch_evaluator.hpp`'s claim accordingly.
 3. Fix the raw-enum leak (`engine/presentation/render/source/passes/ray_traced_shadow_pass.cpp`) via
    a resolved param.

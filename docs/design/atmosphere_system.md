@@ -574,8 +574,10 @@ B = g · (θ_v′/θ̄_v − q_c − q_r)                 buoyancy including con
 
 **Discretization.**
 
-**Shipped, and resolved by the render quality tier** (`QualityParams::atmosphere_nest`), so
-the nest is discretized by the same resolver every other pass reads. Step costs are *measured*
+**Shipped, and resolved by the simulation's quality tier** (`resolve_atmosphere_quality` in
+`engine/world/simulation/include/SushiEngine/simulation/simulation_settings.hpp`), so the nest is
+discretized by one resolver and the size reaches the renderer through `Environment`. UX2 moved it
+there; `QualityParameters` carries no `atmosphere_nest` field. Step costs are *measured*
 on a GTX 1060 6 GB, not scaled from a model; VRAM is scaled from the measured High.
 
 | | Low | Medium | **High** | Ultra |
