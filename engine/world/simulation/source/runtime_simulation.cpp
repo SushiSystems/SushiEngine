@@ -240,6 +240,12 @@ namespace SushiEngine
                         return record != nullptr ? record->name : std::string{};
                     }
 
+                    std::string prefab_entity_id(EntityId id) const override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr ? record->prefab_entity_id : std::string{};
+                    }
+
                     EntityTransform transform(EntityId id) const override
                     {
                         const Record* record = find(id);
@@ -361,6 +367,13 @@ namespace SushiEngine
                         Record* record = find(id);
                         if (record != nullptr)
                             record->name = display_name;
+                    }
+
+                    void set_prefab_entity_id(EntityId id, const std::string& value) override
+                    {
+                        Record* record = find(id);
+                        if (record != nullptr)
+                            record->prefab_entity_id = value;
                     }
 
                     void set_transform(EntityId id, const EntityTransform& value) override
@@ -2080,6 +2093,11 @@ namespace SushiEngine
                     {
                         Entity entity;
                         std::string name;
+                        // Which entity of a prefab this one was instantiated from, or
+                        // empty. The key an override is matched by, and the reason a
+                        // rebuild can compute local edits rather than being told about
+                        // them at the moment they happen (prefab_system.md §10, P2).
+                        std::string prefab_entity_id;
                         bool visible = true;
                         bool animated = false;
                         bool is_camera = false;

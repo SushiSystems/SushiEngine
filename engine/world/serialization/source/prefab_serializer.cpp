@@ -28,6 +28,7 @@
 #include <fstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -96,16 +97,51 @@ namespace SushiEngine
             for (std::size_t i = 0; i < ordered.size(); ++i)
                 index_of.emplace(ordered[i], static_cast<int>(i));
 
+            // The identifiers, decided before anything is written, in two passes.
+            //
+            // An entity that already carries one keeps it. That is what lets an id survive a
+            // re-author: an artist who reorders a prefab's contents and saves again keeps every
+            // id, so every instance's overrides stay attached to the entity they were made
+            // against. Reminting on every save would silently retarget all of them.
+            //
+            // The revision is a content hash of this array, and preserving an id leaves it every
+            // bit as stable as a positional one did — what would move the hash is *generating* a
+            // fresh id per capture, which is what the previous sequential scheme avoided and this
+            // one avoids the same way.
+            std::vector<std::string> identity(ordered.size());
+            std::unordered_set<std::string> used;
+            for (std::size_t i = 0; i < ordered.size(); ++i)
+            {
+                const std::string existing = world.prefab_entity_id(ordered[i]);
+                if (!existing.empty() && used.insert(existing).second)
+                    identity[i] = existing;
+            }
+            std::size_t next = 0;
+            for (std::size_t i = 0; i < ordered.size(); ++i)
+            {
+                if (!identity[i].empty())
+                    continue;
+                std::string candidate;
+                do
+                {
+                    candidate = "e" + std::to_string(next++);
+                } while (!used.insert(candidate).second);
+                identity[i] = candidate;
+            }
+
+            // Written back, so a subtree authored into a prefab for the first time carries the
+            // same identifiers the file does. Without this the source entities stay anonymous and
+            // the very next save remints every one of them.
+            for (std::size_t i = 0; i < ordered.size(); ++i)
+                world.set_prefab_entity_id(ordered[i], identity[i]);
+
             json entities = json::array();
             for (std::size_t i = 0; i < ordered.size(); ++i)
             {
                 // No blob table: a prefab has to open on another machine, so a cooked asset
                 // goes in by value, the same choice `save_scene` makes for a scene file.
                 json entry = Detail::write_entity_record(world, ordered[i], index_of, nullptr);
-                // A sequential index, not a random or time-based value: the identifier has to
-                // be unique within the document and stable across reads, and anything varying
-                // between two captures of the same subtree would change the revision with it.
-                entry["prefab_entity_id"] = "e" + std::to_string(i);
+                entry["prefab_entity_id"] = identity[i];
                 entities.push_back(std::move(entry));
             }
 

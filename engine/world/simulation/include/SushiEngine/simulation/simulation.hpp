@@ -1178,6 +1178,21 @@ namespace SushiEngine
                 /** @brief The entity's display name (empty if it does not exist). */
                 virtual std::string name(EntityId id) const = 0;
 
+                /**
+                 * @brief Which entity of a prefab this one was instantiated from.
+                 *
+                 * Empty for an entity that came from no prefab — including one an author
+                 * added to an instance by hand, which is a state the refresh reads and
+                 * not a missing value.
+                 *
+                 * This is what an override is keyed by. A rebuild serializes each live
+                 * member, matches it to the prefab's record by this id, and treats the
+                 * components that differ as the instance's local edits — so nothing has
+                 * to be recorded at the moment of an edit, and no component setter has
+                 * to know that prefabs exist (`docs/design/prefab_system.md` §10, P2).
+                 */
+                virtual std::string prefab_entity_id(EntityId id) const = 0;
+
                 /** @brief The entity's transform (identity if it does not exist). */
                 virtual EntityTransform transform(EntityId id) const = 0;
 
@@ -1235,6 +1250,19 @@ namespace SushiEngine
 
                 /** @brief Sets the entity's display name. */
                 virtual void set_name(EntityId id, const std::string& name) = 0;
+
+                /**
+                 * @brief Records which prefab entity this one came from.
+                 *
+                 * Written by `apply_prefab` as it creates each entity, and preserved by
+                 * `save_prefab` rather than reminted — which is what makes an id survive
+                 * a re-author. An artist who reorders a prefab's contents and saves
+                 * again keeps every id, so every instance's overrides stay attached to
+                 * the entity they were made against.
+                 *
+                 * An empty string clears it, detaching the entity from its prefab.
+                 */
+                virtual void set_prefab_entity_id(EntityId id, const std::string& value) = 0;
 
                 /**
                  * @brief Writes the entity's local transform component.

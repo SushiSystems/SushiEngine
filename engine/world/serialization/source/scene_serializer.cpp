@@ -597,6 +597,12 @@ namespace SushiEngine
             {
                 json entry;
                 entry["name"] = world.name(id);
+                // Only when it has one. An empty key on every entity of every scene
+                // would be noise, and its absence already means what an empty string
+                // would: this entity came from no prefab.
+                const std::string prefab_entity = world.prefab_entity_id(id);
+                if (!prefab_entity.empty())
+                    entry["prefab_entity_id"] = prefab_entity;
                 entry["visible"] = world.visible(id);
                 const EntityId parent_id = world.parent(id);
                 // A parent outside the document is written as no parent at all, which is what
@@ -985,6 +991,8 @@ namespace SushiEngine
 
                 world.set_transform(id, transform_from_record(entry));
                 world.set_visible(id, entry.value("visible", true));
+                world.set_prefab_entity_id(
+                    id, entry.value("prefab_entity_id", std::string{}));
 
                 if (is_camera && entry.contains("camera"))
                 {
