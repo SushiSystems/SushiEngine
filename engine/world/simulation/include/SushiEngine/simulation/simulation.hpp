@@ -342,6 +342,70 @@ namespace SushiEngine
         };
 
         /**
+         * @brief The authorable parameters of a character controller.
+         *
+         * The shape a character *moves* as, which is deliberately not the collider it is
+         * *hit* as: a collider is authored to match the art, and a controller capsule is
+         * authored to fit through doorways and onto stair treads. Tying them together
+         * would mean every art change is a movement change.
+         *
+         * Every field is geometry the world imposes. Walk speed, jump height and fall
+         * acceleration are absent because the controller is a geometry solver and not a
+         * character — the game passes the displacement it already decided, and a
+         * controller that owned falling would also have to own a gravity *direction*,
+         * which on a planet is a function of position (see
+         * `docs/design/solar_system_overhaul.md`).
+         */
+        struct CharacterParameters
+        {
+            /** @brief The capsule's radius: how wide a gap the character needs. */
+            Scalar radius = Scalar(0.4);
+
+            /** @brief Total standing height including both caps. */
+            Scalar height = Scalar(1.8);
+
+            /** @brief The tallest lip it climbs without jumping; zero disables stepping. */
+            Scalar step_height = Scalar(0.4);
+
+            /** @brief Faces steeper than this are walls rather than floors. */
+            Scalar max_slope_degrees = Scalar(45);
+
+            /**
+             * @brief Clearance kept from every surface.
+             *
+             * Small and rarely worth changing, but exposed rather than hidden because
+             * it is the first dial to reach for when a character catches on geometry:
+             * too small and it sticks to walls, too large and it floats off ledges.
+             */
+            Scalar skin_width = Scalar(0.02);
+
+            /** @brief How far below to look for ground; what keeps it on a downward ramp. */
+            Scalar ground_snap = Scalar(0.1);
+        };
+
+        /**
+         * @brief Half the capsule's straight segment, excluding its caps.
+         *
+         * The one conversion between an authored *total height* — which is what a person
+         * measures a character in — and the half-height a capsule is defined by. Written
+         * once because getting it wrong by a radius produces a character very slightly
+         * the wrong size, which is the kind of error that is noticed only after a level
+         * has been built around it.
+         *
+         * Clamped at zero: a character shorter than its own diameter is a sphere, not an
+         * error, and refusing to represent one would make the radius field unusable at
+         * small heights.
+         *
+         * @param character The authored parameters.
+         * @return The half-height to build the capsule with.
+         */
+        inline Scalar character_half_height(const CharacterParameters& character) noexcept
+        {
+            const Scalar half = character.height * Scalar(0.5) - character.radius;
+            return half > Scalar(0) ? half : Scalar(0);
+        }
+
+        /**
          * @brief The authorable parameters of a "Cloth" entity.
          *
          * Mirrors `Physics::build_cloth_grid`'s arguments, minus `origin` (the

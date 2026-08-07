@@ -77,6 +77,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -94,6 +95,7 @@
 #include <SushiEngine/physics/collision/conservative_advancement.hpp>
 #include <SushiEngine/physics/collision/manifold.hpp>
 #include <SushiEngine/physics/collision/narrowphase_dispatch.hpp>
+#include <SushiEngine/physics/character/character_mover.hpp>
 #include <SushiEngine/physics/collision/scene_query.hpp>
 #include <SushiEngine/physics/constraints/joint.hpp>
 #include <SushiEngine/physics/constraints/xpbd_constraint.hpp>
@@ -1077,6 +1079,86 @@ namespace SushiEngine
                                                        T(radius), to_quaternion(orientation)),
                         normalize(to_vector(direction)), T(distance), to_query_filter(filter));
                     return from_hit(hit);
+                }
+
+                // ICharacterService.
+
+                /** @copydoc ICharacterService::move_character */
+                CharacterMoveState move_character(EntityId id,
+                                                  const CharacterParameters& character,
+                                                  const Vector3& displacement,
+                                                  const Vector3& up) override
+                {
+                    CharacterMoveState state;
+                    if (!solver_)
+                        return state;
+                    const auto it = rigid_index_.find(id);
+                    if (it == rigid_index_.end())
+                        return state;
+                    Body body;
+                    if (!solver_->read_body(rigid_[it->second].handle, body))
+                        return state;
+                    state.position = from_vector(body.position);
+                    // Refused rather than approximated. Resolving the move onto a
+                    // dynamic body would leave the solver and the controller writing
+                    // the same pose every tick, each undoing the other.
+                    if (!Physics::is_kinematic(body.flags))
+                        return state;
+
+                    Physics::CapsuleCollider<T> capsule;
+                    capsule.center = body.position;
+                    capsule.orientation = body.orientation;
+                    capsule.half_height = T(character_half_height(character));
+                    capsule.radius = T(character.radius);
+
+                    Physics::CharacterMoveSettings<T> settings;
+                    settings.skin_width = T(character.skin_width);
+                    settings.step_height = T(character.step_height);
+                    settings.ground_snap = T(character.ground_snap);
+                    settings.max_slope_cosine =
+                        std::cos(T(character.max_slope_degrees) * T(3.14159265358979323846) /
+                                 T(180));
+
+                    // Its own body is excluded, or the very first sweep reports a hit at
+                    // distance zero against the capsule it is asking about. Triggers are
+                    // excluded too: a trigger is a volume that reports and never
+                    // resolves, so a character stopped by one would be stopped by a
+                    // thing the solver itself walks through.
+                    SceneQueryFilter filter;
+                    filter.exclude = id;
+                    filter.include_triggers = false;
+
+                    // Routed through the public sweep rather than reaching for
+                    // `sweep_shape` directly: a character's queries then answer from
+                    // exactly the index, filter and shape path every other query in the
+                    // engine uses, and a bug in one is a bug in all of them rather than
+                    // in the one nobody looks at.
+                    const auto sweep = [this, &filter](const Physics::CapsuleCollider<T>& posed,
+                                                       const Vector3T<T>& direction, T distance)
+                    {
+                        return to_hit(sweep_capsule(
+                            from_vector(posed.center), Scalar(posed.half_height),
+                            Scalar(posed.radius), from_quaternion(posed.orientation),
+                            from_vector(direction), Scalar(distance), filter));
+                    };
+
+                    const Physics::CharacterMoveResult<T> result = Physics::move_character<T>(
+                        sweep, capsule, to_vector(displacement),
+                        normalize(to_vector(up)), settings);
+
+                    state.moved = true;
+                    state.position = from_vector(result.position);
+                    state.remaining = from_vector(result.remaining);
+                    state.ground_normal = from_vector(result.ground_normal);
+                    state.grounded = result.grounded;
+                    state.stepped = result.stepped;
+                    state.sweeps = result.sweeps;
+
+                    // Through the platform's own path, so a character pushes the crate it
+                    // walks into and is carried by the lift it stands on without either
+                    // being a case anything here handles.
+                    move_rigid_body(id, state.position, from_quaternion(body.orientation));
+                    return state;
                 }
 
                 SceneRayHit closest_point(const Vector3& point, Scalar max_distance,
@@ -3219,6 +3301,33 @@ namespace SushiEngine
                     converted.point = from_vector(hit.point);
                     converted.normal = from_vector(hit.normal);
                     converted.distance = Scalar(hit.distance);
+                    return converted;
+                }
+
+                /**
+                 * @brief A boundary hit back in solver terms, for a caller inside the seam.
+                 *
+                 * The inverse of @ref from_hit, and deliberately lossy: the proxy and the
+                 * payload do not survive, because what asks for this is the character
+                 * mover and it reads a hit's distance and normal and nothing else. A
+                 * conversion that carried them would be inventing an identity the
+                 * boundary type never had.
+                 *
+                 * It exists so a character's sweeps can go through the public
+                 * @ref sweep_capsule rather than reaching past it into `sweep_shape`.
+                 * Both directions cost one struct copy at `T == Scalar`, which is the
+                 * price of the character asking its questions the same way everything
+                 * else in the engine does.
+                 */
+                static Physics::RayHit<T> to_hit(const SceneRayHit& hit) noexcept
+                {
+                    Physics::RayHit<T> converted;
+                    if (!hit.hit)
+                        return converted;
+                    converted.hit = true;
+                    converted.point = to_vector(hit.point);
+                    converted.normal = to_vector(hit.normal);
+                    converted.distance = T(hit.distance);
                     return converted;
                 }
 

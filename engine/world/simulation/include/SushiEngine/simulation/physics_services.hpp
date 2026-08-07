@@ -452,6 +452,82 @@ namespace SushiEngine
             bool include_triggers = true;
         };
 
+        /** @brief What one resolved character move produced. */
+        struct CharacterMoveState
+        {
+            /**
+             * @brief Whether there was a kinematic body to move at all.
+             *
+             * False for an entity with no body, and for one whose body is dynamic —
+             * which is a real authoring mistake rather than an edge case: a character
+             * on a dynamic body would be shoved by the crates it walks into, and
+             * silently resolving the move anyway would leave the solver and the
+             * controller fighting over the same pose every tick.
+             */
+            bool moved = false;
+
+            /** @brief Where the capsule ended up. */
+            Vector3 position;
+
+            /** @brief Displacement the world would not allow, in world space. */
+            Vector3 remaining;
+
+            /** @brief The surface underneath, or the given up direction when airborne. */
+            Vector3 ground_normal{Vector3{0, 1, 0}};
+
+            /** @brief Whether a walkable surface is within the ground-snap distance. */
+            bool grounded = false;
+
+            /** @brief Whether this move climbed a step rather than being stopped by it. */
+            bool stepped = false;
+
+            /** @brief How many sweeps it cost; the loop is bounded and this is the readout. */
+            int sweeps = 0;
+        };
+
+        /**
+         * @brief Moving a capsule through the world the way a character moves.
+         *
+         * Its own service for §4.3's reason. A controller needs sweeps and a kinematic
+         * body and nothing else — not the solver, not the cooker, not cloth — and a
+         * gameplay system that moves a character has no business being able to reach
+         * `step()`.
+         */
+        class ICharacterService
+        {
+            public:
+                virtual ~ICharacterService() = default;
+
+                /**
+                 * @brief Resolves one tick of intended movement against the world.
+                 *
+                 * @p displacement is whatever the caller already decided — walk, jump,
+                 * fall, knockback, summed. This answers only what the world permits.
+                 * The controller holds no fall speed and no jump state, because owning
+                 * those would mean owning a gravity *direction*, and on a planet that
+                 * is a function of position.
+                 *
+                 * For the same reason @p up is an argument rather than world +Y: on a
+                 * sphere the local up at the equator is the pole's sideways, and a
+                 * slope test against a constant is right on a flat scene and quietly
+                 * wrong everywhere else.
+                 *
+                 * The resolved pose is written through the same path a moving platform
+                 * uses, so the character pushes what it walks into and is carried by
+                 * what it stands on without either being special-cased.
+                 *
+                 * @param id           The entity whose kinematic body to move.
+                 * @param character    Its capsule and movement limits.
+                 * @param displacement How far the caller wants to move it this tick.
+                 * @param up           Unit local up.
+                 * @return What the world allowed, and what it cost.
+                 */
+                virtual CharacterMoveState move_character(EntityId id,
+                                                          const CharacterParameters& character,
+                                                          const Vector3& displacement,
+                                                          const Vector3& up) = 0;
+        };
+
         /**
          * @brief What touched what this tick.
          *
@@ -900,6 +976,7 @@ namespace SushiEngine
                               public IVehicleService,
                               public IStaticGeometryService,
                               public ICollisionQueryService,
+                              public ICharacterService,
                               public IContactEventService,
                               public IPhysicsStepper
         {
