@@ -164,6 +164,12 @@ namespace SushiEngine
                         // `mesh` is left invalid on purpose: it is a handle from whichever
                         // session imported the file, and this one may have no renderer at all.
                         // `resolve_scene_assets` derives it from the three fields above.
+                        //
+                        // The Renderer is not optional decoration here: drawing gates on
+                        // `visible && has_shape && has_renderer`, and `create` deliberately
+                        // makes a bare entity with neither. Without this the geometry resolves
+                        // and reports no error, then never appears.
+                        world.set_has_renderer(id, true);
                         world.set_has_shape(id, true);
                         world.set_shape_parameters(id, shape);
                         break;
@@ -175,9 +181,8 @@ namespace SushiEngine
                         apply_camera(world, id, description, entity.camera);
                         break;
                     case PlannedComponent::None:
-                        // A pivot: a transform and nothing to draw. `create` attaches a
-                        // Renderer by default, so it has to be taken off explicitly.
-                        world.set_has_renderer(id, false);
+                        // A pivot: a transform and nothing to draw, which is exactly what
+                        // `create` already produces — no Renderer, no Shape. Nothing to do.
                         break;
                 }
             }

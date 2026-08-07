@@ -64,6 +64,29 @@ namespace
       ]
     })json";
 
+    // One pivot root over one node that actually carries geometry. The buffer is a data URI so
+    // the file stands on its own: unlike NESTED_GLTF this one has to produce a Shape, and a
+    // primitive pointing at a `.bin` that is not there would be a different test's failure.
+    const char* MESHED_GLTF = R"json({
+      "asset": { "version": "2.0" },
+      "scene": 0,
+      "scenes": [ { "nodes": [ 0 ] } ],
+      "nodes": [
+        { "name": "Body", "children": [ 1 ] },
+        { "name": "Part", "mesh": 0 }
+      ],
+      "meshes": [ { "name": "PartMesh", "primitives": [ { "attributes": { "POSITION": 0 } } ] } ],
+      "accessors": [ {
+        "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3",
+        "min": [0, 0, 0], "max": [1, 1, 0]
+      } ],
+      "bufferViews": [ { "buffer": 0, "byteOffset": 0, "byteLength": 36 } ],
+      "buffers": [ {
+        "byteLength": 36,
+        "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAA"
+      } ]
+    })json";
+
     // Writes `contents` to `name` in the working directory and removes it, its `.meta` and its
     // prefab on destruction, so a run leaves nothing behind and two runs cannot see each
     // other's files.
@@ -216,6 +239,30 @@ TEST(Integration_ModelPrefabOutput, ChangingTheSettingsChangesTheRevision)
     ASSERT_TRUE(SushiEngine::ModelImport::write_model_prefab(model.path(), report));
     const std::string after = read_document(model.prefab()).value("revision", std::string("b"));
     EXPECT_NE(before, after);
+}
+
+TEST(Integration_ModelPrefabOutput, EveryGeometryEntryCarriesARenderer)
+{
+    const ScratchModel model("sushiengine_prefab_output_renderer.gltf", MESHED_GLTF);
+
+    SushiEngine::Model::ModelImportReport report;
+    ASSERT_TRUE(SushiEngine::ModelImport::write_model_prefab(model.path(), report));
+
+    // The draw gate is `visible && has_shape && has_renderer` (runtime_simulation.cpp), so a
+    // Shape without a Renderer is geometry that resolves, reports no error, and never appears.
+    // Asserted over every shape-bearing entry rather than a named one because how a node's
+    // primitives are split into entities is the importer's business, not this test's.
+    const nlohmann::json entities = read_document(model.prefab())["entities"];
+    int shapes = 0;
+    for (const auto& entry : entities)
+    {
+        if (!entry.value("has_shape", false))
+            continue;
+        ++shapes;
+        EXPECT_TRUE(entry.value("has_renderer", false))
+            << "shape entity '" << entry.value("name", std::string()) << "' cannot draw";
+    }
+    EXPECT_GT(shapes, 0) << "the fixture's mesh produced no Shape at all";
 }
 
 TEST(Integration_ModelPrefabOutput, AMissingAssetFailsAndWritesNothing)

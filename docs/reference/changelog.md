@@ -91,6 +91,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   the pyramid instead of only persisting.
 
 ### Fixed
+- 2026-08-07 — Fixed an imported glTF appearing in the Hierarchy but never drawing: its geometry
+  entities got a Shape but no Renderer, and drawing gates on both, so every part resolved its
+  mesh and stayed invisible without an error.
 - 2026-08-07 — Fixed a nested entity losing its local transform through `apply_scene`, drifting
   hierarchies on every Save/Load and undo: `set_parent` preserves the world pose, so parenting
   after the transform divided the stored local out.
