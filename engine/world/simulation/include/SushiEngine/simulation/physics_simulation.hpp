@@ -1064,6 +1064,21 @@ namespace SushiEngine
                     return from_hit(hit);
                 }
 
+                /** @copydoc ICollisionQueryService::sweep_capsule */
+                SceneRayHit sweep_capsule(const Vector3& center, Scalar half_height, Scalar radius,
+                                          const Quaternion& orientation, const Vector3& direction,
+                                          Scalar distance,
+                                          const SceneQueryFilter& filter) const override
+                {
+                    refresh_query_index();
+                    const Physics::RayHit<T> hit = Physics::sweep_shape<T>(
+                        query_index_, [this](Physics::ProxyId id) { return query_shape(id); },
+                        Physics::make_capsule_shape<T>(to_vector(center), T(half_height),
+                                                       T(radius), to_quaternion(orientation)),
+                        normalize(to_vector(direction)), T(distance), to_query_filter(filter));
+                    return from_hit(hit);
+                }
+
                 SceneRayHit closest_point(const Vector3& point, Scalar max_distance,
                                           const SceneQueryFilter& filter) const override
                 {

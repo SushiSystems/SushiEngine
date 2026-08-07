@@ -767,6 +767,33 @@ namespace SushiEngine
                                                  const SceneQueryFilter& filter) const = 0;
 
                 /**
+                 * @brief Moves a capsule until something stops it.
+                 *
+                 * The sphere sweep with a segment through it, and the shape a character
+                 * controller asks about: a sphere wide enough to clear a doorway is too
+                 * tall to fit under a beam, and one short enough to fit is too narrow to
+                 * stand on a stair edge. The two are the same conservative advancement
+                 * over the same broadphase, so this is a different shape and not a
+                 * different query.
+                 *
+                 * The segment runs along the capsule's **local Y**, so @p orientation is
+                 * what leans it — and on a planet, what stands it up.
+                 *
+                 * @param center       The capsule's centre at the start of the sweep.
+                 * @param half_height  Half the segment's length, excluding the caps.
+                 * @param radius       The capsule's radius.
+                 * @param orientation  What the local Y axis is turned to.
+                 * @param direction    Direction of travel; normalized by the implementation.
+                 * @param distance     How far to try to move.
+                 * @param filter       Which entities to consider.
+                 * @return The first blocking hit; `distance` is the travel before contact.
+                 */
+                virtual SceneRayHit sweep_capsule(const Vector3& center, Scalar half_height,
+                                                  Scalar radius, const Quaternion& orientation,
+                                                  const Vector3& direction, Scalar distance,
+                                                  const SceneQueryFilter& filter) const = 0;
+
+                /**
                  * @brief The nearest surface point to @p point, within @p max_distance.
                  * @param point        The world point to measure from.
                  * @param max_distance How far to search.
