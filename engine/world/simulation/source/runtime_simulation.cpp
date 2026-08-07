@@ -290,6 +290,18 @@ namespace SushiEngine
                         return record != nullptr && record->visible;
                     }
 
+                    bool enabled(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && record->enabled;
+                    }
+
+                    bool enabled_in_hierarchy(EntityId id) const noexcept override
+                    {
+                        const Record* record = find(id);
+                        return record != nullptr && enabled_in_hierarchy(record);
+                    }
+
                     EntityId create(const std::string& display_name) override
                     {
                         // A truly empty entity: just the mandatory Transform/Orientation,
@@ -1976,6 +1988,16 @@ namespace SushiEngine
                         }
                     }
 
+                    void set_enabled(EntityId id, bool value) override
+                    {
+                        Record* record = find(id);
+                        if (record != nullptr)
+                        {
+                            record->enabled = value;
+                            extract();
+                        }
+                    }
+
                     EntityId parent(EntityId id) const noexcept override
                     {
                         const Record* record = find(id);
@@ -2049,6 +2071,12 @@ namespace SushiEngine
                         bool visible = true;
                         bool animated = false;
                         bool is_camera = false;
+                        // Unity's `activeSelf`: this entity's own on/off switch. Distinct from
+                        // `visible` (a render-only local flag, see below) — disabling an entity
+                        // stops physics, audio and render for it and its whole subtree
+                        // (`enabled_in_hierarchy`), where `visible=false` only stops its own
+                        // render contribution.
+                        bool enabled = true;
                         EntityId parent = NULL_ENTITY;
                         // Whether the Tint (Renderer) component is attached. Editor-created
                         // entities start with one; `set_has_renderer` toggles it. Cameras
@@ -2725,6 +2753,28 @@ namespace SushiEngine
                              --guard)
                         {
                             if (!current->visible)
+                                return false;
+                            current = current->parent == NULL_ENTITY ? nullptr
+                                                                     : find(current->parent);
+                        }
+                        return true;
+                    }
+
+                    /**
+                     * @brief Whether @p record and every ancestor above it are enabled.
+                     *
+                     * Unity's `activeInHierarchy`: physics, audio and render all gate existence
+                     * on this, not on @ref Record::enabled alone, which is local to one entity.
+                     * (Task 2 of this change retires the render-only `visible_in_hierarchy` this
+                     * was modeled on and folds its callers into this one instead.)
+                     */
+                    bool enabled_in_hierarchy(const Record* record) const noexcept
+                    {
+                        std::size_t guard = records_.size() + 1;
+                        for (const Record* current = record; current != nullptr && guard > 0;
+                             --guard)
+                        {
+                            if (!current->enabled)
                                 return false;
                             current = current->parent == NULL_ENTITY ? nullptr
                                                                      : find(current->parent);

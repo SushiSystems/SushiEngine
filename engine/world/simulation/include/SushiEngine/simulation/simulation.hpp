@@ -1208,6 +1208,16 @@ namespace SushiEngine
                 /** @brief Whether the entity is drawn. */
                 virtual bool visible(EntityId id) const noexcept = 0;
 
+                /** @brief Whether the entity's own flag is set (Unity's `activeSelf`). */
+                virtual bool enabled(EntityId id) const noexcept = 0;
+
+                /**
+                 * @brief Whether the entity and every ancestor above it are enabled (Unity's
+                 * `activeInHierarchy`). What physics, audio and render actually gate on — not
+                 * @ref enabled alone, which is local to this one entity.
+                 */
+                virtual bool enabled_in_hierarchy(EntityId id) const noexcept = 0;
+
                 /**
                  * @brief Creates a static entity at the origin and selects nothing.
                  *
@@ -1404,6 +1414,9 @@ namespace SushiEngine
 
                 /** @brief Sets whether the entity is drawn. */
                 virtual void set_visible(EntityId id, bool visible) = 0;
+
+                /** @brief Sets the entity's own flag (Unity's `activeSelf`). */
+                virtual void set_enabled(EntityId id, bool enabled) = 0;
 
                 /**
                  * @brief Whether the entity carries a Renderer component.

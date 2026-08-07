@@ -557,6 +557,9 @@ add_executable(sushiengine_functional_tests
     # still says, since the render passes (not this extraction step) are the ones that
     # ignore `kind` when `mesh` is set (static_mesh_authoring.md).
     integration/test_shape_render_extraction.cpp
+    # entity_lifecycle_system.md Phase 1: `enabled`/`activeInHierarchy` as a real, hierarchical
+    # on/off switch distinct from the render-only local `visible` flag.
+    integration/test_entity_lifecycle.cpp
     # A glTF file's node graph as the file states it: the ordering guarantee consumers index
     # by, the file's own node index as the join key, both forms a node may state its transform
     # in, and a punctual light and a camera (model_import.md §4.1).
