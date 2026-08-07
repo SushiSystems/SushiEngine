@@ -138,6 +138,17 @@ namespace SushiEngine
                 return value == "local" ? GizmoSpace::Local : GizmoSpace::World;
             }
 
+            const char* to_string(ProjectBrowserViewMode mode) noexcept
+            {
+                return mode == ProjectBrowserViewMode::List ? "list" : "grid";
+            }
+
+            ProjectBrowserViewMode project_view_mode_from(const std::string& value) noexcept
+            {
+                return value == "list" ? ProjectBrowserViewMode::List
+                                       : ProjectBrowserViewMode::Grid;
+            }
+
             // The open/closed window set, one key per PanelVisibility flag. Reads are
             // tolerant like the rest of the store, so a panel added later just keeps
             // its compiled-in default when an older file omits it.
@@ -643,6 +654,10 @@ namespace SushiEngine
                             json.value("gizmo_mode", to_string(preferences.gizmo_mode)));
                         preferences.gizmo_space = gizmo_space_from(
                             json.value("gizmo_space", to_string(preferences.gizmo_space)));
+                        preferences.project_view_mode = project_view_mode_from(
+                            json.value("project_view_mode", to_string(preferences.project_view_mode)));
+                        preferences.project_tile_size = json.value(
+                            "project_tile_size", preferences.project_tile_size);
                         // Input bindings are nested as a real object; hold their dumped text so
                         // the Preferences struct stays free of the JSON dependency.
                         if (json.contains("input_bindings") && json["input_bindings"].is_object())
@@ -675,6 +690,8 @@ namespace SushiEngine
                         json["game_view"] = game_view_to_json(preferences.game_view);
                         json["gizmo_mode"] = to_string(preferences.gizmo_mode);
                         json["gizmo_space"] = to_string(preferences.gizmo_space);
+                        json["project_view_mode"] = to_string(preferences.project_view_mode);
+                        json["project_tile_size"] = preferences.project_tile_size;
                         // Re-nest the bindings blob as an object when it parses; a corrupt or empty
                         // blob is simply omitted so the next load falls back to defaults.
                         if (!preferences.input_bindings.empty())

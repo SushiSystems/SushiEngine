@@ -47,6 +47,13 @@ namespace SushiEngine
             Classic
         };
 
+        /** @brief Which layout the Project window's browser draws: icon grid or compact rows. */
+        enum class ProjectBrowserViewMode
+        {
+            Grid,
+            List
+        };
+
         /**
          * @brief The user-configurable editor and project settings, persisted to disk.
          *
@@ -133,6 +140,12 @@ namespace SushiEngine
 
             /** @brief The gizmo's axis frame (Local/World), restored on start. */
             GizmoSpace gizmo_space = GizmoSpace::World;
+
+            /** @brief The Project window's browser layout, restored on start. */
+            ProjectBrowserViewMode project_view_mode = ProjectBrowserViewMode::Grid;
+
+            /** @brief The Project window's icon size in pixels, restored on start (Ctrl+scroll to zoom). */
+            float project_tile_size = 76.0f;
         };
 
         /**
