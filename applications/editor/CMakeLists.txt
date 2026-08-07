@@ -23,6 +23,11 @@ find_package(VulkanHeaders CONFIG REQUIRED)
 find_package(VulkanLoader CONFIG REQUIRED)
 # Header-only JSON for the editor's persisted Preferences and the .sushiscene format.
 find_package(nlohmann_json CONFIG REQUIRED)
+# stb_image for the Project panel's thumbnail decode path. The symbols themselves are already
+# compiled once into sushiengine_render (source/material/stb_impl.cpp) and this target already
+# links that library, so this only adds the header search path — sushiengine_render keeps its
+# own Stb_INCLUDE_DIR private, so the editor must resolve it again itself.
+find_package(Stb REQUIRED)
 
 set(IMGUI_DIR "${CMAKE_SOURCE_DIR}/third_party/imgui")
 if(NOT EXISTS "${IMGUI_DIR}/imgui.cpp")
@@ -60,6 +65,7 @@ add_executable(sushiengine_editor
     source/render/render_settings_panels.cpp
     source/project/project_panel.cpp
     source/project/project_picker.cpp
+    source/project/thumbnail_cache.cpp
     source/scene/scene_commands.cpp
     source/scene/hierarchy_panel.cpp
     source/scene/inspector_panel.cpp
@@ -104,7 +110,11 @@ target_link_libraries(sushiengine_editor PRIVATE
     sushiengine_platform
     sushiengine_input_backend
     sushiengine_audio_backend
+    sushiengine_imaging
     nlohmann_json::nlohmann_json)
+# Stb_INCLUDE_DIR is PRIVATE on sushiengine_render, so it does not arrive transitively; the
+# thumbnail cache's stb_image.h include needs it resolved here directly.
+target_include_directories(sushiengine_editor PRIVATE "${Stb_INCLUDE_DIR}")
 # The bake surface cooks, and cooking needs the pipeline plus the neutral glTF mesh importer
 # it is wired to through the `MeshLoader` seam — the editor is the consumer that owns that
 # seam, which is why `sushiengine_physics_cooking` itself links neither cgltf nor this target.

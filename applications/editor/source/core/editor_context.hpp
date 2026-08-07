@@ -82,6 +82,9 @@ namespace SushiEngine
         /** @brief The live editor audio system, owned by main() (see audio/audio_editor_system.hpp). */
         class AudioEditorSystem;
 
+        /** @brief The Project panel's image thumbnail pipeline, owned by main() (see project/thumbnail_cache.hpp). */
+        class ThumbnailCache;
+
         /**
          * @brief Editor playback state, mirroring a game engine's play controls.
          *
@@ -262,6 +265,11 @@ namespace SushiEngine
             // flow) can queue it for cooking without owning a worker thread itself. Null in
             // a headless editor, which is why every use is guarded.
             Authoring::CookBakeState* cook_bake_state = nullptr;
+
+            // The Project panel's image thumbnail pipeline, owned by main() and injected here
+            // so the Grid view can ask for a tile's real thumbnail texture. Null in a headless
+            // editor, which is why every use is guarded.
+            ThumbnailCache* thumbnail_cache = nullptr;
 
             // The asset the Cooking Override modal is open for; empty means closed. Staged
             // here rather than as a modal-local static so a right-click on a second asset

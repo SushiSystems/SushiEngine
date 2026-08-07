@@ -62,6 +62,7 @@
 #include "environment/weather_panel.hpp"
 #include "render/lighting_panel.hpp"
 #include "project/project_panel.hpp"
+#include "project/thumbnail_cache.hpp"
 #include "project/project_picker.hpp"
 #include "render/render_settings_panels.hpp"
 #include "core/preferences_window.hpp"
@@ -345,6 +346,15 @@ int main(int argc, char** argv)
         // an artist having to find and press the Bake panel's button for every asset.
         context.cook_bake_state = &cook_bake_state;
 
+        // The Project panel's real-image-thumbnail pipeline. Declared after `imgui` and
+        // `renderer` (both already constructed above) so it is destroyed before either of
+        // them, in the normal C++ stack-unwind order — its worker thread and every resident
+        // Vulkan resource must be torn down while the device and allocator they were built
+        // against are still alive.
+        SushiEngine::Editor::ThumbnailCache thumbnail_cache(renderer->native_handles(), imgui,
+                                                             context.console);
+        context.thumbnail_cache = &thumbnail_cache;
+
         // The vehicle under authoring (§11). A document rather than a selected
         // entity's component, because there is no `Vehicle` component in the ECS
         // yet -- a vehicle reaches a scene through `VehicleInstanceT` against a
@@ -562,6 +572,8 @@ int main(int argc, char** argv)
                                  game->vertical_fov_radians, game->near_plane, game->far_plane);
 
             imgui.new_frame();
+
+            context.thumbnail_cache->update();
 
             // Global undo/redo/save shortcuts, resolved through the EditorGlobal input
             // context (rebindable, persisted). The mapper's capture gate already suppresses
