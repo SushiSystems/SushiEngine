@@ -32,8 +32,11 @@ are repaired, and what remains becomes one consolidated backlog.
   Bodies are past-tense bullets.
 - `docs/reference/changelog.md` gains an entry under `## [Unreleased]` for the user-visible
   parts, each bullet at most 240 characters.
-- Measured baseline, 2026-08-07: 836 unique cited paths, 116 alive, 525 suffix-repairable, 100
-  base-name-repairable, 24 ambiguous, 71 unresolved.
+- Measured baseline, 2026-08-07, as `check_design_citations.py` counts it — globally unique
+  paths, so a path cited by three documents counts once: 680 cited paths, 63 alive, 518
+  repairable, 13 ambiguous, 86 unresolved. The figure 836 that an earlier probe produced is the
+  sum of each document's own unique count, which counts a shared path once per document; it
+  measures citation sites rather than paths and is not this check's denominator.
 
 ---
 
