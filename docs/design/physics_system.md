@@ -1,8 +1,8 @@
 # Physics System — unified XPBD, cooking, and deformable vehicles (`SushiEngine::Physics`)
 
-**Status:** in progress, P0 to P7 and PX complete, P8 under way, P9 half done — kinematic bodies
-and the character controller landed 2026-08-07 (P9-A and P9-B, §16.46 and §16.47); the event sink,
-the rollback snapshot and the networking harness are not started (§16). P1, P2, P6
+**Status:** in progress, P0 to P7 and PX complete, P8 under way, P9 three-fifths done — kinematic
+bodies, the character controller and the event sink landed 2026-08-07 (P9-A to P9-C, §16.46 to
+§16.48); the rollback snapshot and the networking harness are not started (§16). P1, P2, P6
 and P7's §13.1 acceptance numbers are built but unmeasured: every one of them is timed against a
 desktop GPU, and SushiRuntime finds none on the machine this is developed on (§16.35).
 
@@ -5453,6 +5453,60 @@ starting to pass. They are the two named follow-ups in `docs/design/remaining_wo
 in this row.
 
 **Fourteen tests, nine unit and five integration, all on the CPU backend. P9-B needed no GPU.**
+
+### 16.48 P9-C: the event sink, and the audio bug it walked into
+
+`ContactEvent` has reached the boundary since P1, carrying the phase, the world point, the normal
+and the total normal impulse — the quantity its own documentation calls what separates a scrape
+from a crash. **Nothing outside the test suite read it.** P9-C is the push half and, more to the
+point, the first real reader.
+
+**The filter is declared at registration, not applied inside the listener**, and the reason is
+arithmetic rather than taste: a settled stack of ten crates emits nine `Persist` events every tick
+without moving, which at 60 Hz is 540 calls a second, and a listener that discards them itself pays
+that cost once per listener. `PhysicsEventFilter` carries the phases, an impulse floor, a per-pair
+cooldown and a joint-break switch; the scene evaluates it once and simply does not make the call.
+The cooldown is charged only by an event that passed every other test, so a scrape below the floor
+cannot be what silences the crash a moment later, and it runs on *simulated* time so a replay of
+the same ticks suppresses the same events.
+
+Dispatch runs immediately after `build_contact_events`, on the poses the tick settled on. A
+listener scheduled outside the tick would have to know where the physics sits in the frame, because
+`contact_events()` is valid only until the next step — which makes the schedule every listener's
+problem instead of nobody's.
+
+**Shipping only the interface would have added a second unread thing on top of the first**, which
+is the failure class the 2026-08-07 corpus audit spent a session cataloguing. So the row also
+carries `ImpactResponse` and the engine's own listener for it: two impulse thresholds with a
+straight ramp between them, a per-entity cooldown, and switches for audio and particles. An author
+gets an impact sound by filling in a component. Both sides of a contact respond independently — a
+crate hitting a bell should ring the bell and thud the crate, and each has its own thresholds.
+
+**And it walked into a live audio bug.** A non-looping voice frees itself when it ends;
+`engine/domain/audio/include/SushiEngine/audio/audio_scene.hpp` dropped the mapping and, on the
+very next frame, saw an emitter still marked playing with no live voice — and started it again.
+Every one-shot left playing was on a permanent loop, reachable today by ticking Playing on a
+one-shot emitter in the editor. Fixed here because impact audio cannot work over it: a finished
+emitter is now remembered and left alone, and plays again when a **trigger count** differs from the
+one last seen. A counter rather than a false-then-true edge, because the audio scene sees one value
+per frame and an edge written and cleared between two of them is an edge nothing observes. It is
+carried through both audio paths, which build their snapshots separately.
+
+Two smaller findings are recorded rather than fixed. `AudioEmitterParameters::looping` never
+reaches the audio system at all — the extract copies thirteen fields and not that one, and
+`EmitterSnapshot` has no such field, because whether a sound loops is decided by the asset. And
+`ParticleEmitterParameters` carries only `seed` and `playing`, so there is no burst in the emitter
+model to ask for; the listener's timed stop is the interim shape and the emitter model is where a
+burst belongs. Both are rows in `docs/design/remaining_work.md`.
+
+**Nine tests**: four holding the scene to the declared filter, each paired with an unfiltered
+control so a run where nothing landed fails on the control rather than passing on the silence it
+was meant to prove; two driving a real emitter from a real landing through the live world; and the
+three the sink's own registration and removal need. All on the CPU backend. **P9-C needed no GPU.**
+
+The demo scene the row's acceptance names is **not** delivered: it needs an impact sound and a
+spark material, and a scene built from silent, invisible placeholders would close the clause in
+name only. The listener and its tests are what this row delivers, and the scene is an asset task.
 
 ---
 
