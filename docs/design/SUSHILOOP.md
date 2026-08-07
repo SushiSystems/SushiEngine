@@ -34,7 +34,7 @@ Game code (C++ ECS systems)          — the user writes this; one SYCL translat
 SushiLoop core
   - Time     : fixed outer tick, deterministic physics sub-stepping, render interpolation
   - Sim      : the ECS world + Schedule (already exists) + XPBD physics on the GPU
-  - Snapshot : delta / dirty-chunk recording, and rewind for rollback
+  - Snapshot : whole-chunk recording, and rewind for rollback
   - Net      : server-authoritative, with client-side prediction and reconciliation
   - Space    : WGS84 / ECEF coordinates with a floating origin, in double precision
         |

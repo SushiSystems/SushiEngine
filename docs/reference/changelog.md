@@ -91,8 +91,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   the pyramid instead of only persisting.
 
 ### Fixed
-- 2026-08-07 — Corrected eleven design documents' status lines against the tree and withdrew four
-  claims it does not carry: SushiLoop's Windows continuous integration, chunk-delta recording and
+- 2026-08-07 — Corrected seven status lines across eleven design documents and withdrew four claims
+  the tree does not carry: SushiLoop's Windows continuous integration, chunk-delta recording and
   real sockets, plus model import's colliders.
 - 2026-08-07 — Corrected the design corpus's understated phases: physics PX, VFX beams and SDF
   collision are complete, and model import, the prefab system, planetary terrain and the

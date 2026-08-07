@@ -740,7 +740,7 @@ No mocks — everything runs against the real runtime, per house style.
   (host-uploaded `GpuParticle` buffer); built-in Fire/Sparks/Smoke library; editor GameObject ▸
   Particle Emitter + Add-Component + Inspector (effect/seed/playing) + `.sushiscene` persistence.
 - ✅ **VFX2 — Transparency & lit particles.** Every sub-item below is built; the GPU visual check
-  VFX2c and VFX2d await is tracked in §13, the same as VFX7's.
+  VFX2c and the volumetric-shadow receive await is tracked in §13, the same as VFX7's.
   - ✅ Per-blend bucketing (additive/premultiplied vs true-alpha) with two draws + a premultiplied
     "over" alpha pipeline.
   - ✅ GPU **bitonic back-to-front depth-sort** of the alpha bucket (`ParticleSortPass` +

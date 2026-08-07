@@ -837,9 +837,9 @@ Culling** panel authors `RenderSettings::gpu_culling`.
    runtime), a task shader (`meshlet.task`) frustum-culls each mesh's clusters and a mesh shader
    (`meshlet.mesh`) emits the survivors camera-relative into the shared `pbr.frag` — used in
    **both** the depth prepass and the opaque pass so culling stays consistent. The pipeline factory
-   gained a `create_mesh` path (task+mesh+fragment, no vertex input) and `QualityParameters`
-   gained an Ultra-only `meshlets` flag. It is purely additive and device-gated: where mesh
-   shaders are absent, the tier is below Ultra, or an object is selected, the geometry falls back
+   gained a `create_mesh` path (task+mesh+fragment, no vertex input) and `QualityParameters` gained
+   an Ultra-only `meshlets` flag. It is purely additive and device-gated: where mesh shaders are
+   absent, the tier is below Ultra, or an object is selected, the same geometry falls back through
    the GPU-driven MDI or classic path (the layering is meshlets → GPU-driven MDI → classic), so no
    hardware is left unable to render. The task shader currently does per-meshlet **frustum** culling
    only; per-meshlet hierarchical-Z (HZB) occlusion culling plus normal-cone back-face culling (the

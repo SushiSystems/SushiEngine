@@ -36,8 +36,8 @@ pointer from each into the file that describes the mechanism.
 - **SushiLoop M4 — Network layer (done).** `Loop::Net` (see
   [the net layer](world.md#11-sushiloop-net-loopback-reconciliation-m4)): a loopback-only,
   in-process client/server command channel (`LoopbackChannel<Command>`) and server-authoritative
-  reconciliation (`net::reconcile`) built on M3's `RollbackBuffer` unchanged, plus deterministic
-  entity identity (`net::make_network_id`) so client and server agree on a spawned entity's id
+  reconciliation (`Net::reconcile`) built on M3's `RollbackBuffer` unchanged, plus deterministic
+  entity identity (`Net::make_network_id`) so client and server agree on a spawned entity's id
   without a matching round-trip. No real sockets/threads/serialization — that is explicitly out
   of scope, same as the whole-chunk capture scoping in M3.
 
