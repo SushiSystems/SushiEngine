@@ -2045,7 +2045,23 @@ namespace SushiEngine
                         // rather than leaving it to be reinterpreted in the new
                         // parent's space (which is what jumps it).
                         const EntityTransform child_world = world_transform(child);
+                        const bool parent_changed = child_record->parent != new_parent;
                         child_record->parent = new_parent;
+                        // Gather membership is hierarchy-dependent since enabled_in_hierarchy()
+                        // started gating it, so a reparent can add or remove a subtree from the
+                        // solver without any component or flag on it changing: moving a
+                        // physics-carrying entity under a disabled parent has to take its body
+                        // out, and moving it back out has to put it back. Same reasoning and same
+                        // four flags as set_enabled() above — we cannot cheaply know which
+                        // descendants carry which physics-adjacent components, and the O(1)
+                        // flag-set is dwarfed by the O(n) gather it triggers.
+                        if (parent_changed)
+                        {
+                            physics_dirty_ = true;
+                            soft_dirty_ = true;
+                            cloth_dirty_ = true;
+                            vehicles_dirty_ = true;
+                        }
                         const EntityTransform parent_world =
                             new_parent != NULL_ENTITY ? world_transform(new_parent)
                                                        : EntityTransform{};

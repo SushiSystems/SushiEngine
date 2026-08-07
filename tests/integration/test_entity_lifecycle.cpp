@@ -22,9 +22,12 @@
 /**************************************************************************/
 
 // entity_lifecycle_system.md Phase 1: `enabled` (Unity's `activeSelf`/`activeInHierarchy`) is a
-// real, hierarchical on/off switch, distinct from the render-only local `visible` flag. This
-// file covers the flag's own semantics; render, physics and audio gating on it are covered in
-// their own tests below and, for physics, in the entities-and-transforms cases further down.
+// real, hierarchical on/off switch, distinct from the render-only local `visible` flag. This file
+// covers the flag's own semantics, the render gate in `extract()`, and the physics gate on the
+// rigid-body gather. Audio is not covered here: no test target links `applications/editor`, so
+// `AudioEditorSystem`'s gate has no harness to extend and is verified by hand.
+// `enabled`'s persistence lives with the round-trip it rides on, in
+// `test_scene_serializer_roundtrip.cpp`.
 
 #include <gtest/gtest.h>
 
@@ -47,6 +50,20 @@ namespace
             if (instance.id == id)
                 return &instance;
         return nullptr;
+    }
+
+    /** @brief A box at (0, 5, 0) carrying a rigid body, the shape the physics cases need. */
+    EntityId create_physics_box(IWorldEditor& world, const char* name)
+    {
+        const EntityId id = world.create_box(name);
+        EntityTransform transform = world.transform(id);
+        transform.position = Vector3{0, 5, 0};
+        world.set_transform(id, transform);
+        PhysicsBodyParameters body;
+        body.density = Scalar(1000);
+        world.set_has_physics_body(id, true);
+        world.set_physics_body_parameters(id, body);
+        return id;
     }
 } // namespace
 
@@ -200,14 +217,7 @@ TEST(Integration_EntityLifecycle, DisablingAnEntityRemovesItsRigidBodyFromPhysic
     IWorldEditor& world = simulation->world();
     clear_world(world);
 
-    const EntityId id = world.create_box("Box");
-    EntityTransform transform = world.transform(id);
-    transform.position = Vector3{0, 5, 0};
-    world.set_transform(id, transform);
-    PhysicsBodyParameters body;
-    body.density = Scalar(1000);
-    world.set_has_physics_body(id, true);
-    world.set_physics_body_parameters(id, body);
+    const EntityId id = create_physics_box(world, "Box");
 
     simulation->tick(simulation->fixed_dt_seconds());
     RigidDebugState state;
@@ -223,4 +233,69 @@ TEST(Integration_EntityLifecycle, DisablingAnEntityRemovesItsRigidBodyFromPhysic
     simulation->tick(simulation->fixed_dt_seconds());
     EXPECT_TRUE(world.physics_body_debug(id, state))
         << "re-enabling must re-admit the body to the solver";
+}
+
+TEST(Integration_EntityLifecycle, DisablingAParentRemovesItsChildsRigidBodyFromPhysics)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    // The toggled entity carries no physics component at all -- it is a bare pivot, the shape
+    // an imported model's root has. That is the whole point: `set_enabled` cannot decide which
+    // gathers to invalidate from the toggled record's own `has_physics_body`/`has_cloth`/...
+    // flags, because the entity whose body leaves the solver is a *descendant*. It marks all
+    // four unconditionally for exactly this case.
+    const EntityId root = world.create("Rig");
+    const EntityId part = create_physics_box(world, "Part");
+    world.set_parent(part, root);
+    ASSERT_FALSE(world.has_physics_body(root));
+
+    simulation->tick(simulation->fixed_dt_seconds());
+    RigidDebugState state;
+    ASSERT_TRUE(world.physics_body_debug(part, state))
+        << "an enabled child with a physics body must be tracked by the solver";
+
+    world.set_enabled(root, false);
+    simulation->tick(simulation->fixed_dt_seconds());
+    EXPECT_FALSE(world.physics_body_debug(part, state))
+        << "a child under a disabled parent kept its rigid body in the solver";
+
+    world.set_enabled(root, true);
+    simulation->tick(simulation->fixed_dt_seconds());
+    EXPECT_TRUE(world.physics_body_debug(part, state))
+        << "re-enabling the parent must re-admit the child's body";
+}
+
+TEST(Integration_EntityLifecycle, ReparentingIntoADisabledSubtreeRemovesTheRigidBody)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    // Nothing about the body changes here -- not its flag, not its components. Only its parent
+    // does, and since `enabled_in_hierarchy` gates the gather, the parent chain is now part of
+    // what decides membership. `set_parent` has to invalidate the gathers for the same reason
+    // `set_enabled` does, or the body sits stale in the solver until an unrelated edit happens
+    // to dirty the cache.
+    const EntityId rig = world.create("Rig");
+    world.set_enabled(rig, false);
+    const EntityId body = create_physics_box(world, "Crate");
+
+    simulation->tick(simulation->fixed_dt_seconds());
+    RigidDebugState state;
+    ASSERT_TRUE(world.physics_body_debug(body, state))
+        << "a root-level enabled body must be tracked by the solver";
+
+    world.set_parent(body, rig);
+    simulation->tick(simulation->fixed_dt_seconds());
+    EXPECT_FALSE(world.physics_body_debug(body, state))
+        << "reparenting under a disabled entity left the body in the solver";
+
+    world.set_parent(body, NULL_ENTITY);
+    simulation->tick(simulation->fixed_dt_seconds());
+    EXPECT_TRUE(world.physics_body_debug(body, state))
+        << "reparenting back out of the disabled subtree must re-admit the body";
 }
