@@ -672,6 +672,21 @@ namespace SushiEngine
             ImGui::SameLine();
             ImGui::BeginChild("project_grid", ImVec2(0.0f, 0.0f), true);
 
+            // Ctrl+scroll zooms the icon grid, Unity-style; consuming the wheel value here
+            // (zeroing it) stops ImGui's own child-scroll logic from also scrolling the list
+            // on the same wheel event later this frame.
+            if (context.preferences.project_view_mode == Authoring::ProjectBrowserViewMode::Grid &&
+                ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl && ImGui::GetIO().MouseWheel != 0.0f)
+            {
+                constexpr float MIN_TILE_SIZE = 48.0f;
+                constexpr float MAX_TILE_SIZE = 160.0f;
+                constexpr float ZOOM_STEP = 8.0f;
+                context.preferences.project_tile_size = std::clamp(
+                    context.preferences.project_tile_size + ImGui::GetIO().MouseWheel * ZOOM_STEP,
+                    MIN_TILE_SIZE, MAX_TILE_SIZE);
+                ImGui::GetIO().MouseWheel = 0.0f;
+            }
+
             ImGui::SetNextItemWidth(-FLT_MIN);
             ImGui::InputTextWithHint("##project_filter", "Search...", &context.project_filter);
             const std::string lower_filter = to_lower(context.project_filter);
