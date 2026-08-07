@@ -366,8 +366,9 @@ namespace SushiEngine
                 // RuntimeSimulation's class doc comment), so those are cleared before the prefab
                 // is applied -- this renderer must draw exactly what the prefab document
                 // resolves to, nothing else. No Vulkan resource has been touched yet at this
-                // point, so every early return below (through the primitive-count check) needs
-                // no cleanup beyond `scratch`'s own destructor running at scope exit.
+                // point, so every return between here and the end of this function -- whether
+                // an ordinary `return false;` or an exception caught by the try/catch below --
+                // needs no cleanup beyond `scratch`'s own destructor running at scope exit.
                 std::unique_ptr<Simulation::ISimulation> scratch =
                     SushiEngine::Simulation::create_simulation();
                 Simulation::IWorldEditor& world = scratch->world();
@@ -387,6 +388,29 @@ namespace SushiEngine
                     return false;
                 }
 
+                // render_thumbnail's documented contract (prefab_thumbnail_renderer.hpp) is to
+                // return false on any load or render failure, including a Vulkan error --
+                // never to throw. That exposure starts here, not just at the Vulkan calls
+                // below: `apply_prefab`/`resolve_scene_assets` walk the document through
+                // nlohmann's `j.value(key, default)` calls, which throw `json::type_error`
+                // on a syntactically valid but wrongly-typed field (a completely realistic
+                // corrupt-.sushiprefab case) rather than returning a default. So the whole
+                // rest of this function -- prefab application, asset resolution, target
+                // creation, and the render/readback sequence -- is one try/catch that
+                // converts any such throw into a `false` return, cleaning up whatever
+                // Vulkan-call-sequence resource was already created (mirroring Phase 3a's
+                // VulkanMeshThumbnailRenderer::render_thumbnail's own catch exactly). No
+                // Vulkan resource exists yet at the point this try block opens -- `scratch`'s
+                // own destructor is all any throw before ensure_targets() needs -- and
+                // ensure_targets() itself only ever leaves this renderer's persistent,
+                // member-owned targets in a state destroy_targets() (called from the
+                // destructor) already knows how to unwind correctly on a partial create.
+                VkCommandBuffer command = VK_NULL_HANDLE;
+                VkBuffer readback_buffer = VK_NULL_HANDLE;
+                VmaAllocation readback_allocation = VK_NULL_HANDLE;
+                VkFence fence = VK_NULL_HANDLE;
+                try
+                {
                 const Simulation::EntityId root =
                     Scene::apply_prefab(world, document, Simulation::NULL_ENTITY);
                 if (root == Simulation::NULL_ENTITY)
@@ -436,18 +460,6 @@ namespace SushiEngine
                         bounds, static_cast<float>(width) / static_cast<float>(height));
                 Matrix4 view_projection = mul(camera.projection, camera.view);
 
-                // render_thumbnail's documented contract (prefab_thumbnail_renderer.hpp) is to
-                // return false on any load or render failure, including a Vulkan error -- never
-                // to throw. Every Vulkan::check() below this point can throw, so the whole
-                // render/readback sequence is wrapped in a try/catch that converts any such
-                // throw into a false return, cleaning up whatever of these was already created
-                // (mirroring Phase 3a's VulkanMeshThumbnailRenderer::render_thumbnail exactly).
-                VkCommandBuffer command = VK_NULL_HANDLE;
-                VkBuffer readback_buffer = VK_NULL_HANDLE;
-                VmaAllocation readback_allocation = VK_NULL_HANDLE;
-                VkFence fence = VK_NULL_HANDLE;
-                try
-                {
                 VkCommandBufferAllocateInfo command_alloc{};
                 command_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
                 command_alloc.commandPool = command_pool_;
