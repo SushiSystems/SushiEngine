@@ -186,6 +186,10 @@ ALLOWED = {
     "rng.hpp": (
         "deleted", "renamed to core/random_number_generator.hpp; repository_restructure.md §3 and "
         "§8 cite the old name to record the rename"),
+    "applications/editor/layout/default_layout.ini": (
+        "deleted", "a path that never existed; repository_restructure.md §5 planned to ship it as "
+        "the first-run default, and the same paragraph records that the default is applied in code "
+        "by build_default_layout instead, so no layout file ships"),
     "render/probe/atmosphere_main.cpp": (
         "deleted", "moved to tools/probes/atmosphere/main.cpp; repository_restructure.md §3 cites "
         "the pre-move location because the move is what makes presentation->world zero edges"),

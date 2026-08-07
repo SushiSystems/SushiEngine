@@ -132,11 +132,12 @@ number generator. The fix is the descent already planned — `rng.hpp` includes 
 same-tier and legal, and the enforcement would have had nothing to say about it.
 
 `engine/domain/material/include/SushiEngine/material/material.hpp` must be split before that move:
-`engine/domain/environment/include/SushiEngine/environment/atmosphere_nest.hpp:1687` defines
+`engine/domain/environment/include/SushiEngine/environment/atmosphere_nest.hpp:1689` defines
 `IAtmosphereMirror`, which `IAssetLibrary`
-(`engine/domain/material/include/SushiEngine/material/material.hpp`) inherits. `IAssetLibrary` stays
-in render as `engine/presentation/render/source/material/asset_library.hpp`. That is a code edit,
-not a move, so it belongs to phase 2.
+(`engine/presentation/render/include/SushiEngine/render/asset_library_interface.hpp:64`) inherits.
+`IAssetLibrary` stays in render, as
+`engine/presentation/render/include/SushiEngine/render/asset_library_interface.hpp`. That is a code
+edit, not a move, so it belongs to phase 2.
 
 Name the descended aggregate `Environment::Description` — `SushiEngine::World`
 collides with the ECS class and `SushiEngine::Scene` is taken by the serializer.
@@ -234,10 +235,11 @@ Two rows look like moves but are code edits, and are therefore deferred to phase
 Deleted: `cooked/`, `editor/serialization/`, `editor/window/` (all three verified
 empty on disk), `docs/LICENSE`, `docs/api-site/`, and `include/` itself once drained.
 `imgui.ini` is **not** tracked by git — nothing to remove; the fix is to set
-`io.IniFilename` under `Platform::user_data_directory()` and give first run a default
-layout. **As built:** the pin landed (`applications/editor/source/main.cpp`) but the
-first-run default is applied in code by `build_default_layout`, so no layout file ships
-with the editor and the planned `.ini` asset was never produced.
+`io.IniFilename` under `Platform::user_data_directory()` and ship
+`applications/editor/layout/default_layout.ini` as the first-run default. **As built:** the
+pin landed (`applications/editor/source/main.cpp`), but the planned
+`applications/editor/layout/default_layout.ini` asset was never produced — first run applies
+the default in code through `build_default_layout`, so no layout file ships with the editor.
 
 Tests move mechanically in phase 1; the `functional/` level is dropped because every
 test in the tree is functional and the three subdirectories already match the three

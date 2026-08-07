@@ -116,7 +116,7 @@ in §16 is scoped against it.
 | `engine/domain/physics/include/SushiEngine/physics/solver/xpbd_solver.hpp` | `XpbdDistanceProjectionT<T>` (the correct generalized-inverse-mass projection with angular coupling) and `XpbdSolver<Constraint>`, which graph-colours the constraint set, uploads one buffer per colour, and compiles a replayable SushiRuntime graph of `iterations × colours` nodes. |
 | `engine/domain/physics/include/SushiEngine/physics/solver/graph_coloring.hpp` | Greedy edge colouring over bodies. Correct, deterministic, host-side, `O(constraints × colours)`. |
 | `engine/domain/physics/include/SushiEngine/physics/scene/physics_world.hpp` | `PhysicsWorld<Constraint>`: register bodies/constraints, `finalize()` once, then `step()` or the split `predict_substep_field()` / `solve_constraints()` / `derive_velocity()` trio that lets two worlds run in lockstep. |
-| `collision.hpp` | Sphere, plane, axis-aligned box, oriented box; sphere-plane, sphere-sphere, box-sphere, box-plane, oriented-box-plane, oriented-box-sphere, and oriented-box-oriented-box by separating-axis test. Pure, unit-tested. |
+| `collision.hpp` (since split — see §16) | Sphere, plane, axis-aligned box, oriented box; sphere-plane, sphere-sphere, box-sphere, box-plane, oriented-box-plane, oriented-box-sphere, and oriented-box-oriented-box by separating-axis test. Pure, unit-tested. |
 | `engine/domain/physics/include/SushiEngine/physics/collision/broadphase.hpp` | `Aabb<T>`, overlap test, and `sweep_and_prune()` on the X axis. |
 | `engine/domain/physics/include/SushiEngine/physics/collision/contact_solver.hpp` | `ContactBody<T>` — a shape plus live pointers into whichever buffer owns the body — generalized inverse mass with the angular term, single-point two-way resolution, and plane resolution. |
 | `engine/domain/physics/include/SushiEngine/physics/soft/cloth.hpp` / `engine/domain/physics/include/SushiEngine/physics/soft/soft_body.hpp` | Topology builders: a 2D grid and a 3D structural+shear lattice of distance constraints. No new solver, exactly as intended. |
@@ -282,7 +282,7 @@ module allowed to be slow, allocate freely, and depend on `geometry/`.
 | Module | Owns exactly | Never |
 |---|---|---|
 | `physics/core` | Body state, handles, `PhysicsMaterial`, `PhysicsConfiguration`, the precision policy. | Knows about shapes or solvers. |
-| `physics/geometry` | Shape value types, signed-distance sampling, bounding-volume hierarchy traversal, mass-property computation. | Knows about bodies or constraints. Pure geometry, pure functions, unit-testable in isolation — the property `collision.hpp` already has and must keep. |
+| `physics/geometry` | Shape value types, signed-distance sampling, bounding-volume hierarchy traversal, mass-property computation. | Knows about bodies or constraints. Pure geometry, pure functions, unit-testable in isolation — the property the pre-split `collision.hpp` already had and must keep. |
 | `physics/collision` | Turning a set of shapes and poses into a sorted set of contact manifolds. | Moves anything. It reports; it does not resolve. |
 | `physics/solver` | Turning a set of constraints and manifolds into corrected positions and velocities. | Knows what a shape is, or where a contact came from. |
 | `physics/constraints` | Joint descriptors and their projections. | Owns bodies. |
@@ -1616,7 +1616,7 @@ convention (`docs/architecture/domain-physics.md` §1.1).
 
 ## §15 Testing strategy
 
-Extending the existing `tests/functional/{unit,integration,regression}` layout and `se test --suite
+Extending the existing `tests/{unit,integration,regression}` layout and `se test --suite
 functional`.
 
 1. **Unit — geometry and math.** Every narrowphase routine against analytic answers, including the
@@ -4823,7 +4823,7 @@ was "a runtime ask, not something to guess at here," which had stopped being tru
 under `physics/core` naming `SushiRuntime::Core::RunReport`, per §17.5's one-adapter rule) groups a
 run report's rows by name into `PhysicsStageTimings::node_timings`, the same grouping
 `samples/physics/soft_body_budget.cpp` already did by hand with a `std::map`.
-`RuntimeGraphBuilder:: refresh_statistics()` now calls it when profiling is on; the Physics panel's
+`RuntimeGraphBuilder::refresh_statistics()` now calls it when profiling is on; the Physics panel's
 "Solve, by node" section draws one row per kind that actually dispatched this tick, skipping the
 rest rather than drawing a false zero.
 
@@ -4876,7 +4876,7 @@ seam at all — not performance.
 **`samples/physics/soft_body_half_storage_budget.cpp` is the measurement §6.5 asks for, and it does
 not render a verdict.** It steps the identical lattice scene twice, once with plain `float` storage
 and once through the narrow/widen seam, and prints the mean/best wall-clock cost of each and their
-difference. Its own comment states the asymmetry a reader must not miss: ` FiniteElementModel` is
+difference. Its own comment states the asymmetry a reader must not miss: `FiniteElementModel` is
 the host-only reference solver and is not yet a constraint kind in the device graph (that is
 §16.42's SoA/device-collision gap, not this one's), so this measures a single-threaded host loop's
 conversion cost, not the device-buffer bandwidth saving §6.5 is actually written about. A positive
@@ -5083,7 +5083,7 @@ parked joint's motor or limits unparks it first, on the same "a disturbance wake
 losing the joint's state, matching `add_joint`'s own reporting convention.
 
 **Opt-in, off by default, and live rather than construction-time** —
-`IPhysicsStepper:: set_park_sleeping_joints_requested`, mirroring `set_profiling_requested`'s shape
+`IPhysicsStepper::set_park_sleeping_joints_requested`, mirroring `set_profiling_requested`'s shape
 but not its "before the scene first steps" restriction, since parking is tick-state, not solve-graph
 construction. `tests/integration/test_joint_parking.cpp` (four tests, `se test` green, no
 regressions across the 1364-test functional suite beyond two pre-existing failures in unrelated
@@ -5156,7 +5156,7 @@ sites in the entire repository are test files constructing a bare `IPhysicsScene
   completely unauthorable** — there is no checkbox, no `ColliderParams` field, nothing.
 
 **16.45.1 corrections, made while closing items rather than guessing at them.**
-`park_sleeping_ joints` and the trigger/CCD flags were genuine gaps and are now closed:
+`park_sleeping_joints` and the trigger/CCD flags were genuine gaps and are now closed:
 `ColliderParams::trigger`/ `::continuous_collision`
 (`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`), wired through
 `collider_from_params`
@@ -5165,7 +5165,7 @@ sites in the entire repository are test files constructing a bare `IPhysicsScene
 round-tripping (`engine/world/serialization/source/scene_serializer.cpp`), and a new integration
 test proving both directions — the body passes straight through and the overlap is still reported
 (`test_physics_authoring.cpp:ATriggerVolumeReportsOverlapButNeverStopsTheBody`).
-`park_sleeping_ joints` is now a "Settings" checkbox on the Physics panel, staged on `EditorContext`
+`park_sleeping_joints` is now a "Settings" checkbox on the Physics panel, staged on `EditorContext`
 and pushed into `ISimulation::set_park_sleeping_joints` once a frame from
 `applications/editor/source/main.cpp`, the same pattern `physics_statistics`'s read direction
 already uses in reverse.

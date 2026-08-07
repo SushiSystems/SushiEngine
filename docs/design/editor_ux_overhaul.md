@@ -1118,7 +1118,9 @@ Remaining phases at the time: UX4, UX5, UX6 — see §6.1 for what is left now.
 **Concurrent-session caution.** A parallel session works in this same tree on the physics/atmosphere
 phases. Shared files this overhaul also touched:
 `engine/world/simulation/source/runtime_simulation.cpp`,
-`include/SushiEngine/sim/{simulation.hpp, physics_services.hpp, physics_simulation.hpp}`,
+`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`,
+`engine/world/simulation/include/SushiEngine/simulation/physics_services.hpp`,
+`engine/world/simulation/include/SushiEngine/simulation/physics_simulation.hpp`,
 `engine/domain/atmosphere/include/SushiEngine/atmosphere/quasigeostrophic_core.hpp`,
 `tests/CMakeLists.txt`, `docs/reference/changelog.md`. That session independently added the same
 `profiling_requested_` member to

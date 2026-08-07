@@ -464,7 +464,7 @@ normal-map decals, shadow caching / quadtree / adaptive PCSS).
    sphere-vs-AABB pass writing a parallel decal grid + index list (bindings 20–22), and
    `engine/presentation/render/shaders/pbr.frag` projects the fragment into each cluster decal's
    oriented box before shading, so the decal is lit, not pasted. A decal carries optional **bindless
-   albedo and ORM maps** (`Decal:: albedo_map`/`orm_map`, resolved to heap indices in
+   albedo and ORM maps** (`Decal::albedo_map`/`orm_map`, resolved to heap indices in
    `LightSystem::pack_decals` exactly as a material's maps are, packed into a sixth GPU lane): the
    decal's local right/up coordinates are the projection uv, the albedo texture's rgb replaces the
    tint and its alpha cuts the silhouette, and the ORM map overrides occlusion/roughness/metallic

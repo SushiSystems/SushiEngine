@@ -887,8 +887,9 @@ all. None of these are bugs; each is a real engineering project roughly A-phase 
   old pose. **Explicitly not built**: mapping skeleton joints to `Physics::XpbdSolver` bodies,
   inverse dynamics, or velocity-continuous handoff — this header is the *blend*, the
   physics-to-object-space resolution is the caller's job (the same contract
-  `IPoseTaskContext`/`FootPlacementIk` already use). `examples/ ragdoll_blend_demo.cpp` proves
-  weight 0/0.5/1 blending against a hand-built `PoseModifierContext`, and — the property a naive
+  `IPoseTaskContext`/`FootPlacementIk` already use).
+  `samples/animation/ragdoll_blend_demo.cpp` proves weight 0/0.5/1 blending against a hand-built
+  `PoseModifierContext`, and — the property a naive
   implementation gets wrong — that targeting a *parent* joint correctly cascades to an untouched
   *child* (root moved to (10,0,0), child not directly targeted lands at (11,0,0), not left at its
   old (1,0,0)). Actually run, host C++, no GPU needed.
@@ -914,7 +915,7 @@ all. None of these are bugs; each is a real engineering project roughly A-phase 
   from memory) gives `real.w*dual.xyz - dual.w*real.xyz` — the sign flip made DQS score *worse* than
   LBS (error 3.06 vs. 0.41) until the host/device comparison caught it.
 
-  **The live wiring** (added after the algorithm closed, once `render/tools/ shader_compiler` turned
+  **The live wiring** (added after the algorithm closed, once `tools/shader_compiler` turned
   out to make even the GLSL side headlessly verifiable — see below): `SkinnedInstance`
   (`engine/presentation/render/include/SushiEngine/render/scene_view.hpp`) gained one opt-in bool,
   `use_dual_quaternion_skinning` (default false, zero behavior change for every existing caller).
@@ -937,7 +938,7 @@ all. None of these are bugs; each is a real engineering project roughly A-phase 
   struct is two `vec4`s (32 bytes, naturally aligned) — deliberately avoiding the std430 vec3-array
   padding trap the morph-delta buffer already hit once this project.
 
-  **What "compiles/links" actually means here, precisely**: `render/tools/ shader_compiler` links
+  **What "compiles/links" actually means here, precisely**: `tools/shader_compiler` links
   `glslang` and turns GLSL into SPIR-V at *build* time (so the shipped renderer carries no runtime
   shader-compiler dependency) — which means it is a real, headless, no-GPU-needed compiler this
   environment can run. `engine/presentation/render/shaders/skinning.comp` compiled to SPIR-V cleanly
@@ -953,7 +954,7 @@ all. None of these are bugs; each is a real engineering project roughly A-phase 
 
   **A UI toggle was added once the link unblocked**, so the flag is actually reachable from the
   editor rather than only from code:
-  `AnimatedMeshPreview:: set_dual_quaternion_skinning`/`dual_quaternion_skinning()`, a
+  `AnimatedMeshPreview::set_dual_quaternion_skinning`/`dual_quaternion_skinning()`, a
   "Dual-Quaternion Skinning" checkbox in the Animator Preview window
   (`applications/editor/source/animation/animator_preview_panel.cpp`), and a Statistics panel line
   reporting which blend mode the loaded preview uses

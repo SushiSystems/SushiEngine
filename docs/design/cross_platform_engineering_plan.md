@@ -626,7 +626,7 @@ timebox 3 representative shaders, let the result decide.
 
 | Code | Delivers | Size |
 |---|---|---|
-| **RHI0** | **Closed 2026-08-03** (`render_golden`): whole-frame goldens **and** per-pass hashes, the latter via an in-graph `PassCapture`. Baselines recorded and reproduction-verified (`render/probe/goldens/`); see "RHI0 closed" below. Reachable as `se render --probe golden`. Golden-image regression harness (deterministic N-frame render). ~~+ `TraceCommandList`~~ — **corrected 2026-08-01, see below.** **Zero change to rendering behaviour** (the readback seam the harness needs is additive). This is the safety net the rest of the programme runs on. | Medium |
+| **RHI0** | **Closed 2026-08-03** (`render_golden`): whole-frame goldens **and** per-pass hashes, the latter via an in-graph `PassCapture`. Baselines recorded and reproduction-verified (`tests/goldens/render/`); see "RHI0 closed" below. Reachable as `se render --probe golden`. Golden-image regression harness (deterministic N-frame render). ~~+ `TraceCommandList`~~ — **corrected 2026-08-01, see below.** **Zero change to rendering behaviour** (the readback seam the harness needs is additive). This is the safety net the rest of the programme runs on. | Medium |
 | **RHI1** | Neutral vocabulary (`Rhi::types.hpp`/`handles.hpp`); collapse `TextureState`/`BufferState`; one Vulkan conversion TU. Slang GLSL-front-end spike. Exit: `render/graph/` no longer includes `vulkan.h`; trace byte-identical. | Small–Medium |
 | **RHI2** | `ICommandList` (21 verbs); port **recording only** across all 39 passes (95 `VkCommandBuffer` sites). Exit: zero `vkCmd*` under `render/passes/`; golden images identical. | Large |
 | **RHI3** | `IDevice` + generation-tagged handle tables; port all resource-owning systems (texture/buffer pools, samplers, pipelines, descriptor heap, material/light/instance systems, all pass-owned resources). Exit: zero `vulkan.h`/`vk_mem_alloc.h` outside `render/rhi/vulkan/`; `sushi_render` links Vulkan **PRIVATE**. | Large |
@@ -659,7 +659,7 @@ RHI1 touches a line.
 
 #### What landed, and what RHI0 still owes (2026-08-01)
 
-`tools/probes/render_golden/main.cpp` + `render/probe/goldens/`. Two cases so far, both the
+`tools/probes/render_golden/main.cpp` + `tests/goldens/render/`. Two cases so far, both the
 mesh-shading half of the frame at 512×288 over 12 frames: `opaque_lit` and
 `opaque_unshadowed`, the second existing only so a shadow regression is distinguishable
 from a shading one instead of reddening a single case. Sky and cloud are switched off
@@ -748,7 +748,7 @@ forbids. `se render --probe golden` now exists.
    (`opaque_lit`, `opaque_unshadowed`); a following plain `se render --probe golden`
    reproduced both bit-for-bit (`RESULT: OK (0 recorded, 0 failed)`) — the harness's
    reference survives the run immediately after recording it, on the same machine
-   (`NVIDIA GeForce GTX 1060 6GB`). Checked in under `render/probe/goldens/`.
+   (`NVIDIA GeForce GTX 1060 6GB`). Checked in under `tests/goldens/render/`.
 2. **The recorded pass list was read, deliberately.** The post-processing tail (`tonemap`) and the
    TAA resolve (`temporal_resolve`) both appear, as expected once the usage fixes above landed.
    `depth_prepass` **also now appears** (`opaque_lit`: 15 of 20 captured outputs kept,
