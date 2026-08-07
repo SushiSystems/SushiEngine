@@ -407,3 +407,81 @@ TEST(Integration_PhysicsAuthoring, TheDebugReadoutReportsWhatTheSolverKnows)
     EXPECT_FALSE(world.physics_contacts().empty())
         << "a landed box against a floor is a contact somebody can draw";
 }
+
+// The impact response (P9-C, §16.48), end to end through the live world. The unit-level
+// pieces are covered elsewhere; what only appears here is that the engine's own listener
+// is actually registered, that a real landing reaches it, and that it writes the fields
+// the audio system reads.
+
+namespace
+{
+    /** @brief A crate that responds to being hit, with an emitter for it to drive. */
+    EntityId make_responder(IWorldEditor& world, const Vector3& position, Scalar full_impulse)
+    {
+        const EntityId id =
+            make_block(world, "Responder", position, Scalar(0.6), Scalar(0.5), Scalar(0));
+
+        AudioEmitterParameters emitter;
+        emitter.sound = 1;
+        emitter.gain = 1.0f;
+        // Off to begin with, so a trigger arriving later is unambiguous: an emitter
+        // already playing would leave nothing for the test to distinguish.
+        emitter.playing = false;
+        world.set_has_audio_emitter(id, true);
+        world.set_audio_emitter_parameters(id, emitter);
+
+        ImpactResponse response;
+        response.minimum_impulse = Scalar(0.5);
+        response.full_impulse = full_impulse;
+        response.plays_audio = true;
+        response.emits_particles = false;
+        world.set_has_impact_response(id, true);
+        world.set_impact_response(id, response);
+        return id;
+    }
+}
+
+TEST(Integration_PhysicsAuthoring, AnImpactDrivesTheEntitysAudioEmitter)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    make_floor(world, Vector3{0, 0, 0});
+    // A full-impulse figure well above what this landing produces, so the gain lands
+    // strictly inside the ramp rather than clamped at its top — which is the half of
+    // the mapping a clamped result would not exercise.
+    const EntityId crate = make_responder(world, Vector3{0, 4, 0}, Scalar(4000));
+
+    step(*simulation, 240);
+
+    const AudioEmitterParameters emitter = world.audio_emitter_parameters(crate);
+    EXPECT_GT(emitter.trigger, 0u)
+        << "the crate landed and nothing bumped its emitter; the listener is not registered";
+    EXPECT_TRUE(emitter.playing) << "the emitter was triggered but left silent";
+    EXPECT_GT(emitter.gain, 0.0f) << "a qualifying impact produced no gain at all";
+    EXPECT_LE(emitter.gain, 1.0f) << "the ramp was not clamped";
+}
+
+TEST(Integration_PhysicsAuthoring, AnImpactBelowTheThresholdDrivesNothing)
+{
+    // The same scene, differing in one number the author controls. Without this the test
+    // above would pass on a listener that fired for every contact regardless.
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    make_floor(world, Vector3{0, 0, 0});
+    const EntityId crate = make_responder(world, Vector3{0, 4, 0}, Scalar(4000));
+    ImpactResponse response = world.impact_response(crate);
+    response.minimum_impulse = Scalar(1e9);
+    world.set_impact_response(crate, response);
+
+    step(*simulation, 240);
+
+    const AudioEmitterParameters emitter = world.audio_emitter_parameters(crate);
+    EXPECT_EQ(emitter.trigger, 0u) << "an impulse threshold nothing could reach let a hit past";
+    EXPECT_FALSE(emitter.playing) << "the emitter was started by an impact that did not qualify";
+}
