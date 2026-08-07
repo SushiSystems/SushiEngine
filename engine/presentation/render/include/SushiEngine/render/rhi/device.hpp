@@ -114,6 +114,10 @@ namespace SushiEngine
             void* device = nullptr;
             void* graphics_queue = nullptr;
             std::uint32_t graphics_queue_family = 0;
+            /** @brief The VmaAllocator bound to this device, for a consumer that must
+             *  create its own Vulkan images outside the renderer's own resource system
+             *  (e.g. the editor's Project panel thumbnail cache). */
+            void* allocator = nullptr;
         };
 
         /**

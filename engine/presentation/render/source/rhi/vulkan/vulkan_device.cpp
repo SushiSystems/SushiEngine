@@ -459,6 +459,7 @@ namespace SushiEngine
                 handles.device = device_.device;
                 handles.graphics_queue = graphics_queue_;
                 handles.graphics_queue_family = graphics_queue_family_;
+                handles.allocator = allocator_;
                 return handles;
             }
         } // namespace Vulkan
