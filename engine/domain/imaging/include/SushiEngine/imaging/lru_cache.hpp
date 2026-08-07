@@ -69,6 +69,12 @@ namespace SushiEngine
                  * @return The evicted least-recently-used entry if this insert pushed the cache
                  *         past capacity; @c std::nullopt otherwise (including when @p key
                  *         already existed, which never evicts).
+                 * @warning Overwriting an existing key silently discards its previous value —
+                 *          the old value is moved over and dropped, not returned. A caller whose
+                 *          @c Value owns a resource that must be explicitly freed (a Vulkan
+                 *          handle, a file descriptor, ...) must check for and handle an existing
+                 *          key itself before calling @ref insert, since this method gives it no
+                 *          way to reclaim what it replaced.
                  */
                 std::optional<std::pair<Key, Value>> insert(const Key& key, Value value)
                 {

@@ -23,6 +23,8 @@
 
 #include "thumbnail_cache.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <stdexcept>
 #include <utility>
@@ -35,6 +37,41 @@ namespace SushiEngine
 {
     namespace Editor
     {
+        namespace
+        {
+            /**
+             * @brief Centers @p content (an RGBA8 image of @p content_width x @p content_height)
+             *   into a transparent @p canvas_size x @p canvas_size canvas, letterboxing it.
+             *
+             * Specific to ThumbnailCache's worker: box_downscale_rgba8 itself stays a generic
+             * "resample WxH into an exact target WxH" primitive, so the aspect-ratio-preserving
+             * "fit inside a square, pad the rest" step lives here instead.
+             */
+            std::vector<std::uint8_t> letterbox_rgba8(const std::vector<std::uint8_t>& content,
+                                                        std::uint32_t content_width,
+                                                        std::uint32_t content_height,
+                                                        std::uint32_t canvas_size)
+            {
+                std::vector<std::uint8_t> canvas(
+                    static_cast<std::size_t>(canvas_size) * canvas_size * 4, 0);
+
+                const std::uint32_t offset_x = (canvas_size - content_width) / 2;
+                const std::uint32_t offset_y = (canvas_size - content_height) / 2;
+                const std::size_t row_bytes = static_cast<std::size_t>(content_width) * 4;
+
+                for (std::uint32_t row = 0; row < content_height; ++row)
+                {
+                    const std::uint8_t* source_row = content.data() + static_cast<std::size_t>(row) * row_bytes;
+                    std::uint8_t* dest_row =
+                        canvas.data() +
+                        (static_cast<std::size_t>(offset_y + row) * canvas_size + offset_x) * 4;
+                    std::memcpy(dest_row, source_row, row_bytes);
+                }
+
+                return canvas;
+            }
+        } // namespace
+
         ThumbnailCache::ThumbnailCache(SushiEngine::Render::NativeDeviceHandles handles,
                                        ImGuiBackend& backend, Console& console)
             : device_(static_cast<VkDevice>(handles.device))
@@ -88,7 +125,7 @@ namespace SushiEngine
 
             if (in_flight_.find(key) == in_flight_.end())
             {
-                in_flight_[key] = true;
+                in_flight_.insert(key);
                 {
                     std::lock_guard<std::mutex> lock(requests_mutex_);
                     requests_.push_back(key);
@@ -138,13 +175,29 @@ namespace SushiEngine
                     requests_cv_.wait(lock, [this] { return stop_ || !requests_.empty(); });
                     if (stop_)
                         return;
-                    path = requests_.front();
-                    requests_.pop_front();
+                    // Most-recently-requested first, not FIFO: texture_for() is called anew
+                    // every visible frame, so the back of the queue is whatever the user is
+                    // looking at right now. Popping there resolves on-screen tiles before ones
+                    // scrolled past earlier, instead of decoding in strict request order.
+                    path = requests_.back();
+                    requests_.pop_back();
                 }
 
                 // A decode failure (bad path, unsupported format, corrupt file) is silently
                 // dropped: the tile keeps showing Phase 1's picture-frame glyph forever for
                 // this path, which is the design's stated fallback rather than an error state.
+                // An oversized source image is treated the same way: stbi_info reads just the
+                // header, so a source far larger than what a 128x128 thumbnail could ever need
+                // is rejected before stbi_load would decode the whole thing to RGBA8 first.
+                int info_width = 0;
+                int info_height = 0;
+                int info_channels = 0;
+                if (stbi_info(path.c_str(), &info_width, &info_height, &info_channels) == 0)
+                    continue;
+                if (static_cast<std::uint32_t>(info_width) > MAX_SOURCE_DIMENSION ||
+                    static_cast<std::uint32_t>(info_height) > MAX_SOURCE_DIMENSION)
+                    continue;
+
                 int width = 0;
                 int height = 0;
                 int source_channels = 0;
@@ -153,12 +206,23 @@ namespace SushiEngine
                 if (pixels == nullptr)
                     continue;
 
+                const double scale =
+                    std::min(static_cast<double>(THUMBNAIL_SIZE) / static_cast<double>(width),
+                             static_cast<double>(THUMBNAIL_SIZE) / static_cast<double>(height));
+                const std::uint32_t content_width = std::clamp<std::uint32_t>(
+                    static_cast<std::uint32_t>(std::lround(width * scale)), 1, THUMBNAIL_SIZE);
+                const std::uint32_t content_height = std::clamp<std::uint32_t>(
+                    static_cast<std::uint32_t>(std::lround(height * scale)), 1, THUMBNAIL_SIZE);
+
+                std::vector<std::uint8_t> content = SushiEngine::Imaging::box_downscale_rgba8(
+                    pixels, static_cast<std::uint32_t>(width),
+                    static_cast<std::uint32_t>(height), content_width, content_height);
+                stbi_image_free(pixels);
+
                 DecodedImage decoded;
                 decoded.path = path;
-                decoded.pixels = SushiEngine::Imaging::box_downscale_rgba8(
-                    pixels, static_cast<std::uint32_t>(width),
-                    static_cast<std::uint32_t>(height), THUMBNAIL_SIZE, THUMBNAIL_SIZE);
-                stbi_image_free(pixels);
+                decoded.pixels =
+                    letterbox_rgba8(content, content_width, content_height, THUMBNAIL_SIZE);
 
                 std::lock_guard<std::mutex> lock(ready_mutex_);
                 ready_.push_back(std::move(decoded));
@@ -171,7 +235,6 @@ namespace SushiEngine
             VkImage image = VK_NULL_HANDLE;
             VmaAllocation allocation = VK_NULL_HANDLE;
             VkImageView view = VK_NULL_HANDLE;
-            VkSampler sampler = VK_NULL_HANDLE;
             VkBuffer staging = VK_NULL_HANDLE;
             VmaAllocation staging_allocation = VK_NULL_HANDLE;
             VkCommandBuffer command = VK_NULL_HANDLE;
@@ -210,17 +273,6 @@ namespace SushiEngine
                 if (vkCreateImageView(device_, &view_info, nullptr, &view) != VK_SUCCESS)
                     throw std::runtime_error("vkCreateImageView(thumbnail) failed");
 
-                VkSamplerCreateInfo sampler_info{};
-                sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-                sampler_info.magFilter = VK_FILTER_LINEAR;
-                sampler_info.minFilter = VK_FILTER_LINEAR;
-                sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-                sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-                sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-                sampler_info.maxLod = 1.0f;
-                if (vkCreateSampler(device_, &sampler_info, nullptr, &sampler) != VK_SUCCESS)
-                    throw std::runtime_error("vkCreateSampler(thumbnail) failed");
-
                 VkBufferCreateInfo staging_info{};
                 staging_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
                 staging_info.size = byte_size;
@@ -253,7 +305,8 @@ namespace SushiEngine
                 VkCommandBufferBeginInfo begin{};
                 begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
                 begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                vkBeginCommandBuffer(command, &begin);
+                if (vkBeginCommandBuffer(command, &begin) != VK_SUCCESS)
+                    throw std::runtime_error("vkBeginCommandBuffer(thumbnail) failed");
 
                 VkImageMemoryBarrier2 to_transfer{};
                 to_transfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -297,7 +350,8 @@ namespace SushiEngine
                 dependency_to_shader_read.pImageMemoryBarriers = &to_shader_read;
                 vkCmdPipelineBarrier2(command, &dependency_to_shader_read);
 
-                vkEndCommandBuffer(command);
+                if (vkEndCommandBuffer(command) != VK_SUCCESS)
+                    throw std::runtime_error("vkEndCommandBuffer(thumbnail) failed");
 
                 VkFenceCreateInfo fence_info{};
                 fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -324,8 +378,9 @@ namespace SushiEngine
                 thumbnail.image = image;
                 thumbnail.allocation = allocation;
                 thumbnail.view = view;
-                thumbnail.sampler = sampler;
-                thumbnail.texture = backend_.register_texture(sampler, view);
+                // ImGui_ImplVulkan_AddTexture ignores this argument entirely and always samples
+                // through its own fixed immutable sampler, so this class never creates one.
+                thumbnail.texture = backend_.register_texture(nullptr, view);
             }
             catch (const std::exception& error)
             {
@@ -337,8 +392,6 @@ namespace SushiEngine
                     vkFreeCommandBuffers(device_, command_pool_, 1, &command);
                 if (staging != VK_NULL_HANDLE)
                     vmaDestroyBuffer(allocator_, staging, staging_allocation);
-                if (sampler != VK_NULL_HANDLE)
-                    vkDestroySampler(device_, sampler, nullptr);
                 if (view != VK_NULL_HANDLE)
                     vkDestroyImageView(device_, view, nullptr);
                 if (image != VK_NULL_HANDLE)
@@ -377,8 +430,6 @@ namespace SushiEngine
         void ThumbnailCache::destroy_thumbnail(ResidentThumbnail& thumbnail)
         {
             backend_.unregister_texture(thumbnail.texture);
-            if (thumbnail.sampler != VK_NULL_HANDLE)
-                vkDestroySampler(device_, thumbnail.sampler, nullptr);
             if (thumbnail.view != VK_NULL_HANDLE)
                 vkDestroyImageView(device_, thumbnail.view, nullptr);
             if (thumbnail.image != VK_NULL_HANDLE)

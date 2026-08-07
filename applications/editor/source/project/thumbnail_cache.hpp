@@ -28,15 +28,17 @@
  * @brief Real image content for the Project panel's Grid view tiles.
  *
  * The second editor component that legitimately speaks Vulkan directly (the first is
- * ImGuiBackend) — everything here is the minimal, from-scratch image/view/sampler/staging-buffer
+ * ImGuiBackend) — everything here is the minimal, from-scratch image/view/staging-buffer
  * path a 128x128 thumbnail needs, deliberately not routed through the renderer's own
  * TextureLibrary, which only ever hands back a bindless heap index rather than the raw
- * VkImageView/VkSampler pair ImGui::Image needs. A background thread decodes and downscales;
- * update() uploads a small budget of finished decodes to the GPU each frame; an LRU keeps
+ * VkImageView ImGui::Image needs (ImGui's own Vulkan backend supplies a fixed immutable
+ * sampler internally, so this class never creates one). A background thread decodes and
+ * downscales; update() uploads a small budget of finished decodes to the GPU each frame; an LRU keeps
  * resident GPU memory bounded. See docs/superpowers/specs/2026-08-07-project-panel-thumbnails-design.md.
  */
 
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
@@ -44,7 +46,6 @@
 #include <optional>
 #include <string>
 #include <thread>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -122,7 +123,6 @@ namespace SushiEngine
                     VkImage image = VK_NULL_HANDLE;
                     VmaAllocation allocation = VK_NULL_HANDLE;
                     VkImageView view = VK_NULL_HANDLE;
-                    VkSampler sampler = VK_NULL_HANDLE;
                     ImTextureID texture = static_cast<ImTextureID>(0);
                 };
 
@@ -141,6 +141,10 @@ namespace SushiEngine
                 void destroy_thumbnail(ResidentThumbnail& thumbnail);
 
                 static constexpr std::uint32_t THUMBNAIL_SIZE = 128;
+                // A guard against decoding an unreasonably large source image just to shrink it
+                // to THUMBNAIL_SIZE; anything larger in either dimension is skipped entirely
+                // (see worker_main()'s stbi_info check).
+                static constexpr std::uint32_t MAX_SOURCE_DIMENSION = 8192;
                 static constexpr std::size_t RESIDENT_CAPACITY = 256;
                 static constexpr int UPLOADS_PER_FRAME = 2;
                 // Frames to hold an evicted thumbnail's Vulkan resources before actually
@@ -168,7 +172,7 @@ namespace SushiEngine
                 // Main-thread-only state; never touched from worker_.
                 SushiEngine::Imaging::LruCache<std::string, ResidentThumbnail> resident_{
                     RESIDENT_CAPACITY};
-                std::unordered_map<std::string, bool> in_flight_;
+                std::unordered_set<std::string> in_flight_;
                 // Paths whose upload permanently failed (as opposed to a decode failure, which
                 // never leaves in_flight_ once stbi_load fails on the worker thread). Checked by
                 // texture_for() so a permanently-failed path is never re-enqueued every frame.

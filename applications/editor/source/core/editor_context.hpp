@@ -267,8 +267,10 @@ namespace SushiEngine
             Authoring::CookBakeState* cook_bake_state = nullptr;
 
             // The Project panel's image thumbnail pipeline, owned by main() and injected here
-            // so the Grid view can ask for a tile's real thumbnail texture. Null in a headless
-            // editor, which is why every use is guarded.
+            // so the Grid view can ask for a tile's real thumbnail texture. main() constructs
+            // it unconditionally, so unlike this struct's other pointer fields it is always
+            // non-null once main() has run past that point; there is no headless-editor case
+            // for it today.
             ThumbnailCache* thumbnail_cache = nullptr;
 
             // The asset the Cooking Override modal is open for; empty means closed. Staged
