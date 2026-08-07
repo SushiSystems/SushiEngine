@@ -196,6 +196,7 @@ namespace SushiEngine
                 es.bus = bus_for(e.bus);
                 es.spatial = e.spatial;
                 es.playing = e.playing;
+                es.trigger = e.trigger;
                 es.min_distance = e.min_distance;
                 es.max_distance = e.max_distance;
                 es.model = distance_model(e.distance_model);

@@ -234,6 +234,20 @@ namespace SushiEngine
             bool spatial = true;          /**< Whether distance/Doppler apply (else a 2D sound). */
             bool playing = true;          /**< Whether the emitter is currently sounding. */
             bool looping = true;          /**< Whether the source loops (music/ambience vs one-shot). */
+
+            /**
+             * @brief Bumped to restart the sound from its beginning.
+             *
+             * The one-shot pulse. A counter and not a boolean, because the audio scene
+             * sees one value per frame: a flag raised and lowered between two of them
+             * is an edge nothing observes, while a number that differs from the one
+             * last seen is observable however long it takes to be noticed.
+             *
+             * Deliberately **not** serialized. It is live state, not authoring — a
+             * scene reloaded with a saved count would either restart every one-shot in
+             * it or silence one, depending on what the count happened to be.
+             */
+            std::uint32_t trigger = 0;
         };
 
         /**

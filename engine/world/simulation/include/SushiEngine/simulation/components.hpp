@@ -193,6 +193,24 @@ namespace SushiEngine
             std::int32_t reverb_bus = -1; /**< Reverb aux-send target bus (−1 = no send). */
             float reverb_send = 0.0f;    /**< Reverb aux-send level in [0, 1]. */
             float source_radius = 0.5f;  /**< Sphere radius for soft-occlusion ray sampling (metres). */
+
+            /**
+             * @brief Bumped to restart the sound from its beginning.
+             *
+             * A counter rather than a "retrigger" boolean, and rather than a
+             * false-then-true edge on @ref AUDIO_EMITTER_PLAYING, because neither of
+             * those survives a snapshot: the audio scene sees one value per frame, so
+             * an edge written and cleared inside a single tick is an edge nothing
+             * observes. A number that differs from the one last seen is observable
+             * however many frames pass in between.
+             *
+             * It also fixes what the flag alone could not express. A non-looping voice
+             * frees itself when it finishes, and an emitter still marked playing was
+             * being started again on the very next frame — a one-shot on a permanent
+             * loop. With this, a finished sound stays finished until the count moves.
+             */
+            std::uint32_t trigger = 0;
+
             std::uint32_t flags = AUDIO_EMITTER_PLAYING | AUDIO_EMITTER_SPATIAL;
         };
 

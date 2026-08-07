@@ -241,6 +241,7 @@ namespace SushiEngine
                         es.bus = static_cast<int>(em.bus);
                         es.spatial = (em.flags & AUDIO_EMITTER_SPATIAL) != 0;
                         es.playing = (em.flags & AUDIO_EMITTER_PLAYING) != 0;
+                        es.trigger = em.trigger;
                         es.min_distance = em.min_distance;
                         es.max_distance = em.max_distance;
                         es.model = Detail::distance_model(em.distance_model);

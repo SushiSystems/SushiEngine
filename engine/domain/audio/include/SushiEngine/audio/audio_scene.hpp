@@ -49,6 +49,7 @@
  */
 
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -99,6 +100,17 @@ namespace SushiEngine
             float rolloff = 1.0f;        /**< Rolloff factor. */
             float doppler_scale = 1.0f;  /**< Doppler exaggeration. */
             bool playing = true;         /**< False stops the voice. */
+
+            /**
+             * @brief A count whose change restarts the sound from its beginning.
+             *
+             * The one-shot pulse, expressed as a number because a snapshot carries one
+             * value per frame and an edge written and cleared between two frames is an
+             * edge nothing here observes. Unchanged means "whatever this voice is
+             * doing, let it finish" — including having already finished, which is what
+             * keeps a non-looping sound from restarting forever.
+             */
+            std::uint32_t trigger = 0;
 
             int reverb_bus = -1;         /**< Reverb aux-send target bus (−1 = no send). */
             float reverb_send = 0.0f;    /**< Reverb aux-send level in [0, 1]. */
@@ -175,8 +187,36 @@ namespace SushiEngine
                                 voices_.stop(it->second);
                                 voice_of_.erase(it);
                             }
+                            trigger_of_.erase(e.key);
                             continue;
                         }
+
+                        // A bumped count restarts the sound from its beginning, whatever
+                        // the voice was doing — which is the only way to hear the same
+                        // impact sound twice on one emitter, since a still-live voice
+                        // below merely has its gain updated.
+                        const auto seen_trigger = trigger_of_.find(e.key);
+                        const bool retriggered =
+                            seen_trigger != trigger_of_.end() && seen_trigger->second != e.trigger;
+                        trigger_of_[e.key] = e.trigger;
+                        if (retriggered)
+                        {
+                            if (live)
+                            {
+                                voices_.stop(it->second);
+                                voice_of_.erase(it);
+                            }
+                            finished_.erase(e.key);
+                            start_voice(e);
+                            continue;
+                        }
+
+                        // Finished and not retriggered: leave it alone. This is the whole
+                        // of the fix — an emitter still marked playing after its sound
+                        // ended used to fall through to the start below on the very next
+                        // frame, which put every non-looping voice on a permanent loop.
+                        if (finished_.find(e.key) != finished_.end())
+                            continue;
 
                         if (!live)
                         {
@@ -184,10 +224,12 @@ namespace SushiEngine
                             continue;
                         }
 
-                        // A one-shot may have freed itself; drop the mapping if so.
+                        // A one-shot has freed itself. Remember that, so the branch above
+                        // catches it from now until something bumps the count.
                         if (voices_.state_of(it->second) == VoiceState::Free)
                         {
                             voice_of_.erase(it);
+                            finished_.insert(e.key);
                             continue;
                         }
 
@@ -211,6 +253,16 @@ namespace SushiEngine
                         }
                     }
 
+                    // The same sweep for the two side tables. A destroyed emitter that
+                    // left a `finished_` mark behind would silence the next entity to
+                    // reuse its key, and one that left a trigger count behind would make
+                    // that entity's first snapshot look like a retrigger.
+                    for (auto it = finished_.begin(); it != finished_.end();)
+                        it = seen_.find(*it) == seen_.end() ? finished_.erase(it) : std::next(it);
+                    for (auto it = trigger_of_.begin(); it != trigger_of_.end();)
+                        it = seen_.find(it->first) == seen_.end() ? trigger_of_.erase(it)
+                                                                  : std::next(it);
+
                     // Steer the reverb aux bus from the active zone, on change only.
                     if (reverb_ != nullptr && snapshot.has_reverb)
                     {
@@ -229,6 +281,10 @@ namespace SushiEngine
                     for (auto& entry : voice_of_)
                         voices_.stop(entry.second);
                     voice_of_.clear();
+                    // With these left behind, a scene reloaded into the same keys would
+                    // come back with half its one-shots already marked spent.
+                    finished_.clear();
+                    trigger_of_.clear();
                 }
 
                 /** @brief The number of emitters currently mapped to a live voice. */
@@ -289,6 +345,19 @@ namespace SushiEngine
                 IReverb* reverb_ = nullptr;
                 std::unordered_map<std::uint64_t, int> voice_of_;
                 std::unordered_set<std::uint64_t> seen_;
+
+                /** @brief The trigger count last seen per emitter; a change restarts it. */
+                std::unordered_map<std::uint64_t, std::uint32_t> trigger_of_;
+
+                /**
+                 * @brief Emitters whose one-shot has played out.
+                 *
+                 * Held separately from @ref voice_of_ rather than as a sentinel inside
+                 * it, because "has no voice" and "had a voice that finished" are
+                 * different states with opposite meanings: the first should start a
+                 * sound and the second must not.
+                 */
+                std::unordered_set<std::uint64_t> finished_;
                 I3DL2Reverb active_reverb_;
                 bool reverb_set_ = false;
         };
