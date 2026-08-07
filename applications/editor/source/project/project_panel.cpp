@@ -214,6 +214,12 @@ namespace SushiEngine
                 return name.substr(0, max_chars - 1) + "…";
             }
 
+            // Shared by the zoom handler and the grid view's read-site so a corrupted or
+            // hand-edited preferences file can never hand ImGui::InvisibleButton a zero or
+            // negative dimension (it asserts both are nonzero).
+            constexpr float MIN_TILE_SIZE = 48.0f;
+            constexpr float MAX_TILE_SIZE = 160.0f;
+
             // Whether the platform shell verbs (Show in Explorer, open with the default
             // app) exist on this build. Off Windows the menu items offering them are
             // disabled with a reason rather than silently doing nothing — a control that
@@ -522,6 +528,24 @@ namespace SushiEngine
                 }
             }
 
+            // The rename-in-place commit shared by both views: seed/edit/commit-on-Enter through
+            // inline_rename_field, then apply the rename to disk. Layout (whether a placeholder box
+            // is reserved first, and at what width the field draws) stays with each caller.
+            void commit_rename_if_entered(EditorContext& context, const fs::directory_entry& entry,
+                                          const std::string& path_string, const std::string& name,
+                                          float width)
+            {
+                std::string entered;
+                if (inline_rename_field(context, path_string, name, width, entered))
+                {
+                    std::error_code rename_ec;
+                    const fs::path renamed = entry.path().parent_path() / entered;
+                    if (!entered.empty() && renamed != entry.path())
+                        fs::rename(entry.path(), renamed, rename_ec);
+                    context.renaming_project_path.clear();
+                }
+            }
+
             // The Unity-style icon grid: one square tile per entry, laid out left-to-right and
             // wrapped at the available width, at whatever size context.preferences.project_tile_size
             // currently holds (Task 5 changes that value; this function only reads it).
@@ -529,7 +553,8 @@ namespace SushiEngine
                                         const std::vector<fs::directory_entry>& entries,
                                         const fs::path& current, fs::path& delete_target)
             {
-                const float tile_size = context.preferences.project_tile_size;
+                const float tile_size =
+                    std::clamp(context.preferences.project_tile_size, MIN_TILE_SIZE, MAX_TILE_SIZE);
                 constexpr float TILE_SPACING = 8.0f;
                 const float avail_width = ImGui::GetContentRegionAvail().x;
                 float row_x = 0.0f;
@@ -553,20 +578,15 @@ namespace SushiEngine
                     if (context.renaming_project_path == path_string)
                     {
                         ImGui::Dummy(ImVec2(tile_size, tile_size * 0.6f));
-                        std::string entered;
-                        if (inline_rename_field(context, path_string, name, tile_size, entered))
-                        {
-                            std::error_code rename_ec;
-                            const fs::path renamed = entry.path().parent_path() / entered;
-                            if (!entered.empty() && renamed != entry.path())
-                                fs::rename(entry.path(), renamed, rename_ec);
-                            context.renaming_project_path.clear();
-                        }
+                        commit_rename_if_entered(context, entry, path_string, name, tile_size);
                     }
                     else
                     {
                         const ImVec2 origin = ImGui::GetCursorScreenPos();
-                        const float icon_size = tile_size * 0.75f;
+                        const float line_height = ImGui::GetTextLineHeight();
+                        constexpr float LABEL_SPACING = 4.0f;
+                        const float icon_size =
+                            std::max(tile_size * 0.5f, tile_size - line_height - LABEL_SPACING);
                         const bool clicked =
                             ImGui::InvisibleButton("##tile", ImVec2(tile_size, tile_size));
                         if (clicked)
@@ -582,10 +602,17 @@ namespace SushiEngine
                         draw_entry_icon(draw_list, ImVec2(origin.x + (tile_size - icon_size) * 0.5f, origin.y),
                                        icon_size, entry_category(entry.path(), is_dir),
                                        ImGui::GetColorU32(ImGuiCol_Text));
-                        const std::string label = truncate_label(name);
+                        const float glyph_width = ImGui::CalcTextSize("M").x;
+                        const std::size_t max_chars = glyph_width > 0.0f
+                            ? std::max<std::size_t>(3, static_cast<std::size_t>(tile_size / glyph_width))
+                            : 16;
+                        const std::string label = truncate_label(name, max_chars);
                         const ImVec2 text_size = ImGui::CalcTextSize(label.c_str());
+                        const ImVec2 tile_max(origin.x + tile_size, origin.y + tile_size);
+                        draw_list->PushClipRect(origin, tile_max, true);
                         draw_list->AddText(ImVec2(origin.x + (tile_size - text_size.x) * 0.5f, origin.y + icon_size + 2.0f),
                                           ImGui::GetColorU32(ImGuiCol_Text), label.c_str());
+                        draw_list->PopClipRect();
 
                         draw_project_entry_interactions(context, entry, is_dir, current, delete_target);
                     }
@@ -612,15 +639,7 @@ namespace SushiEngine
 
                     if (context.renaming_project_path == path_string)
                     {
-                        std::string entered;
-                        if (inline_rename_field(context, path_string, name, -FLT_MIN, entered))
-                        {
-                            std::error_code rename_ec;
-                            const fs::path renamed = entry.path().parent_path() / entered;
-                            if (!entered.empty() && renamed != entry.path())
-                                fs::rename(entry.path(), renamed, rename_ec);
-                            context.renaming_project_path.clear();
-                        }
+                        commit_rename_if_entered(context, entry, path_string, name, -FLT_MIN);
                     }
                     else
                     {
@@ -630,10 +649,14 @@ namespace SushiEngine
                         // indented past the icon column.
                         ImGui::Dummy(ImVec2(ROW_ICON_SIZE + 4.0f, 0.0f));
                         ImGui::SameLine();
-                        if (ImGui::Selectable((name + "##row").c_str(), selected))
+                        if (ImGui::Selectable(name.c_str(), selected))
                             context.selected_project_path = path_string;
                         ImDrawList* draw_list = ImGui::GetWindowDrawList();
-                        draw_entry_icon(draw_list, origin, ROW_ICON_SIZE,
+                        const float line_height = ImGui::GetTextLineHeight();
+                        const ImVec2 icon_origin = ROW_ICON_SIZE < line_height
+                            ? ImVec2(origin.x, origin.y + (line_height - ROW_ICON_SIZE) * 0.5f)
+                            : origin;
+                        draw_entry_icon(draw_list, icon_origin, ROW_ICON_SIZE,
                                        entry_category(entry.path(), is_dir),
                                        ImGui::GetColorU32(ImGuiCol_Text));
 
@@ -719,34 +742,43 @@ namespace SushiEngine
             ImGui::EndChild();
 
             ImGui::SameLine();
+            using Authoring::ProjectBrowserViewMode;
             // Read Ctrl before BeginChild: NoScrollWithMouse must be a BeginChild argument, and
-            // it is only wanted while Ctrl is held — otherwise plain scrolling must still work.
-            const bool zoom_gate_ctrl_held = ImGui::GetIO().KeyCtrl;
+            // it is only wanted while Ctrl is held in Grid view — otherwise plain scrolling (and,
+            // in List view, plain wheel scrolling under Ctrl) must still work. Folding the view-mode
+            // check in here means the BeginChild flag and the zoom condition below share one gate,
+            // so the two can never disagree about whether a zoom gesture is in progress.
+            const bool zoom_gesture_active =
+                context.preferences.project_view_mode == ProjectBrowserViewMode::Grid &&
+                ImGui::GetIO().KeyCtrl;
             ImGui::BeginChild("project_grid", ImVec2(0.0f, 0.0f), true,
-                              zoom_gate_ctrl_held ? ImGuiWindowFlags_NoScrollWithMouse : 0);
+                              zoom_gesture_active ? ImGuiWindowFlags_NoScrollWithMouse : 0);
 
             // Ctrl+scroll zooms the icon grid, Unity-style. ImGuiWindowFlags_NoScrollWithMouse
-            // above (applied only while Ctrl is held) is what actually stops the window's own
-            // wheel-scroll: ImGui applies mouse wheel to the hovered window during NewFrame(),
+            // above (applied only while the gesture is active) is what actually stops the window's
+            // own wheel-scroll: ImGui applies mouse wheel to the hovered window during NewFrame(),
             // before this code runs, so zeroing io.MouseWheel here could never have prevented it.
-            if (context.preferences.project_view_mode == Authoring::ProjectBrowserViewMode::Grid &&
-                ImGui::IsWindowHovered() && zoom_gate_ctrl_held && ImGui::GetIO().MouseWheel != 0.0f)
+            if (ImGui::IsWindowHovered() && zoom_gesture_active && ImGui::GetIO().MouseWheel != 0.0f)
             {
-                constexpr float MIN_TILE_SIZE = 48.0f;
-                constexpr float MAX_TILE_SIZE = 160.0f;
                 constexpr float ZOOM_STEP = 8.0f;
                 context.preferences.project_tile_size = std::clamp(
                     context.preferences.project_tile_size + ImGui::GetIO().MouseWheel * ZOOM_STEP,
                     MIN_TILE_SIZE, MAX_TILE_SIZE);
+                context.preferences_dirty = true;
             }
 
-            using Authoring::ProjectBrowserViewMode;
-            bool is_grid = context.preferences.project_view_mode == ProjectBrowserViewMode::Grid;
+            const bool is_grid = context.preferences.project_view_mode == ProjectBrowserViewMode::Grid;
             if (ImGui::RadioButton("Grid", is_grid))
+            {
                 context.preferences.project_view_mode = ProjectBrowserViewMode::Grid;
+                context.preferences_dirty = true;
+            }
             ImGui::SameLine();
             if (ImGui::RadioButton("List", !is_grid))
+            {
                 context.preferences.project_view_mode = ProjectBrowserViewMode::List;
+                context.preferences_dirty = true;
+            }
 
             ImGui::SetNextItemWidth(-FLT_MIN);
             ImGui::InputTextWithHint("##project_filter", "Search...", &context.project_filter);
