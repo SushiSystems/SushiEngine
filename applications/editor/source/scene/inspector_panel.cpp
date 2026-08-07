@@ -917,6 +917,65 @@ namespace SushiEngine
                 }
             }
 
+            if (world->has_character(id))
+            {
+                const ComponentSection section = component_header(context, "Character Controller");
+                if (section.remove)
+                {
+                    set_presence(&IWorldEditor::set_has_character, false);
+                }
+                else if (section.open)
+                {
+                    // UNLINKED — review state. The values are shared locals rather than
+                    // this entity's, so what is on show is the placement, the order and
+                    // the wording. Replaced by a ComponentEditor over CharacterParameters
+                    // once the layout is approved; must not be merged in this state, per
+                    // `docs/design/editor_ux_overhaul.md`'s wire-or-remove rule.
+                    static float radius = 0.4f;
+                    static float height = 1.8f;
+                    static float step_height = 0.4f;
+                    static float max_slope = 45.0f;
+                    static float skin_width = 0.02f;
+                    static float ground_snap = 0.1f;
+
+                    // Shape first, limits second, and the separator between them is the
+                    // point: the top two say how big the character is and the rest say
+                    // what it can get over. Authors reach for them at different times.
+                    ImGui::DragFloat("Radius", &radius, 0.01f, 0.05f, 5.0f, "%.2f m");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How wide a gap the character needs to pass through. "
+                                          "Not the collider it is hit as — that is authored "
+                                          "separately, to match the art.");
+                    ImGui::DragFloat("Height", &height, 0.01f, 0.1f, 10.0f, "%.2f m");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Total standing height, caps included.");
+
+                    ImGui::SeparatorText("Movement limits");
+                    ImGui::DragFloat("Step Height", &step_height, 0.01f, 0.0f, 5.0f, "%.2f m");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The tallest lip it climbs without jumping. Zero "
+                                          "means every kerb is a wall.");
+                    ImGui::DragFloat("Max Slope", &max_slope, 0.5f, 0.0f, 89.0f, "%.0f deg");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Steeper than this is a wall, not a hill — and a "
+                                          "character standing on it is not grounded, so it "
+                                          "cannot jump off one.");
+                    ImGui::DragFloat("Skin Width", &skin_width, 0.001f, 0.0f, 0.5f, "%.3f m");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Clearance kept from every surface. The first dial to "
+                                          "reach for when a character catches on geometry: too "
+                                          "small and it sticks, too large and it floats.");
+                    ImGui::DragFloat("Ground Snap", &ground_snap, 0.01f, 0.0f, 2.0f, "%.2f m");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How far below to look for ground. What keeps it on a "
+                                          "downward ramp instead of leaving the floor at every "
+                                          "lip.");
+
+                    if (!world->has_physics_body(id))
+                        ImGui::TextDisabled("Needs a Rigid Body with Kinematic ticked.");
+                }
+            }
+
             if (world->has_collider(id))
             {
                 const ComponentSection section = component_header(context, "Collider");
@@ -1966,6 +2025,8 @@ namespace SushiEngine
                     set_presence(&IWorldEditor::set_is_camera, true);
                 if (!world->has_physics_body(id) && ImGui::MenuItem("Rigid Body"))
                     set_presence(&IWorldEditor::set_has_physics_body, true);
+                if (!world->has_character(id) && ImGui::MenuItem("Character Controller"))
+                    set_presence(&IWorldEditor::set_has_character, true);
                 if (!world->has_cloth(id) && ImGui::MenuItem("Cloth"))
                     set_presence(&IWorldEditor::set_has_cloth, true);
                 if (!world->has_soft_body(id) && ImGui::MenuItem("Soft Body"))

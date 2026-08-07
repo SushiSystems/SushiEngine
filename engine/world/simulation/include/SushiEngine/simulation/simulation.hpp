@@ -1537,7 +1537,7 @@ namespace SushiEngine
                  */
                 virtual bool has_character(EntityId id) const noexcept = 0;
 
-                /** @brief The entity's authored character parameters (defaults if not a character). */
+                /** @brief The entity's authored character parameters, or defaults. */
                 virtual CharacterParameters character_parameters(EntityId id) const = 0;
 
                 /**
