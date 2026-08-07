@@ -41,6 +41,7 @@
 
 #include <SushiEngine/render/asset_library_interface.hpp>
 #include <SushiEngine/render/mesh_thumbnail_renderer.hpp>
+#include <SushiEngine/render/prefab_thumbnail_renderer.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/render/rhi/device.hpp>
 #include <SushiEngine/render/scene_view.hpp>
@@ -179,6 +180,17 @@ namespace SushiEngine
                  * @return An owning handle to the new mesh-thumbnail renderer.
                  */
                 virtual std::unique_ptr<IMeshThumbnailRenderer> create_mesh_thumbnail_renderer() = 0;
+
+                /**
+                 * @brief Creates an offscreen prefab-thumbnail renderer on this renderer's device.
+                 *
+                 * Parallel to create_mesh_thumbnail_renderer(), for .sushiprefab files instead of
+                 * single glTF/GLB files — see IPrefabThumbnailRenderer's own doc comment for why a
+                 * prefab needs a distinct interface rather than reusing that one.
+                 *
+                 * @return An owning handle to the new prefab-thumbnail renderer.
+                 */
+                virtual std::unique_ptr<IPrefabThumbnailRenderer> create_prefab_thumbnail_renderer() = 0;
 
                 /**
                  * @brief Blits a scene view's finished slot directly onto the window frame.
