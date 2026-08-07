@@ -100,12 +100,13 @@ reduction is needed, it is a **fixed-order** reduction (§12.2).
 
 ---
 
-## §1 Audit — what exists today, honestly
+## §1 Audit — what exists today, honestly (2026-07-28)
 
 `include/SushiEngine/physics/` is 2 233 lines of header-only templates and it is a *good* skeleton:
 the XPBD core, graph colouring, a device solve graph, and a clean precision-parametric design. It is
 also roughly 8 % of a AAA physics engine. This section is the honest inventory, because every phase
-in §16 is scoped against it.
+in §16 is scoped against it. The inventory is dated: P0 through P7 and PX have landed since, and
+§16 records what each of them added.
 
 ### 1.1 What is there and works
 

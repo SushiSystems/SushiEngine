@@ -75,7 +75,7 @@ is a fixed-size, pointer-free, integer-seeded column, exactly like `Animation::A
 
 ---
 
-## §1 Why none exists today — audit
+## §1 Why no particle system existed before this work — audit (historical)
 
 1. **Greenfield.** No `include/SushiEngine/vfx/`, no particle component, no particle pass, no
    shader.

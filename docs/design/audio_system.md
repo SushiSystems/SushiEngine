@@ -315,7 +315,7 @@ state; it only reads a wall-clock snapshot of emitter/listener transforms.
 
 ---
 
-## §1 Why none exists today — audit
+## §1 Why no audio existed before this work — audit (historical)
 
 1. **Greenfield.** No `include/SushiEngine/audio/`, no `audio/` backend, no audio component, no
    device

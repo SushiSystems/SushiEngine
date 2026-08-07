@@ -28,9 +28,10 @@ direction the follow-on inspector work continues.
 
 ---
 
-## §1 Audit — what exists today, and where it stops
+## §1 Audit — what exists today, and where it stops (2026-08-06)
 
-Traced file by file rather than assumed from a name.
+Traced file by file rather than assumed from a name. This is the tree P0 started from; §13
+records what P0 changed.
 
 - **The engine already has entity parenting, and the editor already exposes it.**
   `Simulation::IWorldEditor::parent`/`set_parent`

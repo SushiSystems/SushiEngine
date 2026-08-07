@@ -15,12 +15,15 @@ follows.
 
 ---
 
-## §1 Audit — what exists today, and where it stops
+## §1 Audit — what exists today, and where it stops (2026-08-05)
 
-- **`project_root` is set once and never again.** `applications/editor/source/main.cpp` resolves it
-  from `context.preferences.last_project_root` or, when that is empty, `default_projects_root()`
-  (`applications/editor/source/main.cpp`) — and nothing else in `applications/editor/` ever assigns
-  `context.project_root`.
+This is the tree P0 started from; §9 records what P0 changed.
+
+- **`project_root` was set once and never again.** `applications/editor/source/main.cpp` resolves
+  it from `context.preferences.last_project_root` or, when that is empty,
+  `default_projects_root()` (`applications/editor/source/main.cpp`) — and nothing else in
+  `applications/editor/` assigned `context.project_root`. P0 added the second assignment:
+  `applications/editor/source/scene/scene_commands.cpp:735`, in the New/Load Project switch.
 - **The default resolution is already cross-platform.** `default_projects_root()`
   (`applications/editor/source/main.cpp`) reads `USERPROFILE` on Windows and `HOME` elsewhere,
   landing on `<home>/sushiengine/project`.

@@ -22,7 +22,9 @@ completes; `docs/design/editor_ux_overhaul.md`, whose wire-or-remove rule §8 ap
 
 ---
 
-## §1 Audit — what exists, and what it gives this for free
+## §1 Audit — what exists, and what it gives this for free (2026-08-06)
+
+This is the tree P1 started from; §11 records what P1 changed.
 
 - **The scene serializer already produces exactly the shape a prefab file needs.** `capture_scene`
   (`engine/world/serialization/include/SushiEngine/serialization/scene_serializer.hpp`) returns

@@ -16,14 +16,15 @@ carries the existing, independent `Rigid Body`/`Collider` components (§8) — a
 
 Companion docs: `docs/architecture/presentation-render.md` (the frame graph this feeds),
 `docs/design/physics_system.md` §8 (the cooking pipeline this document explicitly does not change),
-and `docs/design/editor_feature_sync_gaps.md` (the audit convention this document's §1 follows — a
-claim is a file:line, not a description).
+and `docs/design/editor_feature_sync_gaps.md` (the audit convention this document's §1 follows —
+a claim is a real path, carrying a line locator only where that locator has been verified).
 
 ---
 
-## §1 Audit — what exists today, and where it stops
+## §1 Audit — what exists today, and where it stops (2026-08-05)
 
-Traced end to end, file:line, rather than assumed from either component's name.
+Traced end to end, file and line, rather than assumed from either component's name. This is the
+tree P0 started from; §11 records what P0 changed.
 
 - **The render side is fully built and already consumes an imported mesh.** `Render::MeshInstance`
   (`engine/presentation/render/include/SushiEngine/render/scene_view.hpp:103-124`) carries a `mesh`
@@ -41,12 +42,15 @@ Traced end to end, file:line, rather than assumed from either component's name.
   (`engine/presentation/render/source/material/asset_library.cpp:93`) is exercised by nothing
   outside the render module itself — `grep` for `.load_gltf(` outside `engine/presentation/render/`
   matches only `SkeletonPreview::load_gltf`, an unrelated method on a different class.
-- **The authoring side never reaches either.** `Simulation::RenderInstance`
-  (`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp:122-131`), the
-  world-tier struct the editor extracts every frame, carries no `MeshId` field at all. The copy
-  from it into a `Render::MeshInstance` (`applications/editor/source/main.cpp:489-501`) sets
-  `model`, `color`, `id`, `kind`, `shape_parameters`, `material` — never `mesh`, which is why it
-  stays `INVALID_MESH` on every instance today.
+- **The authoring side never reached either.** `Simulation::RenderInstance`
+  (`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp:122-132`), the
+  world-tier struct the editor extracts every frame, carried no `MeshId` field at all. The copy
+  from it into a `Render::MeshInstance` (`applications/editor/source/main.cpp:484-499`) set
+  `model`, `color`, `id`, `kind`, `shape_parameters` and `material` — never `mesh`, which is why
+  it stayed `INVALID_MESH` on every instance. P0 closed both halves:
+  `engine/world/simulation/include/SushiEngine/simulation/simulation.hpp:131` now declares
+  `Render::MeshId mesh = Render::INVALID_MESH;`, and `applications/editor/source/main.cpp:496`
+  now assigns `instance.mesh = source.mesh;`.
 - **`ShapeParameters` — the "Renderer" component's own data — only knows three procedural
   primitives.** `PrimitiveKind`
   (`engine/world/simulation/include/SushiEngine/simulation/components.hpp:256-262`) is
