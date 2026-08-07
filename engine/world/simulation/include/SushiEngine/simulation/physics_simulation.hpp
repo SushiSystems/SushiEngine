@@ -310,6 +310,39 @@ namespace SushiEngine
                     query_dirty_ = true;
                 }
 
+                /** @copydoc IRigidBodyService::move_rigid_body */
+                void move_rigid_body(EntityId id, const Vector3& position,
+                                     const Quaternion& orientation) override
+                {
+                    if (!solver_)
+                        return;
+                    const auto it = rigid_index_.find(id);
+                    if (it == rigid_index_.end())
+                        return;
+                    RigidEntry& entry = rigid_[it->second];
+                    Body body;
+                    if (!solver_->read_body(entry.handle, body))
+                        return;
+                    // Refused rather than reinterpreted. A target recorded on a body
+                    // that will never consume one would sit on the entry for the rest
+                    // of the scene's life, and a caller who reached this with a
+                    // dynamic body meant `set_rigid_pose`.
+                    if (!Physics::is_kinematic(body.flags))
+                        return;
+
+                    const Vector3T<T> target = to_vector(position);
+                    const QuaternionT<T> turn = to_quaternion(orientation);
+                    entry.kinematic_target = std::make_pair(target, turn);
+
+                    const Vector3T<T> offset = target - body.position;
+                    const bool turns = turn.x != body.orientation.x ||
+                                       turn.y != body.orientation.y ||
+                                       turn.z != body.orientation.z ||
+                                       turn.w != body.orientation.w;
+                    if (dot(offset, offset) > T(0) || turns)
+                        wake_along_contacts(entry.handle);
+                }
+
                 // IClothService.
 
                 /**
@@ -871,6 +904,11 @@ namespace SushiEngine
 
                     bodies_dirty_ = true;
                     refresh_bodies();
+                    // Before the field, because a kinematic body's motion is a command
+                    // and not a force: this is the tick deciding what "moving" means
+                    // for it, where `apply_gravity_field` decides what falling means
+                    // for everything else.
+                    resolve_kinematic_targets(delta_time);
                     apply_gravity_field(gravity, wind);
                     timer.lap(stage_timings_.write_back_ms);
                     refresh_contact_index(delta_time);
@@ -1135,6 +1173,22 @@ namespace SushiEngine
                      * material could live and a second thing to keep in step.
                      */
                     Physics::PhysicsMaterialT<T> material{};
+
+                    /**
+                     * @brief Where a kinematic body was asked to be by the tick's end.
+                     *
+                     * Empty means "no command this tick", which is a real state and
+                     * not a missing one: an uncommanded kinematic body stops. Held on
+                     * the entry rather than in a table keyed by body slot because the
+                     * entry is what removal and `reindex_rigid` already maintain, and
+                     * a slot-keyed table would outlive the slot it named.
+                     *
+                     * A target cannot be turned into a velocity when it is given: the
+                     * command arrives before the tick, and the tick's duration is not
+                     * known until it starts. So it is stored, and
+                     * `resolve_kinematic_targets` does the division.
+                     */
+                    std::optional<std::pair<Vector3T<T>, QuaternionT<T>>> kinematic_target;
                 };
 
                 /**
@@ -2172,6 +2226,112 @@ namespace SushiEngine
                     Physics::wake_island(bodies_.data(), live_slot_count(),
                                          std::uint32_t(slot), islands_);
                     write_every_body();
+                }
+
+                /**
+                 * @brief Wakes a body and everything it was touching last tick.
+                 *
+                 * @ref wake_body is not enough for a kinematic body, and the reason is
+                 * the rule that makes kinematic bodies cheap in the first place:
+                 * `IslandBuilder::conducts` requires a positive inverse mass, so a
+                 * kinematic body is an island of one. Waking its island wakes nothing
+                 * but itself, and the crate that settled on the platform stays asleep
+                 * — not integrated, not projected — hanging in the air while the
+                 * platform leaves.
+                 *
+                 * So the contact list is walked instead of the partition. Those
+                 * records are last tick's, which is the same one-tick staleness
+                 * sleeping already tolerates everywhere else; a body that only began
+                 * touching the platform this tick is not asleep yet anyway, because
+                 * falling asleep takes `sleep_delay_` seconds of stillness.
+                 *
+                 * The cost is bounded by the moved body's own contact count, not by
+                 * the size of the scene.
+                 *
+                 * @param handle The body being moved.
+                 */
+                void wake_along_contacts(Physics::BodyHandle handle)
+                {
+                    refresh_bodies();
+                    const std::size_t slot = solver_->body_slot(handle);
+                    const std::size_t count = live_slot_count();
+                    if (slot >= count)
+                        return;
+
+                    const std::uint32_t moved = std::uint32_t(slot);
+                    // Itself first: a platform that has stood still long enough is
+                    // asleep, and a sleeping body is skipped by `predict` outright, so
+                    // the command would move nothing at all.
+                    Physics::wake_island(bodies_.data(), count, moved, islands_);
+                    for (const ContactRecord& record : current_)
+                    {
+                        std::uint32_t partner = Physics::null_contact_body;
+                        if (record.a_slot == moved)
+                            partner = record.b_slot;
+                        else if (record.b_slot == moved)
+                            partner = record.a_slot;
+                        // Static geometry is not a body and has no island to wake.
+                        if (partner == Physics::null_contact_body ||
+                            std::size_t(partner) >= count)
+                            continue;
+                        Physics::wake_island(bodies_.data(), count, partner, islands_);
+                    }
+                    write_every_body();
+                }
+
+                /**
+                 * @brief Turns this tick's kinematic targets into the velocities that reach them.
+                 *
+                 * Runs at the top of the tick because that is the first moment the
+                 * tick's duration is known: a target is a pose, and dividing a pose
+                 * difference by a duration is the whole of what a kinematic body's
+                 * motion is. `predict` then integrates that velocity across the
+                 * sub-steps, so the body arrives exactly where it was asked to be.
+                 *
+                 * A kinematic body with **no** target this tick has its velocity
+                 * cleared, and that is the deliberate half. Left alone, a platform
+                 * commanded once would coast on that command forever — `predict`
+                 * applies no gravity and no drag to it, so nothing in the tick would
+                 * ever slow it down. Driving one therefore means writing its pose
+                 * every tick, which is what an animation clip or a script loop does
+                 * without being asked to.
+                 *
+                 * @param delta_time The tick's duration, in seconds.
+                 */
+                void resolve_kinematic_targets(T delta_time)
+                {
+                    if (delta_time <= T(0))
+                        return;
+                    const T inverse = T(1) / delta_time;
+                    for (RigidEntry& entry : rigid_)
+                    {
+                        const std::size_t slot = solver_->body_slot(entry.handle);
+                        if (slot >= bodies_.size())
+                            continue;
+                        Body& body = bodies_[slot];
+                        if (!Physics::is_kinematic(body.flags))
+                            continue;
+
+                        if (entry.kinematic_target.has_value())
+                        {
+                            body.velocity =
+                                (entry.kinematic_target->first - body.position) * inverse;
+                            body.angular_velocity = Physics::angular_velocity_between(
+                                body.orientation, entry.kinematic_target->second, delta_time);
+                            entry.kinematic_target.reset();
+                        }
+                        else
+                        {
+                            body.velocity = Vector3T<T>{T(0), T(0), T(0)};
+                            body.angular_velocity = Vector3T<T>{T(0), T(0), T(0)};
+                        }
+                        // Written per body rather than left for the field pass's
+                        // write-back that follows it. The saving would be a handful of
+                        // single-body writes — kinematic bodies are lifts and doors,
+                        // not populations — and the price would be a function that is
+                        // only correct where it currently sits in the tick.
+                        write_field(entry.handle);
+                    }
                 }
 
                 /**

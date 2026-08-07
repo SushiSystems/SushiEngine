@@ -330,9 +330,13 @@ namespace SushiEngine
              *
              * Setting this overrides @ref inv_mass, @ref inv_inertia and @ref density
              * — a kinematic body's inverse mass is zero by definition, and the
-             * extract writes it rather than trusting whatever was authored. Move one
-             * with `ISimulation::move_physics_body`; `set_physics_body_pose` still
-             * teleports it.
+             * extract writes it rather than trusting whatever was authored.
+             *
+             * Drive one by writing the entity's transform each tick, the same call a
+             * gizmo drag makes: a kinematic body follows that pose with a velocity
+             * derived from it, so the crates it meets are pushed, while a dynamic
+             * body is still teleported to it. One authoring gesture, and which of the
+             * two it means is this field.
              */
             bool kinematic = false;
         };

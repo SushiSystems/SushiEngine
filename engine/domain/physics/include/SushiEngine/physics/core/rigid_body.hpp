@@ -507,6 +507,41 @@ namespace SushiEngine
         }
 
         /**
+         * @brief The angular velocity that turns @p previous into @p current over @p h.
+         *
+         * The logarithmic map, the exact inverse of @ref integrate_orientation's
+         * exponential one, sign-corrected so the shorter rotational path is taken.
+         * `2·vec(q)/h` is its small-angle approximation and reads `2·sin(θ/2)` where
+         * the rotation was `θ` — which is where a fast body's spin leaks away; see
+         * @ref integrate_orientation.
+         *
+         * Extracted from @ref update_velocity because a second caller now needs the
+         * same quantity — the scene, deriving what a kinematic body's commanded
+         * orientation implies — and two hand-written copies of a log map are two
+         * chances for a commanded spin and a recovered one to disagree.
+         *
+         * @tparam T The scalar element type.
+         * @param previous The orientation turned from.
+         * @param current  The orientation turned to.
+         * @param h        The duration of the turn, in seconds (> 0).
+         * @return The world-frame angular velocity.
+         */
+        template <typename T>
+        inline Vector3T<T> angular_velocity_between(const QuaternionT<T>& previous,
+                                                    const QuaternionT<T>& current,
+                                                    T h) noexcept
+        {
+            const QuaternionT<T> delta = mul(current, conjugate(previous));
+            const T sign = delta.w < T(0) ? T(-1) : T(1);
+            const Vector3T<T> vector = Vector3T<T>{delta.x, delta.y, delta.z} * sign;
+            const T sine = length(vector);
+            if (!(sine > T(1e-12)))
+                return vector * (T(2) / h);
+            const T angle = T(2) * std::atan2(sine, delta.w * sign);
+            return vector * (angle / (sine * h));
+        }
+
+        /**
          * @brief Recovers velocity and angular velocity from the solved pose.
          *
          * The second half of one XPBD sub-step: velocity is the position delta over
@@ -534,23 +569,8 @@ namespace SushiEngine
                 return;
 
             body.velocity = (body.position - body.previous_position) * (T(1) / h);
-
-            const QuaternionT<T> delta =
-                mul(body.orientation, conjugate(body.previous_orientation));
-            const T sign = delta.w < T(0) ? T(-1) : T(1);
-            const Vector3T<T> vector = Vector3T<T>{delta.x, delta.y, delta.z} * sign;
-            // The logarithmic map, the exact inverse of `integrate_orientation`'s
-            // exponential one. `2·vec(q)/h` is its small-angle approximation and reads
-            // `2·sin(θ/2)` where the rotation was `θ` — which is where a fast body's
-            // spin leaks away; see `integrate_orientation`.
-            const T sine = length(vector);
-            if (!(sine > T(1e-12)))
-            {
-                body.angular_velocity = vector * (T(2) / h);
-                return;
-            }
-            const T angle = T(2) * std::atan2(sine, delta.w * sign);
-            body.angular_velocity = vector * (angle / (sine * h));
+            body.angular_velocity =
+                angular_velocity_between(body.previous_orientation, body.orientation, h);
         }
 
         /**

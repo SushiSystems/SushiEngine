@@ -235,6 +235,35 @@ namespace SushiEngine
                                             const Quaternion& orientation) = 0;
 
                 /**
+                 * @brief Moves a kinematic body toward a pose, pushing what it meets.
+                 *
+                 * The sibling of @ref set_rigid_pose, and the difference between them
+                 * is the whole of what a kinematic body is for: a teleport puts the
+                 * body somewhere and clears its velocity, so anything in the way is
+                 * left overlapping or is never touched at all. This records a
+                 * *target*, and the tick derives the velocity that reaches it —
+                 * which is the number a contact's friction and depenetration terms
+                 * read, so a crate on a rising platform rides up without anything
+                 * being written to carry it.
+                 *
+                 * The target is consumed by the tick that follows and is not
+                 * remembered: a body given no target this tick has its velocity
+                 * cleared and stops where it is, rather than coasting on the last
+                 * command. Driving a platform therefore means writing its pose every
+                 * tick, which is what an animation clip or a script loop does anyway.
+                 *
+                 * A no-op for a body that is not kinematic. Teleporting a dynamic
+                 * body is @ref set_rigid_pose's job and pretending otherwise here
+                 * would give one pose write two meanings.
+                 *
+                 * @param id          The entity whose body to move.
+                 * @param position    The world position to reach by the end of the tick.
+                 * @param orientation The world orientation to reach by the end of the tick.
+                 */
+                virtual void move_rigid_body(EntityId id, const Vector3& position,
+                                             const Quaternion& orientation) = 0;
+
+                /**
                  * @brief Reads what a body is doing, for a debug view.
                  * @param id  The entity whose body to read.
                  * @param out Receives the state when @p id has a body.

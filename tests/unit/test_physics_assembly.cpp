@@ -186,6 +186,14 @@ namespace
             {
                 poses[id] = SolvedPose{position, orientation};
             }
+            // A ragdoll's parts are dynamic, so nothing under test reaches this. Left
+            // as a pose write rather than empty so a future caller that does reach it
+            // gets the stub's one behaviour instead of silence.
+            void move_rigid_body(EntityId id, const Vector3& position,
+                                 const Quaternion& orientation) override
+            {
+                poses[id] = SolvedPose{position, orientation};
+            }
             bool rigid_pose(EntityId id, SolvedPose& out) const override
             {
                 const auto it = poses.find(id);

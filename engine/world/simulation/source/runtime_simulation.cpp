@@ -366,11 +366,8 @@ namespace SushiEngine
                                 ground_local_orientation(value.position, value.rotation);
                         // While playing, a manual transform edit (e.g. dragging the gizmo)
                         // must move the physics body too, otherwise the next tick overwrites
-                        // it with the solved pose. A no-op when the body does not exist yet
-                        // (before the first physics rebuild), which is when the rebuild
-                        // seeds from this same transform instead.
-                        if (record->has_physics_body)
-                            physics_->set_rigid_pose(id, value.position, value.rotation);
+                        // it with the solved pose.
+                        place_physics_body(*record, id, value.position, value.rotation);
                         extract();
                     }
 
@@ -528,8 +525,7 @@ namespace SushiEngine
                                 reference_center_scene(record->reference_body) + local.position;
                             o.rotation = local.rotation;
                         }
-                        if (record->has_physics_body)
-                            physics_->set_rigid_pose(id, t.position, o.rotation);
+                        place_physics_body(*record, id, t.position, o.rotation);
                         extract();
                     }
 
@@ -2658,6 +2654,41 @@ namespace SushiEngine
                     {
                         const EntityTransform world = world_transform(id);
                         return compose_transform(world.position, world.rotation, world.scale);
+                    }
+
+                    /**
+                     * @brief Sends a transform edit through to the body that owns @p id.
+                     *
+                     * One authoring gesture, two meanings, and the body's own
+                     * `kinematic` field is which. A dynamic body is *placed*: it jumps
+                     * to the pose with its velocity cleared, because a crate dragged
+                     * across a room was not thrown across it. A kinematic body is
+                     * *moved*: the pose becomes a target the next tick derives a
+                     * velocity from, so a platform dragged into a stack pushes the
+                     * stack instead of teleporting through it.
+                     *
+                     * This is also the whole of how a game drives a platform — write
+                     * the entity's transform each tick, from a script or an animation
+                     * clip, and the physics follows. There is no second API to learn.
+                     *
+                     * A no-op when the body does not exist yet (before the first
+                     * physics rebuild), which is when the rebuild seeds from this same
+                     * transform instead.
+                     *
+                     * @param record   The entity's record, for the flag and the guard.
+                     * @param id       The entity being edited.
+                     * @param position The new world position.
+                     * @param rotation The new world orientation.
+                     */
+                    void place_physics_body(const Record& record, EntityId id,
+                                            const Vector3& position, const Quaternion& rotation)
+                    {
+                        if (!record.has_physics_body)
+                            return;
+                        if (record.physics_parameters.kinematic)
+                            physics_->move_rigid_body(id, position, rotation);
+                        else
+                            physics_->set_rigid_pose(id, position, rotation);
                     }
 
                     Record* find(EntityId id) noexcept
