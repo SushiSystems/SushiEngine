@@ -108,7 +108,12 @@ namespace SushiEngine
                 void begin_scope(ChannelId channel);
 
                 /**
-                 * @brief Closes the innermost open scope on a channel and adds its time.
+                 * @brief Closes the channel's open scope and adds its time.
+                 *
+                 * A channel holds at most one open scope, not a stack of them: re-entering a
+                 * channel with begin_scope() before its prior scope is closed overwrites that
+                 * scope's start time, and the earlier open is lost rather than nested.
+                 *
                  * @param channel The same value the matching begin_scope was given.
                  */
                 void end_scope(ChannelId channel);

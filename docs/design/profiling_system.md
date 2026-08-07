@@ -1,6 +1,6 @@
 # Profiling system — frame measurement and the editor's Profiler panel
 
-**Status:** approved design, not built. Phases PROF0–PROF4 below carry the roadmap.
+**Status:** PROF0 and PROF1 are built. Phases PROF2–PROF4 below remain open.
 
 ## 1. Purpose
 

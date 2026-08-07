@@ -817,9 +817,11 @@ namespace SushiEngine
                     // it is the one number that says whether what you just authored is
                     // affordable, and it should not need a panel opened to see.
                     const float frame_milliseconds = context.frame_profile.frame_milliseconds;
-                    ImGui::Text("%.1f fps / %.2f ms",
-                                frame_milliseconds > 0.0f ? 1000.0f / frame_milliseconds : 0.0f,
-                                frame_milliseconds);
+                    if (frame_milliseconds > 0.0f)
+                        ImGui::Text("%.1f fps / %.2f ms", 1000.0f / frame_milliseconds,
+                                    frame_milliseconds);
+                    else
+                        ImGui::TextDisabled("n/a — first frame pending");
 
                     // The problem tally, right-aligned and clickable: an error logged while
                     // the Console is behind another tab is otherwise invisible until

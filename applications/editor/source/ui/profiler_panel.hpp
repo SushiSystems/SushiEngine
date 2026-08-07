@@ -23,13 +23,44 @@
 
 #pragma once
 
+#include <cstdint>
+#include <vector>
+
+#include <SushiEngine/profiling/frame_profiler.hpp>
+
 #include "../core/editor_context.hpp"
-#include "../core/panel_state.hpp"
 
 namespace SushiEngine
 {
     namespace Editor
     {
+        /**
+         * @brief The Profiler panel's between-frame state.
+         *
+         * Defined here rather than in `panel_state.hpp` because Pause has to freeze every
+         * section together (CPU, GPU, Renderer, physics), which means holding copies typed
+         * in `ViewportGPUStatistics` and `Physics::PhysicsStatistics` — both reached only
+         * through `editor_context.hpp`. `panel_state.hpp` is included BY `editor_context.hpp`
+         * (`EditorContext::panel_state`), so the reverse include would be circular; this
+         * follows the same carve-out `panel_state.hpp` already documents for the animation
+         * panels' larger, subsystem-typed state.
+         */
+        struct ProfilerPanelState
+        {
+            bool paused = false; /**< Freeze the displayed numbers while comparing. */
+
+            /** Every held copy below is refreshed together from the context, once per
+             *  frame, only while not paused — so all sections freeze on the same frame
+             *  instead of some following the live context past the pause point. */
+            SushiEngine::Profiling::FrameProfileSnapshot held_frame_profile;
+            std::vector<ViewportGPUStatistics> held_gpu_statistics;
+            std::uint32_t held_scene_cull_drawn = 0;
+            std::uint32_t held_scene_cull_tested = 0;
+            std::uint32_t held_scene_render_width = 0;
+            std::uint32_t held_scene_render_height = 0;
+            SushiEngine::Physics::PhysicsStatistics held_physics_statistics;
+        };
+
         /**
          * @brief Draws the Profiler window: frame history, CPU and GPU breakdowns,
          *        renderer counters, memory and system utilization.
@@ -39,7 +70,7 @@ namespace SushiEngine
          * `docs/design/profiling_system.md` §8.
          *
          * @param context The shared editor state the panels read.
-         * @param state   The panel's own between-frame scratch (pause).
+         * @param state   The panel's own between-frame scratch (pause and the held snapshot).
          */
         void draw_profiler_panel(EditorContext& context, ProfilerPanelState& state);
     } // namespace Editor

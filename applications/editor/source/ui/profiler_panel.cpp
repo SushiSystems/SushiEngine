@@ -65,10 +65,20 @@ namespace SushiEngine
 
             // While paused, keep rendering the frame held at the moment Pause was ticked
             // instead of the context's latest, so two frames can be compared by eye; while
-            // running, refresh the held copy every frame so unpausing has no stale gap.
+            // running, refresh every held copy every frame so unpausing has no stale gap.
+            // All sections read only these held copies, CPU included, so Pause freezes the
+            // whole panel together rather than just the CPU channel table.
             if (!state.paused)
-                state.held = context.frame_profile;
-            const SushiEngine::Profiling::FrameProfileSnapshot& shown = state.held;
+            {
+                state.held_frame_profile = context.frame_profile;
+                state.held_gpu_statistics = context.gpu_statistics;
+                state.held_scene_cull_drawn = context.scene_cull_drawn;
+                state.held_scene_cull_tested = context.scene_cull_tested;
+                state.held_scene_render_width = context.scene_render_width;
+                state.held_scene_render_height = context.scene_render_height;
+                state.held_physics_statistics = context.physics_statistics;
+            }
+            const SushiEngine::Profiling::FrameProfileSnapshot& shown = state.held_frame_profile;
 
             if (ImGui::CollapsingHeader("Frame", ImGuiTreeNodeFlags_DefaultOpen))
             {
@@ -126,18 +136,30 @@ namespace SushiEngine
                 // The physics stages measure themselves off-thread; shown beside the main
                 // thread's channels rather than inside them, labeled with their origin.
                 const SushiEngine::Physics::PhysicsStatistics& physics =
-                    context.physics_statistics;
+                    state.held_physics_statistics;
                 ImGui::TextDisabled("Physics (worker thread, profiling-gated):");
-                ImGui::TextDisabled("  broadphase %.3f  narrowphase %.3f  solve %.3f  total %.3f",
-                                    physics.timings.broadphase_ms, physics.timings.narrowphase_ms,
-                                    physics.timings.solve_ms, physics.timings.total_ms);
+                // The stepper only timestamps its stages while the Physics panel is open
+                // (see main.cpp's set_physics_profiling(context.panels.physics)), so a
+                // total of zero here means nobody asked for the timings, not that physics
+                // is free.
+                if (physics.timings.total_ms > 0.0)
+                {
+                    ImGui::TextDisabled(
+                        "  broadphase %.3f  narrowphase %.3f  solve %.3f  total %.3f",
+                        physics.timings.broadphase_ms, physics.timings.narrowphase_ms,
+                        physics.timings.solve_ms, physics.timings.total_ms);
+                }
+                else
+                {
+                    ImGui::TextDisabled("  n/a — open the Physics panel to collect timings");
+                }
             }
 
             if (ImGui::CollapsingHeader("GPU", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                if (context.gpu_statistics.empty())
+                if (state.held_gpu_statistics.empty())
                     ImGui::TextDisabled("n/a — no viewport has rendered yet");
-                for (const ViewportGPUStatistics& viewport : context.gpu_statistics)
+                for (const ViewportGPUStatistics& viewport : state.held_gpu_statistics)
                 {
                     float total = 0.0f;
                     for (const GPUPassStatistic& pass : viewport.passes)
@@ -166,16 +188,18 @@ namespace SushiEngine
             {
                 if (ImGui::BeginTable("renderer_counters", 2, ImGuiTableFlags_RowBg))
                 {
+                    const bool cull_available = state.held_scene_cull_tested > 0;
+                    const bool render_size_available = state.held_scene_render_width > 0;
                     value_row("Draw calls", false, "%.0f", 0.0);
                     value_row("Visible triangles", false, "%.0f", 0.0);
-                    value_row("Instances drawn", true,
-                              "%.0f", static_cast<double>(context.scene_cull_drawn));
-                    value_row("Instances tested", true,
-                              "%.0f", static_cast<double>(context.scene_cull_tested));
-                    value_row("Render width", true,
-                              "%.0f", static_cast<double>(context.scene_render_width));
-                    value_row("Render height", true,
-                              "%.0f", static_cast<double>(context.scene_render_height));
+                    value_row("Instances drawn", cull_available,
+                              "%.0f", static_cast<double>(state.held_scene_cull_drawn));
+                    value_row("Instances tested", cull_available,
+                              "%.0f", static_cast<double>(state.held_scene_cull_tested));
+                    value_row("Render width", render_size_available,
+                              "%.0f", static_cast<double>(state.held_scene_render_width));
+                    value_row("Render height", render_size_available,
+                              "%.0f", static_cast<double>(state.held_scene_render_height));
                     ImGui::EndTable();
                 }
             }

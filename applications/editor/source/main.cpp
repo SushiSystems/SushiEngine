@@ -444,6 +444,10 @@ int main(int argc, char** argv)
             frame_profiler.register_channel("game render submit");
         const SushiEngine::Profiling::ChannelId profile_ui_build =
             frame_profiler.register_channel("ui build");
+        const SushiEngine::Profiling::ChannelId profile_present_wait =
+            frame_profiler.register_channel("present wait");
+        const SushiEngine::Profiling::ChannelId profile_asset_work =
+            frame_profiler.register_channel("asset work");
         while (running)
         {
             const std::chrono::steady_clock::time_point frame_time =
@@ -613,8 +617,11 @@ int main(int argc, char** argv)
 
             imgui.new_frame();
 
-            context.thumbnail_cache->update();
-            context.model_thumbnail_cache->update();
+            {
+                SushiEngine::Profiling::ScopedTimer timer(frame_profiler, profile_asset_work);
+                context.thumbnail_cache->update();
+                context.model_thumbnail_cache->update();
+            }
 
             // Global undo/redo/save shortcuts, resolved through the EditorGlobal input
             // context (rebindable, persisted). The mapper's capture gate already suppresses
@@ -1317,19 +1324,22 @@ int main(int argc, char** argv)
             if (context.show_imgui_demo)
                 ImGui::ShowDemoWindow(&context.show_imgui_demo);
 
-            window.drawable_size(width, height);
-            // Present pacing belongs to the window, not to a scene view, so it is applied
-            // here rather than through set_settings(); the call is a no-op unless the mode
-            // actually changed.
-            renderer->set_present_mode(context.render_settings.delivery.present_mode);
-            if (void* command_buffer = renderer->begin_frame(width, height))
             {
-                imgui.render(command_buffer);
-                renderer->end_frame();
-            }
-            else
-            {
-                ImGui::EndFrame(); // no frame presented (minimized/resize); close the UI frame
+                SushiEngine::Profiling::ScopedTimer timer(frame_profiler, profile_present_wait);
+                window.drawable_size(width, height);
+                // Present pacing belongs to the window, not to a scene view, so it is applied
+                // here rather than through set_settings(); the call is a no-op unless the mode
+                // actually changed.
+                renderer->set_present_mode(context.render_settings.delivery.present_mode);
+                if (void* command_buffer = renderer->begin_frame(width, height))
+                {
+                    imgui.render(command_buffer);
+                    renderer->end_frame();
+                }
+                else
+                {
+                    ImGui::EndFrame(); // no frame presented (minimized/resize); close the UI frame
+                }
             }
 
             frame_profiler.end_frame();

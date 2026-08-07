@@ -75,16 +75,20 @@ TEST(Unit_FrameProfiler, ANewFrameClearsTheLastFramesChannelTimes)
 {
     fake_now_nanoseconds = 0;
     SushiEngine::Profiling::FrameProfiler profiler(&fake_clock);
+    const SushiEngine::Profiling::ChannelId outer = profiler.register_channel("outer");
     const SushiEngine::Profiling::ChannelId tick = profiler.register_channel("tick");
     profiler.begin_frame();
     {
+        SushiEngine::Profiling::ScopedTimer outer_timer(profiler, outer);
         SushiEngine::Profiling::ScopedTimer timer(profiler, tick);
         fake_now_nanoseconds += 1'000'000;
     }
     profiler.end_frame();
+    EXPECT_EQ(profiler.snapshot().channels[tick].depth, 1u);
     profiler.begin_frame();
     profiler.end_frame();
     EXPECT_FLOAT_EQ(profiler.snapshot().channels[tick].milliseconds, 0.0f);
+    EXPECT_EQ(profiler.snapshot().channels[tick].depth, 0u);
 }
 
 TEST(Unit_FrameProfiler, NestedScopesRecordDepthAndInclusiveTime)

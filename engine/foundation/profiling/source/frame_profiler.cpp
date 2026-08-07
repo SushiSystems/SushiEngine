@@ -69,7 +69,10 @@ namespace SushiEngine
             frame_start_ = now();
             open_scopes_ = 0;
             for (Channel& channel : channels_)
+            {
                 channel.nanoseconds = 0;
+                channel.depth = 0;
+            }
         }
 
         void FrameProfiler::end_frame()
