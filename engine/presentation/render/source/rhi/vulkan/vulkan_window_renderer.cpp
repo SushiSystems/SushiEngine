@@ -473,6 +473,11 @@ namespace SushiEngine
             {
                 return std::unique_ptr<IMeshThumbnailRenderer>(new VulkanMeshThumbnailRenderer(device_));
             }
+
+            std::unique_ptr<IPrefabThumbnailRenderer> VulkanWindowRenderer::create_prefab_thumbnail_renderer()
+            {
+                return std::unique_ptr<IPrefabThumbnailRenderer>(new VulkanPrefabThumbnailRenderer(device_));
+            }
         } // namespace Vulkan
 
         std::unique_ptr<IWindowRenderer> create_window_renderer(
