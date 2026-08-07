@@ -28,6 +28,7 @@
 
 #include "prefab_serializer.hpp"
 #include "thumbnail_cache.hpp"
+#include "model_thumbnail_cache.hpp"
 
 #include "../animation/animated_mesh_preview.hpp"
 #include "../scene/scene_commands.hpp"
@@ -603,14 +604,28 @@ namespace SushiEngine
 
                         const EntryCategory category = entry_category(entry.path(), is_dir);
                         std::optional<ImTextureID> thumbnail_texture;
+                        const bool tile_visible = ImGui::IsRectVisible(
+                            origin, ImVec2(origin.x + tile_size, origin.y + tile_size));
                         if (category == EntryCategory::Image && context.thumbnail_cache != nullptr &&
-                            ImGui::IsRectVisible(origin, ImVec2(origin.x + tile_size, origin.y + tile_size)))
+                            tile_visible)
                         {
                             // IsRectVisible tests the tile's screen rect against the grid child
                             // window's current clip rect, so a tile scrolled out of view never
                             // requests a decode — a folder full of images scrolled past should
                             // never front-load every one of them.
                             thumbnail_texture = context.thumbnail_cache->texture_for(entry.path());
+                        }
+                        else if (category == EntryCategory::Model &&
+                                context.model_thumbnail_cache != nullptr && tile_visible)
+                        {
+                            // Real thumbnails only for the two formats the engine can actually
+                            // load (see Global Constraints) -- .fbx/.obj entries fall through to
+                            // the wireframe-cube glyph below, exactly as they did before this
+                            // task, since ModelThumbnailCache is never asked about them.
+                            const std::string extension = to_lower(entry.path().extension().string());
+                            if (extension == ".gltf" || extension == ".glb")
+                                thumbnail_texture =
+                                    context.model_thumbnail_cache->texture_for(entry.path());
                         }
 
                         if (thumbnail_texture.has_value())
