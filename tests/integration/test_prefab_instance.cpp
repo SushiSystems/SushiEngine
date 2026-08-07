@@ -344,3 +344,173 @@ TEST(Integration_PrefabInstance, LoadSceneRefreshes)
     std::filesystem::remove(scene_path, error);
     std::filesystem::remove(std::filesystem::path(scene_path.string() + ".atmos"), error);
 }
+
+// Override resolution (P2, docs/design/prefab_system.md §10). What these cover is the
+// decision that no override is ever recorded: nothing here calls a "mark as overridden"
+// API, because there is not one. An edit is an edit, and the refresh finds it by
+// comparing the live member against the prefab's record for the same identity.
+
+TEST(Integration_PrefabInstance, AnEditedMemberKeepsItsEditThroughARefresh)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    const std::filesystem::path path = scratch("sushiengine_prefab_override.sushiprefab");
+
+    const EntityId source = build_subtree(world);
+    const nlohmann::json first = Scene::capture_prefab(world, source);
+    world.set_parent(world.create("AddedLater"), find_by_name(world, "Left"));
+    const nlohmann::json second = Scene::capture_prefab(world, source);
+    ASSERT_TRUE(write_prefab(second, path));
+
+    clear_world(world);
+    const EntityId instance = Scene::apply_prefab(world, first, NULL_ENTITY);
+    ASSERT_NE(instance, NULL_ENTITY);
+    link_instance(world, instance, path, first.value("revision", std::string()));
+
+    // The local edit: a member moved somewhere the prefab never put it.
+    const EntityId edited = find_by_name(world, "Right");
+    ASSERT_NE(edited, NULL_ENTITY);
+    EntityTransform moved = world.transform(edited);
+    moved.position = Vector3{7.0, 8.0, 9.0};
+    world.set_transform(edited, moved);
+
+    EXPECT_TRUE(Scene::refresh_prefab_instances(world).empty());
+
+    // The prefab's change arrived and the author's survived it.
+    EXPECT_NE(find_by_name(world, "AddedLater"), NULL_ENTITY)
+        << "the prefab's own change did not reach the instance";
+    const EntityId kept = find_by_name(world, "Right");
+    ASSERT_NE(kept, NULL_ENTITY);
+    EXPECT_DOUBLE_EQ(world.transform(kept).position.x, 7.0)
+        << "the refresh discarded the local edit, which is what P2 exists to stop";
+    EXPECT_DOUBLE_EQ(world.transform(kept).position.z, 9.0);
+
+    std::error_code error;
+    std::filesystem::remove(path, error);
+}
+
+TEST(Integration_PrefabInstance, AnUneditedMemberTakesThePrefabsNewValue)
+{
+    // The other half, and the one a naive keep-everything implementation fails: a
+    // component the author never touched must follow the prefab.
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    const std::filesystem::path path = scratch("sushiengine_prefab_follows.sushiprefab");
+
+    const EntityId source = build_subtree(world);
+    const nlohmann::json first = Scene::capture_prefab(world, source);
+
+    // The prefab moves one of its own members.
+    const EntityId moved_in_prefab = find_by_name(world, "Right");
+    ASSERT_NE(moved_in_prefab, NULL_ENTITY);
+    EntityTransform authored = world.transform(moved_in_prefab);
+    authored.position = Vector3{-4.0, 0.0, 0.0};
+    world.set_transform(moved_in_prefab, authored);
+    const nlohmann::json second = Scene::capture_prefab(world, source);
+    ASSERT_TRUE(write_prefab(second, path));
+
+    clear_world(world);
+    const EntityId instance = Scene::apply_prefab(world, first, NULL_ENTITY);
+    ASSERT_NE(instance, NULL_ENTITY);
+    link_instance(world, instance, path, first.value("revision", std::string()));
+
+    EXPECT_TRUE(Scene::refresh_prefab_instances(world).empty());
+
+    const EntityId followed = find_by_name(world, "Right");
+    ASSERT_NE(followed, NULL_ENTITY);
+    EXPECT_DOUBLE_EQ(world.transform(followed).position.x, -4.0)
+        << "an untouched member did not follow the prefab; every value is being pinned";
+
+    std::error_code error;
+    std::filesystem::remove(path, error);
+}
+
+TEST(Integration_PrefabInstance, AnEntityTheAuthorAddedToAnInstanceSurvivesARefresh)
+{
+    // Destroyed silently today, with no warning and no way to get it back. It carries no
+    // identity, so the refresh cannot match it, and an unmatched member survives.
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    const std::filesystem::path path = scratch("sushiengine_prefab_added.sushiprefab");
+
+    const EntityId source = build_subtree(world);
+    const nlohmann::json first = Scene::capture_prefab(world, source);
+    world.set_parent(world.create("AddedLater"), find_by_name(world, "Left"));
+    const nlohmann::json second = Scene::capture_prefab(world, source);
+    ASSERT_TRUE(write_prefab(second, path));
+
+    clear_world(world);
+    const EntityId instance = Scene::apply_prefab(world, first, NULL_ENTITY);
+    ASSERT_NE(instance, NULL_ENTITY);
+    link_instance(world, instance, path, first.value("revision", std::string()));
+
+    // The author's own entity, belonging to no prefab.
+    const EntityId mine = world.create("AuthorsOwnLamp");
+    world.set_parent(mine, find_by_name(world, "Right"));
+
+    EXPECT_TRUE(Scene::refresh_prefab_instances(world).empty());
+
+    EXPECT_NE(find_by_name(world, "AuthorsOwnLamp"), NULL_ENTITY)
+        << "the refresh destroyed an entity the prefab never owned";
+
+    std::error_code error;
+    std::filesystem::remove(path, error);
+}
+
+TEST(Integration_PrefabInstance, AMemberThePrefabNoLongerClaimsSurvivesUnlinked)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    const std::filesystem::path path = scratch("sushiengine_prefab_removed.sushiprefab");
+
+    const EntityId source = build_subtree(world);
+    const nlohmann::json first = Scene::capture_prefab(world, source);
+
+    // The artist removes one entity from the prefab.
+    world.destroy(find_by_name(world, "Right"));
+    const nlohmann::json second = Scene::capture_prefab(world, source);
+    ASSERT_TRUE(write_prefab(second, path));
+
+    clear_world(world);
+    const EntityId instance = Scene::apply_prefab(world, first, NULL_ENTITY);
+    ASSERT_NE(instance, NULL_ENTITY);
+    link_instance(world, instance, path, first.value("revision", std::string()));
+
+    EXPECT_TRUE(Scene::refresh_prefab_instances(world).empty());
+
+    const EntityId orphan = find_by_name(world, "Right");
+    ASSERT_NE(orphan, NULL_ENTITY) << "the entity was destroyed rather than unlinked";
+    EXPECT_TRUE(world.prefab_entity_id(orphan).empty())
+        << "the survivor kept its identity and will be rematched by the next refresh";
+
+    std::error_code error;
+    std::filesystem::remove(path, error);
+}
+
+TEST(Integration_PrefabInstance, ReorderingAPrefabLeavesEveryIdentityUnchanged)
+{
+    // The test the positional scheme fails. Under it every id is its index, so inserting
+    // an entity ahead of another retargets every override after it.
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+
+    const EntityId source = build_subtree(world);
+    const nlohmann::json first = Scene::capture_prefab(world, source);
+    const std::string deep_before = world.prefab_entity_id(find_by_name(world, "Deep"));
+    ASSERT_FALSE(deep_before.empty()) << "capture did not stamp an identity on the source";
+
+    // A new entity ahead of Deep in the walk order, then a re-save.
+    world.set_parent(world.create("Inserted"), find_by_name(world, "Root"));
+    const nlohmann::json second = Scene::capture_prefab(world, source);
+
+    EXPECT_EQ(world.prefab_entity_id(find_by_name(world, "Deep")), deep_before)
+        << "the identity moved when the contents were reordered";
+    EXPECT_NE(first.value("revision", std::string("a")),
+              second.value("revision", std::string("b")))
+        << "the revision must still move when the contents change";
+}
