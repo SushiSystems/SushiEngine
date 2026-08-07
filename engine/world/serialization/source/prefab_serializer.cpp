@@ -257,12 +257,88 @@ namespace SushiEngine
                 const EntityTransform placement = world.transform(id);
                 const EntityId parent = world.parent(id);
 
+                const std::vector<EntityId> previous = subtree_of(world, id);
+
+                // The document's entries, indexed by the identity each carries. A prefab
+                // written before identities existed has none, and every member of every
+                // instance of it is then a survivor — which is the same outcome as
+                // today's wholesale rebuild except that the entities live.
+                json& entries = document.is_object() && document.contains("entities")
+                                    ? document["entities"]
+                                    : document;
+                std::unordered_map<std::string, std::size_t> entry_of;
+                if (entries.is_array())
+                {
+                    for (std::size_t i = 0; i < entries.size(); ++i)
+                    {
+                        const std::string key =
+                            entries[i].value("prefab_entity_id", std::string{});
+                        if (!key.empty())
+                            entry_of.emplace(key, i);
+                    }
+                }
+
+                // Overrides are computed here rather than looked up, and that is the whole
+                // of P2's design: nothing recorded this member as edited, so no component
+                // setter had to know prefabs exist. What the author changed is simply what
+                // this member's record and the prefab's disagree about.
+                std::unordered_map<EntityId, int> index_of;
+                for (std::size_t i = 0; i < previous.size(); ++i)
+                    index_of.emplace(previous[i], static_cast<int>(i));
+
+                std::vector<EntityId> survivors;
+                for (const EntityId member : previous)
+                {
+                    const std::string key = world.prefab_entity_id(member);
+                    const auto found = key.empty() ? entry_of.end() : entry_of.find(key);
+                    if (found == entry_of.end())
+                    {
+                        // Either the artist removed this entity from the prefab, or the
+                        // author added it to this instance by hand. Both keep the entity
+                        // and cut its link; the second case is destroyed silently today.
+                        survivors.push_back(member);
+                        continue;
+                    }
+
+                    const json live =
+                        Detail::write_entity_record(world, member, index_of, nullptr);
+                    json& target = entries[found->second];
+                    for (auto field = live.begin(); field != live.end(); ++field)
+                    {
+                        // `parent` is excluded because it is an index, and the two records
+                        // number their entities differently — the live one by subtree
+                        // order, the document by document order. Copying it across would
+                        // not be an override, it would be a reparent to a stranger.
+                        // `prefab_entity_id` is identity rather than content.
+                        if (field.key() == "parent" || field.key() == "prefab_entity_id")
+                            continue;
+                        if (!target.contains(field.key()) ||
+                            target[field.key()] != field.value())
+                            target[field.key()] = field.value();
+                    }
+                }
+
+                // A survivor's parent among the survivors keeps it; one whose parent is
+                // rebuilt has to be reattached, and that is decided now while the old
+                // hierarchy still exists.
+                std::unordered_set<EntityId> surviving;
+                for (const EntityId member : survivors)
+                    surviving.insert(member);
+                std::vector<EntityId> detached_roots;
+                for (const EntityId member : survivors)
+                {
+                    if (surviving.find(world.parent(member)) == surviving.end())
+                        detached_roots.push_back(member);
+                }
+
                 // Bottom-up, because `destroy` leaves a destroyed parent's children as roots
                 // rather than cascading: destroying the root first would scatter the old
                 // subtree into the scene instead of removing it.
-                const std::vector<EntityId> previous = subtree_of(world, id);
                 for (auto it = previous.rbegin(); it != previous.rend(); ++it)
-                    world.destroy(*it);
+                {
+                    if (surviving.find(*it) == surviving.end())
+                        world.destroy(*it);
+                }
 
                 // The root is replaced rather than kept and re-dressed, so a prefab whose own
                 // root carries geometry keeps it — which is every prefab authored from a
@@ -276,6 +352,17 @@ namespace SushiEngine
 
                 world.set_name(rebuilt, name);
                 world.set_transform(rebuilt, placement);
+
+                // Reattached under the new root and unlinked, in that order. Clearing the
+                // identity is what "unlinked" means: a later refresh must not rematch an
+                // entity the prefab no longer claims, and an author who wants it back
+                // puts it back in the prefab and accepts the second copy.
+                for (const EntityId survivor : detached_roots)
+                {
+                    world.set_parent(survivor, rebuilt);
+                    world.set_prefab_entity_id(survivor, std::string{});
+                }
+
                 PrefabInstanceParameters refreshed;
                 refreshed.path = link.path;
                 refreshed.revision = current;
