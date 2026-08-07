@@ -91,6 +91,7 @@ target_link_libraries(SushiEngine INTERFACE
     sushiengine_audio
     sushiengine_environment
     sushiengine_geometry
+    sushiengine_imaging
     sushiengine_input
     sushiengine_material
     sushiengine_physics

@@ -4,6 +4,7 @@
 # a session.
 
 add_subdirectory(geometry)
+add_subdirectory(imaging)
 add_subdirectory(physics)
 add_subdirectory(material)
 add_subdirectory(environment)

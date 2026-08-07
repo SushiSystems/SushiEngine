@@ -21,6 +21,7 @@ set(SUSHIENGINE_MODULE_LAYERS
     execution       foundation
     platform        foundation
     geometry        domain
+    imaging         domain
     physics         domain
     material        domain
     environment     domain
