@@ -908,3 +908,214 @@ TEST(Integration_PhysicsSimulation, MovingAKinematicBodyWakesWhatSleepsOnIt)
     EXPECT_NEAR(double(after.position.y), CRATE_REST_Y, 1e-2)
         << "the crate woke but fell off, or never woke and hung in the air";
 }
+
+// The character controller (P9-B, §16.47), against the live physics rather than against
+// the half-spaces `tests/unit/test_character_mover.cpp` uses. What only appears here is
+// the binding: that the sweep excludes the character's own body, that the resolved pose
+// survives a real tick, and that a kinematic capsule pushes what it walks into.
+
+namespace
+{
+    /** @brief The id of the character in every scene below. */
+    constexpr EntityId WALKER = 3;
+
+    /** @brief The character's capsule: 0.4 m radius, 1.8 m tall. */
+    CharacterParameters walker_parameters()
+    {
+        CharacterParameters character;
+        character.radius = Scalar(0.4);
+        character.height = Scalar(1.8);
+        character.step_height = Scalar(0.4);
+        character.max_slope_degrees = Scalar(45);
+        return character;
+    }
+
+    /** @brief Where a standing capsule's centre sits on a floor at y = @p floor_y. */
+    Scalar walker_rest_y(Scalar floor_y)
+    {
+        const CharacterParameters character = walker_parameters();
+        return floor_y + character.radius + character_half_height(character);
+    }
+
+    /** @brief The character's body: kinematic, with the capsule it moves as. */
+    RigidBodyDescription walker_description(Scalar floor_y)
+    {
+        const CharacterParameters character = walker_parameters();
+        RigidBodyDescription description;
+        description.id = WALKER;
+        description.position = Vector3{0, walker_rest_y(floor_y), 0};
+        description.kinematic = true;
+        description.collider.shape = ColliderShape::Capsule;
+        description.collider.radius = character.radius;
+        description.collider.half_height = character_half_height(character);
+        return description;
+    }
+
+    /** @brief A pinned box: not a kinematic body, just one nothing can move. */
+    RigidBodyDescription pinned_box(EntityId id, const Vector3& position, Scalar x, Scalar y,
+                                    Scalar z)
+    {
+        RigidBodyDescription description;
+        description.id = id;
+        description.position = position;
+        description.inv_mass = 0;
+        description.collider = box_collider(x, y, z);
+        return description;
+    }
+
+    /** @brief One tick of walking: resolve the move, then let the world run. */
+    CharacterMoveState walk(IPhysicsScene& physics, const Vector3& displacement)
+    {
+        const CharacterMoveState state =
+            physics.move_character(WALKER, walker_parameters(), displacement, Vector3{0, 1, 0});
+        physics.step(earth_gravity(), still_air(), SUBSTEPS);
+        return state;
+    }
+
+    /** @brief A tick's worth of falling, so a walk is not a hover. */
+    Vector3 with_gravity(const Vector3& horizontal)
+    {
+        return Vector3{horizontal.x, horizontal.y - Scalar(9.8 * TICK_SECONDS * TICK_SECONDS),
+                       horizontal.z};
+    }
+}
+
+TEST(Integration_PhysicsSimulation, ACharacterWalksAcrossFlatGroundWithoutHittingItself)
+{
+    // The binding's first failure mode, and a silent one: the character's own capsule is
+    // in the query index, so a sweep that does not exclude it reports a hit at distance
+    // zero every time and the character never moves at all.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies({walker_description(0)}, ITERATIONS, SUBSTEP_DT);
+    physics->set_static_planes(ground());
+
+    for (int tick = 0; tick < 60; ++tick)
+        walk(*physics, with_gravity(Vector3{Scalar(0.02), 0, 0}));
+
+    SolvedPose pose;
+    ASSERT_TRUE(physics->rigid_pose(WALKER, pose));
+    EXPECT_GT(double(pose.position.x), 1.0) << "the character never moved; it swept against itself";
+    EXPECT_NEAR(double(pose.position.y), double(walker_rest_y(0)), 5e-2)
+        << "the character sank into the floor or floated above it";
+}
+
+TEST(Integration_PhysicsSimulation, ACharacterClimbsAStepInARealScene)
+{
+    // A pinned box with its top 0.3 m up, inside the 0.4 m step height. The unit tests
+    // prove the three-sweep step against hand-written planes; what this proves is that
+    // the same thing happens against a broadphase, a real capsule and a real box.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies(
+        {walker_description(0), pinned_box(10, Vector3{Scalar(3), Scalar(0.15), 0}, Scalar(2),
+                                           Scalar(0.15), Scalar(2))},
+        ITERATIONS, SUBSTEP_DT);
+    physics->set_static_planes(ground());
+
+    for (int tick = 0; tick < 120; ++tick)
+        walk(*physics, with_gravity(Vector3{Scalar(0.02), 0, 0}));
+
+    SolvedPose pose;
+    ASSERT_TRUE(physics->rigid_pose(WALKER, pose));
+    EXPECT_GT(double(pose.position.x), 1.2) << "the step stopped the character like a wall";
+    EXPECT_NEAR(double(pose.position.y), double(walker_rest_y(Scalar(0.3))), 8e-2)
+        << "the character did not end up standing on the step";
+}
+
+TEST(Integration_PhysicsSimulation, ACharacterIsStoppedByAWall)
+{
+    // A tall pinned box, well above the step height. The claim is narrow and worth being
+    // narrow: the character stops, and `remaining` says so. A controller that reported an
+    // empty remainder while being blocked gives a caller no way to tell walking from
+    // pushing.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies(
+        {walker_description(0), pinned_box(10, Vector3{Scalar(3), Scalar(2), 0}, Scalar(0.5),
+                                           Scalar(2), Scalar(2))},
+        ITERATIONS, SUBSTEP_DT);
+    physics->set_static_planes(ground());
+
+    CharacterMoveState state;
+    for (int tick = 0; tick < 200; ++tick)
+        state = walk(*physics, with_gravity(Vector3{Scalar(0.02), 0, 0}));
+
+    SolvedPose pose;
+    ASSERT_TRUE(physics->rigid_pose(WALKER, pose));
+    EXPECT_LT(double(pose.position.x), 2.2) << "the character walked through the wall";
+    EXPECT_GT(double(length(state.remaining)), 1e-4)
+        << "a blocked walk reported nothing left over";
+    EXPECT_NEAR(double(pose.position.y), double(walker_rest_y(0)), 5e-2)
+        << "pressing into a wall lifted the character";
+}
+
+TEST(Integration_PhysicsSimulation, ACharacterStopsAtADynamicCrateAndDoesNotPushIt)
+{
+    // Two claims, and the second is a limitation being pinned rather than a feature.
+    //
+    // It stops: a dynamic body is in the query index like anything else, so the sweep
+    // sees the crate and the character does not walk through it. That is the half that
+    // must never regress.
+    //
+    // It does not push: the sweep stops the capsule a skin width short of the crate, so
+    // there is no overlap for the contact projection to resolve and nothing moves the
+    // crate. Unity's `CharacterController` and PhysX's `PxController` behave the same way
+    // and both make pushing an explicit opt-in the caller wires up. Doing it here would
+    // mean the mover reporting its blocking hits and the scene spending an impulse per
+    // hit — real work, deliberately not in this row.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    RigidBodyDescription crate;
+    crate.id = 11;
+    crate.position = Vector3{Scalar(1.5), Scalar(0.5), 0};
+    crate.inv_mass = Scalar(1);
+    crate.collider = unit_box_collider();
+
+    physics->set_rigid_bodies({walker_description(0), crate}, ITERATIONS, SUBSTEP_DT);
+    physics->set_static_planes(ground());
+
+    for (int tick = 0; tick < 120; ++tick)
+        walk(*physics, with_gravity(Vector3{Scalar(0.02), 0, 0}));
+
+    SolvedPose walker;
+    SolvedPose untouched;
+    ASSERT_TRUE(physics->rigid_pose(WALKER, walker));
+    ASSERT_TRUE(physics->rigid_pose(11, untouched));
+    EXPECT_LT(double(walker.position.x), 0.8) << "the character walked into the crate";
+    EXPECT_LT(std::abs(double(untouched.position.x) - 1.5), 0.1)
+        << "the crate moved, which nothing here does yet — if pushing is now intended, "
+           "rewrite this test rather than loosening it";
+}
+
+TEST(Integration_PhysicsSimulation, ACharacterOnAMovingPlatformIsNotCarriedByIt)
+{
+    // Pinning a limitation, not celebrating one. Both bodies are kinematic, so both have
+    // zero inverse mass, so the contact between them resolves to nothing — the platform
+    // slides out from under the character. Every kinematic controller has this: Unity's
+    // `CharacterController` and PhysX's `PxController` both require the caller to add the
+    // platform's own delta to the character's move.
+    //
+    // The test exists so that the day someone adds platform-relative movement, it fails
+    // and has to be rewritten deliberately rather than quietly starting to pass.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies({platform_description(), walker_description(Scalar(1.25))},
+                              ITERATIONS, SUBSTEP_DT);
+
+    for (int tick = 0; tick < 30; ++tick)
+        walk(*physics, with_gravity(Vector3{0, 0, 0}));
+
+    SolvedPose before;
+    ASSERT_TRUE(physics->rigid_pose(WALKER, before));
+
+    constexpr double SPEED = 1.0;
+    Vector3 target = Vector3{0, Scalar(1), 0};
+    for (int tick = 0; tick < 60; ++tick)
+    {
+        target.x = Scalar(double(target.x) + SPEED * TICK_SECONDS);
+        physics->move_rigid_body(PLATFORM, target, Quaternion{0, 0, 0, 1});
+        walk(*physics, with_gravity(Vector3{0, 0, 0}));
+    }
+
+    SolvedPose after;
+    ASSERT_TRUE(physics->rigid_pose(WALKER, after));
+    EXPECT_LT(std::abs(double(after.position.x) - double(before.position.x)), 0.05)
+        << "the character was carried, which nothing in the engine does yet — if this is "
+           "now intended, rewrite this test rather than loosening it";
+}
