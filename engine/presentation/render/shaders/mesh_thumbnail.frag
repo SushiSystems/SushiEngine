@@ -14,7 +14,6 @@ layout(location = 0) out vec4 out_color;
 
 layout(push_constant) uniform Push
 {
-    mat4 model;
     mat4 view_projection;
     vec4 albedo;
     int albedo_texture_index;

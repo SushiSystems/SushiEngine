@@ -14,7 +14,6 @@ layout(location = 2) out vec2 out_uv0;
 
 layout(push_constant) uniform Push
 {
-    mat4 model;
     mat4 view_projection;
     vec4 albedo;
     int albedo_texture_index; // -1 = no texture; flat albedo tint only.
@@ -22,12 +21,11 @@ layout(push_constant) uniform Push
 
 void main()
 {
-    vec4 world_position = pc.model * vec4(in_position, 1.0);
+    // import_gltf already bakes every node's world transform into its vertices, so there is no
+    // per-draw model matrix here -- position and normal pass straight through as world space.
+    vec4 world_position = vec4(in_position, 1.0);
     out_world_position = world_position.xyz;
-    // No non-uniform scale in this pipeline's usage (import_gltf already bakes node transforms
-    // into vertex positions, so pc.model is always identity here) -- a plain 3x3 rotation of
-    // the normal is correct without a separate inverse-transpose normal matrix.
-    out_world_normal = mat3(pc.model) * in_normal;
+    out_world_normal = in_normal;
     out_uv0 = in_uv0;
     gl_Position = pc.view_projection * world_position;
 }

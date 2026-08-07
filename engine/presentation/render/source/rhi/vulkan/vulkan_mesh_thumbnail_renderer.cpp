@@ -367,13 +367,8 @@ namespace SushiEngine
                     SushiEngine::Geometry::three_quarter_camera_for_bounds(
                         bounds, static_cast<float>(width) / static_cast<float>(height));
                 // import_gltf already bakes every node's world transform into its vertices, so
-                // every primitive this call produced shares one consistent model space and is
-                // drawn with an identity model matrix -- see the vertex shader's own comment.
-                Matrix4 identity{};
-                identity.m[0] = 1.0f;
-                identity.m[5] = 1.0f;
-                identity.m[10] = 1.0f;
-                identity.m[15] = 1.0f;
+                // every primitive this call produced shares one consistent model space -- there
+                // is no per-draw model matrix to carry (see the vertex shader's own comment).
                 Matrix4 view_projection = mul(camera.projection, camera.view);
 
                 VkCommandBufferAllocateInfo command_alloc{};
@@ -467,7 +462,6 @@ namespace SushiEngine
                     const Geometry::Mesh& mesh = meshes_.mesh(mesh_ids[i]);
 
                     Push push{};
-                    write_matrix(identity, push.model);
                     write_matrix(view_projection, push.view_projection);
                     push.albedo[0] = static_cast<float>(materials[i].albedo.x);
                     push.albedo[1] = static_cast<float>(materials[i].albedo.y);

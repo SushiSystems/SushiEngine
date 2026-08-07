@@ -92,7 +92,6 @@ namespace SushiEngine
                     /** @brief One draw call's worth of per-primitive push-constant data. */
                     struct Push
                     {
-                        float model[16];
                         float view_projection[16];
                         float albedo[4];
                         std::int32_t albedo_texture_index;
