@@ -120,6 +120,7 @@ add_executable(sushiengine_functional_tests
     unit/test_geometry_sdf.cpp
     unit/test_thumbnail_downscale.cpp
     unit/test_thumbnail_lru.cpp
+    unit/test_mesh_thumbnail_camera.cpp
     # The cooking pipeline's first stage: what a dirty mesh measures as, and what a
     # repair is allowed to change about it (P4, §8.3 stage 1).
     unit/test_geometry_mesh_utilities.cpp
