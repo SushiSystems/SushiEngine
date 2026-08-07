@@ -982,6 +982,68 @@ namespace SushiEngine
                 }
             }
 
+            if (world->has_impact_response(id))
+            {
+                const ComponentSection section = component_header(context, "Impact Response");
+                if (section.remove)
+                {
+                    set_presence(&IWorldEditor::set_has_impact_response, false);
+                }
+                else if (section.open)
+                {
+                    // UNLINKED — review state. Shared locals, not this entity's values;
+                    // what is on show is the placement, the grouping and the readout at
+                    // the bottom. Replaced by a ComponentEditor over ImpactResponse once
+                    // the layout is approved; must not be merged in this state, per
+                    // `docs/design/editor_ux_overhaul.md`'s wire-or-remove rule.
+                    static float minimum_impulse = 0.5f;
+                    static float full_impulse = 20.0f;
+                    static float cooldown = 0.15f;
+                    static bool plays_audio = true;
+                    static bool emits_particles = false;
+                    static float particle_seconds = 0.15f;
+
+                    // The two thresholds first and adjacent, because they are one idea:
+                    // where a hit starts counting and where it stops getting louder.
+                    ImGui::DragFloat("Minimum Impulse", &minimum_impulse, 0.05f, 0.0f, 500.0f,
+                                     "%.2f N*s");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Below this, nothing happens. Impulse is what "
+                                          "separates a scrape from a crash.");
+                    ImGui::DragFloat("Full Impulse", &full_impulse, 0.5f, 0.0f, 5000.0f,
+                                     "%.1f N*s");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("At or above this, the response is at full "
+                                          "strength. Between the two it ramps linearly.");
+                    ImGui::DragFloat("Cooldown", &cooldown, 0.01f, 0.0f, 5.0f, "%.2f s");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How long before this entity may respond again. "
+                                          "Without it a crate that lands and bounces a "
+                                          "millimetre sounds twice.");
+
+                    ImGui::SeparatorText("What it does");
+                    ImGui::Checkbox("Plays Audio", &plays_audio);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Restarts this entity's Audio Emitter, with its "
+                                          "gain scaled by the ramp above.");
+                    ImGui::Checkbox("Emits Particles", &emits_particles);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Runs this entity's Particle System for a moment.");
+                    ImGui::BeginDisabled(!emits_particles);
+                    ImGui::DragFloat("Particle Time", &particle_seconds, 0.01f, 0.0f, 5.0f,
+                                     "%.2f s");
+                    ImGui::EndDisabled();
+
+                    // Named rather than silent. Neither is created by this component, and
+                    // an author who ticks a box and hears nothing should be told which
+                    // half is missing instead of going looking in the audio settings.
+                    if (plays_audio && !world->has_audio_emitter(id))
+                        ImGui::TextDisabled("No Audio Emitter on this entity.");
+                    if (emits_particles && !world->has_particle_emitter(id))
+                        ImGui::TextDisabled("No Particle System on this entity.");
+                }
+            }
+
             if (world->has_collider(id))
             {
                 const ComponentSection section = component_header(context, "Collider");
@@ -2033,6 +2095,8 @@ namespace SushiEngine
                     set_presence(&IWorldEditor::set_has_physics_body, true);
                 if (!world->has_character(id) && ImGui::MenuItem("Character Controller"))
                     set_presence(&IWorldEditor::set_has_character, true);
+                if (!world->has_impact_response(id) && ImGui::MenuItem("Impact Response"))
+                    set_presence(&IWorldEditor::set_has_impact_response, true);
                 if (!world->has_cloth(id) && ImGui::MenuItem("Cloth"))
                     set_presence(&IWorldEditor::set_has_cloth, true);
                 if (!world->has_soft_body(id) && ImGui::MenuItem("Soft Body"))
