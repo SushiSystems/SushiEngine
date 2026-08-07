@@ -109,6 +109,10 @@ add_executable(sushiengine_functional_tests
     # Mass and inertia from a shape and a density: written in P0, wired in P2, and
     # untested in between, which is exactly when a closed form goes wrong quietly.
     unit/test_mass_properties.cpp
+    # Collide-and-slide against a world of half-spaces. Reachable as a unit test at all
+    # because the mover takes its sweep as a callable, which is also what lets it state
+    # a geometric claim exactly — 44 degrees walkable, 46 not (P9-B, §16.47).
+    unit/test_character_mover.cpp
     # P2's acceptance scenes: 1 000 mixed-shape bodies in contact and 10 000
     # settled ones, measured rather than asserted in prose (P2, §13.1).
     unit/test_collision_scale.cpp
