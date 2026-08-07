@@ -504,8 +504,8 @@ rather than when something falls through the floor.
   glTF 2.0 and the `KHR_*` extensions, which is what "as complete as Unity's FBX support" has to
   mean before it can be checked.
 - `docs/design/static_mesh_authoring.md` §10's two deferrals are taken up here: multi-primitive
-  import by §5, drag and drop by §7. That section's claim that "no `ImGui::BeginDragDropSource`
-  exists today" is stale — one was added since — and is corrected as part of this work.
+  import by §5, drag and drop by §7. That section reasoned that the drag source had to be written
+  first; the Project panel has published one since 2026-07-30, so §7 only had to add the targets.
 
 ## §13 Roadmap
 

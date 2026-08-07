@@ -1,8 +1,9 @@
 """Fails when a path a design document cites as evidence does not resolve.
 
-``docs/design/`` states its own evidence standard — ``static_mesh_authoring.md`` §1 writes it
-as "a claim is a file:line, not a description" — and ``docs/documentation-style-guide.md``
-repeats it as "a path in prose is a real path". Nothing checked either, and the first run of this
+``docs/design/`` states its own evidence standard — ``static_mesh_authoring.md`` names the
+convention its §1 follows as "a claim is a real path, carrying a line locator only where that
+locator has been verified", and ``docs/documentation-style-guide.md`` repeats it as "a path in
+prose is a real path". Nothing checked either, and the first run of this
 script found 617 of 680 cited paths pointing at nothing — the repository restructure had moved
 every engine module and no citation followed. They were repaired against this script; it now
 guards the standard rather than only measuring the gap.

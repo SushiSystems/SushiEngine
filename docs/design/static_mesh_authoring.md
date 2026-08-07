@@ -62,10 +62,18 @@ tree P0 started from; §11 records what P0 changed.
 - **No creation path exists.** `Create ▸ Objects`
   (`applications/editor/source/scene/scene_commands.cpp:67-124`) offers
   Box/Sphere/Cylinder/Terrain/Cloth/Crowd/Particle System/Light/Decal — no "Mesh" or "Prop".
-  `applications/editor/source/project/project_panel.cpp` registers no
-  `ImGui::BeginDragDropSource` at all; the only drag-drop payload in the editor is
-  `HIERARCHY_ENTITY` (`applications/editor/source/scene/hierarchy_panel.cpp:144-153`), for
-  reparenting entities that already exist.
+  Dragging an asset works and lands nowhere useful. Every file tile in the Project browser is a
+  drag source: `applications/editor/source/project/project_panel.cpp` calls
+  `set_asset_drag_source` (`applications/editor/source/ui/panel_widgets.cpp:46-53`), which
+  publishes the `ASSET_PATH_PAYLOAD` declared at
+  `applications/editor/source/ui/panel_widgets.hpp:59` — both landed 2026-07-30 in `efc669f`,
+  before this document. The three receivers of that payload are all asset-path text fields, in
+  `applications/editor/source/scene/inspector_panel.cpp` and
+  `applications/editor/source/ui/material_inspector.cpp`, where a drop is the same edit as typing
+  the path. Neither the Hierarchy nor the viewport accepts it, so no drop creates an entity; the
+  Hierarchy's only drag-drop is `HIERARCHY_ENTITY`
+  (`applications/editor/source/scene/hierarchy_panel.cpp:144-153`), for reparenting entities that
+  already exist.
 - **The precedent to copy already exists, one component over.** `Crowd` imports a mesh from a path
   exactly this way, minus skinning: `CrowdParameters::mesh_path`
   (`engine/world/simulation/include/SushiEngine/simulation/simulation.hpp`) is bound by
@@ -216,11 +224,12 @@ with, exactly like a `Box`-kind Renderer with no `Collider` today.
 
 ## §10 Future work, explicitly deferred
 
-- **Drag-and-drop from the Project panel.** Dropping a `.gltf`/`.glb` tile onto the viewport or
-  Hierarchy creates an entity the way `"Imported Mesh"` does today, skipping the manual path
-  typing. Needs a new `ImGui::BeginDragDropSource` on Project panel asset tiles (none exists
-  today, §1) and a drop target on the viewport (none exists today either) — a real, separate
-  piece of work, not a small addition to this one.
+- **Drag-and-drop from the Project panel — shipped 2026-08-07, by `docs/design/model_import.md`
+  §7 rather than by this document.** Dropping a `.gltf`/`.glb`/`.sushiprefab` tile onto the
+  viewport (`applications/editor/source/ui/viewport_panel.cpp`) or the Hierarchy
+  (`applications/editor/source/scene/hierarchy_panel.cpp`) places the entity, over the
+  `ASSET_PATH_PAYLOAD` drag source the Project panel has published since 2026-07-30 (§1). The
+  deferral this bullet recorded assumed the drag source had to be written too; it did not.
 - **Multi-primitive glTF import.** `load_gltf`'s `count` parameter already supports importing more
   than one primitive; binding all of them (e.g., one entity per primitive, auto-parented) instead of
   only slot 0 is deferred until an asset that needs it is the actual motivation, per YAGNI.
