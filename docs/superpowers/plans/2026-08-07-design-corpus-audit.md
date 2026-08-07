@@ -123,9 +123,14 @@ DESIGN_DIRECTORY = REPOSITORY_ROOT / "docs" / "design"
 
 # Directories that hold no citable source: build trees, generated output, vendored code, and
 # the cooked asset cache. Walking them would make a stale build directory answer for the tree.
+# ``docs`` is NOT among them. A design document cites other documents, the pattern below
+# matches ``.md``, and the two renames the reorganization performed — ``docs/glossary.md`` to
+# ``docs/reference/glossary.md`` and its neighbours — are only repairable if those files are
+# indexed. Only the generated reference under ``docs/api`` and ``docs/api-site`` is skipped,
+# the same exclusion ``check_documentation_length.py`` makes.
 SKIPPED_DIRECTORIES = {
-    ".git", ".venv", "__pycache__", "build", "build-editor", "build-player", "cooked",
-    "docs", "third_party",
+    ".git", ".venv", "__pycache__", "api", "api-site", "build", "build-editor", "build-player",
+    "cooked", "third_party",
 }
 
 # A citation is a backticked token that names a file: it carries an extension this tree
