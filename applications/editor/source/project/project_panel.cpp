@@ -761,16 +761,11 @@ namespace SushiEngine
             const fs::path root(context.project_root);
             const fs::path current(context.current_directory);
 
-            // Breadcrumb path and up-navigation, above the tree/grid split.
+            // Breadcrumb path, above the tree/grid split.
             ImGui::TextDisabled("%s", current.string().c_str());
             std::error_code root_ec;
             const bool at_root =
                 fs::weakly_canonical(current, root_ec) == fs::weakly_canonical(root, root_ec);
-            ImGui::SameLine();
-            ImGui::BeginDisabled(at_root);
-            if (ImGui::SmallButton("Up"))
-                context.current_directory = current.parent_path().string();
-            ImGui::EndDisabled();
             ImGui::Separator();
 
             // Left: a folder tree rooted at the project. Right: a Unity-style icon grid
@@ -819,6 +814,11 @@ namespace SushiEngine
                 context.preferences_dirty = true;
             }
 
+            ImGui::BeginDisabled(at_root);
+            if (ImGui::SmallButton("Up"))
+                context.current_directory = current.parent_path().string();
+            ImGui::EndDisabled();
+            ImGui::SameLine();
             ImGui::SetNextItemWidth(-FLT_MIN);
             ImGui::InputTextWithHint("##project_filter", "Search...", &context.project_filter);
             const std::string lower_filter = to_lower(context.project_filter);
