@@ -27,18 +27,21 @@
  * @file vulkan_prefab_thumbnail_renderer.hpp
  * @brief The Vulkan implementation of IPrefabThumbnailRenderer.
  *
- * Per render_thumbnail() call: a throwaway ISimulation is created, the prefab document is
- * applied into it, its assets are resolved against this class's own persistent, isolated
- * PrefabThumbnailAssetLibrary, every resulting entity's world-space bounds are unioned into
- * one camera framing, and every entity is drawn flat/unlit with its own real model matrix.
- * The throwaway simulation is discarded before the call returns; the isolated asset library
- * (and everything it has ever imported) persists across calls until this whole renderer is
- * destroyed and replaced -- Phase 4b's PrefabThumbnailCache owns that recreation policy, not
- * this class.
+ * Draws exactly the caller-resolved array of (mesh, material, model matrix) triples it is
+ * given, framed by the caller-supplied bounds. This class knows nothing about prefabs, JSON,
+ * or `ISimulation`/`IWorldEditor` -- that orchestration belongs to whatever calls it (Phase
+ * 4b's editor-tier `PrefabThumbnailCache`), since `engine/presentation/render` is forbidden
+ * from depending on the `world` tier (`engine/world/simulation`/`engine/world/serialization`);
+ * see this class's own header (`SushiEngine/render/prefab_thumbnail_renderer.hpp`) for the
+ * full rationale. This renderer's own isolated asset stack, exposed via @ref
+ * VulkanPrefabThumbnailRenderer::asset_library, is what a caller resolves a prefab's
+ * mesh_path/material-path references against before building the draw array; it persists
+ * across calls until this whole renderer is destroyed and replaced -- Phase 4b's
+ * PrefabThumbnailCache owns that recreation policy, not this class.
  */
 
+#include <cstddef>
 #include <cstdint>
-#include <memory>
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -74,11 +77,19 @@ namespace SushiEngine
                     VulkanPrefabThumbnailRenderer(const VulkanPrefabThumbnailRenderer&) = delete;
                     VulkanPrefabThumbnailRenderer& operator=(const VulkanPrefabThumbnailRenderer&) = delete;
 
-                    bool render_thumbnail(const char* path, std::uint32_t width,
-                                          std::uint32_t height, FrameImage& out_image) override;
+                    IAssetLibrary& asset_library() noexcept override { return assets_; }
+
+                    // Fully qualified: SushiEngine::Geometry (domain geometry module) is a
+                    // sibling of, and genuinely distinct from, this file's own enclosing
+                    // SushiEngine::Render::Geometry (owns MeshRegistry/Mesh). Unqualified
+                    // `Geometry::` here would resolve to the nearer Render::Geometry and fail
+                    // to find AABB3, which it does not declare.
+                    bool render_thumbnail(const PrefabThumbnailDraw* draws, std::size_t count,
+                                          const SushiEngine::Geometry::AABB3& bounds,
+                                          std::uint32_t width, std::uint32_t height,
+                                          FrameImage& out_image) override;
 
                 private:
-                    static constexpr std::size_t MAX_ENTITIES = 64;
                     static constexpr std::size_t MAX_PRIMITIVES = 128;
                     static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
                     static constexpr VkFormat DEPTH_FORMAT = VK_FORMAT_D32_SFLOAT;

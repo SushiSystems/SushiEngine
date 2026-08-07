@@ -31,24 +31,48 @@
  * its own independent mesh, material, and transform, potentially from entirely different
  * source files (see docs/superpowers/specs/2026-08-07-project-panel-prefab-thumbnails-design.md).
  * @c IMeshThumbnailRenderer's single-glTF-file contract cannot represent that, so this is a
- * separate, parallel interface: instantiate the prefab into a throwaway world, resolve its
- * assets, frame a camera around the union of every entity's bounds, and draw each one with its
- * own real model matrix.
+ * separate, parallel interface: draw a caller-resolved array of entities, each with its own
+ * real model matrix, framed by a caller-supplied bounds.
+ *
+ * This class is deliberately ignorant of prefabs, JSON, and `ISimulation`/`IWorldEditor` --
+ * `engine/presentation/render` (the `presentation` tier) is forbidden from depending on
+ * `engine/world/simulation`/`engine/world/serialization` (the `world` tier): `world` sits
+ * above `presentation` in this repository's tier order (`cmake/EngineLayers.cmake`), and the
+ * `render`-depends-on-`simulation` edge is separately listed in `SUSHIENGINE_FORBIDDEN_EDGES`
+ * as one no tier arrangement may ever make legal. Instantiating a `.sushiprefab` into a
+ * throwaway world, applying it, and resolving its assets against @ref asset_library are all
+ * therefore the caller's job -- the `application` tier (the editor), which is free to depend
+ * on both `world` and `presentation`. That caller (Phase 4b's `PrefabThumbnailCache`, a
+ * separate, not-yet-written plan) walks the resolved world itself and hands this class the
+ * plain `PrefabThumbnailDraw` array below.
  */
 
+#include <cstddef>
 #include <cstdint>
 
+#include <SushiEngine/geometry/mesh_thumbnail_camera.hpp>
+#include <SushiEngine/material/material.hpp>
+
+#include "asset_library_interface.hpp"
 #include "scene_view.hpp"
 
 namespace SushiEngine
 {
     namespace Render
     {
+        /** @brief One already-resolved entity's worth of draw data for a prefab thumbnail. */
+        struct PrefabThumbnailDraw
+        {
+            MeshId mesh = INVALID_MESH;
+            Material material;
+            Matrix4 model; /**< This entity's own composed world transform. */
+        };
+
         /**
-         * @brief Renders one .sushiprefab's actual, current, resolved entities into an image.
+         * @brief Renders a caller-resolved set of entities into an image.
          *
          * Owns an asset stack isolated from the renderer's main scene assets, the same way
-         * IMeshThumbnailRenderer does — loading or discarding a prefab thumbnail never touches
+         * IMeshThumbnailRenderer does -- resolving a prefab thumbnail's assets never touches
          * what the live scene has loaded for the same file.
          */
         class IPrefabThumbnailRenderer
@@ -57,30 +81,47 @@ namespace SushiEngine
                 virtual ~IPrefabThumbnailRenderer() = default;
 
                 /**
-                 * @brief Loads @p path, instantiates it, and renders every resulting entity.
+                 * @brief The isolated asset library this renderer's meshes/materials live in.
                  *
-                 * Internally: creates a throwaway simulation, applies the prefab document into
-                 * it, resolves its assets against this renderer's own isolated asset stack,
-                 * frames a fixed three-quarter camera around the union of every entity's
-                 * world-space bounds, and draws each entity flat/unlit with its own real model
-                 * matrix. The throwaway simulation is discarded before this call returns.
+                 * A caller resolves a prefab's mesh_path/material-path references against
+                 * this library (e.g. via Scene::resolve_scene_assets, from world-tier code
+                 * this render-tier class must never call directly) before building the
+                 * PrefabThumbnailDraw array render_thumbnail() below expects.
+                 */
+                virtual IAssetLibrary& asset_library() noexcept = 0;
+
+                /**
+                 * @brief Renders exactly the given resolved draws into a width x height RGBA8 image.
                  *
-                 * This method submits to the same graphics queue the main renderer uses for its
-                 * own frame submission (externally synchronized in Vulkan — do not call this
-                 * concurrently with the main renderer's own frame submission from a different
-                 * thread without external synchronization). It blocks the calling thread
+                 * Shading is flat headlight-plus-ambient sampling each draw's base-color
+                 * texture. @p out_image is left untouched on failure. This method submits to
+                 * the same graphics queue the main renderer uses for its own frame submission
+                 * (externally synchronized in Vulkan) and blocks the calling thread
                  * synchronously until the GPU finishes rendering and the readback completes.
                  *
-                 * @param path   A `.sushiprefab` file path.
+                 * @param draws  The entities to draw, already resolved to live mesh/material
+                 *   handles in this renderer's own asset_library().
+                 * @param count  Number of entries in @p draws. Must not exceed a fixed
+                 *   implementation capacity (a caller exceeding it should treat that as a
+                 *   load failure before ever calling this method).
+                 * @param bounds The world-space bounds (already unioned across every draw by
+                 *   the caller) to frame the camera around.
                  * @param width  Output image width in pixels.
                  * @param height Output image height in pixels.
                  * @param out_image Receives the rendered result on success.
-                 * @return @c true on success; @c false on any load or render failure (an
-                 *   unsupported/corrupt document, a document with no entities, more entities or
-                 *   primitives than this renderer's fixed capacity, or a Vulkan error).
+                 * @return @c true on success; @c false on any render failure (a Vulkan error,
+                 *   or more draws than this renderer's fixed capacity).
                  */
-                virtual bool render_thumbnail(const char* path, std::uint32_t width,
-                                              std::uint32_t height, FrameImage& out_image) = 0;
+                // Fully qualified SushiEngine::Geometry::AABB3: an implementation of this
+                // interface (e.g. Vulkan::VulkanPrefabThumbnailRenderer) typically also owns a
+                // nested Render::Geometry namespace (mesh/material geometry, distinct from the
+                // domain module's SushiEngine::Geometry this type actually lives in) visible in
+                // the same translation unit, so an unqualified `Geometry::` here would risk
+                // resolving to the wrong one depending on include order.
+                virtual bool render_thumbnail(const PrefabThumbnailDraw* draws, std::size_t count,
+                                              const SushiEngine::Geometry::AABB3& bounds,
+                                              std::uint32_t width, std::uint32_t height,
+                                              FrameImage& out_image) = 0;
         };
     } // namespace Render
 } // namespace SushiEngine

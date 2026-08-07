@@ -23,18 +23,11 @@
 
 #include "vulkan_prefab_thumbnail_renderer.hpp"
 
-#include <algorithm>
 #include <cstring>
-#include <fstream>
 #include <stdexcept>
-
-#include <nlohmann/json.hpp>
 
 #include <SushiEngine/geometry/mesh_thumbnail_camera.hpp>
 #include <SushiEngine/material/material.hpp>
-#include <SushiEngine/serialization/prefab_serializer.hpp>
-#include <SushiEngine/serialization/scene_serializer.hpp>
-#include <SushiEngine/simulation/simulation.hpp>
 
 #include "prefab_thumbnail.frag.h"
 #include "prefab_thumbnail.vert.h"
@@ -357,102 +350,37 @@ namespace SushiEngine
                 target_height_ = 0;
             }
 
-            bool VulkanPrefabThumbnailRenderer::render_thumbnail(const char* path,
-                                                                  std::uint32_t width,
-                                                                  std::uint32_t height,
-                                                                  FrameImage& out_image)
+            bool VulkanPrefabThumbnailRenderer::render_thumbnail(
+                const PrefabThumbnailDraw* draws, std::size_t count,
+                const SushiEngine::Geometry::AABB3& bounds, std::uint32_t width,
+                std::uint32_t height, FrameImage& out_image)
             {
-                // A throwaway world: create_simulation() seeds its own animated demo cubes (see
-                // RuntimeSimulation's class doc comment), so those are cleared before the prefab
-                // is applied -- this renderer must draw exactly what the prefab document
-                // resolves to, nothing else. No Vulkan resource has been touched yet at this
-                // point, so every return between here and the end of this function -- whether
-                // an ordinary `return false;` or an exception caught by the try/catch below --
-                // needs no cleanup beyond `scratch`'s own destructor running at scope exit.
-                std::unique_ptr<Simulation::ISimulation> scratch =
-                    SushiEngine::Simulation::create_simulation();
-                Simulation::IWorldEditor& world = scratch->world();
-                for (const Simulation::EntityId id : world.entities())
-                    world.destroy(id);
-
-                nlohmann::json document;
-                try
-                {
-                    std::ifstream file(path);
-                    if (!file.is_open())
-                        return false;
-                    file >> document;
-                }
-                catch (const std::exception&)
-                {
+                // This class trusts its input: the caller (a world-tier-aware orchestrator --
+                // see this class's own header for why that orchestration cannot live here) has
+                // already resolved every entity's mesh/material and composed its model matrix,
+                // and already unioned every entity's bounds into @p bounds. There is no
+                // "unresolved" or "skip this one" case left to handle here beyond the fixed
+                // capacity check below.
+                if (count == 0 || count > MAX_PRIMITIVES)
                     return false;
-                }
 
                 // render_thumbnail's documented contract (prefab_thumbnail_renderer.hpp) is to
-                // return false on any load or render failure, including a Vulkan error --
-                // never to throw. That exposure starts here, not just at the Vulkan calls
-                // below: `apply_prefab`/`resolve_scene_assets` walk the document through
-                // nlohmann's `j.value(key, default)` calls, which throw `json::type_error`
-                // on a syntactically valid but wrongly-typed field (a completely realistic
-                // corrupt-.sushiprefab case) rather than returning a default. So the whole
-                // rest of this function -- prefab application, asset resolution, target
-                // creation, and the render/readback sequence -- is one try/catch that
-                // converts any such throw into a `false` return, cleaning up whatever
-                // Vulkan-call-sequence resource was already created (mirroring Phase 3a's
-                // VulkanMeshThumbnailRenderer::render_thumbnail's own catch exactly). No
-                // Vulkan resource exists yet at the point this try block opens -- `scratch`'s
-                // own destructor is all any throw before ensure_targets() needs -- and
-                // ensure_targets() itself only ever leaves this renderer's persistent,
-                // member-owned targets in a state destroy_targets() (called from the
-                // destructor) already knows how to unwind correctly on a partial create.
+                // return false on any render failure, including a Vulkan error -- never to
+                // throw. Every Vulkan::check() below this point (including inside
+                // ensure_targets()) can throw, so the whole render/readback sequence is wrapped
+                // in a try/catch that converts any such throw into a false return, cleaning up
+                // whatever of these was already created (mirroring Phase 3a's
+                // VulkanMeshThumbnailRenderer::render_thumbnail exactly). No Vulkan resource
+                // exists yet at the point this try block opens, and ensure_targets() itself only
+                // ever leaves this renderer's persistent, member-owned targets in a state
+                // destroy_targets() (called from the destructor) already knows how to unwind
+                // correctly on a partial create.
                 VkCommandBuffer command = VK_NULL_HANDLE;
                 VkBuffer readback_buffer = VK_NULL_HANDLE;
                 VmaAllocation readback_allocation = VK_NULL_HANDLE;
                 VkFence fence = VK_NULL_HANDLE;
                 try
                 {
-                const Simulation::EntityId root =
-                    Scene::apply_prefab(world, document, Simulation::NULL_ENTITY);
-                if (root == Simulation::NULL_ENTITY)
-                    return false;
-
-                Scene::resolve_scene_assets(world, assets_);
-
-                const std::vector<Simulation::EntityId> entities = world.entities();
-                if (entities.empty() || entities.size() > MAX_ENTITIES)
-                    return false;
-
-                // Fully qualified: SushiEngine::Geometry (domain geometry module) is a sibling
-                // of, and genuinely distinct from, this file's own enclosing
-                // SushiEngine::Render::Geometry (owns MeshRegistry/Mesh, used unqualified
-                // below). Unqualified `Geometry::` here would resolve to the nearer
-                // Render::Geometry and fail to find AABB3/ThumbnailCamera/
-                // three_quarter_camera_for_bounds/expand_aabb_sphere, none of which it declares.
-                SushiEngine::Geometry::AABB3 bounds{};
-                std::size_t primitive_count = 0;
-                for (const Simulation::EntityId id : entities)
-                {
-                    if (!world.has_shape(id))
-                        continue;
-                    const Simulation::ShapeParameters shape = world.shape_parameters(id);
-                    if (shape.mesh == INVALID_MESH)
-                        continue;
-                    ++primitive_count;
-                    if (primitive_count > MAX_PRIMITIVES)
-                        return false;
-
-                    const Geometry::Mesh& mesh = assets_.meshes().mesh(shape.mesh);
-                    const Simulation::EntityTransform world_transform = world.world_transform(id);
-                    const double max_scale = std::max(
-                        {std::abs(world_transform.scale.x), std::abs(world_transform.scale.y),
-                        std::abs(world_transform.scale.z)});
-                    SushiEngine::Geometry::expand_aabb_sphere(
-                        bounds, world_transform.position,
-                        static_cast<double>(mesh.radius) * max_scale);
-                }
-                if (!bounds.initialized)
-                    return false;
-
                 ensure_targets(width, height);
 
                 const SushiEngine::Geometry::ThumbnailCamera camera =
@@ -540,30 +468,23 @@ namespace SushiEngine
                 vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                         pipeline_layout_, 1, 1, &heap_set, 0, nullptr);
 
-                for (const Simulation::EntityId id : entities)
+                for (std::size_t i = 0; i < count; ++i)
                 {
-                    if (!world.has_shape(id))
-                        continue;
-                    const Simulation::ShapeParameters shape = world.shape_parameters(id);
-                    if (shape.mesh == INVALID_MESH)
+                    const PrefabThumbnailDraw& draw = draws[i];
+                    if (draw.mesh == INVALID_MESH)
                         continue;
 
-                    const Geometry::Mesh& mesh = assets_.meshes().mesh(shape.mesh);
-                    const Render::Material material = world.material(id);
-                    const Simulation::EntityTransform world_transform = world.world_transform(id);
+                    const Geometry::Mesh& mesh = assets_.meshes().mesh(draw.mesh);
 
                     Push push{};
-                    write_matrix(compose_transform(world_transform.position,
-                                                   world_transform.rotation,
-                                                   world_transform.scale),
-                                push.model);
+                    write_matrix(draw.model, push.model);
                     write_matrix(view_projection, push.view_projection);
-                    push.albedo[0] = static_cast<float>(material.albedo.x);
-                    push.albedo[1] = static_cast<float>(material.albedo.y);
-                    push.albedo[2] = static_cast<float>(material.albedo.z);
-                    push.albedo[3] = material.base_alpha;
-                    push.albedo_texture_index = material.albedo_map != INVALID_TEXTURE
-                                                    ? static_cast<std::int32_t>(material.albedo_map)
+                    push.albedo[0] = static_cast<float>(draw.material.albedo.x);
+                    push.albedo[1] = static_cast<float>(draw.material.albedo.y);
+                    push.albedo[2] = static_cast<float>(draw.material.albedo.z);
+                    push.albedo[3] = draw.material.base_alpha;
+                    push.albedo_texture_index = draw.material.albedo_map != INVALID_TEXTURE
+                                                    ? static_cast<std::int32_t>(draw.material.albedo_map)
                                                     : -1;
                     vkCmdPushConstants(command, pipeline_layout_,
                                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
