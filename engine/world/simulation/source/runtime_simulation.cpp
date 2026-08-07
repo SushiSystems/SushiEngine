@@ -2619,6 +2619,35 @@ namespace SushiEngine
 
 
 
+                    /**
+                     * @brief Whether @p record and every ancestor above it are visible.
+                     *
+                     * The per-entity `visible` flag is Unity's `activeSelf` — what the
+                     * Hierarchy's toggle writes, for that one entity. What every extract
+                     * below needs is `activeInHierarchy`: hiding a model's root has to hide
+                     * the model, and every part of an imported model is a descendant of one.
+                     * Kept as a separate question rather than pushed into the flag on
+                     * `set_visible`, so re-showing a parent does not silently re-show the
+                     * children an author hid one by one.
+                     *
+                     * Walked rather than cached: a chain is a handful of links, the same
+                     * records are already being walked by `world_matrix` beside it, and a
+                     * cache would be a second thing to keep in step with every reparent.
+                     */
+                    bool visible_in_hierarchy(const Record* record) const noexcept
+                    {
+                        std::size_t guard = records_.size() + 1;
+                        for (const Record* current = record; current != nullptr && guard > 0;
+                             --guard)
+                        {
+                            if (!current->visible)
+                                return false;
+                            current = current->parent == NULL_ENTITY ? nullptr
+                                                                     : find(current->parent);
+                        }
+                        return true;
+                    }
+
                     /** @brief The object-to-world matrix for @p id, built from @ref world_transform. */
                     Matrix4 world_matrix(EntityId id) const
                     {
@@ -3615,7 +3644,8 @@ namespace SushiEngine
                                 continue;
                             }
 
-                            if (!record->visible || !record->has_shape || !record->has_renderer)
+                            if (!record->has_shape || !record->has_renderer ||
+                                !visible_in_hierarchy(record))
                                 continue;
                             const Tint& tint = world_.get<Tint>(record->entity);
                             RenderInstance instance;
@@ -3640,7 +3670,8 @@ namespace SushiEngine
                         for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
-                            if (record == nullptr || !record->has_cloth || !record->visible)
+                            if (record == nullptr || !record->has_cloth ||
+                                !visible_in_hierarchy(record))
                                 continue;
                             std::uint32_t rows = 0;
                             std::uint32_t cols = 0;
@@ -3713,7 +3744,8 @@ namespace SushiEngine
                         for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
-                            if (record == nullptr || !record->has_soft_body || !record->visible)
+                            if (record == nullptr || !record->has_soft_body ||
+                                !visible_in_hierarchy(record))
                                 continue;
                             if (!physics_->soft_body_surface(id, soft_positions, soft_indices))
                                 continue;
@@ -3753,7 +3785,8 @@ namespace SushiEngine
                         for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
-                            if (record == nullptr || !record->has_vehicle || !record->visible)
+                            if (record == nullptr || !record->has_vehicle ||
+                                !visible_in_hierarchy(record))
                                 continue;
                             if (!physics_->vehicle_surface(id, shell_positions, shell_indices))
                                 continue;
@@ -3793,7 +3826,7 @@ namespace SushiEngine
                         {
                             const Record* record = find(id);
                             if (record == nullptr || !record->has_particle_emitter ||
-                                !record->visible)
+                                !visible_in_hierarchy(record))
                                 continue;
                             const VFX::DeterministicEmitterState& pool = record->particle_pool;
                             for (std::uint32_t i = 0; i < pool.alive_count; ++i)
@@ -3820,7 +3853,7 @@ namespace SushiEngine
                         {
                             Record* record = find(id);
                             if (record == nullptr || !record->has_particle_emitter ||
-                                !record->visible || !world_.alive(record->entity))
+                                !visible_in_hierarchy(record) || !world_.alive(record->entity))
                                 continue;
                             const VFX::CompiledEffect* compiled = effect_for(*record);
                             if (compiled == nullptr)
@@ -4086,7 +4119,8 @@ namespace SushiEngine
                         for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
-                            if (record == nullptr || !record->has_light || !record->visible)
+                            if (record == nullptr || !record->has_light ||
+                                !visible_in_hierarchy(record))
                                 continue;
                             const Matrix4 model = world_matrix(id);
                             constexpr float degrees_to_radians = 0.017453292519943295f;
@@ -4118,7 +4152,8 @@ namespace SushiEngine
                         for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
-                            if (record == nullptr || !record->has_decal || !record->visible)
+                            if (record == nullptr || !record->has_decal ||
+                                !visible_in_hierarchy(record))
                                 continue;
                             const Matrix4 model = world_matrix(id);
                             Render::Decal decal;
@@ -4259,7 +4294,8 @@ namespace SushiEngine
                         for (const EntityId id : order_)
                         {
                             const Record* record = find(id);
-                            if (record == nullptr || !record->has_crowd || !record->visible ||
+                            if (record == nullptr || !record->has_crowd ||
+                                !visible_in_hierarchy(record) ||
                                 record->crowd_parameters.skeleton == 0 ||
                                 record->crowd_parameters.mesh == Render::INVALID_MESH)
                                 continue;

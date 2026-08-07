@@ -91,6 +91,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   the pyramid instead of only persisting.
 
 ### Fixed
+- 2026-08-07 — Fixed hiding an entity leaving its children drawing: every render extract gated on
+  its own `visible` flag, so hiding a model's root hid only the root. They now ask the whole
+  ancestor chain, as `activeInHierarchy` does.
 - 2026-08-07 — Fixed an imported glTF appearing in the Hierarchy but never drawing: its geometry
   entities got a Shape but no Renderer, and drawing gates on both, so every part resolved its
   mesh and stayed invisible without an error.
