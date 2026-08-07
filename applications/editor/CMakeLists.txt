@@ -113,6 +113,7 @@ target_link_libraries(sushiengine_editor PRIVATE
     sushiengine_input_backend
     sushiengine_audio_backend
     sushiengine_imaging
+    sushiengine_profiling
     nlohmann_json::nlohmann_json)
 # Stb_INCLUDE_DIR is PRIVATE on sushiengine_render, so it does not arrive transitively; the
 # thumbnail cache's stb_image.h include needs it resolved here directly.

@@ -43,6 +43,7 @@
 #include <SushiEngine/authoring/preferences.hpp>
 #include <SushiEngine/authoring/soft_body_heat.hpp>
 #include <SushiEngine/material/material.hpp>
+#include <SushiEngine/profiling/frame_profiler.hpp>
 #include <SushiEngine/render/asset_library_interface.hpp>
 #include <SushiEngine/render/render_settings.hpp>
 #include <SushiEngine/simulation/simulation.hpp>
@@ -640,6 +641,10 @@ namespace SushiEngine
             // Each visible viewport's per-pass GPU times, refilled by the main loop
             // after the viewports render and shown in the Statistics panel.
             std::vector<ViewportGPUStatistics> gpu_statistics;
+
+            // The last completed frame's CPU times, snapshotted per frame like the GPU
+            // timings above: the panels read a copy and cannot reach the live profiler.
+            SushiEngine::Profiling::FrameProfileSnapshot frame_profile;
 
             bool show_imgui_demo = false;
 

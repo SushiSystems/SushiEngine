@@ -24,8 +24,8 @@
 #include "profiler_panel.hpp"
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
+#include <string>
 #include <vector>
 
 #include <imgui.h>
@@ -36,21 +36,6 @@ namespace SushiEngine
     {
         namespace
         {
-            // PROF0's stand-in numbers, deleted when PROF1/PROF2/PROF3 wire the sections.
-            // Chosen to look like a plausible busy frame so layout is judged on real shapes.
-            struct MockChannel
-            {
-                const char* name;
-                float milliseconds;
-            };
-            constexpr MockChannel MOCK_CPU_CHANNELS[] = {
-                {"event pump", 0.21f},        {"simulation tick", 2.85f},
-                {"animation preview", 0.42f}, {"scene render submit", 3.10f},
-                {"game render submit", 1.95f}, {"ui build", 1.35f},
-                {"present wait", 4.80f},
-            };
-            constexpr float MOCK_FRAME_MILLISECONDS = 14.9f;
-
             /** @brief Prints a value row, or a dimmed "n/a" when the producer is not wired. */
             void value_row(const char* label, bool available, const char* format, double value)
             {
@@ -78,20 +63,39 @@ namespace SushiEngine
             ImGui::Checkbox("Pause", &state.paused);
             ImGui::Separator();
 
+            // While paused, keep rendering the frame held at the moment Pause was ticked
+            // instead of the context's latest, so two frames can be compared by eye; while
+            // running, refresh the held copy every frame so unpausing has no stale gap.
+            if (!state.paused)
+                state.held = context.frame_profile;
+            const SushiEngine::Profiling::FrameProfileSnapshot& shown = state.held;
+
             if (ImGui::CollapsingHeader("Frame", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                // Mock ring: a noisy sine so the plot's scaling and height can be judged.
-                float mock_history[240];
-                for (int i = 0; i < 240; ++i)
-                    mock_history[i] = MOCK_FRAME_MILLISECONDS +
-                                      2.0f * std::sin(static_cast<float>(i) * 0.13f);
-                ImGui::PlotLines("##frame_history", mock_history, 240, 0, nullptr, 0.0f,
-                                 33.3f, ImVec2(-1.0f, 60.0f));
-                ImGui::Text("CPU frame: %.2f ms (%.0f FPS)", MOCK_FRAME_MILLISECONDS,
-                            1000.0f / MOCK_FRAME_MILLISECONDS);
-                ImGui::SameLine();
-                ImGui::TextDisabled("avg %.2f  worst %.2f", MOCK_FRAME_MILLISECONDS + 0.3f,
-                                    MOCK_FRAME_MILLISECONDS + 2.1f);
+                if (shown.frame_history.empty())
+                {
+                    ImGui::TextDisabled("n/a — first frame pending");
+                }
+                else
+                {
+                    float worst = shown.frame_history.front();
+                    float total = 0.0f;
+                    for (float sample : shown.frame_history)
+                    {
+                        worst = std::max(worst, sample);
+                        total += sample;
+                    }
+                    const float average = total / static_cast<float>(shown.frame_history.size());
+                    ImGui::PlotLines("##frame_history", shown.frame_history.data(),
+                                     static_cast<int>(shown.frame_history.size()), 0, nullptr,
+                                     0.0f, worst * 1.2f, ImVec2(-1.0f, 60.0f));
+                    ImGui::Text("CPU frame: %.2f ms (%.0f FPS)", shown.frame_milliseconds,
+                                shown.frame_milliseconds > 0.0f
+                                    ? 1000.0f / shown.frame_milliseconds
+                                    : 0.0f);
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("avg %.2f  worst %.2f", average, worst);
+                }
             }
 
             if (ImGui::CollapsingHeader("CPU", ImGuiTreeNodeFlags_DefaultOpen))
@@ -103,16 +107,19 @@ namespace SushiEngine
                     ImGui::TableSetupColumn("ms", ImGuiTableColumnFlags_WidthFixed, 70.0f);
                     ImGui::TableSetupColumn("% frame", ImGuiTableColumnFlags_WidthFixed, 70.0f);
                     ImGui::TableHeadersRow();
-                    for (const MockChannel& channel : MOCK_CPU_CHANNELS)
+                    for (const SushiEngine::Profiling::ChannelValue& channel : shown.channels)
                     {
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0);
-                        ImGui::TextUnformatted(channel.name);
+                        const std::string indented(2 * channel.depth, ' ');
+                        ImGui::TextUnformatted((indented + channel.name).c_str());
                         ImGui::TableSetColumnIndex(1);
                         ImGui::Text("%6.3f", channel.milliseconds);
                         ImGui::TableSetColumnIndex(2);
-                        ImGui::Text("%5.1f", 100.0f * channel.milliseconds /
-                                                 MOCK_FRAME_MILLISECONDS);
+                        ImGui::Text("%5.1f", shown.frame_milliseconds > 0.0f
+                                                 ? 100.0f * channel.milliseconds /
+                                                       shown.frame_milliseconds
+                                                 : 0.0f);
                     }
                     ImGui::EndTable();
                 }

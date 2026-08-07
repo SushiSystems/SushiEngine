@@ -692,9 +692,15 @@ namespace SushiEngine
                 return;
             }
 
-            const ImGuiIO& io = ImGui::GetIO();
-            ImGui::Text("Frame: %.2f ms", 1000.0f / io.Framerate);
-            ImGui::Text("FPS:   %.0f", io.Framerate);
+            if (context.frame_profile.frame_milliseconds > 0.0f)
+            {
+                ImGui::Text("Frame: %.2f ms", context.frame_profile.frame_milliseconds);
+                ImGui::Text("FPS:   %.0f", 1000.0f / context.frame_profile.frame_milliseconds);
+            }
+            else
+            {
+                ImGui::TextDisabled("Frame: n/a — first frame pending");
+            }
             ImGui::Separator();
             ImGui::Text("World entities: %zu", context.world_entity_count);
             ImGui::Text("Open files:     %zu", context.documents.size());
@@ -810,9 +816,10 @@ namespace SushiEngine
                     // Frame cost belongs on the status bar rather than only in Statistics:
                     // it is the one number that says whether what you just authored is
                     // affordable, and it should not need a panel opened to see.
-                    const ImGuiIO& io = ImGui::GetIO();
-                    ImGui::Text("%.1f fps / %.2f ms", io.Framerate,
-                                io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
+                    const float frame_milliseconds = context.frame_profile.frame_milliseconds;
+                    ImGui::Text("%.1f fps / %.2f ms",
+                                frame_milliseconds > 0.0f ? 1000.0f / frame_milliseconds : 0.0f,
+                                frame_milliseconds);
 
                     // The problem tally, right-aligned and clickable: an error logged while
                     // the Console is behind another tab is otherwise invisible until

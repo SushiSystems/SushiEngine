@@ -45,6 +45,7 @@
 #include <vector>
 
 #include <SushiEngine/input/rebinding.hpp>
+#include <SushiEngine/profiling/frame_profiler.hpp>
 
 namespace SushiEngine
 {
@@ -119,6 +120,9 @@ namespace SushiEngine
         struct ProfilerPanelState
         {
             bool paused = false; /**< Freeze the displayed numbers while comparing. */
+            /** The frame held while paused; refreshed from the context every frame
+             *  otherwise, so the panel always renders from here regardless of pause. */
+            SushiEngine::Profiling::FrameProfileSnapshot held;
         };
 
         /** @brief The Environment panel's weather-map and wind-injection controls. */

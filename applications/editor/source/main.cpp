@@ -47,6 +47,7 @@
 #include <SushiEngine/authoring/preferences.hpp>
 #include <SushiEngine/input/bindings_json.hpp>
 #include <SushiEngine/input/input_manager.hpp>
+#include <SushiEngine/profiling/frame_profiler.hpp>
 #include <SushiEngine/render/window_renderer.hpp>
 #include <SushiEngine/simulation/simulation.hpp>
 #include <SushiEngine/simulation/simulation_settings.hpp>
@@ -428,6 +429,21 @@ int main(int argc, char** argv)
         // turn it into whole fixed steps. The sim itself never reads the clock.
         std::chrono::steady_clock::time_point last_frame_time =
             std::chrono::steady_clock::now();
+        // The main loop's own CPU timing, snapshotted into the context each frame for the
+        // Statistics and Profiler panels; see SushiEngine::Profiling::FrameProfiler.
+        SushiEngine::Profiling::FrameProfiler frame_profiler;
+        const SushiEngine::Profiling::ChannelId profile_event_pump =
+            frame_profiler.register_channel("event pump");
+        const SushiEngine::Profiling::ChannelId profile_simulation_tick =
+            frame_profiler.register_channel("simulation tick");
+        const SushiEngine::Profiling::ChannelId profile_animation_preview =
+            frame_profiler.register_channel("animation preview");
+        const SushiEngine::Profiling::ChannelId profile_scene_render =
+            frame_profiler.register_channel("scene render submit");
+        const SushiEngine::Profiling::ChannelId profile_game_render =
+            frame_profiler.register_channel("game render submit");
+        const SushiEngine::Profiling::ChannelId profile_ui_build =
+            frame_profiler.register_channel("ui build");
         while (running)
         {
             const std::chrono::steady_clock::time_point frame_time =
@@ -436,19 +452,27 @@ int main(int argc, char** argv)
                 std::chrono::duration<SushiEngine::Scalar>(frame_time - last_frame_time).count();
             context.console.uptime_seconds += static_cast<double>(real_delta_seconds);
             last_frame_time = frame_time;
+            frame_profiler.begin_frame();
 
             // Advance the VFX preview and rebuild this frame's emitter views, clamped so a
             // long stall (a resize, a breakpoint) does not spawn a burst of catch-up particles.
-            particle_preview.update(
-                static_cast<float>(real_delta_seconds > 0.1 ? 0.1 : real_delta_seconds));
-            animated_mesh_preview.update(
-                static_cast<float>(real_delta_seconds > 0.1 ? 0.1 : real_delta_seconds));
+            {
+                SushiEngine::Profiling::ScopedTimer timer(frame_profiler,
+                                                           profile_animation_preview);
+                particle_preview.update(
+                    static_cast<float>(real_delta_seconds > 0.1 ? 0.1 : real_delta_seconds));
+                animated_mesh_preview.update(
+                    static_cast<float>(real_delta_seconds > 0.1 ? 0.1 : real_delta_seconds));
+            }
 
             // A close request (the window's X, or File > Exit) is not obeyed directly;
             // it only sets close_requested, so draw_exit_confirm_modal below gets a
             // chance to hold the window open while unsaved changes are pending.
-            if (!window.pump_events())
-                context.close_requested = true;
+            {
+                SushiEngine::Profiling::ScopedTimer timer(frame_profiler, profile_event_pump);
+                if (!window.pump_events())
+                    context.close_requested = true;
+            }
 
             // Fold this frame's input after the pump (so the translator has received the
             // native events) and before the world ticks. The gate mirrors ImGui's capture
@@ -485,10 +509,13 @@ int main(int argc, char** argv)
             // advances exactly one fixed step (via a zero-length real delta plus a
             // full accumulated one) regardless of play_state (normally pressed while
             // Paused) and is a one-shot request the toolbar sets.
-            if (context.play_state == SushiEngine::Editor::PlayState::Playing)
-                simulation->tick(real_delta_seconds);
-            else if (context.step_requested)
-                simulation->tick(simulation->fixed_dt_seconds());
+            {
+                SushiEngine::Profiling::ScopedTimer timer(frame_profiler, profile_simulation_tick);
+                if (context.play_state == SushiEngine::Editor::PlayState::Playing)
+                    simulation->tick(real_delta_seconds);
+                else if (context.step_requested)
+                    simulation->tick(simulation->fixed_dt_seconds());
+            }
             context.step_requested = false;
 
             const SushiEngine::Simulation::RenderScene& scene = simulation->render_scene();
@@ -898,6 +925,7 @@ int main(int argc, char** argv)
             bool gizmo_edited = false;
             if (context.panels.scene_view)
             {
+                SushiEngine::Profiling::ScopedTimer timer(frame_profiler, profile_scene_render);
                 // A surface-anchored entity's world axes are meaningless on a curved planet
                 // (world +Y is not "up" except at one point), so its gizmo resolves against
                 // the local East-North-Up ground frame — which is exactly the entity's own
@@ -1000,6 +1028,7 @@ int main(int argc, char** argv)
             game_view_render_inputs.has_display = !displays.empty();
             if (context.panels.game_view)
             {
+                SushiEngine::Profiling::ScopedTimer timer(frame_profiler, profile_game_render);
                 if (game_view_render_policy.should_render(game_view_render_inputs))
                 {
                     // The Game view is played, not authored: no picking, no gizmo. It offers
@@ -1206,41 +1235,44 @@ int main(int argc, char** argv)
                                     listener_cam.forward(), listener_cam.up());
                 audio_system.poll_profile();
             }
-            SushiEngine::Editor::draw_hierarchy_panel(context);
-            SushiEngine::Editor::draw_inspector_panel(context);
-            SushiEngine::Editor::draw_environment_panel(context);
-            SushiEngine::Editor::draw_rendering_panel(context);
-            SushiEngine::Editor::draw_lighting_panel(context);
-            SushiEngine::Editor::draw_post_process_panel(context);
-            SushiEngine::Editor::draw_meteorology_panel(context);
-            // The Scene view's terrain, not the Game view's: the two views select and
-            // compile independently, and the ground is authored where it is being looked at.
-            SushiEngine::Editor::draw_terrain_panel(context, terrain_panel_state,
-                                                    scene_view.terrain_authoring());
-            SushiEngine::Editor::draw_gpu_culling_panel(context);
-            SushiEngine::Editor::draw_project_panel(context);
-            SushiEngine::Editor::draw_cooking_override_modal(context);
-            SushiEngine::Editor::draw_text_editor_panel(context);
-            SushiEngine::Editor::draw_console_panel(context);
-            SushiEngine::Editor::draw_statistics_panel(context);
-            SushiEngine::Editor::draw_profiler_panel(context, profiler_panel_state);
-            SushiEngine::Editor::draw_animation_panel(context, animation_state);
-            SushiEngine::Editor::draw_animator_graph_panel(context, animator_graph);
-            SushiEngine::Editor::draw_animator_preview_panel(context);
-            SushiEngine::Editor::draw_audio_mixer_panel(context, audio_system);
-            SushiEngine::Editor::draw_audio_profiler_panel(context, audio_system);
-            SushiEngine::Editor::draw_audio_authoring_panel(audio_authoring_project, audio_system,
-                                                            &context.panels.audio_authoring);
-            SushiEngine::Editor::draw_physics_statistics_panel(context);
-            SushiEngine::Editor::draw_cook_bake_panel(context, cook_bake_state);
-            SushiEngine::Editor::draw_project_picker(context);
-            SushiEngine::Editor::draw_vehicle_panel(context, vehicle_authoring);
-            SushiEngine::Editor::draw_assembly_panel(context, assembly_authoring);
-            SushiEngine::Editor::draw_preferences_window(context);
-            SushiEngine::Editor::draw_input_manager_window(context);
-            SushiEngine::Editor::draw_save_scene_as_modal(context, running);
-            SushiEngine::Editor::draw_exit_confirm_modal(context, running);
-            SushiEngine::Editor::draw_scene_action_confirm_modal(context);
+            {
+                SushiEngine::Profiling::ScopedTimer timer(frame_profiler, profile_ui_build);
+                SushiEngine::Editor::draw_hierarchy_panel(context);
+                SushiEngine::Editor::draw_inspector_panel(context);
+                SushiEngine::Editor::draw_environment_panel(context);
+                SushiEngine::Editor::draw_rendering_panel(context);
+                SushiEngine::Editor::draw_lighting_panel(context);
+                SushiEngine::Editor::draw_post_process_panel(context);
+                SushiEngine::Editor::draw_meteorology_panel(context);
+                // The Scene view's terrain, not the Game view's: the two views select and
+                // compile independently, and the ground is authored where it is being looked at.
+                SushiEngine::Editor::draw_terrain_panel(context, terrain_panel_state,
+                                                        scene_view.terrain_authoring());
+                SushiEngine::Editor::draw_gpu_culling_panel(context);
+                SushiEngine::Editor::draw_project_panel(context);
+                SushiEngine::Editor::draw_cooking_override_modal(context);
+                SushiEngine::Editor::draw_text_editor_panel(context);
+                SushiEngine::Editor::draw_console_panel(context);
+                SushiEngine::Editor::draw_statistics_panel(context);
+                SushiEngine::Editor::draw_profiler_panel(context, profiler_panel_state);
+                SushiEngine::Editor::draw_animation_panel(context, animation_state);
+                SushiEngine::Editor::draw_animator_graph_panel(context, animator_graph);
+                SushiEngine::Editor::draw_animator_preview_panel(context);
+                SushiEngine::Editor::draw_audio_mixer_panel(context, audio_system);
+                SushiEngine::Editor::draw_audio_profiler_panel(context, audio_system);
+                SushiEngine::Editor::draw_audio_authoring_panel(audio_authoring_project, audio_system,
+                                                                &context.panels.audio_authoring);
+                SushiEngine::Editor::draw_physics_statistics_panel(context);
+                SushiEngine::Editor::draw_cook_bake_panel(context, cook_bake_state);
+                SushiEngine::Editor::draw_project_picker(context);
+                SushiEngine::Editor::draw_vehicle_panel(context, vehicle_authoring);
+                SushiEngine::Editor::draw_assembly_panel(context, assembly_authoring);
+                SushiEngine::Editor::draw_preferences_window(context);
+                SushiEngine::Editor::draw_input_manager_window(context);
+                SushiEngine::Editor::draw_save_scene_as_modal(context, running);
+                SushiEngine::Editor::draw_exit_confirm_modal(context, running);
+                SushiEngine::Editor::draw_scene_action_confirm_modal(context);
+            }
 
             // Copy/Cut/Paste/Duplicate/Delete run here, after every panel has drawn: each
             // of them creates or destroys entities, and the Hierarchy offers them from
@@ -1299,6 +1331,9 @@ int main(int argc, char** argv)
             {
                 ImGui::EndFrame(); // no frame presented (minimized/resize); close the UI frame
             }
+
+            frame_profiler.end_frame();
+            context.frame_profile = frame_profiler.snapshot();
         }
 
         sync_session_preferences();
