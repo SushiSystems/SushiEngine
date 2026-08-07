@@ -1,6 +1,8 @@
 # Skeletal Animation System — Animation, Animator, Blend Trees, and IK
 
-**Status:** shipped, A0 to A9 complete; §12's last in-scope item closed 2026-07-30.
+**Status:** shipped, A0 to A9 complete; §12 closed on 2026-07-30 but for one item — no test
+covers the `DeviceBatchEvaluator`'s host and device agreement, and none exists in `tests/`
+(§12.5 item 7).
 
 An engineering plan for a Unity-parity, data-oriented character animation stack: clip
 assets and compression, an Animator controller with layered state machines and blend
@@ -47,7 +49,7 @@ interactive-session launch check — this session's own attempt to run `se_edito
 `vkQueueSubmit`/`VK_ERROR_DEVICE_LOST` very early despite a real GPU being enumerable (`vulkaninfo`
 confirms a GTX 1060), unconfirmed whether pre-existing or introduced by this session's work — see
 the crowd wiring entry for the exact finding. **2026-07-30**: §12.2's glTF `WEIGHTS`
-animation-channel import — the last open in-scope item in this document — is closed and verified by
+animation-channel import — §12.2's own last open item — is closed and verified by
 a real test suite, so morph weights are clip-driven end to end (`assets/models/morph_face.gltf`,
 `tests/unit/test_animation_morph_import.cpp`, seven cases, all passing). A latent 64-track buffer
 overrun in `sample_morph_state` was found and fixed on the way. That session also found the one
@@ -117,7 +119,11 @@ The system is done when every one of these holds. They are contractual, not aspi
    [[animation-headless-verification]]).
 6. **Tier-wired on day one.** Max skinned instances, bone-LOD ladder, update-rate
    throttling, IK iteration caps and distance cutoff, influence count (4/8), and morph
-   target caps are `QualityParams` fields resolved by `resolve_quality()`. **Met.**
+   target caps are `QualityParameters` fields resolved by `resolve_quality()`. **Not met** —
+   `engine/presentation/render/include/SushiEngine/render/quality_params.hpp` carries none of
+   them. `max_skinned_instances`, `bone_lod_bias` and `animation_influences` were resolved
+   fields no pass ever read, and UX2 in `docs/design/editor_ux_overhaul.md` deleted them on
+   2026-07-29. §6.6's table is the specification, and nothing resolves it.
 7. **Memory-honest.** A 60-second, 30 Hz, 80-joint clip compresses to ≤ 250 KB at
    transparent quality (ACL-class ratios); pose pools, palettes, and event queues are
    fixed-capacity, allocated at load. **Compression met** (6.6×–17.6× measured by
@@ -149,8 +155,9 @@ killed; kept for context on why the architecture looks the way it does.
    `SkinnedGeometry` extract channel.
 6. **TAA would ghost anything skinned.** Fixed by previous-pose skinning in
    `SkinningPass` (§0.5).
-7. **No tier knobs for animation.** Fixed — `QualityParams` carries the full animation
-   tier table (§6.6).
+7. **No tier knobs for animation.** Fixed at the time — `QualityParameters` carried the full
+   animation tier table (§6.6). UX2 in `docs/design/editor_ux_overhaul.md` deleted those fields
+   again on 2026-07-29 as resolved values no pass read; §0.1 criterion 6 records the state now.
 8. **No asset identity for animation.** Fixed — `.sushiskel` / `.sushianim` /
    `.sushictrl` are versioned, relocatable, `IAnimationDatabase`-backed.
 
@@ -207,7 +214,7 @@ is still unbuilt).
   RENDER DOMAIN (render graph)
   JointPaletteSystem (per-frame palette SoA, double-buffered for motion)
   ► SkinningPass (compute; positions/normals/tangents + previous positions;
-    linear-blend skinning only — morph deltas NOT yet applied here, §12.1)
+    morph deltas applied to position first, then linear-blend or dual-quaternion skinning)
   ► existing passes consume skinned streams as static meshes
 ```
 
@@ -379,15 +386,19 @@ previous frame's palettes survive for prev-position skinning.
 Skinned bounds = bind-pose bounds inflated by a per-clip factor baked at import;
 IK-active instances add a fixed margin.
 
-### 6.5 Morph targets — asset side shipped, GPU side not
+### 6.5 Morph targets — asset side and GPU side both shipped
 
 Weights are clip tracks, blended like any track
 (`engine/domain/animation/include/SushiEngine/animation/morph.hpp`, CPU reference,
-`morph_demo`-verified). **`SkinningPass` does not apply morph deltas** — grepped, no "morph"
-anywhere in `render/passes/skinning_pass.*`. This is the single biggest gap between "the morph
-system exists" and "a character's face can actually deform on screen" (§12.1).
+`morph_demo`-verified). `SkinningPass` applies the deltas on the device: it binds the mesh's
+target-major delta buffer and this instance's slice of the frame's weight pool as descriptor
+slots 5 and 6 (`engine/presentation/render/source/passes/skinning_pass.cpp`), and
+`engine/presentation/render/shaders/skinning.comp` accumulates every active target into the
+base position before joint skinning. The blend is position-only, matching the CPU reference —
+normals and tangents carry no deltas. §12.1 records the wiring closed on 2026-07-25 and the
+rendered result still unconfirmed on hardware.
 
-### 6.6 Quality tiers (`QualityParams`)
+### 6.6 Quality tiers (`QualityParameters`)
 
 | Knob | Low | Medium | High | Ultra |
 |---|---|---|---|---|
@@ -397,6 +408,9 @@ system exists" and "a character's face can actually deform on screen" (§12.1).
 | IK | off > 15 m | on, 2 it. | on, 4 it. | on, 8 it. |
 | Influences | 4 | 4 | 4 | 8 |
 | Active morphs / mesh | 8 | 16 | 32 | 64 |
+
+This table is a specification. `QualityParameters` carries none of these knobs today, for the
+reason §0.1 criterion 6 gives.
 
 ---
 
@@ -446,12 +460,12 @@ Kept for the record; every phase below shipped. New work goes under §12.
   including rotation root motion (confirmed in source, not just translation).
 - **A4 — Blend trees.** ✅ Shipped, including the editor 2D visualizer (confirmed
   in source).
-- **A5 — Layers + masks + additive.** ✅ CPU core shipped. Editor mask/weight UI
-  still open (§12.1).
-- **A6 — IK / pose-modifier stack.** ✅ CPU core shipped. Editor gizmos and
-  pelvis-height adjustment still open (§12.1, §5.3).
+- **A5 — Layers + masks + additive.** ✅ CPU core shipped. The editor mask and weight UI
+  shipped 2026-07-25 (§12.1).
+- **A6 — IK / pose-modifier stack.** ✅ CPU core shipped. The editor gizmos shipped
+  2026-07-25 (§12.1); pelvis-height adjustment is still open (§5.3).
 - **A7 — Morph targets + generic tracks.** ✅ CPU core shipped. GPU-side morph
-  application still open (§12.1).
+  application shipped 2026-07-25 (§12.1), unconfirmed on hardware.
 - **A8 — Humanoid avatar + import retargeting.** ✅ Shipped.
 - **A9 — Authoring suite completion.** ✅ Shipped, including the editor GUI (Animator
   graph window, controller JSON persistence, edit-mode scrub) — confirmed present in
