@@ -281,6 +281,79 @@ TEST(Integration_SolverConformance, FreeFallAgrees)
     });
 }
 
+TEST(Integration_SolverConformance, AKinematicBodyAgrees)
+{
+    // `predict`'s kinematic branch is the one path that can diverge with no constraint
+    // anywhere near it: it skips the acceleration and performs the integration, and both
+    // implementations avoid disagreeing by calling the same free function rather than by
+    // being checked against each other. This is the check that notices if either ever
+    // grows a copy of its own.
+    //
+    // Gravity is on and both bodies must ignore all of it, so the absolute positions are
+    // asserted as well as the agreement: two solvers that both dropped the branch would
+    // agree with each other perfectly, on the floor.
+    const PhysicsConfiguration configuration = conformance_scene();
+    HostBackedSolver host(configuration);
+    RuntimeBackedSolver runtime(configuration);
+
+    StepParameters<Scalar> parameters;
+    parameters.gravity = Vector3{0, Scalar(-9.81), 0};
+
+    // A platform rising at 1 m/s and a turntable spinning at 2 rad/s about y. Nothing
+    // re-commands either: consuming a target every tick is the scene layer's job and
+    // this is below that seam, so the commanded velocity simply persists.
+    RigidBody platform;
+    platform.position = Vector3{0, Scalar(2), 0};
+    platform.previous_position = platform.position;
+    platform.flags |= BodyFlags::kinematic;
+    platform.velocity = Vector3{0, Scalar(1), 0};
+
+    RigidBody turntable;
+    turntable.position = Vector3{Scalar(4), Scalar(2), 0};
+    turntable.previous_position = turntable.position;
+    turntable.flags |= BodyFlags::kinematic;
+    // Zero inverse inertia, which is what a kinematic body always has — and the reason
+    // the branch integrates the orientation itself instead of leaving it to the ordinary
+    // path, which is gated on that being positive.
+    turntable.angular_velocity = Vector3{0, Scalar(2), 0};
+
+    const std::vector<BodyHandle> host_bodies = {(*host).add_body(platform),
+                                                 (*host).add_body(turntable)};
+    const std::vector<BodyHandle> runtime_bodies = {(*runtime).add_body(platform),
+                                                    (*runtime).add_body(turntable)};
+
+    constexpr int TICKS = 60;
+    for (int tick = 0; tick < TICKS; ++tick)
+    {
+        (*host).step(parameters);
+        (*runtime).step(parameters);
+    }
+
+    for (std::size_t i = 0; i < host_bodies.size(); ++i)
+    {
+        RigidBody from_host;
+        RigidBody from_runtime;
+        ASSERT_TRUE((*host).read_body(host_bodies[i], from_host));
+        ASSERT_TRUE((*runtime).read_body(runtime_bodies[i], from_runtime));
+        EXPECT_LT(disagreement(from_host, from_runtime), TOLERANCE)
+            << "kinematic body " << i << " diverged between implementations";
+        // The orientation half, which `disagreement` does not cover: the two quaternions
+        // must be the same rotation, so their dot product is one up to sign.
+        const double alignment = std::abs(
+            double(from_host.orientation.x) * double(from_runtime.orientation.x) +
+            double(from_host.orientation.y) * double(from_runtime.orientation.y) +
+            double(from_host.orientation.z) * double(from_runtime.orientation.z) +
+            double(from_host.orientation.w) * double(from_runtime.orientation.w));
+        EXPECT_NEAR(alignment, 1.0, 1e-9) << "kinematic body " << i << " turned differently";
+    }
+
+    RigidBody risen;
+    ASSERT_TRUE((*host).read_body(host_bodies[0], risen));
+    const double seconds = double(parameters.delta_time) * double(TICKS);
+    EXPECT_NEAR(double(risen.position.y), 2.0 + seconds, 1e-6)
+        << "the platform did not travel its commanded velocity, or gravity reached it";
+}
+
 TEST(Integration_SolverConformance, AChainAgreesAcrossEveryColour)
 {
     // A chain is the scene colouring exists for: consecutive links share a body, so

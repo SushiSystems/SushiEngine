@@ -703,3 +703,208 @@ TEST(Integration_PhysicsSimulation, AVehiclesAuthoredMaterialDecidesHowItsShellS
     EXPECT_GT(frictionless, gripping + 4.0)
         << "the authored material never reached the contact: both runs slid the same way";
 }
+
+// Kinematic bodies (P9-A). A kinematic body is the third body kind: integrated like a
+// dynamic one, immovable like a static one, and the only one whose motion is an input.
+// What these five cover is the seam between those halves — that the command reaches the
+// integration, that nothing in the solve reaches back, and that the sleep rule which
+// makes a kinematic body cheap does not quietly strand what is riding on it.
+
+namespace
+{
+    /** @brief The id of the platform in every kinematic scene below. */
+    constexpr EntityId PLATFORM = 1;
+
+    /** @brief The id of the crate that rides it. */
+    constexpr EntityId CRATE = 2;
+
+    /** @brief One tick's duration: the sub-step schedule the whole file runs at. */
+    constexpr double TICK_SECONDS = double(SUBSTEP_DT) * double(SUBSTEPS);
+
+    /** @brief Where the crate rests: the platform's top face plus its own half extent. */
+    constexpr double CRATE_REST_Y = 1.75;
+
+    /** @brief A box collider of arbitrary half extents. */
+    Collider box_collider(Scalar x, Scalar y, Scalar z)
+    {
+        Collider collider;
+        collider.shape = ColliderShape::Box;
+        collider.half_extents = Vector3{x, y, z};
+        return collider;
+    }
+
+    /**
+     * @brief A wide, thin kinematic slab with its top face at y = 1.25.
+     *
+     * `inv_mass` is left at the descriptor's default of 1 deliberately. Zeroing it is
+     * the extract's job, and a test that pre-zeroed it here would pass whether or not
+     * that ever happened.
+     */
+    RigidBodyDescription platform_description()
+    {
+        RigidBodyDescription description;
+        description.id = PLATFORM;
+        description.position = Vector3{0, Scalar(1), 0};
+        description.kinematic = true;
+        description.collider = box_collider(Scalar(3), Scalar(0.25), Scalar(3));
+        return description;
+    }
+
+    /** @brief A unit crate dropped just above the platform's top face. */
+    RigidBodyDescription crate_description()
+    {
+        RigidBodyDescription description;
+        description.id = CRATE;
+        description.position = Vector3{0, Scalar(2), 0};
+        description.inv_mass = Scalar(1);
+        description.collider = unit_box_collider();
+        return description;
+    }
+}
+
+TEST(Integration_PhysicsSimulation, AKinematicBodyDoesNotFall)
+{
+    // The narrowest statement of what `predict`'s kinematic branch is for. A body with
+    // `inv_mass == 0` and no branch would not fall either — but it also could not be
+    // moved, which is the next test. This one is the half that must hold while it is.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies({platform_description()}, ITERATIONS, SUBSTEP_DT);
+
+    for (int tick = 0; tick < 240; ++tick)
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
+
+    SolvedPose pose;
+    ASSERT_TRUE(physics->rigid_pose(PLATFORM, pose));
+    EXPECT_NEAR(double(pose.position.y), 1.0, 1e-9)
+        << "gravity reached a body that is supposed to take none";
+}
+
+TEST(Integration_PhysicsSimulation, AKinematicBodyIsNotPushedByWhatRestsOnIt)
+{
+    // The other half of immovability, and the one that is not free: a crate at rest is
+    // still solving a contact against the platform every sub-step, and every one of
+    // those projections would move it if its inverse mass were not zero.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies({platform_description(), crate_description()}, ITERATIONS,
+                              SUBSTEP_DT);
+
+    for (int tick = 0; tick < 240; ++tick)
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
+
+    SolvedPose platform;
+    SolvedPose crate;
+    ASSERT_TRUE(physics->rigid_pose(PLATFORM, platform));
+    ASSERT_TRUE(physics->rigid_pose(CRATE, crate));
+    EXPECT_NEAR(double(platform.position.y), 1.0, 1e-9)
+        << "the crate's weight moved a body nothing is allowed to move";
+    EXPECT_NEAR(double(crate.position.y), CRATE_REST_Y, 1e-2)
+        << "the crate did not come to rest on the platform's top face";
+}
+
+TEST(Integration_PhysicsSimulation, AKinematicPlatformCarriesWhatRestsOnIt)
+{
+    // The point of the whole sub-project. Nothing here carries the crate: no code reads
+    // "this body is standing on that one". The platform's derived velocity is what the
+    // contact's friction term measures, and friction is what moves the crate.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies({platform_description(), crate_description()}, ITERATIONS,
+                              SUBSTEP_DT);
+
+    // Long enough to land and settle, short enough that the crate has not yet been
+    // still for the half second the default sleep delay asks for.
+    for (int tick = 0; tick < 30; ++tick)
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
+
+    // One metre per second along +x, commanded as a pose every tick, which is what a
+    // script loop or an animation clip does.
+    constexpr double SPEED = 1.0;
+    constexpr int MOVING_TICKS = 120;
+    Vector3 target = Vector3{0, Scalar(1), 0};
+    for (int tick = 0; tick < MOVING_TICKS; ++tick)
+    {
+        target.x = Scalar(double(target.x) + SPEED * TICK_SECONDS);
+        physics->move_rigid_body(PLATFORM, target, Quaternion{0, 0, 0, 1});
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
+    }
+
+    const double travelled = SPEED * TICK_SECONDS * double(MOVING_TICKS);
+    SolvedPose platform;
+    SolvedPose crate;
+    ASSERT_TRUE(physics->rigid_pose(PLATFORM, platform));
+    ASSERT_TRUE(physics->rigid_pose(CRATE, crate));
+
+    EXPECT_NEAR(double(platform.position.x), travelled, 1e-6)
+        << "the platform did not reach the pose it was commanded to";
+    // Not the same distance: friction is finite, so the crate slips a little at the
+    // start and whenever the platform's velocity changes. What is asserted is that it
+    // was carried at all — a crate left behind ends near zero.
+    EXPECT_GT(double(crate.position.x), travelled * 0.5)
+        << "the platform slid out from under the crate instead of carrying it";
+    EXPECT_LT(double(crate.position.x), travelled + 0.1)
+        << "the crate outran the platform, which no contact force can do";
+    EXPECT_NEAR(double(crate.position.y), CRATE_REST_Y, 1e-2)
+        << "the crate did not stay on the platform while it moved";
+}
+
+TEST(Integration_PhysicsSimulation, AnUncommandedKinematicBodyStopsWhereItIs)
+{
+    // Nothing in the tick slows a kinematic body: it takes no gravity and no drag, so a
+    // velocity left in place would coast forever. Clearing it every tick that carries no
+    // command is what makes "drive it by writing its pose" the whole contract rather
+    // than half of one.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies({platform_description()}, ITERATIONS, SUBSTEP_DT);
+
+    const Vector3 once = Vector3{Scalar(TICK_SECONDS), Scalar(1), 0};
+    physics->move_rigid_body(PLATFORM, once, Quaternion{0, 0, 0, 1});
+    physics->step(earth_gravity(), still_air(), SUBSTEPS);
+
+    SolvedPose commanded;
+    ASSERT_TRUE(physics->rigid_pose(PLATFORM, commanded));
+    EXPECT_NEAR(double(commanded.position.x), TICK_SECONDS, 1e-6)
+        << "the single command did not reach the body";
+
+    for (int tick = 0; tick < 120; ++tick)
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
+
+    SolvedPose parked;
+    ASSERT_TRUE(physics->rigid_pose(PLATFORM, parked));
+    EXPECT_NEAR(double(parked.position.x), TICK_SECONDS, 1e-6)
+        << "the body coasted on a command that was consumed two seconds ago";
+}
+
+TEST(Integration_PhysicsSimulation, MovingAKinematicBodyWakesWhatSleepsOnIt)
+{
+    // The failure this exists to catch is silent and specific. `IslandBuilder::conducts`
+    // requires a positive inverse mass, so a kinematic body is an island of one and the
+    // crate settles into an island of its own. Waking the platform's island would wake
+    // nothing but the platform — and the crate, asleep, is neither integrated nor
+    // projected, so it would hang in the air while the platform left.
+    auto physics = create_physics_simulation(Harness::shared_context());
+    physics->set_rigid_bodies({platform_description(), crate_description()}, ITERATIONS,
+                              SUBSTEP_DT);
+
+    for (int tick = 0; tick < 360; ++tick)
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
+    ASSERT_GT(physics->statistics().sleeping_bodies, 0u) << "nothing ever settled";
+
+    SolvedPose before;
+    ASSERT_TRUE(physics->rigid_pose(CRATE, before));
+
+    constexpr double SPEED = 1.0;
+    constexpr int MOVING_TICKS = 60;
+    Vector3 target = Vector3{0, Scalar(1), 0};
+    for (int tick = 0; tick < MOVING_TICKS; ++tick)
+    {
+        target.x = Scalar(double(target.x) + SPEED * TICK_SECONDS);
+        physics->move_rigid_body(PLATFORM, target, Quaternion{0, 0, 0, 1});
+        physics->step(earth_gravity(), still_air(), SUBSTEPS);
+    }
+
+    SolvedPose after;
+    ASSERT_TRUE(physics->rigid_pose(CRATE, after));
+    EXPECT_GT(double(after.position.x) - double(before.position.x), 0.1)
+        << "the crate stayed asleep and was left behind by the platform";
+    EXPECT_NEAR(double(after.position.y), CRATE_REST_Y, 1e-2)
+        << "the crate woke but fell off, or never woke and hung in the air";
+}
