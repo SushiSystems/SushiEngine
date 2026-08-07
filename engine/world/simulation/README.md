@@ -63,8 +63,9 @@ than twenty files include a header from this module.
   `test_physics_authoring.cpp`, `test_physics_joint_component.cpp`, `test_joint_assembly.cpp`,
   `test_joint_parking.cpp`, `test_soft_body_service.cpp`, `test_vehicle_component.cpp`.
 - The seam itself: `tests/integration/test_scene_serializer_roundtrip.cpp` drives a real
-  simulation through `IWorldEditor`, and `tests/integration/test_audio_ecs.cpp` the audio
-  extract.
+  simulation through `IWorldEditor`, `tests/integration/test_audio_ecs.cpp` the audio extract,
+  and `tests/integration/test_entity_lifecycle.cpp` the `enabled`/`activeInHierarchy` gate
+  shared by render, physics and (through the editor) audio.
 - `tests/regression/test_penetration_contract.cpp` holds the contract between the visible mesh
   and the simulated one across the extract.
 
@@ -72,6 +73,8 @@ than twenty files include a header from this module.
 
 - [`physics_system.md`](../../../docs/design/physics_system.md) — the physics assembly, the
   penetration contract, and the seams this module wires.
+- [`entity_lifecycle_system.md`](../../../docs/design/entity_lifecycle_system.md) — the
+  enabled/disabled flag this module's `Record` carries and every system that gates on it.
 - [`atmosphere_system.md`](../../../docs/design/atmosphere_system.md) — the weather tiers and the
   provider seam.
 - [`SUSHILOOP.md`](../../../docs/design/SUSHILOOP.md) — the deterministic tick the world is

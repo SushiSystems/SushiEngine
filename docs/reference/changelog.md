@@ -10,6 +10,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- 2026-08-08 — Added a real `enabled`/`activeInHierarchy` flag: a disabled entity now stops
+  physics, audio and render for its whole subtree, not just render. The existing `visible` flag
+  keeps its old meaning as a local, non-cascading, render-only toggle. See
+  `docs/design/entity_lifecycle_system.md`.
+  - Added the Inspector header's second ("Visible") checkbox and Hierarchy panel dimming for
+    disabled rows.
 - 2026-08-08 — Added the Profiler panel: frame history, CPU/GPU breakdowns, renderer, memory
   and system sections (mock-first per `docs/design/profiling_system.md` PROF0).
 - 2026-08-07 — Added `tools/documentation/check_design_citations.py`: it resolves every backticked
@@ -185,6 +191,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   with their widgets and serialization: no renderer or shader read them.
 
 ### Changed
+- 2026-08-08 — Changed the Statistics panel's Frame/FPS line and the status bar to the engine's own
+  frame measurement; the Profiler panel's Frame and CPU sections now show live per-channel times.
 - 2026-08-06 — Changed per-asset cooking overrides to live in a `<asset>.meta` sidecar rather than
   a path-keyed object in the project document, so moving an asset no longer orphans its settings.
   - Migrated an older project's overrides once, when its cooking document is read, reporting both

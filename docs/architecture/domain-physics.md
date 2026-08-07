@@ -375,3 +375,21 @@ system stub in the project (Apache header, a `struct`, and a commented `app.syst
 registration), opens it in the Text Editor, and registers + attaches the new type. Both UI params
 and script components serialize with the scene and travel through the copy/paste clipboard
 alongside the other optional components.
+
+**Enabled/disabled lifecycle.** `RuntimeSimulation::Record::enabled` (default `true`) is Unity's
+`activeSelf`: a real, hierarchical on/off switch, distinct from `visible`, which keeps its
+original meaning as a local, non-cascading, render-only flag (Unity's `Renderer.enabled`).
+`enabled_in_hierarchy` walks an entity's ancestor chain the same way `visible_in_hierarchy`
+used to, over the new flag instead. Everything that gates on it uses that one walk: `extract()`'s
+mesh/cloth/soft-body/vehicle-shell/particle/light/decal/crowd instancing loops (combined with
+the local `visible` check), and four independent physics gather points — `physics_source_entities()`
+(feeding `gather_rigid_descriptions`/`gather_static_planes`), `gather_vehicle_descriptions()`,
+`gather_soft_body_descriptions()`, and `gather_cloth_descriptions()`, none routing through a
+shared entry point — plus the editor's live audio poll in `AudioEditorSystem::update` through the
+`IWorldEditor` seam. `set_enabled()` marks all four physics dirty flags (`physics_dirty_`/`soft_dirty_`/
+`cloth_dirty_`/`vehicles_dirty_`) on a real change, unconditionally, so a toggle on an entity with
+no physics component of its own still invalidates a descendant's gathered state. A disabled entity's
+rigid body is removed from the physics world the same way `set_rigid_bodies`' existing diff already
+removes a genuinely-destroyed one, and comes back at rest on re-enable — there is no velocity field
+to preserve across the gap, and preserving one was deliberately scoped out (see [the entity lifecycle
+design](../design/entity_lifecycle_system.md) §4.2 for the full audit).
