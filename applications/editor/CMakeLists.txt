@@ -57,6 +57,7 @@ target_compile_features(sushiengine_imgui PUBLIC cxx_std_17)
 add_executable(sushiengine_editor
     source/main.cpp
     source/ui/editor_panels.cpp
+    source/ui/profiler_panel.cpp
     source/ui/panel_widgets.cpp
     source/atmosphere/meteorology_panel.cpp
     source/environment/weather_panel.cpp

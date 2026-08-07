@@ -10,6 +10,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- 2026-08-08 — Added the Profiler panel: frame history, CPU/GPU breakdowns, renderer, memory
+  and system sections (mock-first per `docs/design/profiling_system.md` PROF0).
 - 2026-08-07 — Added `tools/documentation/check_design_citations.py`: it resolves every backticked
   path a `docs/design/` document cites and fails on one naming nothing, in continuous integration,
   so a stale citation fails the build.

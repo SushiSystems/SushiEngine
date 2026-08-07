@@ -115,6 +115,12 @@ namespace SushiEngine
             bool whole_domain = false;  /**< Profile the full column, not just the lowest 6 km. */
         };
 
+        /** @brief The Profiler panel's between-frame state. */
+        struct ProfilerPanelState
+        {
+            bool paused = false; /**< Freeze the displayed numbers while comparing. */
+        };
+
         /** @brief The Environment panel's weather-map and wind-injection controls. */
         struct WeatherMapState
         {

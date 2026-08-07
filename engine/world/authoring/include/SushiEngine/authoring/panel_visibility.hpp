@@ -98,6 +98,8 @@ namespace SushiEngine
             bool audio_mixer = false;
             bool audio_profiler = false;
             bool audio_authoring = false;
+            /** @brief The Profiler window: frame history and per-system cost breakdowns. */
+            bool profiler = false;
             /** @brief The floating Preferences window (Edit ▸ Preferences...). */
             bool preferences = false;
             /** @brief The floating Input Manager window (Edit ▸ Input Manager...). */

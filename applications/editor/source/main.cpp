@@ -73,6 +73,7 @@
 #include "scene/scene_commands.hpp"
 #include "ui/editor_panels.hpp"
 #include "ui/modals.hpp"
+#include "ui/profiler_panel.hpp"
 #include "ui/imgui_backend.hpp"
 #include "effect_serializer.hpp"
 #include "scene_serializer.hpp"
@@ -395,6 +396,9 @@ int main(int argc, char** argv)
         // The Terrain window's draft layer, owned here for the same reason: it is the one
         // piece of that panel not already held by the body's own layer stack.
         SushiEngine::Editor::TerrainPanelState terrain_panel_state;
+
+        // The Profiler window's pause toggle, owned here for the same reason.
+        SushiEngine::Editor::ProfilerPanelState profiler_panel_state;
 
         // The editor opens with no scene, which is the "new scene" state — so the world
         // starts from the user's default environment. A scene opened later brings its
@@ -1219,6 +1223,7 @@ int main(int argc, char** argv)
             SushiEngine::Editor::draw_text_editor_panel(context);
             SushiEngine::Editor::draw_console_panel(context);
             SushiEngine::Editor::draw_statistics_panel(context);
+            SushiEngine::Editor::draw_profiler_panel(context, profiler_panel_state);
             SushiEngine::Editor::draw_animation_panel(context, animation_state);
             SushiEngine::Editor::draw_animator_graph_panel(context, animator_graph);
             SushiEngine::Editor::draw_animator_preview_panel(context);

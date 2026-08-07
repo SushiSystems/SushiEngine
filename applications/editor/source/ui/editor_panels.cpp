@@ -258,6 +258,7 @@ namespace SushiEngine
                     ImGui::MenuItem("Assembly", nullptr, &context.panels.assembly);
                     ImGui::MenuItem("Bake", nullptr, &context.panels.bake);
                     ImGui::MenuItem("Statistics", nullptr, &context.panels.statistics);
+                    ImGui::MenuItem("Profiler", nullptr, &context.panels.profiler);
                     ImGui::MenuItem("Text Editor", nullptr, &context.panels.text_editor);
                     ImGui::Separator();
                     // §9.3/§9.4's debug views for the selected soft body. Radio rather than
@@ -1058,6 +1059,7 @@ namespace SushiEngine
             // costs nothing and means the window arrives already homed when it lands.
             ImGui::DockBuilderDockWindow("Audio Authoring", bottom);
             ImGui::DockBuilderDockWindow("Statistics", bottom);
+            ImGui::DockBuilderDockWindow("Profiler", bottom);
             ImGui::DockBuilderFinish(dockspace_id);
         }
     } // namespace Editor
