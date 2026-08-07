@@ -430,10 +430,20 @@ int main(int argc, char** argv)
             // Fold this frame's input after the pump (so the translator has received the
             // native events) and before the world ticks. The gate mirrors ImGui's capture
             // flags so key/mouse actions stand down while a widget owns the device.
+            //
+            // `want_capture_keyboard` is deliberately left unset (false): with
+            // ImGuiConfigFlags_NavEnableKeyboard on (see imgui_backend.cpp), ImGui sets
+            // io.WantCaptureKeyboard true whenever ANY window merely holds keyboard-nav
+            // focus — which, in a docked editor, is effectively always — not only while a
+            // widget is actively capturing keys. Wiring that flag through here suppressed
+            // every keyboard action (Undo, Redo, Copy, the W/E/R tool keys, ...) almost
+            // unconditionally. io.WantTextInput has no such nav side effect — it is true
+            // only while a text field is genuinely being typed into — so it alone is the
+            // guard the action map needs to keep Ctrl+Z from being hijacked by a rename
+            // field, per family_suppressed()'s contract in action_map.hpp.
             {
                 const ImGuiIO& io = ImGui::GetIO();
                 SushiEngine::Input::InputGate gate;
-                gate.want_capture_keyboard = io.WantCaptureKeyboard;
                 gate.want_capture_mouse = io.WantCaptureMouse;
                 gate.want_text_input = io.WantTextInput;
                 input.set_gate(gate);
