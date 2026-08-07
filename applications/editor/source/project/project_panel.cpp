@@ -453,6 +453,148 @@ namespace SushiEngine
                 }
             }
 
+            // The behaviour behind one Project browser entry, independent of whether it was
+            // drawn as a grid tile or a list row: both call this immediately after drawing
+            // their own clickable widget, so ImGui's "the last item" state (IsItemHovered,
+            // IsItemClicked, BeginPopupContextItem) refers to whichever widget the caller drew.
+            void draw_project_entry_interactions(EditorContext& context,
+                                                 const fs::directory_entry& entry, bool is_dir,
+                                                 const fs::path& current, fs::path& delete_target)
+            {
+                const std::string path_string = entry.path().string();
+
+                // Dragging a file out of the browser is how an asset reaches a slot that
+                // wants one; directories are not draggable because nothing accepts one.
+                if (!is_dir)
+                    set_asset_drag_source(path_string, entry.path().filename().string());
+
+                // The tile/row shows a truncated or plain filename, which is ambiguous the
+                // moment a search returns two files of the same name from different folders —
+                // so the full path relative to the browsed folder is always one hover away.
+                if (ImGui::IsItemHovered())
+                {
+                    std::error_code relative_ec;
+                    const fs::path shown = fs::relative(entry.path(), current, relative_ec);
+                    ImGui::SetTooltip("%s", relative_ec ? path_string.c_str() : shown.string().c_str());
+                }
+
+                const auto open_entry = [&]()
+                {
+                    context.selected_project_path = path_string;
+                    if (is_dir)
+                        context.current_directory = path_string;
+                    else if (entry.path().extension() == ".sushiscene")
+                        request_open_scene(context, path_string);
+                    else if (has_character_extension(entry.path()))
+                        open_character_in_preview(context, entry.path());
+                    else if (has_text_extension(entry.path()))
+                        open_document(context, entry.path());
+                    else
+                        open_with_default_app(entry.path());
+                };
+
+                // Double-click detection is independent of a Button's own pressed-on-release
+                // return, which can miss the second click of a fast double-click; hover +
+                // IsMouseDoubleClicked is the reliable pair, and works the same for a Selectable.
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    open_entry();
+
+                if (ImGui::BeginPopupContextItem())
+                {
+                    context.selected_project_path = path_string;
+                    if (!is_dir && ImGui::MenuItem("Open"))
+                        open_entry();
+                    if (has_character_extension(entry.path()) && context.cook_bake_state != nullptr &&
+                        ImGui::MenuItem("Cooking Override..."))
+                        context.cooking_override_target = path_string;
+                    if (ImGui::MenuItem("Rename"))
+                        context.renaming_project_path = path_string;
+                    if (ImGui::MenuItem("Delete"))
+                        delete_target = entry.path();
+                    if (ImGui::MenuItem("Show in Explorer", nullptr, false, SHELL_INTEGRATION_AVAILABLE))
+                        show_in_explorer(entry.path());
+                    if (!SHELL_INTEGRATION_AVAILABLE &&
+                        ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                        ImGui::SetTooltip("Windows-only for now.");
+                    ImGui::Separator();
+                    draw_project_create_menu(context, current);
+                    ImGui::EndPopup();
+                }
+            }
+
+            // The Unity-style icon grid: one square tile per entry, laid out left-to-right and
+            // wrapped at the available width, at whatever size context.preferences.project_tile_size
+            // currently holds (Task 5 changes that value; this function only reads it).
+            void draw_project_grid_view(EditorContext& context,
+                                        const std::vector<fs::directory_entry>& entries,
+                                        const fs::path& current, fs::path& delete_target)
+            {
+                const float tile_size = context.preferences.project_tile_size;
+                constexpr float TILE_SPACING = 8.0f;
+                const float avail_width = ImGui::GetContentRegionAvail().x;
+                float row_x = 0.0f;
+
+                for (std::size_t i = 0; i < entries.size(); ++i)
+                {
+                    const fs::directory_entry& entry = entries[i];
+                    const bool is_dir = entry.is_directory();
+                    const std::string path_string = entry.path().string();
+                    const std::string name = entry.path().filename().string();
+
+                    if (row_x + tile_size > avail_width && row_x > 0.0f)
+                        row_x = 0.0f;
+                    else if (i > 0 && row_x > 0.0f)
+                        ImGui::SameLine();
+                    row_x += tile_size + TILE_SPACING;
+
+                    ImGui::PushID(path_string.c_str());
+                    ImGui::BeginGroup();
+
+                    if (context.renaming_project_path == path_string)
+                    {
+                        ImGui::Dummy(ImVec2(tile_size, tile_size * 0.6f));
+                        std::string entered;
+                        if (inline_rename_field(context, path_string, name, tile_size, entered))
+                        {
+                            std::error_code rename_ec;
+                            const fs::path renamed = entry.path().parent_path() / entered;
+                            if (!entered.empty() && renamed != entry.path())
+                                fs::rename(entry.path(), renamed, rename_ec);
+                            context.renaming_project_path.clear();
+                        }
+                    }
+                    else
+                    {
+                        const ImVec2 origin = ImGui::GetCursorScreenPos();
+                        const float icon_size = tile_size * 0.75f;
+                        const bool clicked =
+                            ImGui::InvisibleButton("##tile", ImVec2(tile_size, tile_size));
+                        if (clicked)
+                            context.selected_project_path = path_string;
+
+                        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                        const bool selected = context.selected_project_path == path_string;
+                        if (selected || ImGui::IsItemHovered())
+                            draw_list->AddRectFilled(
+                                origin, ImVec2(origin.x + tile_size, origin.y + tile_size),
+                                ImGui::GetColorU32(selected ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered),
+                                3.0f);
+                        draw_entry_icon(draw_list, ImVec2(origin.x + (tile_size - icon_size) * 0.5f, origin.y),
+                                       icon_size, entry_category(entry.path(), is_dir),
+                                       ImGui::GetColorU32(ImGuiCol_Text));
+                        const std::string label = truncate_label(name);
+                        const ImVec2 text_size = ImGui::CalcTextSize(label.c_str());
+                        draw_list->AddText(ImVec2(origin.x + (tile_size - text_size.x) * 0.5f, origin.y + icon_size + 2.0f),
+                                          ImGui::GetColorU32(ImGuiCol_Text), label.c_str());
+
+                        draw_project_entry_interactions(context, entry, is_dir, current, delete_target);
+                    }
+
+                    ImGui::EndGroup();
+                    ImGui::PopID();
+                }
+            }
+
         } // namespace
 
         // Load a file into an open Document, or focus it if already open. Files that
@@ -571,132 +713,10 @@ namespace SushiEngine
                           return a.path().filename().string() < b.path().filename().string();
                       });
 
-            constexpr float TILE_SIZE = 76.0f;
-            constexpr float TILE_SPACING = 8.0f;
-            const float avail_width = ImGui::GetContentRegionAvail().x;
-            float row_x = 0.0f;
-
             // The delete target is deferred out of the loop so the directory listing is
             // never mutated (and filesystem-iterated again next frame) mid-walk.
             fs::path delete_target;
-
-            for (std::size_t i = 0; i < entries.size(); ++i)
-            {
-                const fs::directory_entry& entry = entries[i];
-                const bool is_dir = entry.is_directory();
-                const std::string path_string = entry.path().string();
-                const std::string name = entry.path().filename().string();
-
-                if (row_x + TILE_SIZE > avail_width && row_x > 0.0f)
-                    row_x = 0.0f;
-                else if (i > 0 && row_x > 0.0f)
-                    ImGui::SameLine();
-                row_x += TILE_SIZE + TILE_SPACING;
-
-                ImGui::PushID(path_string.c_str());
-                ImGui::BeginGroup();
-
-                if (context.renaming_project_path == path_string)
-                {
-                    ImGui::Dummy(ImVec2(TILE_SIZE, TILE_SIZE * 0.6f));
-                    std::string entered;
-                    if (inline_rename_field(context, path_string, name, TILE_SIZE, entered))
-                    {
-                        std::error_code rename_ec;
-                        const fs::path renamed = entry.path().parent_path() / entered;
-                        if (!entered.empty() && renamed != entry.path())
-                            fs::rename(entry.path(), renamed, rename_ec);
-                        context.renaming_project_path.clear();
-                    }
-                }
-                else
-                {
-                    const ImU32 color = IM_COL32(90, 90, 90, 255); // replaced by draw_entry_icon in Task 4
-                    ImGui::PushStyleColor(ImGuiCol_Button, color);
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, color);
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, color);
-                    const std::string label =
-                        (is_dir ? std::string("[D]") : entry.path().extension().string()) + "\n" +
-                        truncate_label(name) + "##tile";
-                    const bool clicked = ImGui::Button(label.c_str(), ImVec2(TILE_SIZE, TILE_SIZE));
-                    ImGui::PopStyleColor(3);
-                    if (clicked)
-                        context.selected_project_path = path_string;
-                    // Dragging a file out of the browser is how an asset reaches a slot that
-                    // wants one; directories are not draggable because nothing accepts one.
-                    if (!is_dir)
-                        set_asset_drag_source(path_string, name);
-                    // The tile shows a truncated filename, which is ambiguous the moment a
-                    // search returns two files of the same name from different folders — so
-                    // the full path relative to the browsed folder is always one hover away.
-                    if (ImGui::IsItemHovered())
-                    {
-                        std::error_code relative_ec;
-                        const fs::path shown =
-                            fs::relative(entry.path(), current, relative_ec);
-                        ImGui::SetTooltip("%s", relative_ec ? path_string.c_str()
-                                                            : shown.string().c_str());
-                    }
-                    // Double-click detection is independent of the Button's own
-                    // pressed-on-release return, which can miss the second click of a
-                    // fast double-click; hover + IsMouseDoubleClicked is the reliable pair.
-                    if (ImGui::IsItemHovered() &&
-                        ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                    {
-                        context.selected_project_path = path_string;
-                        if (is_dir)
-                            context.current_directory = path_string;
-                        else if (entry.path().extension() == ".sushiscene")
-                        {
-                            request_open_scene(context, path_string);
-                        }
-                        else if (has_character_extension(entry.path()))
-                            open_character_in_preview(context, entry.path());
-                        else if (has_text_extension(entry.path()))
-                            open_document(context, entry.path());
-                        else
-                            open_with_default_app(entry.path());
-                    }
-
-                    if (ImGui::BeginPopupContextItem())
-                    {
-                        context.selected_project_path = path_string;
-                        if (!is_dir && ImGui::MenuItem("Open"))
-                        {
-                            if (entry.path().extension() == ".sushiscene")
-                            {
-                                request_open_scene(context, path_string);
-                            }
-                            else if (has_character_extension(entry.path()))
-                                open_character_in_preview(context, entry.path());
-                            else if (has_text_extension(entry.path()))
-                                open_document(context, entry.path());
-                            else
-                                open_with_default_app(entry.path());
-                        }
-                        if (has_character_extension(entry.path()) &&
-                            context.cook_bake_state != nullptr &&
-                            ImGui::MenuItem("Cooking Override..."))
-                            context.cooking_override_target = path_string;
-                        if (ImGui::MenuItem("Rename"))
-                            context.renaming_project_path = path_string;
-                        if (ImGui::MenuItem("Delete"))
-                            delete_target = entry.path();
-                        if (ImGui::MenuItem("Show in Explorer", nullptr, false,
-                                            SHELL_INTEGRATION_AVAILABLE))
-                            show_in_explorer(entry.path());
-                        if (!SHELL_INTEGRATION_AVAILABLE &&
-                            ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                            ImGui::SetTooltip("Windows-only for now.");
-                        ImGui::Separator();
-                        draw_project_create_menu(context, current);
-                        ImGui::EndPopup();
-                    }
-                }
-
-                ImGui::EndGroup();
-                ImGui::PopID();
-            }
+            draw_project_grid_view(context, entries, current, delete_target);
 
             // Right-click on empty grid space: create new items in the current folder.
             if (ImGui::BeginPopupContextWindow("project_grid_context", ImGuiPopupFlags_MouseButtonRight |
