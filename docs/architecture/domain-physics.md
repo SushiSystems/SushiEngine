@@ -404,3 +404,12 @@ copy/paste alike. A disabled entity's rigid body is removed from the physics wor
 on re-enable — there is no velocity field to preserve across the gap, and preserving one was
 deliberately scoped out (see [the entity lifecycle design](../design/entity_lifecycle_system.md)
 §4.2 for the full audit).
+
+**Runtime instantiate/destroy.** `IWorldEditor::request_instantiate`/`request_destroy` queue a
+spawn or removal instead of applying it immediately — safe to call from code that runs mid-tick,
+where the synchronous `create`/`destroy` are not. Both are applied once per tick, inside
+`RuntimeSimulation::step_once`, immediately after the ECS schedule runs and before that tick's
+`extract()`. `request_destroy` disables its target immediately (see the entry above) even though
+the actual removal is deferred; a `request_destroy` naming a not-yet-flushed
+`request_instantiate`'s id cancels that spawn outright rather than creating and immediately
+destroying it.
