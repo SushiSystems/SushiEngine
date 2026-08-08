@@ -57,10 +57,10 @@ pointer from each into the file that describes the mechanism.
   play/pause and inspection panels. The `sushiengine_editor` shell (SDL2 window + Dear ImGui
   presenting through the Vulkan renderer, `applications/editor/`) hosts a Unity-style panel set —
   Hierarchy (with drag-and-drop reparenting, rename, and filtering), Inspector, Project browser,
-  a tabbed Text Editor, a fixed Play/Pause/Step toolbar strip, a Console, and a Statistics panel,
-  the windows toggled from a domain-grouped Window menu — over the **live World** itself: there
-  is no editor-side scene model, because a second copy of the truth is a second thing to keep in
-  sync.
+  a tabbed Text Editor, a fixed Play/Pause/Step toolbar strip, a Console, a Statistics panel, and
+  a Profiler panel, the windows toggled from a domain-grouped Window menu — over the **live
+  World** itself: there is no editor-side scene model, because a second copy of the truth is a
+  second thing to keep in sync.
 
   Panels read and write through `Simulation::IWorldEditor`, and `EditorContext`
   (`applications/editor/source/core/editor_context.hpp`) carries only what is genuinely the
@@ -69,12 +69,24 @@ pointer from each into the file that describes the mechanism.
   windowing, presentation, and ImGui-adapter seams of
   [the render seam](presentation-render.md#1-the-render-seam).
 
+  Three seams feed the Statistics and Profiler panels their measurements, each owned by the
+  tier that can actually take it. `engine/foundation/profiling`'s `FrameProfiler` instruments
+  the editor's own loop in `applications/editor/source/main.cpp`, and each frame's snapshot is
+  copied into `EditorContext` the same way every other subsystem's numbers are, so panels read
+  a copy rather than a live profiler. The renderer's draw-call, culling, and GPU pass-timing
+  counters reach the editor through `ISceneView`'s defaulted accessors — `render_statistics()`,
+  `cull_statistics()`, and `pass_timing()` — so a backend that cannot answer returns zero rather
+  than the editor reaching past the seam. Host and GPU utilization come from an editor-owned
+  provider under `applications/editor/source/system/`, which loads NVIDIA's NVML library
+  dynamically at run time; the engine itself never links or names a vendor.
+
   - **One directory per domain, one panel per translation unit.** Under
     `applications/editor/source/`: `scene/` (hierarchy, inspector, the New/Open/Save/clipboard
     commands), `render/` (the `RenderSettings` panels, lighting), `environment/` and
     `atmosphere/` (the sky and the weather simulation that drives it), `project/` (the browser
     and the documents it opens), `vfx/`, `animation/`, `audio/`, `physics/`, `scripting/`,
-    `input/`. `ui/editor_panels.cpp` keeps only what is genuinely the shell: the menu bar, the
+    `input/`, `system/` (the host metrics provider behind `ISystemMetricsProvider`).
+    `ui/editor_panels.cpp` keeps only what is genuinely the shell: the menu bar, the
     toolbar strip, the Console, Statistics, the status bar, the theme, and the default dock
     layout. The vocabulary those panels share — undo-aware fields, the `Scalar`↔float round trip,
     the inline rename, the environment-edit bracket, the component-section header — lives once in

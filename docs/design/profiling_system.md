@@ -1,6 +1,6 @@
 # Profiling system — frame measurement and the editor's Profiler panel
 
-**Status:** PROF0–PROF3 are built. Phase PROF4 below remains open.
+**Status:** PROF0–PROF4 are built. The roadmap below is complete.
 
 ## 1. Purpose
 
@@ -163,7 +163,8 @@ looks, and only then is wired. Each later phase replaces one mock section with r
   - **Memory** — heap used against budget as a bar, texture residency, process working set,
     system memory.
   - **System** — processor utilization, GPU utilization, temperature; the derived GPU-busy
-    figure when the vendor section is unavailable.
+    figure, summing the Scene view's pass timings only. It is always shown, and is the only
+    GPU load figure a machine has when the vendor section is unavailable.
 - Registration follows the standard three touch points: the menu item and dock home in
   `applications/editor/source/ui/editor_panels.cpp`, the visibility boolean in
   `engine/world/authoring/include/SushiEngine/authoring/panel_visibility.hpp`, and the draw call

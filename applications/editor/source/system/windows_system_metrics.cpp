@@ -224,6 +224,11 @@ namespace SushiEngine
                 }
             }
         }
+
+        std::unique_ptr<ISystemMetricsProvider> create_system_metrics_provider()
+        {
+            return std::make_unique<WindowsSystemMetricsProvider>();
+        }
     } // namespace Editor
 } // namespace SushiEngine
 
@@ -259,6 +264,11 @@ namespace SushiEngine
 
         void WindowsSystemMetricsProvider::measure()
         {
+        }
+
+        std::unique_ptr<ISystemMetricsProvider> create_system_metrics_provider()
+        {
+            return std::make_unique<WindowsSystemMetricsProvider>();
         }
     } // namespace Editor
 } // namespace SushiEngine

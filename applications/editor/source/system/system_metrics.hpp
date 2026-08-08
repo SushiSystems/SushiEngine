@@ -24,6 +24,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
 namespace SushiEngine
 {
@@ -61,5 +62,12 @@ namespace SushiEngine
                 /** @brief The most recent readings; validity flags say what answered. */
                 virtual const SystemMetricsSnapshot& snapshot() const noexcept = 0;
         };
+
+        /**
+         * @brief Builds this platform's metrics provider.
+         * @return The provider; never null — a platform with no implementation returns
+         *     one whose snapshot never validates.
+         */
+        std::unique_ptr<ISystemMetricsProvider> create_system_metrics_provider();
     } // namespace Editor
 } // namespace SushiEngine
