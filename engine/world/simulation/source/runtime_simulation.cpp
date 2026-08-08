@@ -314,51 +314,15 @@ namespace SushiEngine
                         // no Renderer and no mesh, matching Unity's empty GameObject. A
                         // Renderer (and, bound to it, a mesh Shape) is added on demand
                         // through Add Component, so a bare Create Entity never draws.
-                        const Entity entity = world_.spawn(Transform{}, Orientation{});
                         const EntityId id = next_id_++;
-                        order_.push_back(id);
-                        Record record{entity, display_name, true, false};
-                        records_.emplace(id, record);
+                        create_without_extract(id, display_name, NULL_ENTITY);
                         extract();
                         return id;
                     }
 
                     void destroy(EntityId id) override
                     {
-                        const auto it = records_.find(id);
-                        if (it == records_.end())
-                            return;
-                        // Destroying a parent takes its whole subtree with it, matching
-                        // how the Hierarchy shows and selects them as one unit. Collected
-                        // up front rather than walked live, since each recursive destroy()
-                        // below erases entries out of the very map being scanned.
-                        std::vector<EntityId> children;
-                        for (auto& entry : records_)
-                            if (entry.second.parent == id)
-                                children.push_back(entry.first);
-                        for (const EntityId child : children)
-                            destroy(child);
-                        // The physics simulation regenerates its body/grid set from the
-                        // surviving entities on the next rebuild, so a destroy only needs
-                        // to flag that rebuild — it holds no per-entity map to prune here.
-                        if (it->second.has_physics_body)
-                            physics_dirty_ = true;
-                        if (it->second.has_cloth)
-                            cloth_dirty_ = true;
-                        if (it->second.has_vehicle)
-                            vehicles_dirty_ = true;
-                        // Its own joint goes with it, and so does any joint that named it
-                        // as a partner — those live on *other* records, which is why this
-                        // is unconditional rather than a test of this entity's own joint.
-                        joints_dirty_ = true;
-                        if (world_.alive(it->second.ui_mirror))
-                            world_.destroy(it->second.ui_mirror);
-                        CommandBuffer commands;
-                        commands.destroy(it->second.entity);
-                        commands.apply(world_);
-                        records_.erase(it);
-                        order_.erase(std::remove(order_.begin(), order_.end(), id),
-                                     order_.end());
+                        destroy_without_extract(id);
                         extract();
                     }
 
@@ -2569,6 +2533,54 @@ namespace SushiEngine
                     {
                         const auto it = records_.find(id);
                         return it != records_.end() ? &it->second : nullptr;
+                    }
+
+                    /**
+                     * @brief The non-extracting half of @ref create. Builds the entity and its
+                     * @ref Record, optionally parenting it, but does not rebuild the render scene —
+                     * the caller decides when that happens.
+                     */
+                    void create_without_extract(EntityId id, const std::string& display_name,
+                                                EntityId parent)
+                    {
+                        const Entity entity = world_.spawn(Transform{}, Orientation{});
+                        order_.push_back(id);
+                        Record record{entity, display_name, true, false};
+                        records_.emplace(id, record);
+                        if (parent != NULL_ENTITY)
+                            set_parent(id, parent);
+                    }
+
+                    /**
+                     * @brief The non-extracting half of @ref destroy. Recurses without
+                     * re-extracting per node — the caller extracts once, after the whole subtree
+                     * is gone.
+                     */
+                    void destroy_without_extract(EntityId id)
+                    {
+                        const auto it = records_.find(id);
+                        if (it == records_.end())
+                            return;
+                        std::vector<EntityId> children;
+                        for (auto& entry : records_)
+                            if (entry.second.parent == id)
+                                children.push_back(entry.first);
+                        for (const EntityId child : children)
+                            destroy_without_extract(child);
+                        if (it->second.has_physics_body)
+                            physics_dirty_ = true;
+                        if (it->second.has_cloth)
+                            cloth_dirty_ = true;
+                        if (it->second.has_vehicle)
+                            vehicles_dirty_ = true;
+                        joints_dirty_ = true;
+                        if (world_.alive(it->second.ui_mirror))
+                            world_.destroy(it->second.ui_mirror);
+                        CommandBuffer commands;
+                        commands.destroy(it->second.entity);
+                        commands.apply(world_);
+                        records_.erase(it);
+                        order_.erase(std::remove(order_.begin(), order_.end(), id), order_.end());
                     }
 
                     /** @brief The script component named @p name on @p record, or null. */
