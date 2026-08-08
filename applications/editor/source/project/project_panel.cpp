@@ -29,6 +29,7 @@
 #include "prefab_serializer.hpp"
 #include "thumbnail_cache.hpp"
 #include "model_thumbnail_cache.hpp"
+#include "prefab_thumbnail_cache.hpp"
 
 #include "../animation/animated_mesh_preview.hpp"
 #include "../scene/scene_commands.hpp"
@@ -630,6 +631,12 @@ namespace SushiEngine
                             if (extension == ".gltf" || extension == ".glb")
                                 thumbnail_texture =
                                     context.model_thumbnail_cache->texture_for(entry.path());
+                        }
+                        else if (category == EntryCategory::Prefab &&
+                                context.prefab_thumbnail_cache != nullptr && tile_visible)
+                        {
+                            thumbnail_texture =
+                                context.prefab_thumbnail_cache->texture_for(entry.path());
                         }
 
                         if (thumbnail_texture.has_value())
