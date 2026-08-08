@@ -29,16 +29,15 @@
  *
  * Draws exactly the caller-resolved array of (mesh, material, model matrix) triples it is
  * given, framing the camera itself from the union of every draw's mesh bounding sphere. This
- * class knows nothing about prefabs, JSON,
- * or `ISimulation`/`IWorldEditor` -- that orchestration belongs to whatever calls it (Phase
- * 4b's editor-tier `PrefabThumbnailCache`), since `engine/presentation/render` is forbidden
- * from depending on the `world` tier (`engine/world/simulation`/`engine/world/serialization`);
- * see this class's own header (`SushiEngine/render/prefab_thumbnail_renderer.hpp`) for the
- * full rationale. This renderer's own isolated asset stack, exposed via @ref
- * VulkanPrefabThumbnailRenderer::asset_library, is what a caller resolves a prefab's
- * mesh_path/material-path references against before building the draw array; it persists
- * across calls until this whole renderer is destroyed and replaced -- Phase 4b's
- * PrefabThumbnailCache owns that recreation policy, not this class.
+ * class knows nothing about prefabs, JSON, or `ISimulation`/`IWorldEditor` -- that orchestration
+ * belongs to whatever calls it (Phase 4b's editor-tier `PrefabThumbnailCache`), since
+ * `engine/presentation/render` is forbidden from depending on the `world` tier
+ * (`engine/world/simulation`/`engine/world/serialization`); see this class's own header
+ * (`SushiEngine/render/prefab_thumbnail_renderer.hpp`) for the full rationale. This renderer's
+ * own isolated asset stack, exposed via @ref VulkanPrefabThumbnailRenderer::asset_library, is
+ * what a caller resolves a prefab's mesh_path/material-path references against before building
+ * the draw array; it persists across calls until this whole renderer is destroyed and replaced
+ * -- Phase 4b's PrefabThumbnailCache owns that recreation policy, not this class.
  */
 
 #include <cstddef>
@@ -80,6 +79,8 @@ namespace SushiEngine
 
                     IAssetLibrary& asset_library() noexcept override { return assets_; }
 
+                    std::size_t max_draws() const noexcept override { return MAX_PRIMITIVES; }
+
                     bool render_thumbnail(const PrefabThumbnailDraw* draws, std::size_t count,
                                           std::uint32_t width, std::uint32_t height,
                                           FrameImage& out_image) override;
@@ -89,7 +90,7 @@ namespace SushiEngine
                     static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
                     static constexpr VkFormat DEPTH_FORMAT = VK_FORMAT_D32_SFLOAT;
 
-                    /** @brief One draw call's worth of per-entity push-constant data (100 bytes total —
+                    /** @brief One draw call's worth of per-entity push-constant data (100 bytes total --
                      *  comfortably under Vulkan's guaranteed 128-byte minimum, this repo's own "house budget"
                      *  for push constants; see the .cpp's render_thumbnail for how @c mvp and @c light_object
                      *  are derived). */

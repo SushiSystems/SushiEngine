@@ -92,6 +92,18 @@ namespace SushiEngine
                 virtual IAssetLibrary& asset_library() noexcept = 0;
 
                 /**
+                 * @brief The fixed maximum number of entries @ref render_thumbnail accepts.
+                 *
+                 * A caller building a `PrefabThumbnailDraw` array (walking a resolved prefab's
+                 * entities) must compare its running count against this before ever calling
+                 * @ref render_thumbnail, and treat exceeding it as a load failure -- the same
+                 * way it already must treat a prefab producing zero draws. Exists so that cap
+                 * lives in exactly one place (the concrete renderer's own fixed capacity)
+                 * instead of being duplicated as a magic number in every caller.
+                 */
+                virtual std::size_t max_draws() const noexcept = 0;
+
+                /**
                  * @brief Renders exactly the given resolved draws into a width x height RGBA8 image.
                  *
                  * Shading is flat headlight-plus-ambient sampling each draw's base-color
