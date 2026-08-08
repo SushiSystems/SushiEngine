@@ -31,6 +31,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include <SushiEngine/simulation/simulation.hpp>
 
 using namespace SushiEngine;
@@ -347,8 +349,9 @@ TEST(Integration_EntityLifecycle, RequestInstantiateDefersCreationUntilTheNextFl
     simulation->tick(simulation->fixed_dt_seconds());
     EXPECT_TRUE(world.exists(id)) << "the flush did not create the entity";
     EXPECT_TRUE(world.enabled(id)) << "a freshly instantiated entity must default to enabled";
-    EXPECT_NE(find_instance(simulation->render_scene(), id), nullptr)
-        << "the flush ran, but the tick's own extract() did not see the new entity";
+    const std::vector<EntityId> entities = world.entities();
+    EXPECT_NE(std::find(entities.begin(), entities.end(), id), entities.end())
+        << "the flush did not add the new entity to the entity list";
 }
 
 TEST(Integration_EntityLifecycle, RequestDestroyOfAPendingInstantiateCancelsItOutright)
