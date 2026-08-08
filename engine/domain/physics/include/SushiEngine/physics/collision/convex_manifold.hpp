@@ -435,7 +435,7 @@ namespace SushiEngine
             const std::size_t chosen_count =
                 reduce_manifold_points(kept, separations, kept_count, chosen, face_tolerance);
 
-            ContactManifold<T> manifold;
+            ContactManifold<T> manifold{};
             manifold.normal = contact.normal;
             manifold.point_count = static_cast<std::uint8_t>(chosen_count);
             for (std::size_t i = 0; i < chosen_count; ++i)
@@ -505,7 +505,7 @@ namespace SushiEngine
             const std::size_t chosen_count =
                 reduce_manifold_points(kept, separations, kept_count, chosen, face_tolerance);
 
-            ContactManifold<T> manifold;
+            ContactManifold<T> manifold{};
             manifold.normal = plane.normal * T(-1);
             manifold.point_count = static_cast<std::uint8_t>(chosen_count);
             for (std::size_t i = 0; i < chosen_count; ++i)

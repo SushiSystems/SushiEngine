@@ -1177,7 +1177,21 @@ TEST(Integration_PhysicsSimulation, TwoIdenticalScenesStayByteIdentical)
         second->step(earth_gravity(), still_air(), SUBSTEPS);
         first->capture_snapshot(a);
         second->capture_snapshot(b);
-        ASSERT_EQ(a, b) << "two identical scenes diverged at tick " << tick;
+        // Where, not merely whether. A byte comparison that only reports a mismatch
+        // leaves the reader to guess which section of the blob moved, and the sections
+        // are what map a divergence back to a subsystem.
+        if (a != b)
+        {
+            std::size_t offset = 0;
+            while (offset < a.size() && offset < b.size() && a[offset] == b[offset])
+                ++offset;
+            FAIL() << "two identical scenes diverged at tick " << tick
+                   << "; sizes " << a.size() << " vs " << b.size()
+                   << "; first differing byte at offset " << offset
+                   << " (sizeof Body=" << sizeof(Physics::RigidBody)
+                   << ", ContactManifold=" << sizeof(Physics::ContactManifold<Scalar>)
+                   << ", ContactRecord section starts after the body and target arrays)";
+        }
     }
     EXPECT_FALSE(a.empty()) << "the snapshot is empty; nothing was captured at all";
 }

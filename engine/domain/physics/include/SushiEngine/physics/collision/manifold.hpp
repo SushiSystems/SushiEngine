@@ -128,6 +128,21 @@ namespace SushiEngine
          * moves @ref a along `-normal` and @ref b along `+normal`.
          */
         template <typename T>
+        /**
+         * @brief Always build one with `ContactManifold<T> m{}`, never `ContactManifold<T> m;`.
+         *
+         * Every member here carries an initializer, so the difference looks cosmetic and
+         * is not: this struct has padding — one byte between @ref point_count and
+         * @ref material_a, and two after @ref material_b — and default-initialization
+         * leaves those bytes whatever the stack held. Assignment then copies them into
+         * whatever the manifold is stored in.
+         *
+         * That matters because a manifold ends up inside the per-tick contact record the
+         * physics snapshot writes out verbatim (§12.3). Indeterminate padding makes two
+         * runs of one scene produce two different byte images of the same state, which is
+         * exactly what the determinism control found: it diverged at byte 425 of this
+         * struct, intermittently, and byte 425 is the padding after @ref point_count.
+         */
         struct ContactManifold
         {
             BodyHandle a;               /**< The first body; filled by the caller. */
@@ -577,7 +592,7 @@ namespace SushiEngine
                                                       const QuaternionT<T>& orientation_b,
                                                       std::uint32_t feature_id) noexcept
         {
-            ContactManifold<T> manifold;
+            ContactManifold<T> manifold{};
             manifold.normal = normal;
             manifold.point_count = 1;
             manifold.points[0].anchor_a_local = to_local_anchor(center_a, orientation_a, point_on_a);
@@ -689,7 +704,7 @@ namespace SushiEngine
             Vector3T<T> corners[4];
             obb_face_corners(box, axis, sign, corners);
 
-            ContactManifold<T> manifold;
+            ContactManifold<T> manifold{};
             manifold.normal = plane.normal * T(-1);
             const std::uint32_t incident_face = obb_face_index(axis, sign > T(0));
 
@@ -973,7 +988,7 @@ namespace SushiEngine
             const std::uint32_t incident_face =
                 obb_face_index(incident_axis, incident_sign > T(0));
 
-            ContactManifold<T> manifold;
+            ContactManifold<T> manifold{};
             manifold.normal = normal;
             manifold.point_count = static_cast<std::uint8_t>(chosen_count);
             for (std::size_t i = 0; i < chosen_count; ++i)
