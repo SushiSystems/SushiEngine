@@ -499,31 +499,55 @@ created through `create_without_extract`, which builds a `Record` the same way `
 ### §5.6 Testing
 
 All new coverage lives in `tests/integration/test_entity_lifecycle.cpp`, alongside Phase 1's cases,
-since every case here depends on Phase 1's `enabled`/`enabled_in_hierarchy` machinery being present. A
-test double registered with `schedule_.run()`'s `Schedule` stands in for "code running mid-tick" —
-Phase 3 does not exist yet to provide a real one, but the queue's safety claim is specifically about
-being called from inside that phase, so the test has to call it from there.
+since every case here depends on Phase 1's `enabled`/`enabled_in_hierarchy` machinery being present.
 
-- `RequestDestroyMidTickRemovesTheEntityBeforeThatTicksExtract` — a system queued into `schedule_`
-  calls `request_destroy` on a sibling entity; after one `tick()`, the entity is gone from `exists()`
-  and absent from the extracted render scene, with no crash from `step_once()`'s own `order_` walk that
-  ran earlier in the same tick.
-- `RequestDestroyMidTickCascadesToChildren` — the same setup, targeting a parent with children; all
-  descendants are gone after the same tick, proving `destroy_without_extract`'s recursion still runs
+**Correction to an earlier draft of this section**: it proposed proving the queue's safety by
+registering a test system into `schedule_` that calls `request_destroy`/`request_instantiate` from
+literally inside `schedule_.run()`, between that call (`:3390`) and the flush point this phase adds.
+That is not achievable with the surface this codebase actually exposes: `Schedule::each`
+(`engine/foundation/ecs/include/SushiEngine/ecs/schedule.hpp:138`) registers a typed per-column kernel
+over component data, not an arbitrary `World&`/`IWorldEditor&`-capturing callback; `schedule_` is a
+private member of `RuntimeSimulation`, which is `final` (`runtime_simulation.cpp:112, 4616`); and
+neither `ISimulation` nor `IWorldEditor` exposes an accessor to it. No existing test does this, and
+building one single-purpose accessor into production code just to make a test reach a private member
+would be test-only surface leaking into the real API — precisely what this document's own §5.5 argues
+against adding speculatively.
+
+It also is not *necessary*. What the safety claim actually rests on is that `request_destroy` and
+`request_instantiate` never touch `records_`/`order_`/`world_` synchronously — they only ever write to
+`pending_commands_`, `next_id_`, and (for destroy) call the already-safe `set_enabled` (§5.4). That is
+true regardless of *when* either method is called — mid-tick from a future native hook, or between two
+`tick()` calls from ordinary test code — because there is no code path in either method that branches
+on "am I being called from inside `step_once()` right now." Proving the deferred behavior therefore
+does not require reentering `step_once()`; it requires proving the *before-flush* state is inert and
+the *after-flush* state (post-`tick()`) is correct, which the public API already supports directly:
+
+- `RequestDestroyDefersRemovalUntilTheNextFlush` — `request_destroy(id)` on a live entity; immediately
+  after the call (no `tick()` yet), `exists(id)` is still `true` (nothing erased yet) but `enabled(id)`
+  is already `false` (§5.4's immediate disable already fired). One `tick()` later, `exists(id)` is
+  `false`.
+- `RequestDestroyCascadesToChildrenAtFlush` — the same setup, targeting a parent with children; after
+  one `tick()`, every descendant is gone too, proving `destroy_without_extract`'s recursion still runs
   correctly from the deferred path.
-- `RequestInstantiateMidTickCreatesTheEntityBeforeThatTicksExtract` — a system calls
-  `request_instantiate`, capturing the returned id; before `flush_deferred_commands()` (mid-tick),
-  `exists(id)` is `false`; after the same `tick()` returns, `exists(id)` is `true` and the entity
-  appears in that tick's extracted render scene.
-- `RequestDestroyOfAPendingInstantiateCancelsItOutright` — one system calls `request_instantiate`,
-  captures the id, and in the same tick another queued call requests `request_destroy(id)` before flush;
-  after `tick()`, `exists(id)` is `false` and no `Record` was ever created for it (observable via the
-  existing scene/render-extraction assertions Phase 1's tests already use to prove absence).
-- `RequestDestroyIsIdempotentWithinATick` — two `request_destroy(id)` calls for the same live entity in
-  one tick do not crash and produce exactly one removal.
+- `RequestInstantiateDefersCreationUntilTheNextFlush` — `request_instantiate(name)` returns a non-null
+  id; immediately after the call, `exists(id)` is `false` (nothing created yet). One `tick()` later,
+  `exists(id)` is `true` and the entity appears in that tick's extracted render scene.
+- `RequestDestroyOfAPendingInstantiateCancelsItOutright` — `request_instantiate` returns an id;
+  `request_destroy(id)` is called before any `tick()` runs; after one `tick()`, `exists(id)` is `false`
+  and no `Record` was ever created for it (observable via the existing scene/render-extraction
+  assertions Phase 1's tests already use to prove absence).
+- `RequestDestroyIsIdempotentBeforeFlush` — two `request_destroy(id)` calls for the same live entity,
+  both before any `tick()`, do not crash and produce exactly one removal after that `tick()`.
+- `RequestDestroyOnAnUnknownIdIsANoOp` — `request_destroy` on an id that was never created (and is not
+  a pending instantiate) does not crash and leaves the pending queue empty.
 - Regression: every existing Phase 1 test in this file, and every existing `create()`/`destroy()`-based
   test elsewhere in the suite, is expected to pass unchanged — neither method's public signature or
   synchronous behavior changes.
+
+None of this leaves the flush point itself unverified: every case above calls `tick()` (which runs
+`step_once()`, which calls `flush_deferred_commands()` before that tick's own `extract()`) rather than
+asserting anything about the queue in isolation, so the flush's placement and behavior are exercised
+end-to-end exactly as a real caller would drive them.
 
 ### §5.7 Documentation
 
