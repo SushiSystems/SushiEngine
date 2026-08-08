@@ -300,6 +300,13 @@ namespace SushiEngine
                         supports_mesh_shader_ = false;
                 }
 
+                // Memory budget backs the profiler's heap readout: VMA can only report a
+                // real budget from the driver, rather than the coarse heap size, when this
+                // extension is present. Optional everywhere — render_statistics() reports
+                // zero for both fields when the device lacks it.
+                supports_memory_budget_ =
+                    physical.enable_extension_if_present(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+
                 // External memory is the interop hook: an allocation this device owns can
                 // be handed to SushiRuntime's SYCL device by OS handle rather than copied
                 // through the host. Optional everywhere — nothing in the render path uses
@@ -415,6 +422,8 @@ namespace SushiEngine
                 // have its address taken — which is the only way geometry reaches an
                 // acceleration structure build.
                 allocator_info.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+                if (supports_memory_budget_)
+                    allocator_info.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
                 if (vmaCreateAllocator(&allocator_info, &allocator_) != VK_SUCCESS)
                     throw std::runtime_error("SushiEngine: VMA allocator creation failed");
 

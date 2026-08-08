@@ -298,6 +298,12 @@ namespace SushiEngine
                      */
                     bool supports_mesh_shader() const noexcept { return supports_mesh_shader_; }
 
+                    /** @brief Whether VK_EXT_memory_budget backs vmaGetHeapBudgets. */
+                    bool supports_memory_budget() const noexcept
+                    {
+                        return supports_memory_budget_;
+                    }
+
                     /** @brief The mesh-shader draw entry points, or null members. */
                     const MeshShaderFunctions& mesh_shader() const noexcept
                     {
@@ -360,6 +366,7 @@ namespace SushiEngine
                     std::uint32_t max_mesh_output_vertices_ = 0;
                     std::uint32_t max_mesh_output_primitives_ = 0;
                     MeshShaderFunctions mesh_shader_{};
+                    bool supports_memory_budget_ = false;
                     DeviceInformation info_{};
             };
         } // namespace Vulkan

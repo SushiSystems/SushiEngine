@@ -400,6 +400,25 @@ namespace SushiEngine
                 out.draw_calls = frame_statistics_.draw_calls;
                 out.render_width = render_width_;
                 out.render_height = render_height_;
+                if (device_.supports_memory_budget())
+                {
+                    // VMA reports one VmaBudget per Vulkan memory heap, driver-truthful only
+                    // when VK_EXT_memory_budget backs it; summing every device-local heap
+                    // gives the whole-adapter total the profiler wants rather than a single
+                    // heap's share of it.
+                    VmaBudget budgets[VK_MAX_MEMORY_HEAPS] = {};
+                    vmaGetHeapBudgets(device_.allocator(), budgets);
+                    VkPhysicalDeviceMemoryProperties properties{};
+                    vkGetPhysicalDeviceMemoryProperties(device_.physical_device(), &properties);
+                    for (std::uint32_t heap = 0; heap < properties.memoryHeapCount; ++heap)
+                    {
+                        if ((properties.memoryHeaps[heap].flags &
+                             VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) == 0)
+                            continue;
+                        out.heap_used_bytes += budgets[heap].usage;
+                        out.heap_budget_bytes += budgets[heap].budget;
+                    }
+                }
                 return out;
             }
 
@@ -461,6 +480,12 @@ namespace SushiEngine
 
                 Frame::FrameContext frame;
                 frame.index = frame_counter_;
+                // VMA refreshes its cached VK_EXT_memory_budget numbers when the frame
+                // index advances, so render_statistics() would read stale heap usage
+                // without this call.
+                if (device_.supports_memory_budget())
+                    vmaSetCurrentFrameIndex(device_.allocator(),
+                                            static_cast<std::uint32_t>(frame.index));
                 frame.slot = index;
                 frame.width = render_width_;
                 frame.height = render_height_;
