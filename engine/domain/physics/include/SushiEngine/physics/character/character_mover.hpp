@@ -287,14 +287,38 @@ namespace SushiEngine
                     return false;
                 const Vector3T<T> raised = position + up * settings.step_height;
 
+                // At least a radius forward, whatever this tick's motion was.
+                //
+                // A capsule cannot come down onto a ledge until its *lowest point* is
+                // over that ledge, and its lowest point sits directly beneath its centre
+                // — so clearing the riser by a hair does not do it. A probe that advances
+                // only by the motion the slide refused leaves the capsule's centre short
+                // of the lip, the down sweep below lands on the ledge's top *corner*
+                // rather than its face, and a corner's normal is not walkable. The
+                // attempt is refused; and since the next tick starts from the same
+                // blocked position and refuses the same small amount, it is refused
+                // again, and for ever. A character walking two centimetres a tick could
+                // never climb a stair — not at any speed, not after any number of ticks.
+                // The distance that settles it is a property of the capsule, so that is
+                // what it is measured in.
+                //
+                // What this costs is that the tick a step is taken advances further than
+                // the caller asked, by at most one radius. That is bounded by the
+                // character's own size, happens only when a walkable tread was actually
+                // found, and is what stepping onto a ledge looks like: the stride is set
+                // by the geometry being climbed, not by how fast the character happened
+                // to be strolling toward it.
+                const T reach = capsule.radius + settings.skin_width;
+                const T probe = forward_distance > reach ? forward_distance : reach;
+
                 // Forward, from up there. A hit means the obstacle is taller than the
                 // step height — a wall, which the slide has already handled correctly.
                 ++sweeps;
-                const RayHit<T> ahead = sweep(capsule_at(capsule, raised), forward,
-                                              forward_distance + settings.skin_width);
+                const RayHit<T> ahead =
+                    sweep(capsule_at(capsule, raised), forward, probe + settings.skin_width);
                 if (ahead.hit)
                     return false;
-                const Vector3T<T> crossed = raised + motion;
+                const Vector3T<T> crossed = raised + forward * probe;
 
                 // Down, looking for the top of the step. No hit means there was nothing
                 // to step onto and the capsule would be left hovering.

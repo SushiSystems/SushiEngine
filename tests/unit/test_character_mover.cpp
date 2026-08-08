@@ -78,7 +78,19 @@ namespace
     }
 
     /**
-     * @brief A world of half-spaces, answering the one question the mover asks.
+     * @brief One convex solid: the intersection of its half-spaces.
+     *
+     * A single plane is a solid of one, which is every floor, wall and ramp below. What
+     * needs more than one is a *step*, and it needs it for a reason worth stating: a step
+     * is a riser bounded above by a tread, and a lone riser half-space is solid at every
+     * height. Modelled that way there is no step to climb — raising the capsule by the
+     * step height leaves it still inside the riser, the forward sweep is blocked, and the
+     * mover correctly declines. The scene was the wall, not the algorithm.
+     */
+    using Solid = std::vector<Plane>;
+
+    /**
+     * @brief A world of convex solids, answering the one question the mover asks.
      *
      * Advances in small steps rather than solving for the impact analytically. The mover
      * is what is under test, and a stub that is itself a clever root-finder is a stub
@@ -87,7 +99,7 @@ namespace
     class PlaneWorld
     {
         public:
-            std::vector<Plane> planes;
+            std::vector<Solid> solids;
 
             RayHit<Real> operator()(const CapsuleCollider<Real>& capsule,
                                     const Vec& direction, Real distance) const
@@ -99,20 +111,34 @@ namespace
                 {
                     CapsuleCollider<Real> moved = capsule;
                     moved.center = capsule.center + direction * travelled;
-                    for (const Plane& plane : planes)
+                    for (const Solid& solid : solids)
                     {
-                        if (capsule_distance(moved, plane) > TOUCH)
+                        // Outside a convex solid means outside *one* of its half-spaces,
+                        // and the face it is furthest outside of is the face it would
+                        // touch first — which is the one whose normal the hit reports.
+                        const Plane* nearest = nullptr;
+                        Real furthest = 0;
+                        for (const Plane& plane : solid)
+                        {
+                            const Real d = capsule_distance(moved, plane);
+                            if (nearest == nullptr || d > furthest)
+                            {
+                                nearest = &plane;
+                                furthest = d;
+                            }
+                        }
+                        if (nearest == nullptr || furthest > TOUCH)
                             continue;
                         // Touching is not blocking, and the real `sweep_shape` says so the
                         // same way: a capsule standing on the floor is at zero separation
                         // from it, and a step along that floor is not a collision with it.
                         // Without this the stub stops every walk at distance zero against
                         // the ground the character is standing on.
-                        if (dot(direction, plane.normal) >= -1e-9)
+                        if (dot(direction, nearest->normal) >= -1e-9)
                             continue;
                         hit.hit = true;
                         hit.distance = travelled;
-                        hit.normal = plane.normal;
+                        hit.normal = nearest->normal;
                         hit.point = moved.center;
                         return hit;
                     }
@@ -149,6 +175,12 @@ namespace
         return Plane{Vec{x, 0, 0}, Vec{-1, 0, 0}};
     }
 
+    /** @brief A step: everything beyond @p x and below @p height, as one solid. */
+    Solid step_at(Real x, Real height)
+    {
+        return Solid{wall_at(x), Plane{Vec{0, height, 0}, Vec{0, 1, 0}}};
+    }
+
     /** @brief A ramp rising along +x at @p degrees, through the origin. */
     Plane ramp(Real degrees)
     {
@@ -164,7 +196,7 @@ TEST(Unit_CharacterMover, UnobstructedMotionIsSpentInFull)
 {
     // The baseline. If this is wrong nothing after it means anything, and it is also the
     // only test that pins down what `remaining` reads when nothing was in the way.
-    PlaneWorld world{{floor_plane()}};
+    PlaneWorld world{{{floor_plane()}}};
     const CharacterMoveResult<Real> result = move_character(
         world, standing_capsule(Vec{0, REST_Y, 0}), Vec{2, 0, 0}, Vec{0, 1, 0}, settings());
 
@@ -178,7 +210,7 @@ TEST(Unit_CharacterMover, AWallIsSlidAlongRatherThanStoppedDead)
     // Walking diagonally into a wall must keep the component parallel to it. A controller
     // that stopped at the first hit would make every wall a glue trap, which is what
     // "collide and slide" exists to avoid.
-    PlaneWorld world{{floor_plane(), wall_at(1.0)}};
+    PlaneWorld world{{{floor_plane()}, {wall_at(1.0)}}};
     const CharacterMoveResult<Real> result =
         move_character(world, standing_capsule(Vec{0, REST_Y, 0}), Vec{1, 0, 1}, Vec{0, 1, 0},
                        settings());
@@ -194,7 +226,7 @@ TEST(Unit_CharacterMover, AWallIsNeverClimbedByPressingIntoIt)
     // character walking into a wall while falling can be lifted by its own fall. The
     // mover removes the up-component of a slide along an unwalkable face; without that
     // line this test rises.
-    PlaneWorld world{{floor_plane(), wall_at(1.0)}};
+    PlaneWorld world{{{floor_plane()}, {wall_at(1.0)}}};
     const CharacterMoveResult<Real> result =
         move_character(world, standing_capsule(Vec{0, REST_Y, 0}), Vec{2, 0, 0}, Vec{0, 1, 0},
                        settings());
@@ -208,7 +240,7 @@ TEST(Unit_CharacterMover, AStepBelowTheStepHeightIsClimbed)
 {
     // A stair is a wall the controller is allowed to go over. Two planes make one: a
     // riser at x = 1 and a tread at y = 0.3, which is inside the 0.4 default.
-    PlaneWorld world{{floor_plane(), wall_at(1.0), Plane{Vec{0, 0.3, 0}, Vec{0, 1, 0}}}};
+    PlaneWorld world{{{floor_plane()}, step_at(1.0, 0.3)}};
     const CharacterMoveResult<Real> result =
         move_character(world, standing_capsule(Vec{0, REST_Y, 0}), Vec{1.2, 0, 0}, Vec{0, 1, 0},
                        settings());
@@ -225,7 +257,7 @@ TEST(Unit_CharacterMover, AStepAboveTheStepHeightIsNotClimbed)
     // because the down-sweep of the step attempt finds *some* floor and accepts it.
     CharacterMoveSettings<Real> dials = settings();
     dials.step_height = 0.2;
-    PlaneWorld world{{floor_plane(), wall_at(1.0), Plane{Vec{0, 0.5, 0}, Vec{0, 1, 0}}}};
+    PlaneWorld world{{{floor_plane()}, step_at(1.0, 0.5)}};
     const CharacterMoveResult<Real> result = move_character(
         world, standing_capsule(Vec{0, REST_Y, 0}), Vec{1.2, 0, 0}, Vec{0, 1, 0}, dials);
 
@@ -235,7 +267,7 @@ TEST(Unit_CharacterMover, AStepAboveTheStepHeightIsNotClimbed)
 
 TEST(Unit_CharacterMover, ARampBelowTheSlopeLimitIsWalkable)
 {
-    PlaneWorld world{{ramp(30.0)}};
+    PlaneWorld world{{{ramp(30.0)}}};
     const CharacterMoveResult<Real> result =
         move_character(world, standing_capsule(Vec{0, 0.5, 0}), Vec{0, -0.2, 0}, Vec{0, 1, 0},
                        settings());
@@ -249,7 +281,7 @@ TEST(Unit_CharacterMover, ARampAboveTheSlopeLimitIsAWall)
 {
     // 60 degrees against the 45-degree default. Standing on it must read as airborne,
     // because a character that counts a cliff face as ground can jump off one.
-    PlaneWorld world{{ramp(60.0)}};
+    PlaneWorld world{{{ramp(60.0)}}};
     const CharacterMoveResult<Real> result =
         move_character(world, standing_capsule(Vec{0, 0.5, 0}), Vec{0, -0.2, 0}, Vec{0, 1, 0},
                        settings());
@@ -262,8 +294,8 @@ TEST(Unit_CharacterMover, ACeilingRejectsTheStepAttempt)
     // The first of the step's three sweeps, and the one whose absence is invisible in a
     // flat scene: without the up-sweep a character in a low tunnel steps *through* the
     // ceiling to get onto a crate.
-    PlaneWorld world{{floor_plane(), wall_at(1.0), Plane{Vec{0, 0.3, 0}, Vec{0, 1, 0}},
-                      Plane{Vec{0, REST_Y + 0.55, 0}, Vec{0, -1, 0}}}};
+    PlaneWorld world{{{floor_plane()}, step_at(1.0, 0.3),
+                      {Plane{Vec{0, REST_Y + 1.0, 0}, Vec{0, -1, 0}}}}};
     const CharacterMoveResult<Real> result =
         move_character(world, standing_capsule(Vec{0, REST_Y, 0}), Vec{1.2, 0, 0}, Vec{0, 1, 0},
                        settings());
@@ -282,7 +314,7 @@ TEST(Unit_CharacterMover, TheGeometryHoldsAboutANonVerticalUp)
     // floor as a 90-degree cliff and this wall as level ground, and every assertion
     // below inverts.
     const Vec up{1, 0, 0};
-    PlaneWorld world{{Plane{Vec{0, 0, 0}, Vec{1, 0, 0}}, Plane{Vec{0, 1, 0}, Vec{0, -1, 0}}}};
+    PlaneWorld world{{{Plane{Vec{0, 0, 0}, Vec{1, 0, 0}}}, {Plane{Vec{0, 1, 0}, Vec{0, -1, 0}}}}};
 
     CapsuleCollider<Real> capsule = standing_capsule(Vec{REST_Y, 0, 0});
     // Lying along +X so the capsule stands in this world's up, the same way the ones
