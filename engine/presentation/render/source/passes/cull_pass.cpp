@@ -229,6 +229,7 @@ namespace SushiEngine
                     static_cast<const std::uint32_t*>(slots_[slot].readback_mapped);
                 out.drawn = words[0];
                 out.tested = words[1];
+                out.triangles = words[2];
                 return out;
             }
 

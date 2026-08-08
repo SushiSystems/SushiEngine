@@ -70,8 +70,9 @@ namespace SushiEngine
             /** @brief The per-frame cull counts the editor surfaces. */
             struct CullStatistics
             {
-                std::uint32_t drawn = 0;  /**< Instances that survived the cull. */
-                std::uint32_t tested = 0; /**< Instances the cull considered. */
+                std::uint32_t drawn = 0;     /**< Instances that survived the cull. */
+                std::uint32_t tested = 0;    /**< Instances the cull considered. */
+                std::uint32_t triangles = 0; /**< Triangles of the surviving instances. */
             };
 
             /** @brief Frustum/coverage/occlusion-culls instances into indirect draw commands. */
@@ -109,7 +110,7 @@ namespace SushiEngine
                     /** @brief How many frames may be in flight; matches the view's slot count. */
                     static constexpr std::uint32_t SLOTS = 3;
 
-                    /** @brief Words in the stats buffer: drawn, tested, and two spare. */
+                    /** @brief Words in the stats buffer: drawn, tested, triangles, and one spare. */
                     static constexpr std::uint32_t STATS_WORDS = 4;
 
                     struct Push

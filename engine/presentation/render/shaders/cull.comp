@@ -81,7 +81,7 @@ layout(std430, set = 0, binding = 5) writeonly buffer CompactedBlock
 
 layout(std430, set = 0, binding = 6) buffer StatsBlock
 {
-    uint data[]; // [0] = drawn, [1] = tested
+    uint data[]; // [0] = drawn, [1] = tested, [2] = triangles
 } stats;
 
 layout(set = 0, binding = 7) uniform sampler2D occlusion_pyramid;
@@ -198,6 +198,7 @@ void main()
         {
             stats.data[0] = 0u;
             stats.data[1] = pc.candidate_count;
+            stats.data[2] = 0u;
         }
         return;
     }
@@ -247,4 +248,5 @@ void main()
     uint base = bucket_block.meta[bucket].candidate_base;
     compacted.indices[base + slot] = id;
     atomicAdd(stats.data[0], 1u);
+    atomicAdd(stats.data[2], bucket_block.meta[bucket].index_count / 3u);
 }
