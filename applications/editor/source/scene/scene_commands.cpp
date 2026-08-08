@@ -567,6 +567,10 @@ namespace SushiEngine
             Simulation::PrefabInstanceParameters link;
             link.path = prefab_path;
             link.revision = document.value("revision", std::string());
+            // What this instance was built from, so a later refresh can tell the
+            // author's edits from the prefab's own changes. Without it the refresh
+            // falls back to the wholesale rebuild that discards them.
+            link.base = document.dump();
             world->set_prefab_instance(root, link);
 
             // A prefab names its meshes and textures by path, because a handle belongs to the

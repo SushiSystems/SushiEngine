@@ -1085,6 +1085,25 @@ namespace SushiEngine
         {
             std::string path;     /**< The `.sushiprefab` this subtree was built from. */
             std::string revision; /**< The prefab's revision at the time it was built. */
+
+            /**
+             * @brief What this instance was built from, verbatim.
+             *
+             * The **base** of a three-way merge, and the piece without which override
+             * resolution cannot work at all: an instance differs from the current
+             * prefab for two unrelated reasons — the author edited it, and the prefab
+             * moved on — and comparing the two can never tell those apart. Comparing
+             * the instance against what it was *built from* can, because every
+             * difference there is an edit by construction.
+             *
+             * Opaque here. It is the document the refresh instantiated, and only the
+             * serializer knows what that means; this boundary carries strings.
+             *
+             * Empty for an instance placed before this existed, and a refresh then
+             * falls back to the wholesale rebuild it always did — losing the edits, as
+             * it always did, rather than guessing at them.
+             */
+            std::string base;
         };
 
         /** @brief The resolved camera for one display: the winner among its cameras. */

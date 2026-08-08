@@ -278,6 +278,43 @@ namespace SushiEngine
                     }
                 }
 
+                // The base: what this instance was actually built from. An override is a
+                // difference between the live member and *this*, never between the live
+                // member and the new file — the second measures the author's edits and the
+                // prefab's own changes added together, and taking it for the first is how a
+                // rebuild ends up discarding every change the prefab made.
+                //
+                // Empty for an instance placed before the base existed. The diff is then
+                // skipped entirely and the refresh is the wholesale rebuild it always was,
+                // which loses the edits exactly as it always did rather than guessing.
+                json base_document;
+                std::unordered_map<std::string, std::size_t> base_of;
+                if (!link.base.empty())
+                {
+                    try
+                    {
+                        base_document = json::parse(link.base);
+                    }
+                    catch (const json::parse_error&)
+                    {
+                        base_document = json();
+                    }
+                }
+                const json& base_entries =
+                    base_document.is_object() && base_document.contains("entities")
+                        ? base_document["entities"]
+                        : base_document;
+                if (base_entries.is_array())
+                {
+                    for (std::size_t i = 0; i < base_entries.size(); ++i)
+                    {
+                        const std::string key =
+                            base_entries[i].value("prefab_entity_id", std::string{});
+                        if (!key.empty())
+                            base_of.emplace(key, i);
+                    }
+                }
+
                 // Overrides are computed here rather than looked up, and that is the whole
                 // of P2's design: nothing recorded this member as edited, so no component
                 // setter had to know prefabs exist. What the author changed is simply what
@@ -291,6 +328,7 @@ namespace SushiEngine
                 {
                     const std::string key = world.prefab_entity_id(member);
                     const auto found = key.empty() ? entry_of.end() : entry_of.find(key);
+                    const auto was = key.empty() ? base_of.end() : base_of.find(key);
                     if (found == entry_of.end())
                     {
                         // Either the artist removed this entity from the prefab, or the
@@ -300,8 +338,16 @@ namespace SushiEngine
                         continue;
                     }
 
+                    // No base for this member — the instance predates the base, or the
+                    // prefab gained this entity after it was placed. Either way there is
+                    // nothing to diff against, and inventing one would turn the prefab's
+                    // own content into an override of itself.
+                    if (was == base_of.end())
+                        continue;
+
                     const json live =
                         Detail::write_entity_record(world, member, index_of, nullptr);
+                    const json& original = base_entries[was->second];
                     json& target = entries[found->second];
                     for (auto field = live.begin(); field != live.end(); ++field)
                     {
@@ -312,9 +358,13 @@ namespace SushiEngine
                         // `prefab_entity_id` is identity rather than content.
                         if (field.key() == "parent" || field.key() == "prefab_entity_id")
                             continue;
-                        if (!target.contains(field.key()) ||
-                            target[field.key()] != field.value())
-                            target[field.key()] = field.value();
+                        // Against the base, not against the new file. Equal to the base
+                        // means the author never touched it, and whatever the prefab now
+                        // says about it is what this instance should take.
+                        if (original.contains(field.key()) &&
+                            original[field.key()] == field.value())
+                            continue;
+                        target[field.key()] = field.value();
                     }
                 }
 
@@ -331,9 +381,20 @@ namespace SushiEngine
                         detached_roots.push_back(member);
                 }
 
-                // Bottom-up, because `destroy` leaves a destroyed parent's children as roots
-                // rather than cascading: destroying the root first would scatter the old
-                // subtree into the scene instead of removing it.
+                // Lifted clear of the subtree before any of it is destroyed, because
+                // `destroy` **does** take a parent's children with it — the comment that
+                // used to sit here said otherwise and was wrong. A survivor left hanging
+                // under a matched parent is destroyed by that parent's destruction, which
+                // is exactly the entity this whole path exists to save.
+                //
+                // To the instance's own parent rather than to the scene root, so a refresh
+                // that fails between here and the rebuild leaves them where a person would
+                // look for them.
+                for (const EntityId survivor : detached_roots)
+                    world.set_parent(survivor, parent);
+
+                // Bottom-up, so a parent is destroyed after the children this pass means to
+                // destroy have already gone rather than being swept up implicitly.
                 for (auto it = previous.rbegin(); it != previous.rend(); ++it)
                 {
                     if (surviving.find(*it) == surviving.end())
@@ -366,6 +427,10 @@ namespace SushiEngine
                 PrefabInstanceParameters refreshed;
                 refreshed.path = link.path;
                 refreshed.revision = current;
+                // The patched document, not the file: the base has to be what this
+                // instance *is*, or the next refresh reads the edits just applied as a
+                // second round of edits and pins them a second time.
+                refreshed.base = document.dump();
                 world.set_prefab_instance(rebuilt, refreshed);
             }
             return unreadable;

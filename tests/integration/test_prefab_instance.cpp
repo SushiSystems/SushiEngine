@@ -98,13 +98,20 @@ namespace
         return static_cast<bool>(file);
     }
 
-    /** @brief Links @p root to @p path at @p revision. */
+    /**
+     * @brief Links @p root to @p path at @p built's revision, with @p built as its base.
+     *
+     * The base is what the instance was built from, and a refresh needs it to tell the
+     * author's edits from the prefab's own changes. Passing the document rather than just
+     * its revision is what makes these tests exercise the path the editor takes.
+     */
     void link_instance(IWorldEditor& world, EntityId root, const std::filesystem::path& path,
-                       const std::string& revision)
+                       const nlohmann::json& built)
     {
         PrefabInstanceParameters link;
         link.path = path.string();
-        link.revision = revision;
+        link.revision = built.value("revision", std::string());
+        link.base = built.dump();
         world.set_prefab_instance(root, link);
     }
 
@@ -145,7 +152,7 @@ TEST(Integration_PrefabInstance, AStaleInstanceIsRebuiltAndTheRootKeepsItsNameAn
     placement.position = Vector3{100.0, 200.0, 300.0};
     placement.scale = Vector3{2.0, 2.0, 2.0};
     world.set_transform(instance, placement);
-    link_instance(world, instance, path, first.value("revision", std::string()));
+    link_instance(world, instance, path, first);
 
     EXPECT_TRUE(Scene::refresh_prefab_instances(world).empty());
 
@@ -197,7 +204,7 @@ TEST(Integration_PrefabInstance, ARebuiltRootKeepsThePrefabsOwnComponents)
     clear_world(world);
     const EntityId instance = Scene::apply_prefab(world, first, NULL_ENTITY);
     ASSERT_NE(instance, NULL_ENTITY);
-    link_instance(world, instance, path, first.value("revision", std::string()));
+    link_instance(world, instance, path, first);
 
     EXPECT_TRUE(Scene::refresh_prefab_instances(world).empty());
 
@@ -226,7 +233,7 @@ TEST(Integration_PrefabInstance, AnInstanceAtTheCurrentRevisionIsLeftAlone)
     clear_world(world);
     const EntityId instance = Scene::apply_prefab(world, document, NULL_ENTITY);
     ASSERT_NE(instance, NULL_ENTITY);
-    link_instance(world, instance, path, document.value("revision", std::string()));
+    link_instance(world, instance, path, document);
 
     // A marker inside the subtree, so "left alone" is observable rather than inferred from the
     // entity count — an unconditional rebuild produces the same count and destroys this.
@@ -256,7 +263,13 @@ TEST(Integration_PrefabInstance, AMissingPrefabLeavesTheEntitiesInPlaceAndDoesNo
     clear_world(world);
     const EntityId instance = Scene::apply_prefab(world, document, NULL_ENTITY);
     ASSERT_NE(instance, NULL_ENTITY);
-    link_instance(world, instance, path, "whatever-it-was");
+    // A revision the file will never carry, so the instance reads as stale. Its base is
+    // the document it was actually built from, exactly as a placement would set it.
+    PrefabInstanceParameters stale;
+    stale.path = path.string();
+    stale.revision = "whatever-it-was";
+    stale.base = document.dump();
+    world.set_prefab_instance(instance, stale);
 
     const std::vector<std::string> unreadable = Scene::refresh_prefab_instances(world);
     ASSERT_EQ(unreadable.size(), 1u);
@@ -287,7 +300,7 @@ TEST(Integration_PrefabInstance, ApplySceneDoesNotRefresh)
     clear_world(world);
     const EntityId instance = Scene::apply_prefab(world, first, NULL_ENTITY);
     ASSERT_NE(instance, NULL_ENTITY);
-    link_instance(world, instance, path, first.value("revision", std::string()));
+    link_instance(world, instance, path, first);
 
     const nlohmann::json snapshot = Scene::capture_scene(world);
     world.destroy(find_by_name(world, "Right"));
@@ -322,7 +335,7 @@ TEST(Integration_PrefabInstance, LoadSceneRefreshes)
     clear_world(world);
     const EntityId instance = Scene::apply_prefab(world, first, NULL_ENTITY);
     ASSERT_NE(instance, NULL_ENTITY);
-    link_instance(world, instance, prefab_path, first.value("revision", std::string()));
+    link_instance(world, instance, prefab_path, first);
     ASSERT_TRUE(Scene::save_scene(world, scene_path.string()));
 
     const EntityId rebuilt_source = build_subtree(world);
@@ -366,7 +379,7 @@ TEST(Integration_PrefabInstance, AnEditedMemberKeepsItsEditThroughARefresh)
     clear_world(world);
     const EntityId instance = Scene::apply_prefab(world, first, NULL_ENTITY);
     ASSERT_NE(instance, NULL_ENTITY);
-    link_instance(world, instance, path, first.value("revision", std::string()));
+    link_instance(world, instance, path, first);
 
     // The local edit: a member moved somewhere the prefab never put it.
     const EntityId edited = find_by_name(world, "Right");
@@ -414,7 +427,7 @@ TEST(Integration_PrefabInstance, AnUneditedMemberTakesThePrefabsNewValue)
     clear_world(world);
     const EntityId instance = Scene::apply_prefab(world, first, NULL_ENTITY);
     ASSERT_NE(instance, NULL_ENTITY);
-    link_instance(world, instance, path, first.value("revision", std::string()));
+    link_instance(world, instance, path, first);
 
     EXPECT_TRUE(Scene::refresh_prefab_instances(world).empty());
 
@@ -445,7 +458,7 @@ TEST(Integration_PrefabInstance, AnEntityTheAuthorAddedToAnInstanceSurvivesARefr
     clear_world(world);
     const EntityId instance = Scene::apply_prefab(world, first, NULL_ENTITY);
     ASSERT_NE(instance, NULL_ENTITY);
-    link_instance(world, instance, path, first.value("revision", std::string()));
+    link_instance(world, instance, path, first);
 
     // The author's own entity, belonging to no prefab.
     const EntityId mine = world.create("AuthorsOwnLamp");
@@ -478,7 +491,7 @@ TEST(Integration_PrefabInstance, AMemberThePrefabNoLongerClaimsSurvivesUnlinked)
     clear_world(world);
     const EntityId instance = Scene::apply_prefab(world, first, NULL_ENTITY);
     ASSERT_NE(instance, NULL_ENTITY);
-    link_instance(world, instance, path, first.value("revision", std::string()));
+    link_instance(world, instance, path, first);
 
     EXPECT_TRUE(Scene::refresh_prefab_instances(world).empty());
 

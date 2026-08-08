@@ -2109,11 +2109,6 @@ namespace SushiEngine
                     {
                         Entity entity;
                         std::string name;
-                        // Which entity of a prefab this one was instantiated from, or
-                        // empty. The key an override is matched by, and the reason a
-                        // rebuild can compute local edits rather than being told about
-                        // them at the moment they happen (prefab_system.md §10, P2).
-                        std::string prefab_entity_id;
                         bool visible = true;
                         bool animated = false;
                         bool is_camera = false;
@@ -2303,6 +2298,15 @@ namespace SushiEngine
                         // engine has no scripting VM), attached and edited per entity
                         // and serialized with the scene.
                         std::vector<ScriptComponent> scripts{};
+                        // Which entity of a prefab this one was instantiated from, or empty.
+                        // The key an override is matched by, and the reason a rebuild can
+                        // compute local edits rather than being told about them at the moment
+                        // they happen (prefab_system.md §10, P2).
+                        //
+                        // Last, and that is not cosmetic: four call sites build a Record with
+                        // a positional initializer, so a field inserted anywhere above them
+                        // silently rebinds their arguments to the wrong members.
+                        std::string prefab_entity_id;
                     };
 
                     /**

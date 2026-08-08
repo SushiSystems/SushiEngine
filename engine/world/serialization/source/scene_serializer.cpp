@@ -983,8 +983,11 @@ namespace SushiEngine
                 if (world.has_prefab_instance(id))
                 {
                     const auto parameters = world.prefab_instance(id);
-                    entry["prefab_instance"] =
-                        json{{"path", parameters.path}, {"revision", parameters.revision}};
+                    // The base travels with the link, because an instance reloaded
+                    // without it cannot tell its own edits from the prefab's.
+                    entry["prefab_instance"] = json{{"path", parameters.path},
+                                                   {"revision", parameters.revision},
+                                                   {"base", parameters.base}};
                 }
                 return entry;
             }
@@ -1395,6 +1398,7 @@ namespace SushiEngine
                     SushiEngine::Simulation::PrefabInstanceParameters parameters;
                     parameters.path = p.value("path", std::string{});
                     parameters.revision = p.value("revision", std::string{});
+                    parameters.base = p.value("base", std::string{});
                     world.set_prefab_instance(id, parameters);
                 }
                 return id;
