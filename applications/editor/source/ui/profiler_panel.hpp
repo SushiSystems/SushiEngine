@@ -60,6 +60,7 @@ namespace SushiEngine
             /** Whether the context had an asset library the frame this was held. */
             bool held_has_asset_library = false;
             SushiEngine::Physics::PhysicsStatistics held_physics_statistics;
+            SystemMetricsSnapshot held_system_metrics;
         };
 
         /**

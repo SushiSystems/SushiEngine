@@ -97,6 +97,7 @@
 #include "physics/vehicle_drive.hpp"
 #include "physics/vehicle_panel.hpp"
 #include "terrain/terrain_panel.hpp"
+#include "system/windows_system_metrics.hpp"
 
 namespace
 {
@@ -374,6 +375,11 @@ int main(int argc, char** argv)
         SushiEngine::Editor::PrefabThumbnailCache prefab_thumbnail_cache(*renderer, imgui,
                                                                          context.console);
         context.prefab_thumbnail_cache = &prefab_thumbnail_cache;
+
+        // The Profiler panel's host-side readings: process/system CPU and memory, and
+        // GPU utilization/memory/temperature when NVML answers for the adapter. Polled
+        // once per frame below; the provider throttles its own measurement interval.
+        SushiEngine::Editor::WindowsSystemMetricsProvider system_metrics_provider;
 
         // The vehicle under authoring (§11). A document rather than a selected
         // entity's component, because there is no `Vehicle` component in the ECS
@@ -1151,6 +1157,11 @@ int main(int argc, char** argv)
             }
             context.resident_texture_bytes =
                 context.assets != nullptr ? context.assets->resident_texture_bytes() : 0;
+
+            // The host's own readings for the Profiler panel; the provider throttles
+            // its own measurement interval, so this call is cheap on most frames.
+            system_metrics_provider.poll();
+            context.system_metrics = system_metrics_provider.snapshot();
 
             // Fold the UI overlay's interaction into the shared selection/edit flow: a UI
             // pick in the Scene view replaces the 3D pick this frame, and a UI drag writes

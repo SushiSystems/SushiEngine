@@ -76,6 +76,7 @@ namespace SushiEngine
                 state.held_resident_texture_bytes = context.resident_texture_bytes;
                 state.held_has_asset_library = context.assets != nullptr;
                 state.held_physics_statistics = context.physics_statistics;
+                state.held_system_metrics = context.system_metrics;
             }
             const SushiEngine::Profiling::FrameProfileSnapshot& shown = state.held_frame_profile;
 
@@ -239,8 +240,24 @@ namespace SushiEngine
                     value_row("Texture residency (MiB)", state.held_has_asset_library, "%.1f",
                               static_cast<double>(state.held_resident_texture_bytes) /
                                   (1024.0 * 1024.0));
-                    value_row("Process working set (MiB)", false, "%.1f", 0.0);
-                    value_row("System memory used (MiB)", false, "%.1f", 0.0);
+                    const SystemMetricsSnapshot& metrics = state.held_system_metrics;
+                    value_row("Process working set (MiB)",
+                              metrics.process_working_set_bytes > 0, "%.1f",
+                              static_cast<double>(metrics.process_working_set_bytes) /
+                                  (1024.0 * 1024.0));
+                    const bool system_memory_available = metrics.system_memory_total_bytes > 0;
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextUnformatted("System memory used (MiB)");
+                    ImGui::TableSetColumnIndex(1);
+                    if (system_memory_available)
+                        ImGui::Text("%.1f / %.1f",
+                                    static_cast<double>(metrics.system_memory_used_bytes) /
+                                        (1024.0 * 1024.0),
+                                    static_cast<double>(metrics.system_memory_total_bytes) /
+                                        (1024.0 * 1024.0));
+                    else
+                        ImGui::TextDisabled("n/a");
                     ImGui::EndTable();
                 }
             }
@@ -249,10 +266,42 @@ namespace SushiEngine
             {
                 if (ImGui::BeginTable("system", 2, ImGuiTableFlags_RowBg))
                 {
-                    value_row("CPU utilization (%)", false, "%.1f", 0.0);
-                    value_row("GPU utilization (%)", false, "%.1f", 0.0);
-                    value_row("GPU temperature (C)", false, "%.0f", 0.0);
-                    value_row("GPU busy, derived (%)", false, "%.1f", 0.0);
+                    const SystemMetricsSnapshot& metrics = state.held_system_metrics;
+                    value_row("CPU utilization (%)", metrics.cpu_valid, "%.1f",
+                              static_cast<double>(metrics.cpu_utilization_percent));
+                    value_row("GPU utilization (%)", metrics.gpu_valid, "%.1f",
+                              static_cast<double>(metrics.gpu_utilization_percent));
+                    value_row("GPU memory used (MiB)", metrics.gpu_valid, "%.1f",
+                              static_cast<double>(metrics.gpu_memory_used_bytes) /
+                                  (1024.0 * 1024.0));
+                    value_row("GPU memory total (MiB)", metrics.gpu_valid, "%.1f",
+                              static_cast<double>(metrics.gpu_memory_total_bytes) /
+                                  (1024.0 * 1024.0));
+                    value_row("GPU temperature (C)", metrics.gpu_valid, "%.0f",
+                              static_cast<double>(metrics.gpu_temperature_celsius));
+
+                    // The NVML-free fallback: how busy the GPU was, derived from the Scene
+                    // viewport's own measured pass times rather than a vendor query — shown
+                    // beside the NVML row regardless of gpu_valid, since this is exactly the
+                    // reading meant to still work when NVML does not.
+                    float scene_gpu_milliseconds = 0.0f;
+                    for (const ViewportGPUStatistics& viewport : state.held_gpu_statistics)
+                    {
+                        if (viewport.viewport != "Scene")
+                            continue;
+                        for (const GPUPassStatistic& pass : viewport.passes)
+                            scene_gpu_milliseconds += pass.milliseconds;
+                    }
+                    const float frame_milliseconds = shown.frame_milliseconds;
+                    const bool derived_gpu_busy_available =
+                        scene_gpu_milliseconds > 0.0f && frame_milliseconds > 0.0f;
+                    const float derived_gpu_busy_percent =
+                        derived_gpu_busy_available
+                            ? std::clamp(100.0f * scene_gpu_milliseconds / frame_milliseconds,
+                                        0.0f, 100.0f)
+                            : 0.0f;
+                    value_row("GPU busy, derived (%)", derived_gpu_busy_available, "%.1f",
+                              static_cast<double>(derived_gpu_busy_percent));
                     ImGui::EndTable();
                 }
             }

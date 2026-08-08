@@ -22,6 +22,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
   and system sections (mock-first per `docs/design/profiling_system.md` PROF0).
 - 2026-08-08 — Wired draw calls, triangles, cull counts, heap budgets and texture residency into
   the Profiler and Statistics panels (PROF2).
+- 2026-08-08 — Wired the Profiler panel's System and Memory rows to live CPU, memory and GPU
+  (NVML) readings; NVML absence falls back to a derived GPU-busy figure instead of blank rows
+  (PROF3).
 - 2026-08-07 — Added `tools/documentation/check_design_citations.py`: it resolves every backticked
   path a `docs/design/` document cites and fails on one naming nothing, in continuous integration,
   so a stale citation fails the build.

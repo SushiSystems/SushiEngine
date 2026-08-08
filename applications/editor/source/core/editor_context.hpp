@@ -54,6 +54,7 @@
 
 #include "console.hpp"
 #include "../gizmo/gizmo_controller.hpp"
+#include "../system/system_metrics.hpp"
 #include "meteorology_log.hpp"
 #include "physics_overlay_settings.hpp"
 #include "panel_state.hpp"
@@ -678,6 +679,9 @@ namespace SushiEngine
 
             // Bytes of texture memory resident on the device, 0 with no asset library.
             std::size_t resident_texture_bytes = 0;
+
+            // The host's own readings, copied per frame like everything else here.
+            SystemMetricsSnapshot system_metrics;
 
             // The last completed frame's CPU times, snapshotted per frame like the GPU
             // timings above: the panels read a copy and cannot reach the live profiler.
