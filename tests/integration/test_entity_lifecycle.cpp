@@ -299,3 +299,95 @@ TEST(Integration_EntityLifecycle, ReparentingIntoADisabledSubtreeRemovesTheRigid
     EXPECT_TRUE(world.physics_body_debug(body, state))
         << "reparenting back out of the disabled subtree must re-admit the body";
 }
+
+TEST(Integration_EntityLifecycle, RequestDestroyDefersRemovalUntilTheNextFlush)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    const EntityId id = world.create("Widget");
+    world.request_destroy(id);
+    EXPECT_TRUE(world.exists(id)) << "the entity was removed before any flush ran";
+    EXPECT_FALSE(world.enabled(id)) << "request_destroy must disable immediately, not defer that";
+
+    simulation->tick(simulation->fixed_dt_seconds());
+    EXPECT_FALSE(world.exists(id)) << "the flush did not remove the entity";
+}
+
+TEST(Integration_EntityLifecycle, RequestDestroyCascadesToChildrenAtFlush)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    const EntityId parent = world.create("Parent");
+    const EntityId child = world.create("Child");
+    world.set_parent(child, parent);
+
+    world.request_destroy(parent);
+    simulation->tick(simulation->fixed_dt_seconds());
+
+    EXPECT_FALSE(world.exists(parent));
+    EXPECT_FALSE(world.exists(child)) << "the child did not go with its parent";
+}
+
+TEST(Integration_EntityLifecycle, RequestInstantiateDefersCreationUntilTheNextFlush)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    const EntityId id = world.request_instantiate("Spawned");
+    EXPECT_FALSE(world.exists(id)) << "the entity was created before any flush ran";
+
+    simulation->tick(simulation->fixed_dt_seconds());
+    EXPECT_TRUE(world.exists(id)) << "the flush did not create the entity";
+    EXPECT_TRUE(world.enabled(id)) << "a freshly instantiated entity must default to enabled";
+    EXPECT_NE(find_instance(simulation->render_scene(), id), nullptr)
+        << "the flush ran, but the tick's own extract() did not see the new entity";
+}
+
+TEST(Integration_EntityLifecycle, RequestDestroyOfAPendingInstantiateCancelsItOutright)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    const EntityId id = world.request_instantiate("Cancelled");
+    world.request_destroy(id);
+
+    simulation->tick(simulation->fixed_dt_seconds());
+    EXPECT_FALSE(world.exists(id)) << "a cancelled spawn must never materialize";
+}
+
+TEST(Integration_EntityLifecycle, RequestDestroyIsIdempotentBeforeFlush)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    const EntityId id = world.create("Widget");
+    world.request_destroy(id);
+    world.request_destroy(id);
+
+    simulation->tick(simulation->fixed_dt_seconds());
+    EXPECT_FALSE(world.exists(id));
+}
+
+TEST(Integration_EntityLifecycle, RequestDestroyOnAnUnknownIdIsANoOp)
+{
+    const auto simulation = create_simulation();
+    ASSERT_NE(simulation, nullptr);
+    IWorldEditor& world = simulation->world();
+    clear_world(world);
+
+    world.request_destroy(EntityId(999999));
+    simulation->tick(simulation->fixed_dt_seconds());
+    SUCCEED() << "request_destroy on an unknown id must not crash";
+}

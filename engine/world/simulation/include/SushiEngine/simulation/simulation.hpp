@@ -1267,6 +1267,45 @@ namespace SushiEngine
                 /** @brief Destroys @p id; a no-op if it does not exist. */
                 virtual void destroy(EntityId id) = 0;
 
+                /**
+                 * @brief Queues @p id (and its whole subtree) for removal at this tick's flush
+                 * point, rather than removing it immediately.
+                 *
+                 * Disables @p id immediately — @ref enabled_in_hierarchy gates it out of physics,
+                 * audio and render from this call onward — but the actual `Record`/entity removal
+                 * happens once, inside the current or next call to `ISimulation::tick`, alongside
+                 * every other command queued this tick. Safe to call from code that runs mid-tick,
+                 * unlike @ref destroy: it never mutates the entity table itself.
+                 *
+                 * A second call for an id already queued, or for an id nothing knows about, is a
+                 * harmless no-op. A call for an id returned by a not-yet-flushed
+                 * @ref request_instantiate cancels that spawn outright — the entity is never
+                 * created at all.
+                 *
+                 * @param id The entity (and its subtree) to remove.
+                 */
+                virtual void request_destroy(EntityId id) = 0;
+
+                /**
+                 * @brief Queues a new entity for creation at this tick's flush point, rather than
+                 * creating it immediately.
+                 *
+                 * Returns the entity's id immediately, pre-allocated from the same counter
+                 * @ref create uses, so it can be passed to another @ref request_instantiate call's
+                 * @p parent or to @ref request_destroy within the same tick, before the entity it
+                 * names actually exists. `exists()` on that id returns `false` until the flush
+                 * runs. Safe to call from code that runs mid-tick, unlike @ref create: it never
+                 * mutates the entity table itself.
+                 *
+                 * @param name Display name for the new entity.
+                 * @param parent The entity to parent the new entity under, or `NULL_ENTITY` for
+                 * none.
+                 * @return The new entity's id, valid to reference immediately, not yet backed by
+                 * a `Record` until the next flush.
+                 */
+                virtual EntityId request_instantiate(const std::string& name,
+                                                     EntityId parent = NULL_ENTITY) = 0;
+
                 /** @brief Sets the entity's display name. */
                 virtual void set_name(EntityId id, const std::string& name) = 0;
 

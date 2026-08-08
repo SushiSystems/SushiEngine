@@ -326,6 +326,42 @@ namespace SushiEngine
                         extract();
                     }
 
+                    void request_destroy(EntityId id) override
+                    {
+                        // Cancel a same-tick, not-yet-materialized spawn outright: it never gets
+                        // a Record, never touches world_, and the caller's id simply becomes
+                        // invalid, exactly as if it had never been requested.
+                        const auto pending = std::find_if(pending_commands_.begin(),
+                            pending_commands_.end(), [id](const PendingCommand& c) {
+                                return c.kind == PendingCommand::Kind::Instantiate && c.id == id;
+                            });
+                        if (pending != pending_commands_.end())
+                        {
+                            pending_commands_.erase(pending);
+                            return;
+                        }
+                        // Idempotent: a second request this tick, or a request for an id nothing
+                        // knows about, is a harmless no-op — matching CommandBuffer::destroy's own
+                        // alive()-guard philosophy (command_buffer.hpp:62-63).
+                        const bool already_queued = std::any_of(pending_commands_.begin(),
+                            pending_commands_.end(), [id](const PendingCommand& c) {
+                                return c.kind == PendingCommand::Kind::Destroy && c.id == id;
+                            });
+                        if (already_queued || !exists(id))
+                            return;
+                        set_enabled(id, false);
+                        pending_commands_.push_back({PendingCommand::Kind::Destroy, id});
+                    }
+
+                    EntityId request_instantiate(const std::string& display_name,
+                                                 EntityId parent) override
+                    {
+                        const EntityId id = next_id_++;
+                        pending_commands_.push_back(
+                            {PendingCommand::Kind::Instantiate, id, display_name, parent});
+                        return id;
+                    }
+
                     void set_name(EntityId id, const std::string& display_name) override
                     {
                         Record* record = find(id);
@@ -2583,6 +2619,24 @@ namespace SushiEngine
                         order_.erase(std::remove(order_.begin(), order_.end(), id), order_.end());
                     }
 
+                    /**
+                     * @brief Applies every queued @ref PendingCommand, in the order each was
+                     * requested, then clears the queue. Called once per tick, from @ref
+                     * step_once — see entity_lifecycle_system.md §5.3 for why that point.
+                     */
+                    void flush_deferred_commands()
+                    {
+                        for (const PendingCommand& command : pending_commands_)
+                        {
+                            if (command.kind == PendingCommand::Kind::Instantiate)
+                                create_without_extract(command.id, command.display_name,
+                                                       command.parent);
+                            else
+                                destroy_without_extract(command.id);
+                        }
+                        pending_commands_.clear();
+                    }
+
                     /** @brief The script component named @p name on @p record, or null. */
                     static const ScriptComponent* find_script(const Record* record,
                                                               const std::string& name) noexcept
@@ -3400,6 +3454,7 @@ namespace SushiEngine
                         }
 
                         schedule_.run(world_);
+                        flush_deferred_commands();
                         step_particle_emitters();
                         step_crowd_playback();
                         extract();
@@ -4633,6 +4688,21 @@ namespace SushiEngine
                     std::vector<EntityId> order_;
                     std::unordered_map<EntityId, Record> records_;
                     EntityId next_id_ = 1;
+
+                    /**
+                     * @brief One queued structural change, applied at the next
+                     * @ref flush_deferred_commands call. See entity_lifecycle_system.md §5.1.
+                     */
+                    struct PendingCommand
+                    {
+                        enum class Kind { Instantiate, Destroy };
+                        Kind kind;
+                        EntityId id;                   // Destroy: the target. Instantiate: the
+                                                        // pre-allocated id.
+                        std::string display_name;      // Instantiate only.
+                        EntityId parent = NULL_ENTITY;  // Instantiate only.
+                    };
+                    std::vector<PendingCommand> pending_commands_;
                     // The most recent size a host reported via set_ui_target_size(), used to
                     // keep a Canvas's authored size tracking the actual viewport.
                     struct
