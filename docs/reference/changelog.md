@@ -10,6 +10,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versions fo
 ## [Unreleased]
 
 ### Added
+- 2026-08-08 — Added `docs/design/asset_cooking.md`: import-time cooking to a GPU-ready blob
+  (meshoptimizer LOD chains, quantization, BC textures) and hitch-free instantiation over a
+  transfer-queue staging ring, phased COOK0–COOK5.
+- 2026-08-08 — Added `docs/design/render_optimization.md`: baseline, per-cascade shadow
+  culling, sort keys, GPU LOD selection, sky split and the prepass experiment, phased R0–R6
+  with Profiler-number acceptance.
 - 2026-08-08 — Added a real `enabled`/`activeInHierarchy` flag: a disabled entity now stops
   physics, audio and render for its whole subtree, not just render. `visible` is narrowed to a
   local, render-only toggle by the same change, and no longer cascades (see Changed below). See

@@ -3,8 +3,8 @@
 **Status:** living — derived from the other documents in this directory, and rewritten whenever any
 of them changes.
 
-Eighteen design documents each record what their own subsystem plans, and no one of them records
-what the project has left, because that answer only exists by reading eighteen roadmap sections at
+Twenty design documents each record what their own subsystem plans, and no one of them records
+what the project has left, because that answer only exists by reading twenty roadmap sections at
 once. This file is that reading. It holds no facts of its own: every row names the document that
 owns the phase, and a reader who wants the detail goes there. Where a row and its owning document
 disagree, the owning document wins and this file is the one that is wrong.
@@ -38,6 +38,7 @@ they are tracked.
 | Phase | Document | State | What it still needs |
 | --- | --- | --- | --- |
 | §12.5 device evaluator parity | [animation_system.md](animation_system.md) | open | A test that runs the device batch evaluator's SYCL kernel and asserts the device result matches the host's. No such test exists, and writing it is the whole of the work: the kernel runs on this machine's CPU and OpenCL backends, so the run is not waiting on a GPU. |
+| COOK0–COOK5 | [asset_cooking.md](asset_cooking.md) | open | The whole document: meshoptimizer and the `engine/asset/cooking` module with its blob and reader, async instantiation, the transfer-queue staging ring, cooked textures, pipeline pre-warm and the Import Settings Cooking section. No phase is built. |
 | D | [atmosphere_system.md](atmosphere_system.md) | blocked | Terrain and surface coupling: orographic lift, rain shadow, föhn, valley fog, sea and lake breeze, terrain-driven turbulence, land-cover convective initiation. §15 records a blocker that needs restating before the phase can be scoped. |
 | E | [atmosphere_system.md](atmosphere_system.md) | open | `AtmosphereProfile` and `AtmosphereDiagnostics` replacing `WeatherColumn`, the query mirror and deterministic summary, the five existing weather headers retargeted onto them, a skew-T readout, and GRIB ingest beside the retained METAR path. Roughly half the surface area exists and needs retargeting rather than writing. |
 | F | [atmosphere_system.md](atmosphere_system.md) | open | A microscale large-eddy-simulation domain of roughly 20 kilometres at 100 metres. The document says "possibly never"; unscoped until someone asks for it. |
@@ -63,6 +64,8 @@ they are tracked.
 | P1 §8 | [prefab_system.md](prefab_system.md) | open | The error-reporting surface. `refresh_prefab_instances` returns the paths it could not read and, since P2, silently detaches members the prefab no longer claims — and both callers discard the return. Nothing tells the artist either happened. |
 | P3 | [prefab_system.md](prefab_system.md) | open | Nested prefabs and a prefab edit mode. Designed only as far as their boundary. |
 | P4 | [prefab_system.md](prefab_system.md) | open | A runtime instantiation API. Prefab instantiation is editor-only today; nothing in the deterministic loop references it. |
+| R0–R2, R4–R6 | [render_optimization.md](render_optimization.md) | open | The whole program except R3: the recorded baseline, per-cascade GPU shadow culling, sort keys, the sky pass split, the prepass experiment and the hygiene phase. No phase is built. |
+| R3 | [render_optimization.md](render_optimization.md) | blocked | GPU LOD selection by screen-space error. Blocked on [asset_cooking.md](asset_cooking.md)'s cook phases, which produce the LOD chain, its error metadata and the shadow index buffer the phase consumes. |
 | 4 | [render_pipeline_refactor.md](render_pipeline_refactor.md) | open | Area and IES lights, projected normal-map decals, shadow caching, screen-coverage quadtree tiles, and adaptive per-light percentage-closer soft shadows. The clustered core is shipped; these are the tier-scalable remainder. |
 | 5 | [render_pipeline_refactor.md](render_pipeline_refactor.md) | open | Local reflection probes (§5.4), deferred pending the editor's scene-capture visual loop. |
 | 6 | [render_pipeline_refactor.md](render_pipeline_refactor.md) | open | Multiple cascades, emissive injection, toroidal amortization, and the Tier B ray-query tracer, the last of which needs ray-tracing hardware. |
