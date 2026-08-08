@@ -89,6 +89,9 @@ namespace SushiEngine
         /** @brief The Project panel's model thumbnail pipeline, owned by main() (see project/model_thumbnail_cache.hpp). */
         class ModelThumbnailCache;
 
+        /** @brief The Project panel's prefab thumbnail pipeline, owned by main() (see project/prefab_thumbnail_cache.hpp). */
+        class PrefabThumbnailCache;
+
         /**
          * @brief Editor playback state, mirroring a game engine's play controls.
          *
@@ -289,6 +292,12 @@ namespace SushiEngine
             // so the Grid view can ask for a .gltf/.glb tile's real rendered thumbnail texture.
             // main() constructs it unconditionally, matching thumbnail_cache above.
             ModelThumbnailCache* model_thumbnail_cache = nullptr;
+
+            // The Project panel's prefab thumbnail pipeline, owned by main() and injected here
+            // so the Grid view can ask for a .sushiprefab tile's real rendered thumbnail
+            // texture. main() constructs it unconditionally, matching model_thumbnail_cache
+            // above.
+            PrefabThumbnailCache* prefab_thumbnail_cache = nullptr;
 
             // The asset the Cooking Override modal is open for; empty means closed. Staged
             // here rather than as a modal-local static so a right-click on a second asset

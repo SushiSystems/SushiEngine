@@ -65,6 +65,7 @@
 #include "project/project_panel.hpp"
 #include "project/thumbnail_cache.hpp"
 #include "project/model_thumbnail_cache.hpp"
+#include "project/prefab_thumbnail_cache.hpp"
 #include "project/project_picker.hpp"
 #include "render/render_settings_panels.hpp"
 #include "core/preferences_window.hpp"
@@ -366,6 +367,14 @@ int main(int argc, char** argv)
                                                                        context.console);
         context.model_thumbnail_cache = &model_thumbnail_cache;
 
+        // The Project panel's prefab-thumbnail pipeline, for the same reason and with the same
+        // destruction-order requirement as model_thumbnail_cache above: it holds a live
+        // IPrefabThumbnailRenderer and its own resident Vulkan textures, both built against
+        // *renderer, so it must be destroyed before renderer is.
+        SushiEngine::Editor::PrefabThumbnailCache prefab_thumbnail_cache(*renderer, imgui,
+                                                                         context.console);
+        context.prefab_thumbnail_cache = &prefab_thumbnail_cache;
+
         // The vehicle under authoring (§11). A document rather than a selected
         // entity's component, because there is no `Vehicle` component in the ECS
         // yet -- a vehicle reaches a scene through `VehicleInstanceT` against a
@@ -621,6 +630,7 @@ int main(int argc, char** argv)
                 SushiEngine::Profiling::ScopedTimer timer(frame_profiler, profile_asset_work);
                 context.thumbnail_cache->update();
                 context.model_thumbnail_cache->update();
+                context.prefab_thumbnail_cache->update();
             }
 
             // Global undo/redo/save shortcuts, resolved through the EditorGlobal input
