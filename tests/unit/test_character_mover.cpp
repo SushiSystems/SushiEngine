@@ -103,6 +103,13 @@ namespace
                     {
                         if (capsule_distance(moved, plane) > TOUCH)
                             continue;
+                        // Touching is not blocking, and the real `sweep_shape` says so the
+                        // same way: a capsule standing on the floor is at zero separation
+                        // from it, and a step along that floor is not a collision with it.
+                        // Without this the stub stops every walk at distance zero against
+                        // the ground the character is standing on.
+                        if (dot(direction, plane.normal) >= -1e-9)
+                            continue;
                         hit.hit = true;
                         hit.distance = travelled;
                         hit.normal = plane.normal;

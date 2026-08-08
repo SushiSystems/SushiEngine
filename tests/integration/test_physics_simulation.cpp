@@ -737,9 +737,10 @@ namespace
     /**
      * @brief A wide, thin kinematic slab with its top face at y = 1.25.
      *
-     * `inv_mass` is left at the descriptor's default of 1 deliberately. Zeroing it is
-     * the extract's job, and a test that pre-zeroed it here would pass whether or not
-     * that ever happened.
+     * `inv_mass` is left at the descriptor's default of 1 deliberately, and this test
+     * found out why that matters: the extract zeroes it, but the extract is not the only
+     * way into `set_rigid_bodies`, so the scene has to hold the invariant too. Left as it
+     * is, this is the case that would notice if it stopped doing so.
      */
     RigidBodyDescription platform_description()
     {
@@ -1211,7 +1212,9 @@ TEST(Integration_PhysicsSimulation, ARestoredSceneReplaysThroughASettledStack)
     // test above cannot: sleep timers, the island partition, and the flags that decide
     // whether a body is integrated at all.
     auto physics = stacked_physics();
-    run(*physics, 400);
+    // Twenty seconds. A four-box stack keeps micro-correcting for a long time before its
+    // smoothed motion drops under the sleep threshold, and 400 ticks was not enough.
+    run(*physics, 1200);
     ASSERT_GT(physics->statistics().sleeping_bodies, 0u) << "the stack never settled";
 
     std::vector<std::byte> at_rollback;

@@ -759,7 +759,16 @@ namespace SushiEngine
                             translate_shape(query, direction * travelled), target);
                         if (!contact.valid)
                             return;
-                        if (contact.separation <= tolerance)
+                        const T closing = dot(direction, contact.normal);
+                        // Touching is not the same as blocking. A character standing on
+                        // the floor is at zero separation from it, and a sweep along the
+                        // floor used to report that as a hit at distance zero — so the
+                        // character could not take a step without being stopped by the
+                        // ground it was standing on. What makes a surface stop this sweep
+                        // is the motion going *into* it, which is the same test the
+                        // advancement below already runs; it simply ran too late to reach
+                        // a shape the query had already reached.
+                        if (contact.separation <= tolerance && closing > T(1e-12))
                         {
                             if (best.hit && !(travelled < best.distance ||
                                               (travelled == best.distance && id < best.proxy)))
@@ -772,10 +781,11 @@ namespace SushiEngine
                             best.payload = record.payload;
                             return;
                         }
-                        const T approach = dot(direction, contact.normal);
-                        if (approach <= T(1e-12))
+                        // The same quantity the touching test above reads: a shape the
+                        // motion does not close on is one this sweep will never reach.
+                        if (closing <= T(1e-12))
                             return;
-                        travelled += contact.separation / approach;
+                        travelled += contact.separation / closing;
                         if (travelled > distance)
                             return;
                     }

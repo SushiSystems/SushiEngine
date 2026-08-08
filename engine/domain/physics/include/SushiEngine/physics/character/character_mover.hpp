@@ -205,7 +205,8 @@ namespace SushiEngine
             inline void slide(Sweep&& sweep, const CapsuleCollider<T>& capsule,
                               Vector3T<T>& position, Vector3T<T>& motion,
                               const Vector3T<T>& up,
-                              const CharacterMoveSettings<T>& settings, int& sweeps)
+                              const CharacterMoveSettings<T>& settings, int& sweeps,
+                              Vector3T<T>& refused)
             {
                 constexpr T epsilon = T(1e-9);
                 for (int slide_index = 0; slide_index < settings.max_slides; ++slide_index)
@@ -237,10 +238,18 @@ namespace SushiEngine
                                           : T(0);
                     position = position + direction * advance;
 
-                    Vector3T<T> leftover = motion - direction * advance;
-                    leftover = project_on_plane(leftover, hit.normal);
+                    const Vector3T<T> unspent = motion - direction * advance;
+                    Vector3T<T> leftover = project_on_plane(unspent, hit.normal);
                     if (!is_walkable(hit.normal, up, settings.max_slope_cosine))
                         leftover = project_on_plane(leftover, up);
+                    // What the projection removed is what the world refused, and it is
+                    // the only record of it: sliding is *supposed* to consume the
+                    // component pressed into a surface, so a caller reading the leftover
+                    // alone cannot tell a completed walk from one stopped by a wall.
+                    // It is also what a step attempt has to be given — gating that on the
+                    // leftover means never attempting one, because a riser projects the
+                    // whole forward motion away before anything can ask.
+                    refused = refused + (unspent - leftover);
                     motion = leftover;
                 }
             }
@@ -341,16 +350,27 @@ namespace SushiEngine
             const Vector3T<T> along = up * dot(displacement, up);
             Vector3T<T> across = displacement - along;
 
-            Detail::slide(sweep, capsule, result.position, across, up, settings, result.sweeps);
-            if (length(across) > T(1e-9))
+            Vector3T<T> refused{};
+            Detail::slide(sweep, capsule, result.position, across, up, settings, result.sweeps,
+                          refused);
+
+            // The step is attempted with what the world *refused*, not with what is left
+            // to spend. A riser is a vertical face, so sliding projects the entire forward
+            // motion away and leaves nothing — gate the attempt on that and a character
+            // never climbs anything, which is precisely what happened.
+            Vector3T<T> blocked = refused;
+            if (length(blocked) > T(1e-9))
             {
-                result.stepped = Detail::try_step(sweep, capsule, result.position, across, up,
+                result.stepped = Detail::try_step(sweep, capsule, result.position, blocked, up,
                                                   settings, result.sweeps);
+                if (result.stepped)
+                    refused = Vector3T<T>{T(0), T(0), T(0)};
             }
 
             Vector3T<T> vertical = along;
-            Detail::slide(sweep, capsule, result.position, vertical, up, settings, result.sweeps);
-            result.remaining = across + vertical;
+            Detail::slide(sweep, capsule, result.position, vertical, up, settings, result.sweeps,
+                          refused);
+            result.remaining = across + vertical + refused;
 
             // The probe runs last, on the pose the caller will actually see, so
             // `grounded` describes where the character *is* rather than where it was

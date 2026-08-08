@@ -113,7 +113,17 @@ namespace SushiEngine
             /** @brief The island this body was assigned to this tick; 0 when unassigned. */
             std::uint32_t island_index = 0;
 
-            /** @brief Padding so the struct's size is the same in every translation unit. */
+            /**
+             * @brief Padding so the struct's size is the same in every translation unit.
+             *
+             * Naming the slot fixes the *size*; it does not zero the bytes a compiler may
+             * still insert for alignment. Anything that copies a body wholesale — the
+             * snapshot of §12.3 above all — therefore has to build one with `Body{}`
+             * rather than `Body b;`, or two runs of the same scene produce two different
+             * byte images of the same state. That is not hypothetical: it is what made
+             * the determinism control diverge at tick zero, intermittently, until every
+             * construction site was value-initialized.
+             */
             std::uint32_t reserved_ = 0;
         };
 

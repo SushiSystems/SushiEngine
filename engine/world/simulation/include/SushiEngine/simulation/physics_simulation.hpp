@@ -196,7 +196,7 @@ namespace SushiEngine
                         }
                         RigidEntry entry;
                         entry.entity = description.id;
-                        Body body;
+                        Body body{};
                         body.position = to_vector(description.position);
                         body.previous_position = body.position;
                         body.orientation = to_quaternion(description.orientation);
@@ -228,7 +228,7 @@ namespace SushiEngine
                     if (it == rigid_index_.end())
                         return;
                     wake_body(rigid_[it->second].handle);
-                    Body body;
+                    Body body{};
                     if (!solver_->read_body(rigid_[it->second].handle, body))
                         return;
                     body.inv_mass = T(inv_mass);
@@ -297,7 +297,7 @@ namespace SushiEngine
                     // Before the read, so the body this call is about comes back awake
                     // and the write below is not undone by a stale flag word.
                     wake_body(rigid_[it->second].handle);
-                    Body body;
+                    Body body{};
                     if (!solver_->read_body(rigid_[it->second].handle, body))
                         return;
                     body.position = to_vector(position);
@@ -323,7 +323,7 @@ namespace SushiEngine
                     if (it == rigid_index_.end())
                         return;
                     RigidEntry& entry = rigid_[it->second];
-                    Body body;
+                    Body body{};
                     if (!solver_->read_body(entry.handle, body))
                         return;
                     // Refused rather than reinterpreted. A target recorded on a body
@@ -1365,7 +1365,7 @@ namespace SushiEngine
                     const auto it = rigid_index_.find(id);
                     if (it == rigid_index_.end())
                         return state;
-                    Body body;
+                    Body body{};
                     if (!solver_->read_body(rigid_[it->second].handle, body))
                         return state;
                     state.position = from_vector(body.position);
@@ -2035,6 +2035,15 @@ namespace SushiEngine
                             body.angular_velocity = Vector3T<T>{T(0), T(0), T(0)};
                         }
                         body.flags |= Physics::BodyFlags::kinematic;
+                        // Enforced here as well as in the extract, and the reason is that
+                        // the extract is not the only way in: `set_rigid_bodies` takes
+                        // descriptions from whoever built them, and one built by hand with
+                        // this flag and a default inverse mass produces a kinematic body
+                        // every contact projection is free to push. The solver needs no
+                        // kinematic case precisely *because* this invariant holds, so the
+                        // place to hold it is the last boundary before the solver.
+                        body.inv_mass = T(0);
+                        body.inv_inertia = Vector3T<T>{T(0), T(0), T(0)};
                         return;
                     }
                     body.flags &= ~Physics::BodyFlags::kinematic;
@@ -2045,7 +2054,7 @@ namespace SushiEngine
                     entry.collider = description.collider;
                     entry.filter = description.collider.filter;
                     entry.material = to_material(description.material);
-                    Body body;
+                    Body body{};
                     if (!solver_->read_body(entry.handle, body))
                         return;
                     body.inv_mass = T(description.inv_mass);
