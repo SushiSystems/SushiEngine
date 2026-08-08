@@ -61,7 +61,35 @@ namespace SushiEngine
          * compatibility promise — an older blob is refused, never migrated — it is how
          * a blob captured before a rebuild becomes an error instead of a wrong answer.
          */
-        constexpr std::uint32_t PHYSICS_SNAPSHOT_VERSION = 1u;
+        constexpr std::uint32_t PHYSICS_SNAPSHOT_VERSION = 2u;
+
+        /**
+         * @brief A value with every byte zeroed, padding included.
+         *
+         * `Row row{}` initializes every *member* and says nothing about the bytes
+         * between and after them. Whether a compiler zeroes those is a decision it
+         * makes per type: it generally does for a large struct, where one `memset`
+         * beats a dozen member-wise stores, and generally does not for a small one.
+         *
+         * A snapshot row is `memcpy`'d into the blob whole, so "generally" is the wrong
+         * word — every byte written has to be a function of the simulation, and a
+         * padding byte never is. @ref KinematicTargetRow carries seven bytes of tail
+         * padding after its `bool`, and on this compiler `{}` left them alone; they were
+         * the whole difference between two byte images of one state, twice, in two
+         * different tests. Use this for anything staged for a snapshot.
+         *
+         * @tparam Row A trivially copyable type.
+         * @return A zero-filled @p Row.
+         */
+        template <typename Row>
+        Row zeroed() noexcept
+        {
+            static_assert(std::is_trivially_copyable<Row>::value,
+                          "a snapshot holds plain bytes; give it a pointer-free type");
+            Row row;
+            std::memset(&row, 0, sizeof(Row));
+            return row;
+        }
 
         /**
          * @brief Appends values to a snapshot's byte buffer.

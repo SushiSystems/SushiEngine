@@ -1064,7 +1064,7 @@ namespace SushiEngine
                     targets.reserve(rigid_.size());
                     for (const RigidEntry& entry : rigid_)
                     {
-                        KinematicTargetRow row{};
+                        KinematicTargetRow row = zeroed<KinematicTargetRow>();
                         row.pending = entry.kinematic_target.has_value();
                         if (row.pending)
                         {
@@ -1086,7 +1086,7 @@ namespace SushiEngine
                     joint_state.reserve(joints_.size());
                     for (const JointEntry& joint : joints_)
                     {
-                        JointIdentityRow row{};
+                        JointIdentityRow row = zeroed<JointIdentityRow>();
                         row.id = joint.id;
                         row.a = joint.a;
                         row.b = joint.b;
@@ -1096,7 +1096,7 @@ namespace SushiEngine
                             joint_state.push_back(*joint.parked);
                         else
                         {
-                            Physics::JointConstraintT<T> descriptor{};
+                            auto descriptor = zeroed<Physics::JointConstraintT<T>>();
                             solver_->read_joint(joint.handle, descriptor);
                             joint_state.push_back(descriptor);
                         }
@@ -1112,7 +1112,21 @@ namespace SushiEngine
 
                     writer.write_vector(islands_.islands);
                     writer.write_vector(islands_.bodies);
-                    writer.write(islands_.revision);
+                    // `islands_.revision` is deliberately absent. It is a monotonic change
+                    // token owned by `IslandBuilder`, which stamps it onto every set it
+                    // fills, so restoring the copy held here changes nothing: the next
+                    // build overwrites it from the builder's own counter, which no
+                    // snapshot ever touched. Writing it made the blob a function of how
+                    // long *this scene object* had been running rather than of the state
+                    // it holds — two scenes in the same physical state produced two
+                    // different images, differing only in this number.
+                    //
+                    // Restoring it would be wrong even if it worked. The token answers
+                    // "has the partition changed since you last looked", and after a
+                    // rollback the honest answer for every consumer is yes. A counter that
+                    // only ever moves forward gives that answer; one rewound to a number a
+                    // consumer has already seen tells it to skip the recomposition the
+                    // rollback is precisely what makes necessary.
 
                     writer.write(event_clock_);
                     writer.write(std::uint64_t(continuous_escalations_this_tick_));
@@ -1128,7 +1142,12 @@ namespace SushiEngine
                         std::vector<SinkCooldownRow> rows;
                         rows.reserve(entry.last_fired.size());
                         for (const auto& fired : entry.last_fired)
-                            rows.push_back(SinkCooldownRow{fired.first, fired.second});
+                        {
+                            SinkCooldownRow row = zeroed<SinkCooldownRow>();
+                            row.pair = fired.first;
+                            row.when = fired.second;
+                            rows.push_back(row);
+                        }
                         // Sorted, because an unordered_map's iteration order is not a
                         // property of the simulation and two byte-equal states must not
                         // produce two different blobs (§12.1 rule 1).
@@ -1167,7 +1186,6 @@ namespace SushiEngine
                     std::vector<ContactRecord> previous;
                     std::vector<Physics::Island> islands;
                     std::vector<std::uint32_t> island_bodies;
-                    std::uint64_t revision = 0;
                     T clock = 0;
                     std::uint64_t escalations = 0;
                     std::uint64_t skipped = 0;
@@ -1182,7 +1200,6 @@ namespace SushiEngine
                     reader.read_vector(previous);
                     reader.read_vector(islands);
                     reader.read_vector(island_bodies);
-                    reader.read(revision);
                     reader.read(clock);
                     reader.read(escalations);
                     reader.read(skipped);
@@ -1239,7 +1256,8 @@ namespace SushiEngine
                     previous_ = std::move(previous);
                     islands_.islands = std::move(islands);
                     islands_.bodies = std::move(island_bodies);
-                    islands_.revision = revision;
+                    // `islands_.revision` is left where it is, never rewound; see the
+                    // capture above for why it is not in the blob to rewind it from.
                     event_clock_ = clock;
                     continuous_escalations_this_tick_ = std::size_t(escalations);
                     continuous_advancement_skipped_this_tick_ = std::size_t(skipped);
@@ -2981,12 +2999,26 @@ namespace SushiEngine
                     {
                         if (proxy.slot == Physics::null_contact_body)
                             continue;
-                        // A sleeping body has not moved, so its proxy is already right
-                        // and refreshing it costs a hierarchy descent to learn nothing.
+                        // A sleeping body has not moved, so its *bounds* are already right
+                        // and updating them costs a hierarchy descent to learn nothing.
                         // This is where §16.4's ten-thousand-body measurement came from
                         // — the island decision reaching the broadphase — and it is why
                         // the proxy is left in the tree rather than removed: something
                         // awake that comes near it still has to find it.
+                        //
+                        // The *shape* is a different question, and skipping it here was a
+                        // defect. A proxy's shape is built before the tick's solve and the
+                        // solve then moves the body, so every proxy is one solve stale by
+                        // the time the tick ends. An awake body's next refresh corrects
+                        // that; a sleeping body's never does, and the proxy keeps the pose
+                        // the body held one solve before it fell asleep — for as long as it
+                        // sleeps. That made `proxy.shape` state the body could not account
+                        // for: rebuilding the index (a spawn, a despawn, a restored
+                        // snapshot) replaced the stale pose with the true one and silently
+                        // changed the manifolds of every settled contact in the scene.
+                        // §12.3's byte equality caught it; a stack shifting when something
+                        // spawned across the map is the same bug wearing gameplay clothes.
+                        proxy.shape = shape_for_slot(proxy.slot);
                         if (Physics::has_any_flag(bodies_[proxy.slot].flags,
                                                   Physics::BodyFlags::sleeping))
                         {
@@ -2998,7 +3030,6 @@ namespace SushiEngine
                             proxy.needs_conservative_advancement = false;
                             continue;
                         }
-                        proxy.shape = shape_for_slot(proxy.slot);
                         const Vector3T<T> travel =
                             bodies_[proxy.slot].velocity * delta_time;
                         // The same displacement the broadphase sweeps its bounds by, which is

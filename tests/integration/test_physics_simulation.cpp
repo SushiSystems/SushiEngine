@@ -31,6 +31,9 @@
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <iomanip>
+#include <sstream>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -1160,6 +1163,69 @@ namespace
         for (int tick = 0; tick < count; ++tick)
             physics.step(earth_gravity(), still_air(), SUBSTEPS);
     }
+
+    /**
+     * @brief Says where two snapshots differ, in terms a reader can act on.
+     *
+     * "These blobs are not equal" names a symptom. The offset names a subsystem,
+     * because the sections are written in a fixed order: an offset inside the body
+     * array is an integration question, one inside the contact records is a
+     * warm-starting question, and one past both is a clock, island, or cooldown
+     * question. The padding defect in `ContactManifold` was found with this
+     * arithmetic and nothing else, so the arithmetic stays.
+     *
+     * The span and the differing-byte count separate the two shapes a divergence
+     * takes: one field that moved, or an array that shifted under everything after it.
+     */
+    std::string divergence(const std::vector<std::byte>& a, const std::vector<std::byte>& b)
+    {
+        std::ostringstream text;
+        if (a.size() != b.size())
+        {
+            text << "sizes differ: " << a.size() << " vs " << b.size();
+            return text.str();
+        }
+
+        std::size_t first = 0;
+        while (first < a.size() && a[first] == b[first])
+            ++first;
+        if (first == a.size())
+            return "identical";
+
+        std::size_t last = a.size();
+        while (last > first && a[last - 1] == b[last - 1])
+            --last;
+        std::size_t differing = 0;
+        for (std::size_t i = first; i < last; ++i)
+            differing += (a[i] != b[i]) ? 1 : 0;
+
+        // A handful of bytes is a field; thousands is an array that shifted. Only the
+        // first case is readable as hex, and in that case the hex is the whole answer:
+        // a lone low byte is one unit in the last place, a whole word is a counter.
+        std::string window;
+        if (last - first <= 32)
+        {
+            std::ostringstream hex;
+            hex << std::hex << std::setfill('0');
+            for (std::size_t i = first; i < last; ++i)
+                hex << std::setw(2) << unsigned(std::to_integer<std::uint8_t>(a[i]));
+            hex << " vs ";
+            for (std::size_t i = first; i < last; ++i)
+                hex << std::setw(2) << unsigned(std::to_integer<std::uint8_t>(b[i]));
+            window = "; bytes " + hex.str();
+        }
+
+        // Recomputed here rather than hard-coded, so the boundaries stay true when a
+        // struct gains a field. The counted-array framing is one `uint64` per array.
+        const std::size_t owners_end = 8 + 8 + 4 * sizeof(EntityId);
+        const std::size_t bodies_end = owners_end + 8 + 4 * sizeof(Physics::RigidBody);
+        text << "first differs at " << first << ", last at " << (last - 1) << ", "
+             << differing << " of " << a.size() << " bytes differ"
+             << "; owners end " << owners_end << ", bodies end " << bodies_end
+             << " (stride " << sizeof(Physics::RigidBody) << ")"
+             << ", targets and joints follow, then the contact records" << window;
+        return text.str();
+    }
 }
 
 TEST(Integration_PhysicsSimulation, TwoIdenticalScenesStayByteIdentical)
@@ -1177,21 +1243,10 @@ TEST(Integration_PhysicsSimulation, TwoIdenticalScenesStayByteIdentical)
         second->step(earth_gravity(), still_air(), SUBSTEPS);
         first->capture_snapshot(a);
         second->capture_snapshot(b);
-        // Where, not merely whether. A byte comparison that only reports a mismatch
-        // leaves the reader to guess which section of the blob moved, and the sections
-        // are what map a divergence back to a subsystem.
+        // Where, not merely whether.
         if (a != b)
-        {
-            std::size_t offset = 0;
-            while (offset < a.size() && offset < b.size() && a[offset] == b[offset])
-                ++offset;
-            FAIL() << "two identical scenes diverged at tick " << tick
-                   << "; sizes " << a.size() << " vs " << b.size()
-                   << "; first differing byte at offset " << offset
-                   << " (sizeof Body=" << sizeof(Physics::RigidBody)
-                   << ", ContactManifold=" << sizeof(Physics::ContactManifold<Scalar>)
-                   << ", ContactRecord section starts after the body and target arrays)";
-        }
+            FAIL() << "two identical scenes diverged at tick " << tick << ": "
+                   << divergence(a, b);
     }
     EXPECT_FALSE(a.empty()) << "the snapshot is empty; nothing was captured at all";
 }
@@ -1217,7 +1272,8 @@ TEST(Integration_PhysicsSimulation, ARestoredSceneReplaysToTheSameBytes)
     physics->capture_snapshot(replayed);
 
     EXPECT_EQ(uninterrupted, replayed)
-        << "the replay diverged; some state the next tick reads was not captured";
+        << "the replay diverged; some state the next tick reads was not captured: "
+        << divergence(uninterrupted, replayed);
 }
 
 TEST(Integration_PhysicsSimulation, ARestoredSceneReplaysThroughASettledStack)
@@ -1238,11 +1294,21 @@ TEST(Integration_PhysicsSimulation, ARestoredSceneReplaysThroughASettledStack)
     physics->capture_snapshot(uninterrupted);
 
     ASSERT_TRUE(physics->restore_snapshot(at_rollback.data(), at_rollback.size()));
+
+    // Before a single tick runs. A restore that is not the exact inverse of a capture
+    // makes every replay assertion below ambiguous — the divergence could be the
+    // restore's or the replay's, and the two are fixed in different places.
+    std::vector<std::byte> immediately;
+    physics->capture_snapshot(immediately);
+    EXPECT_EQ(at_rollback, immediately)
+        << "restoring a snapshot did not reproduce it: " << divergence(at_rollback, immediately);
+
     run(*physics, 120);
     std::vector<std::byte> replayed;
     physics->capture_snapshot(replayed);
 
-    EXPECT_EQ(uninterrupted, replayed) << "a settled island did not survive the round trip";
+    EXPECT_EQ(uninterrupted, replayed) << "a settled island did not survive the round trip: "
+                                       << divergence(uninterrupted, replayed);
 }
 
 TEST(Integration_PhysicsSimulation, ASnapshotFromADifferentBodySetIsRefused)
@@ -1306,7 +1372,8 @@ TEST(Integration_PhysicsSimulation, TenThousandTicksReplayToTheSameBytes)
     std::vector<std::byte> replayed;
     physics->capture_snapshot(replayed);
 
-    EXPECT_EQ(uninterrupted, replayed) << "ten thousand ticks of replay diverged";
+    EXPECT_EQ(uninterrupted, replayed) << "ten thousand ticks of replay diverged: "
+                                       << divergence(uninterrupted, replayed);
 }
 
 TEST(Integration_PhysicsSimulation, AnEventSinkHearsABeginAndNothingElse)
