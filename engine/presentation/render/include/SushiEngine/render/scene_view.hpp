@@ -258,18 +258,21 @@ namespace SushiEngine
         /**
          * @brief One view's renderer counters from the last completed frame.
          *
-         * draw_calls counts every draw command recorded this frame across all passes
-         * (shadow and depth included; one indirect draw counts as one). triangles counts
-         * main-view geometry once — classic path: opaque + skinned + deformable +
-         * transparent submissions; GPU-driven path: the cull shader's surviving-instance
-         * sum. Depth-prepass and shadow resubmissions are excluded so the number answers
+         * draw_calls covers the mesh geometry passes only — depth prepass, opaque,
+         * shadow, light shadow, and transparent — plus terrain (one indirect draw
+         * counts as one). Particles, UI, the grid, sky, and every fullscreen post pass
+         * issue draws of their own that are not counted here. triangles counts
+         * main-view geometry once: opaque's classic, skinned, deformable, and meshlet
+         * submissions, transparent, and terrain; the GPU-driven path substitutes the
+         * cull shader's surviving-instance sum for opaque's share. Depth-prepass and
+         * shadow resubmissions of that same geometry are excluded so the number answers
          * "how much geometry survived culling", not "how many times it was drawn".
          * Heap numbers are whole-allocator totals, zero when VK_EXT_memory_budget is
          * absent — a reader renders that as unavailable, not as empty memory.
          */
         struct RenderFrameStatistics
         {
-            std::uint32_t draw_calls = 0;       /**< Draw commands recorded, all passes. */
+            std::uint32_t draw_calls = 0;       /**< Draws: mesh geometry passes + terrain. */
             std::uint64_t triangles = 0;        /**< Main-view triangles, counted once. */
             std::uint32_t instances_drawn = 0;  /**< Instances that survived the GPU cull. */
             std::uint32_t instances_tested = 0; /**< Instances the GPU cull considered. */
@@ -520,7 +523,7 @@ namespace SushiEngine
                  * fields (@c instances_drawn, @c instances_tested, and the cull shader's
                  * share of @c triangles) come from the most recently resolved readback and
                  * can therefore lag the CPU counters (@c draw_calls and the rest of
-                 * @c triangles) by up to one frame in flight.
+                 * @c triangles) by up to the frame-in-flight depth.
                  *
                  * @return The last frame's counters; value-initialized before any frame.
                  */

@@ -287,6 +287,15 @@ namespace SushiEngine
 
                         vkCmdBindIndexBuffer(command, indices_, 0, VK_INDEX_TYPE_UINT16);
                         vkCmdDrawIndexed(command, LATTICE_INDICES, node_count, 0, 0, 0);
+                        if (frame.statistics != nullptr)
+                        {
+                            ++frame.statistics->draw_calls;
+                            // Terrain is main-view geometry, so it counts toward triangles,
+                            // unlike the depth-prepass and shadow resubmissions of the same
+                            // clusters.
+                            frame.statistics->triangles +=
+                                static_cast<std::uint64_t>(LATTICE_INDICES / 3) * node_count;
+                        }
                     });
             }
         } // namespace Passes

@@ -581,7 +581,12 @@ namespace SushiEngine
                                 mesh_shader.draw_mesh_tasks(
                                     command, meshlet_groups(mesh.meshlet_count), 1, 1);
                                 if (frame.statistics != nullptr)
+                                {
                                     ++frame.statistics->draw_calls;
+                                    // Submitted before per-meshlet culling, same
+                                    // submitted-triangles caveat as the classic path.
+                                    frame.statistics->triangles += mesh.index_count / 3;
+                                }
                             }
 
                             // Restore set 0 and the heap on the classic layout for the deformable

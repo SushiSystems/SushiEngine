@@ -241,6 +241,8 @@ namespace SushiEngine
                                     sizeof(Scene::MeshletPushConstants), &push);
                                 mesh_shader.draw_mesh_tasks(
                                     command, (mesh.meshlet_count + 31u) / 32u, 1, 1);
+                                if (frame.statistics != nullptr)
+                                    ++frame.statistics->draw_calls;
                             }
                             return;
                         }
