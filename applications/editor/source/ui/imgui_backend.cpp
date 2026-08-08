@@ -50,17 +50,21 @@ namespace SushiEngine
              * forwards to the two-argument one and drops the sampler on the floor
              * (`IM_UNUSED(sampler)`). Every texture the editor registers — the font atlas, every
              * `ViewportPanel` render target, and now every resident Project panel thumbnail
-             * (`ThumbnailCache::RESIDENT_CAPACITY` = 256) — allocates one such set from this
-             * pool. Separately, `ImGui_ImplVulkan_CreateDeviceObjects` allocates exactly two
-             * fixed `VK_DESCRIPTOR_TYPE_SAMPLER` sets once (its shared linear/nearest samplers),
-             * also from this same pool. Sized well past the 256-thumbnail ceiling plus the font
-             * atlas and viewport panels' existing consumption, with headroom.
+             * across three independent caches — `ThumbnailCache::RESIDENT_CAPACITY` = 256
+             * (images), `ModelThumbnailCache::RESIDENT_CAPACITY` = 128 (models), and
+             * `PrefabThumbnailCache::RESIDENT_CAPACITY` = 128 (prefabs) — allocates one such
+             * set from this pool. Separately, `ImGui_ImplVulkan_CreateDeviceObjects` allocates
+             * exactly two fixed `VK_DESCRIPTOR_TYPE_SAMPLER` sets once (its shared
+             * linear/nearest samplers), also from this same pool. Sized well past the
+             * three caches' combined worst case (256 + 128 + 128 = 512) plus the font atlas
+             * and the editor's `ViewportPanel` instances (Scene, Game, Preview; 3 frame slots
+             * each = 9), with headroom for future growth.
              */
             VkDescriptorPool create_descriptor_pool(VkDevice device)
             {
-                constexpr std::uint32_t max_sets = 384;
+                constexpr std::uint32_t max_sets = 640;
                 const VkDescriptorPoolSize sizes[] = {
-                    {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 376},
+                    {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 632},
                     {VK_DESCRIPTOR_TYPE_SAMPLER, 8},
                 };
                 VkDescriptorPoolCreateInfo info{};
