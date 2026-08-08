@@ -1,0 +1,65 @@
+/**************************************************************************/
+/* system_metrics.hpp                                                    */
+/**************************************************************************/
+/*                          This file is part of:                         */
+/*                              SushiEngine                               */
+/*               https://github.com/SushiSystems/SushiEngine              */
+/*                        https://sushisystems.io                         */
+/**************************************************************************/
+/* Copyright (c) 2026-present Mustafa Garip & Sushi Systems               */
+/*                                                                        */
+/* Licensed under the Apache License, Version 2.0 (the "License");        */
+/* you may not use this file except in compliance with the License.       */
+/* You may obtain a copy of the License at                                */
+/*                                                                        */
+/*     http://www.apache.org/licenses/LICENSE-2.0                         */
+/*                                                                        */
+/* Unless required by applicable law or agreed to in writing, software    */
+/* distributed under the License is distributed on an "AS IS" BASIS,      */
+/* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or        */
+/* implied. See the License for the specific language governing           */
+/* permissions and limitations under the License.                         */
+/**************************************************************************/
+
+#pragma once
+
+#include <cstdint>
+
+namespace SushiEngine
+{
+    namespace Editor
+    {
+        /** @brief One poll's operating-system and hardware readings. */
+        struct SystemMetricsSnapshot
+        {
+            bool cpu_valid = false;             /**< False until two samples exist. */
+            float cpu_utilization_percent = 0.0f; /**< Whole-system busy share. */
+            std::uint64_t process_working_set_bytes = 0;
+            std::uint64_t system_memory_used_bytes = 0;
+            std::uint64_t system_memory_total_bytes = 0;
+            bool gpu_valid = false; /**< True only while NVML answers for a device. */
+            float gpu_utilization_percent = 0.0f;
+            std::uint64_t gpu_memory_used_bytes = 0;
+            std::uint64_t gpu_memory_total_bytes = 0;
+            float gpu_temperature_celsius = 0.0f;
+        };
+
+        /** @brief The seam the editor reads host metrics through; one per platform. */
+        class ISystemMetricsProvider
+        {
+            public:
+                virtual ~ISystemMetricsProvider() = default;
+
+                /**
+                 * @brief Refreshes the snapshot when the provider's interval elapsed.
+                 *
+                 * Called every frame; the provider throttles itself, so most calls
+                 * return without measuring.
+                 */
+                virtual void poll() = 0;
+
+                /** @brief The most recent readings; validity flags say what answered. */
+                virtual const SystemMetricsSnapshot& snapshot() const noexcept = 0;
+        };
+    } // namespace Editor
+} // namespace SushiEngine

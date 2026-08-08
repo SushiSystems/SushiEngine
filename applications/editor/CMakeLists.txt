@@ -101,7 +101,8 @@ add_executable(sushiengine_editor
     # The Terrain window: the layer stack a body's ground is composed from, and what the
     # last frame's node selection made of it.
     source/terrain/terrain_panel.cpp
-    source/gizmo/gizmo_controller.cpp)
+    source/gizmo/gizmo_controller.cpp
+    source/system/windows_system_metrics.cpp)
 target_link_libraries(sushiengine_editor PRIVATE
     sushiengine_imgui
     sushiengine_render
@@ -123,9 +124,10 @@ target_include_directories(sushiengine_editor PRIVATE "${Stb_INCLUDE_DIR}")
 # it is wired to through the `MeshLoader` seam — the editor is the consumer that owns that
 # seam, which is why `sushiengine_physics_cooking` itself links neither cgltf nor this target.
 target_link_libraries(sushiengine_editor PRIVATE sushiengine_physics_cooking sushiengine_gltf)
-# ShellExecuteW (Project panel's "open with default app") needs Shell32.
+# ShellExecuteW (Project panel's "open with default app") needs Shell32; the system
+# metrics provider's GetProcessMemoryInfo needs Psapi.
 if(WIN32)
-    target_link_libraries(sushiengine_editor PRIVATE Shell32)
+    target_link_libraries(sushiengine_editor PRIVATE Shell32 Psapi)
 endif()
 # SDL2 defines SDL_main on some platforms (Windows); link the entry shim when the
 # target exists so WinMain resolves without forcing it on Linux/macOS.
