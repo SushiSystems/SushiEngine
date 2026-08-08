@@ -225,6 +225,11 @@ namespace SushiEngine
                 CullStatistics out;
                 if (slot >= SLOTS || slots_[slot].readback_mapped == nullptr)
                     return out;
+                // A frame that took the classic path never dispatched the cull this slot, so
+                // the readback still holds an earlier GPU-driven frame's counts; report the
+                // honest zero rather than that stale reading.
+                if (!dispatched_[slot])
+                    return out;
                 const std::uint32_t* words =
                     static_cast<const std::uint32_t*>(slots_[slot].readback_mapped);
                 out.drawn = words[0];
@@ -239,9 +244,15 @@ namespace SushiEngine
                 if (!frame.quality.gpu_driven || !frame.settings.gpu_culling.enabled ||
                     frame.gpu_instance_count == 0 || frame.gpu_bucket_count == 0 ||
                     !frame.targets.draw_commands.valid() || !frame.targets.compacted.valid())
+                {
+                    // No dispatch is going into this slot this frame, so its readback is about
+                    // to go stale (or already is); statistics() must not hand it out as fresh.
+                    dispatched_[frame.slot] = false;
                     return;
+                }
 
                 const std::uint32_t slot = frame.slot;
+                dispatched_[slot] = true;
                 const std::uint32_t bucket_count = frame.gpu_bucket_count;
                 const std::uint32_t candidate_count = frame.gpu_instance_count;
 

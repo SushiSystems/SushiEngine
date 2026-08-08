@@ -294,6 +294,8 @@ namespace SushiEngine
                                     command, commands,
                                     b * sizeof(VkDrawIndexedIndirectCommand), 1,
                                     sizeof(VkDrawIndexedIndirectCommand));
+                                if (frame.statistics != nullptr)
+                                    ++frame.statistics->draw_calls;
                             }
                             return;
                         }
@@ -327,6 +329,8 @@ namespace SushiEngine
                             vkCmdPushConstants(command, pipeline_layout, DEPTH_PUSH_STAGES, 0,
                                                sizeof(Scene::MeshPushConstants), &push);
                             vkCmdDrawIndexed(command, mesh.index_count, 1, 0, 0, 0);
+                            if (frame.statistics != nullptr)
+                                ++frame.statistics->draw_calls;
                         }
                     });
             }

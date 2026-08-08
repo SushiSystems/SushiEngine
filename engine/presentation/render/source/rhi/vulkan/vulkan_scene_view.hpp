@@ -179,6 +179,7 @@ namespace SushiEngine
                     ScenePassTiming pass_timing(std::size_t index) const noexcept override;
                     void cull_statistics(std::uint32_t& drawn,
                                          std::uint32_t& tested) const noexcept override;
+                    RenderFrameStatistics render_statistics() const noexcept override;
                     SushiEngine::Terrain::ITerrainAuthoring* terrain_authoring() noexcept override;
                     bool read_output(std::uint32_t slot, FrameImage& image) override;
                     bool enable_pass_capture(bool enabled) override;
@@ -386,6 +387,8 @@ namespace SushiEngine
                      */
                     std::uint32_t visibility_field_slot_ = 0xFFFFFFFFu;
                     std::uint32_t current_slot_ = 0;
+                    /** @brief The frame being recorded's draw counters; see @ref Frame::FrameStatistics. */
+                    Frame::FrameStatistics frame_statistics_;
                     /**
                      * @brief Frames in flight actually in use, at most @ref SLOTS.
                      *

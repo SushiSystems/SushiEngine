@@ -256,6 +256,30 @@ namespace SushiEngine
         };
 
         /**
+         * @brief One view's renderer counters from the last completed frame.
+         *
+         * draw_calls counts every draw command recorded this frame across all passes
+         * (shadow and depth included; one indirect draw counts as one). triangles counts
+         * main-view geometry once — classic path: opaque + skinned + deformable +
+         * transparent submissions; GPU-driven path: the cull shader's surviving-instance
+         * sum. Depth-prepass and shadow resubmissions are excluded so the number answers
+         * "how much geometry survived culling", not "how many times it was drawn".
+         * Heap numbers are whole-allocator totals, zero when VK_EXT_memory_budget is
+         * absent — a reader renders that as unavailable, not as empty memory.
+         */
+        struct RenderFrameStatistics
+        {
+            std::uint32_t draw_calls = 0;       /**< Draw commands recorded, all passes. */
+            std::uint64_t triangles = 0;        /**< Main-view triangles, counted once. */
+            std::uint32_t instances_drawn = 0;  /**< Instances that survived the GPU cull. */
+            std::uint32_t instances_tested = 0; /**< Instances the GPU cull considered. */
+            std::uint32_t render_width = 0;     /**< Settled internal render width. */
+            std::uint32_t render_height = 0;    /**< Settled internal render height. */
+            std::uint64_t heap_used_bytes = 0;   /**< Device heap bytes in use. */
+            std::uint64_t heap_budget_bytes = 0; /**< Device heap budget, 0 = unknown. */
+        };
+
+        /**
          * @brief One finished frame copied back to host memory, tightly packed RGBA8.
          *
          * Exists for the golden-image harness (`docs/design/cross_platform_engineering_plan.md`
@@ -485,6 +509,24 @@ namespace SushiEngine
                 {
                     drawn = 0;
                     tested = 0;
+                }
+
+                /**
+                 * @brief The renderer counters from the last completed frame.
+                 *
+                 * A capability with a default, like cull_statistics above: a backend
+                 * that counts nothing returns the zero-filled aggregate and the reader
+                 * treats zeros from an absent producer as unavailable. The GPU-derived
+                 * fields (@c instances_drawn, @c instances_tested, and the cull shader's
+                 * share of @c triangles) come from the most recently resolved readback and
+                 * can therefore lag the CPU counters (@c draw_calls and the rest of
+                 * @c triangles) by up to one frame in flight.
+                 *
+                 * @return The last frame's counters; value-initialized before any frame.
+                 */
+                virtual RenderFrameStatistics render_statistics() const noexcept
+                {
+                    return RenderFrameStatistics{};
                 }
 
                 /**

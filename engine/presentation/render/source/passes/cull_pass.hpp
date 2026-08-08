@@ -159,6 +159,16 @@ namespace SushiEngine
                     VkPipeline pipeline_ = VK_NULL_HANDLE;
                     std::array<SlotBuffers, SLOTS> slots_{};
 
+                    /**
+                     * @brief Whether register_pass actually dispatched the cull this slot.
+                     *
+                     * A classic-path frame (no selection-free GPU-driven submission) leaves
+                     * the slot's readback holding whatever an earlier GPU-driven frame wrote
+                     * there; this flag is what lets statistics() tell that stale reading apart
+                     * from a fresh one instead of reporting it as this frame's own.
+                     */
+                    bool dispatched_[SLOTS] = {};
+
                     // Freeze-frustum debug: the camera-relative view-projection and the eye
                     // it was relative to, latched the frame `gpu_culling.freeze` turns on
                     // and cleared when it turns off.

@@ -509,6 +509,13 @@ namespace SushiEngine
                                 vkCmdPushConstants(command, pipeline_layout, PUSH_STAGES, 0,
                                                    sizeof(MeshPushConstants), &push);
                                 vkCmdDrawIndexed(command, mesh.index_count, 1, 0, 0, 0);
+                                if (frame.statistics != nullptr)
+                                    ++frame.statistics->draw_calls;
+                                // The outline invocation redraws the already-selected instance
+                                // this same frame's non-outline pass counted, so only the first
+                                // invocation adds triangles here.
+                                if (!outline && frame.statistics != nullptr)
+                                    frame.statistics->triangles += mesh.index_count / 3;
                             }
                         };
 
@@ -573,6 +580,8 @@ namespace SushiEngine
                                                    sizeof(Scene::MeshletPushConstants), &push);
                                 mesh_shader.draw_mesh_tasks(
                                     command, meshlet_groups(mesh.meshlet_count), 1, 1);
+                                if (frame.statistics != nullptr)
+                                    ++frame.statistics->draw_calls;
                             }
 
                             // Restore set 0 and the heap on the classic layout for the deformable
@@ -627,6 +636,8 @@ namespace SushiEngine
                                 vkCmdDrawIndexedIndirect(
                                     command, commands, b * sizeof(VkDrawIndexedIndirectCommand), 1,
                                     sizeof(VkDrawIndexedIndirectCommand));
+                                if (frame.statistics != nullptr)
+                                    ++frame.statistics->draw_calls;
                             }
 
                             // Restore set 0 and the heap on the classic layout for the deformable
@@ -681,6 +692,11 @@ namespace SushiEngine
                                     vkCmdPushConstants(command, pipeline_layout, PUSH_STAGES, 0,
                                                        sizeof(MeshPushConstants), &push);
                                     vkCmdDrawIndexed(command, range.index_count, 1, 0, 0, 0);
+                                    if (frame.statistics != nullptr)
+                                    {
+                                        ++frame.statistics->draw_calls;
+                                        frame.statistics->triangles += range.index_count / 3;
+                                    }
                                 }
                             }
                         }
@@ -727,6 +743,13 @@ namespace SushiEngine
                                                    sizeof(MeshPushConstants), &push);
                                 vkCmdDrawIndexed(command, range.index_count, 1, range.base_index,
                                                  static_cast<std::int32_t>(range.base_vertex), 0);
+                                if (frame.statistics != nullptr)
+                                    ++frame.statistics->draw_calls;
+                                // Same reasoning as draw_instances above: the outline invocation
+                                // redraws the selected deformable, so only the first invocation
+                                // adds triangles.
+                                if (!outline && frame.statistics != nullptr)
+                                    frame.statistics->triangles += range.index_count / 3;
                             }
                         };
 

@@ -288,6 +288,19 @@ namespace SushiEngine
             };
 
             /**
+             * @brief The frame's CPU-side draw counters, accumulated by the passes.
+             *
+             * Reached through a pointer on the const frame context — the same shape as the
+             * descriptor allocator pointer — so recording stays const-correct while the
+             * counters mutate. Null when no one is counting; every increment site checks.
+             */
+            struct FrameStatistics
+            {
+                std::uint32_t draw_calls = 0; /**< Draw commands recorded, all passes. */
+                std::uint64_t triangles = 0;  /**< Main-view triangles, classic path only. */
+            };
+
+            /**
              * @brief One frame's inputs, targets, and per-frame services.
              *
              * @c width / @c height are the *internal* render extent, which the render
@@ -327,6 +340,7 @@ namespace SushiEngine
                 Resources::DescriptorAllocator* descriptors = nullptr;
                 Resources::SamplerCache* samplers = nullptr;
                 Scene::SceneLayout* layout = nullptr;
+                FrameStatistics* statistics = nullptr; /**< The frame's draw counters; see @ref FrameStatistics. */
 
                 /** @brief Cascades fitted this frame; zero when the sun casts none. */
                 std::uint32_t cascade_count = 0;

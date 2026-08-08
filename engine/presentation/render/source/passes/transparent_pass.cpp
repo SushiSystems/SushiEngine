@@ -379,6 +379,11 @@ namespace SushiEngine
                                 vkCmdPushConstants(command, pipeline_layout, PUSH_STAGES, 0,
                                                    sizeof(MeshPushConstants), &push);
                                 vkCmdDrawIndexed(command, mesh.index_count, 1, 0, 0, 0);
+                                if (frame.statistics != nullptr)
+                                {
+                                    ++frame.statistics->draw_calls;
+                                    frame.statistics->triangles += mesh.index_count / 3;
+                                }
                             }
                             else
                             {
@@ -411,6 +416,11 @@ namespace SushiEngine
                                 vkCmdPushConstants(command, pipeline_layout, PUSH_STAGES, 0,
                                                    sizeof(MeshPushConstants), &push);
                                 vkCmdDrawIndexed(command, range.index_count, 1, 0, 0, 0);
+                                if (frame.statistics != nullptr)
+                                {
+                                    ++frame.statistics->draw_calls;
+                                    frame.statistics->triangles += range.index_count / 3;
+                                }
                             }
                         }
                     });

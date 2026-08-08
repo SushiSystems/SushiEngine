@@ -385,6 +385,24 @@ namespace SushiEngine
                 tested = stats.tested;
             }
 
+            RenderFrameStatistics VulkanSceneView::render_statistics() const noexcept
+            {
+                RenderFrameStatistics out;
+                const Passes::CullStatistics cull = cull_pass_.statistics(current_slot_);
+                out.instances_drawn = cull.drawn;
+                out.instances_tested = cull.tested;
+                // GPU-driven frames count triangles in the cull shader; classic frames count
+                // them at the draw sites. CullPass::statistics() reports zero for a slot it
+                // did not dispatch into this frame, so the GPU term is genuinely zero on a
+                // classic frame and the two never overlap — summing is safe.
+                out.triangles = static_cast<std::uint64_t>(cull.triangles) +
+                                frame_statistics_.triangles;
+                out.draw_calls = frame_statistics_.draw_calls;
+                out.render_width = render_width_;
+                out.render_height = render_height_;
+                return out;
+            }
+
             SushiEngine::Terrain::ITerrainAuthoring*
             VulkanSceneView::terrain_authoring() noexcept
             {
@@ -476,6 +494,10 @@ namespace SushiEngine
                 frame.descriptors = &descriptors_;
                 frame.samplers = &assets_.samplers();
                 frame.layout = &assets_.layout();
+                // Reset once per render() rather than per pass, so every pass this frame
+                // accumulates into the same tally.
+                frame_statistics_ = {};
+                frame.statistics = &frame_statistics_;
                 frame.history_valid = resources_.history_valid() && frame.temporal_enabled();
 
                 // The jitter cycle is longer when resolving into a larger grid, because
