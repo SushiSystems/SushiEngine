@@ -385,6 +385,15 @@ namespace SushiEngine
                 }
 
                 /**
+                 * @brief The renderer counters from this view's last resolved frame.
+                 * @return Zero-filled before the first frame or on a non-counting backend.
+                 */
+                SushiEngine::Render::RenderFrameStatistics render_statistics() const noexcept
+                {
+                    return view_->render_statistics();
+                }
+
+                /**
                  * @brief This view's planetary ground, as something an author can edit.
                  *
                  * Forwarded rather than exposing the scene view itself, for the same reason

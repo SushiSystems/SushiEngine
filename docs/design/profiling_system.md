@@ -1,6 +1,6 @@
 # Profiling system — frame measurement and the editor's Profiler panel
 
-**Status:** PROF0 and PROF1 are built. Phases PROF2–PROF4 below remain open.
+**Status:** PROF0–PROF2 are built. Phases PROF3–PROF4 below remain open.
 
 ## 1. Purpose
 

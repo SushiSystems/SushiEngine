@@ -72,10 +72,9 @@ namespace SushiEngine
             {
                 state.held_frame_profile = context.frame_profile;
                 state.held_gpu_statistics = context.gpu_statistics;
-                state.held_scene_cull_drawn = context.scene_cull_drawn;
-                state.held_scene_cull_tested = context.scene_cull_tested;
-                state.held_scene_render_width = context.scene_render_width;
-                state.held_scene_render_height = context.scene_render_height;
+                state.held_render_statistics = context.render_statistics;
+                state.held_resident_texture_bytes = context.resident_texture_bytes;
+                state.held_has_asset_library = context.assets != nullptr;
                 state.held_physics_statistics = context.physics_statistics;
             }
             const SushiEngine::Profiling::FrameProfileSnapshot& shown = state.held_frame_profile;
@@ -186,31 +185,60 @@ namespace SushiEngine
 
             if (ImGui::CollapsingHeader("Renderer"))
             {
-                if (ImGui::BeginTable("renderer_counters", 2, ImGuiTableFlags_RowBg))
+                if (state.held_render_statistics.empty())
+                    ImGui::TextDisabled("n/a — no viewport has rendered yet");
+                for (const ViewportRenderStatistics& entry : state.held_render_statistics)
                 {
-                    const bool cull_available = state.held_scene_cull_tested > 0;
-                    const bool render_size_available = state.held_scene_render_width > 0;
-                    value_row("Draw calls", false, "%.0f", 0.0);
-                    value_row("Visible triangles", false, "%.0f", 0.0);
-                    value_row("Instances drawn", cull_available,
-                              "%.0f", static_cast<double>(state.held_scene_cull_drawn));
-                    value_row("Instances tested", cull_available,
-                              "%.0f", static_cast<double>(state.held_scene_cull_tested));
-                    value_row("Render width", render_size_available,
-                              "%.0f", static_cast<double>(state.held_scene_render_width));
-                    value_row("Render height", render_size_available,
-                              "%.0f", static_cast<double>(state.held_scene_render_height));
-                    ImGui::EndTable();
+                    ImGui::TextUnformatted(entry.viewport.c_str());
+                    const SushiEngine::Render::RenderFrameStatistics& statistics =
+                        entry.statistics;
+                    const bool cull_available = statistics.instances_tested > 0;
+                    const bool render_size_available = statistics.render_width > 0;
+                    ImGui::PushID(entry.viewport.c_str());
+                    if (ImGui::BeginTable("renderer_counters", 2, ImGuiTableFlags_RowBg))
+                    {
+                        value_row("Draw calls", render_size_available, "%.0f",
+                                  static_cast<double>(statistics.draw_calls));
+                        value_row("Visible triangles", render_size_available, "%.0f",
+                                  static_cast<double>(statistics.triangles));
+                        value_row("Instances drawn", cull_available, "%.0f",
+                                  static_cast<double>(statistics.instances_drawn));
+                        value_row("Instances tested", cull_available, "%.0f",
+                                  static_cast<double>(statistics.instances_tested));
+                        value_row("Render width", render_size_available, "%.0f",
+                                  static_cast<double>(statistics.render_width));
+                        value_row("Render height", render_size_available, "%.0f",
+                                  static_cast<double>(statistics.render_height));
+                        ImGui::EndTable();
+                    }
+                    ImGui::PopID();
                 }
             }
 
             if (ImGui::CollapsingHeader("Memory"))
             {
+                const ViewportRenderStatistics* scene_entry = nullptr;
+                for (const ViewportRenderStatistics& entry : state.held_render_statistics)
+                    if (entry.viewport == "Scene")
+                        scene_entry = &entry;
+                const bool heap_available =
+                    scene_entry != nullptr && scene_entry->statistics.heap_budget_bytes > 0;
                 if (ImGui::BeginTable("memory", 2, ImGuiTableFlags_RowBg))
                 {
-                    value_row("Video memory used (MiB)", false, "%.1f", 0.0);
-                    value_row("Video memory budget (MiB)", false, "%.1f", 0.0);
-                    value_row("Texture residency (MiB)", false, "%.1f", 0.0);
+                    value_row("Video memory used (MiB)", heap_available, "%.1f",
+                              heap_available
+                                  ? static_cast<double>(scene_entry->statistics.heap_used_bytes) /
+                                        (1024.0 * 1024.0)
+                                  : 0.0);
+                    value_row("Video memory budget (MiB)", heap_available, "%.1f",
+                              heap_available
+                                  ? static_cast<double>(
+                                        scene_entry->statistics.heap_budget_bytes) /
+                                        (1024.0 * 1024.0)
+                                  : 0.0);
+                    value_row("Texture residency (MiB)", state.held_has_asset_library, "%.1f",
+                              static_cast<double>(state.held_resident_texture_bytes) /
+                                  (1024.0 * 1024.0));
                     value_row("Process working set (MiB)", false, "%.1f", 0.0);
                     value_row("System memory used (MiB)", false, "%.1f", 0.0);
                     ImGui::EndTable();

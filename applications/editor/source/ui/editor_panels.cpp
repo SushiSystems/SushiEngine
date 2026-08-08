@@ -701,6 +701,16 @@ namespace SushiEngine
             {
                 ImGui::TextDisabled("Frame: n/a — first frame pending");
             }
+            const ViewportRenderStatistics* scene_statistics = nullptr;
+            for (const ViewportRenderStatistics& entry : context.render_statistics)
+                if (entry.viewport == "Scene")
+                    scene_statistics = &entry;
+            if (scene_statistics != nullptr && scene_statistics->statistics.render_width > 0)
+                ImGui::TextDisabled(
+                    "%u draws  %llu tris  %.1f MiB textures",
+                    scene_statistics->statistics.draw_calls,
+                    static_cast<unsigned long long>(scene_statistics->statistics.triangles),
+                    static_cast<double>(context.resident_texture_bytes) / (1024.0 * 1024.0));
             ImGui::Separator();
             ImGui::Text("World entities: %zu", context.world_entity_count);
             ImGui::Text("Open files:     %zu", context.documents.size());

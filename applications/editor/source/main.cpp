@@ -1122,6 +1122,7 @@ int main(int argc, char** argv)
             // its next render; gated on visibility so a closed viewport's stale times
             // are not presented as live.
             context.gpu_statistics.clear();
+            context.render_statistics.clear();
             const struct
             {
                 SushiEngine::Editor::ViewportPanel* panel;
@@ -1132,6 +1133,8 @@ int main(int argc, char** argv)
             {
                 if (!entry.visible)
                     continue;
+                context.render_statistics.push_back(
+                    {entry.panel->title(), entry.panel->render_statistics()});
                 const std::size_t timing_count = entry.panel->pass_timing_count();
                 if (timing_count == 0)
                     continue;
@@ -1146,6 +1149,8 @@ int main(int argc, char** argv)
                 }
                 context.gpu_statistics.push_back(std::move(statistics));
             }
+            context.resident_texture_bytes =
+                context.assets != nullptr ? context.assets->resident_texture_bytes() : 0;
 
             // Fold the UI overlay's interaction into the shared selection/edit flow: a UI
             // pick in the Scene view replaces the 3D pick this frame, and a UI drag writes

@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -54,10 +55,10 @@ namespace SushiEngine
              *  instead of some following the live context past the pause point. */
             SushiEngine::Profiling::FrameProfileSnapshot held_frame_profile;
             std::vector<ViewportGPUStatistics> held_gpu_statistics;
-            std::uint32_t held_scene_cull_drawn = 0;
-            std::uint32_t held_scene_cull_tested = 0;
-            std::uint32_t held_scene_render_width = 0;
-            std::uint32_t held_scene_render_height = 0;
+            std::vector<ViewportRenderStatistics> held_render_statistics;
+            std::size_t held_resident_texture_bytes = 0;
+            /** Whether the context had an asset library the frame this was held. */
+            bool held_has_asset_library = false;
             SushiEngine::Physics::PhysicsStatistics held_physics_statistics;
         };
 

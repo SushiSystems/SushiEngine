@@ -46,6 +46,7 @@
 #include <SushiEngine/profiling/frame_profiler.hpp>
 #include <SushiEngine/render/asset_library_interface.hpp>
 #include <SushiEngine/render/render_settings.hpp>
+#include <SushiEngine/render/scene_view.hpp>
 #include <SushiEngine/simulation/simulation.hpp>
 #include <SushiEngine/simulation/simulation_settings.hpp>
 
@@ -239,6 +240,19 @@ namespace SushiEngine
         {
             std::string viewport;                 /**< The viewport title ("Scene", "Game"). */
             std::vector<GPUPassStatistic> passes; /**< Per-pass times, in graph order. */
+        };
+
+        /**
+         * @brief One viewport's renderer counters for the Statistics/Profiler panels.
+         *
+         * Copied, not referenced: the scene view owns the counters only until its next
+         * render, while these panels read this after both viewports have already
+         * rendered the frame.
+         */
+        struct ViewportRenderStatistics
+        {
+            std::string viewport; /**< The viewport title ("Scene", "Game"). */
+            SushiEngine::Render::RenderFrameStatistics statistics; /**< This view's counters. */
         };
 
         /**
@@ -658,6 +672,12 @@ namespace SushiEngine
             // Each visible viewport's per-pass GPU times, refilled by the main loop
             // after the viewports render and shown in the Statistics panel.
             std::vector<ViewportGPUStatistics> gpu_statistics;
+
+            // Each visible viewport's renderer counters, refilled like gpu_statistics.
+            std::vector<ViewportRenderStatistics> render_statistics;
+
+            // Bytes of texture memory resident on the device, 0 with no asset library.
+            std::size_t resident_texture_bytes = 0;
 
             // The last completed frame's CPU times, snapshotted per frame like the GPU
             // timings above: the panels read a copy and cannot reach the live profiler.
